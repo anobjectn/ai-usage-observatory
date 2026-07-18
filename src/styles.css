@@ -163,6 +163,7 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .method-chip i { width:5px;height:5px;border-radius:50%;background:var(--accent); }
 .chart-wrap { height:260px;margin-top:12px; }
 .provider-legend { display:flex;gap:18px;margin:3px 0 -2px; }.provider-legend div{display:grid;grid-template-columns:6px auto auto;align-items:center;gap:6px;font:10px "IBM Plex Mono", Menlo;color:var(--muted)}.provider-legend i{width:6px;height:6px;border-radius:2px}.provider-legend b{color:var(--text);font-weight:500}.provider-chart{margin-top:0}
+.usage-trajectory-panel .panel-heading p{margin:5px 0 0;color:var(--dim);font:10px "IBM Plex Mono", Menlo;line-height:1.45}
 .chart-tooltip { background:#101a18;border:1px solid var(--line-bright);border-radius:9px;padding:10px 12px;box-shadow:var(--shadow);font-size:12px; }
 .chart-tooltip>span { font:10px "IBM Plex Mono", Menlo;color:var(--dim);display:block;margin-bottom:7px; }
 .chart-tooltip div { display:flex;align-items:center;gap:6px;margin-top:4px; }.chart-tooltip i{width:5px;height:5px;border-radius:50%}.chart-tooltip b{margin-left:auto}

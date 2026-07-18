@@ -70,11 +70,11 @@ const server = Bun.serve({
         const file = Bun.file(existsSync(requested) ? requested : join(dist, "index.html"));
         return new Response(file);
       }
-      return new Response("Usage Observatory API is running. Start Vite with `bun run dev:client`.", { status: 200 });
+      return new Response("AI Usage Observatory API is running. Start Vite with `bun run dev:client`.", { status: 200 });
     } catch (error) { return errorResponse(error); }
   },
 });
 
-console.log(`Usage Observatory listening on http://${server.hostname}:${server.port}`);
+console.log(`AI Usage Observatory listening on http://${server.hostname}:${server.port}`);
 refresh().catch((error) => console.error("Initial refresh failed:", error));
 setInterval(() => refresh().catch(() => undefined), 60_000);

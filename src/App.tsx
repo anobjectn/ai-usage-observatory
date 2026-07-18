@@ -244,8 +244,8 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
   });
   const totals = providerSeries.map((provider) => ({ ...provider, value: data.reduce((sum, row) => sum + row[provider.key], 0) }));
   return <>
-    <div className="provider-legend" aria-label="Daily activity providers">{totals.map((provider) => <div key={provider.key}><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(provider.value)}</b></div>)}</div>
-    <div className="chart-wrap provider-chart" aria-label="Daily token usage split into Claude, Codex, and Warp sections" role="img">
+    <div className="provider-legend" aria-label="Activity providers">{totals.map((provider) => <div key={provider.key}><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(provider.value)}</b></div>)}</div>
+    <div className="chart-wrap provider-chart" aria-label="Token usage by day, split into Claude, Codex, and Warp sections" role="img">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
           <defs>{providerSeries.map((provider) => <linearGradient key={provider.key} id={`${provider.key}Area`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={provider.color} stopOpacity={0.58}/><stop offset="100%" stopColor={provider.color} stopOpacity={0.13}/></linearGradient>)}</defs>
@@ -255,6 +255,79 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
           <Tooltip content={<ProviderChartTooltip/>} cursor={{stroke:"#71807b",strokeDasharray:"3 3"}} offset={0} isAnimationActive={false} wrapperStyle={{transition:"none"}}/>
           {providerSeries.map((provider) => <Area key={provider.key} type="monotone" dataKey={provider.key} name={provider.label} stackId="providers" stroke={provider.color} strokeWidth={1.8} fill={`url(#${provider.key}Area)`} activeDot={{r:4,fill:"#07100f",stroke:provider.color,strokeWidth:2}}/>)}
         </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  </>;
+}
+
+function localPeriod(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function HourlyProviderTimeline({ date, sessions }: {date:string;sessions:Session[]}) {
+  const data = Array.from({length:24}, (_, hour) => ({
+    anthropic: 0,
+    codex: 0,
+    warp: 0,
+    models: { anthropic: [] as Array<{name:string;tokens:number}>, codex: [] as Array<{name:string;tokens:number}>, warp: [] as Array<{name:string;tokens:number}> },
+    modelMaps: { anthropic: new Map<string,number>(), codex: new Map<string,number>(), warp: new Map<string,number>() },
+    projectGroups: {} as Record<string,ProjectActivity[]>,
+    projectMaps: {
+      anthropic: new Map<string,{projectId:string;projectName:string;tokens:number;sessions:number;models:Map<string,number>}>(),
+      codex: new Map<string,{projectId:string;projectName:string;tokens:number;sessions:number;models:Map<string,number>}>(),
+    },
+    tooltipPosition: hour < 6 ? "right" : hour >= 18 ? "left" : "center",
+    label: new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, {hour:"numeric"}),
+  }));
+  sessions.forEach((session) => {
+    const activity = session.metadata?.lastActivity;
+    if (typeof activity !== "string" || localPeriod(activity) !== date) return;
+    const timestamp = new Date(activity);
+    const provider = providerKey(session.agent);
+    if (!provider) return;
+    const bucket = data[timestamp.getHours()];
+    bucket[provider] += session.totalTokens;
+    session.modelBreakdowns.forEach((model) => {
+      const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+      bucket.modelMaps[provider].set(model.modelName, (bucket.modelMaps[provider].get(model.modelName) ?? 0) + tokens);
+    });
+    if (session.cwd && provider !== "warp") {
+      const projectId = session.cwd.replace(/\/+$/, "");
+      const project = bucket.projectMaps[provider].get(projectId) ?? {projectId,projectName:projectId.split("/").at(-1) ?? projectId,tokens:0,sessions:0,models:new Map<string,number>()};
+      project.tokens += session.totalTokens;
+      project.sessions++;
+      session.modelBreakdowns.forEach((model) => {
+        const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+        project.models.set(model.modelName, (project.models.get(model.modelName) ?? 0) + tokens);
+      });
+      bucket.projectMaps[provider].set(projectId, project);
+    }
+  });
+  data.forEach((bucket) => providerSeries.forEach((provider) => {
+    bucket.models[provider.key] = [...bucket.modelMaps[provider.key].entries()].map(([name, tokens]) => ({name,tokens})).sort((a,b) => b.tokens - a.tokens);
+  }));
+  data.forEach((bucket) => (["anthropic", "codex"] as const).forEach((provider) => {
+    bucket.projectGroups[provider] = [...bucket.projectMaps[provider].values()].map((project) => ({
+      ...project,
+      provider,
+      date,
+      models: [...project.models.entries()].map(([model, tokens]) => ({model,tokens})).sort((a,b) => b.tokens - a.tokens),
+    })).sort((a,b) => b.tokens - a.tokens);
+  }));
+  const totals = providerSeries.map((provider) => ({...provider,value:data.reduce((sum,bucket)=>sum+bucket[provider.key],0)}));
+  return <>
+    <div className="provider-legend" aria-label="Activity providers">{totals.map((provider) => <div key={provider.key}><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(provider.value)}</b></div>)}</div>
+    <div className="chart-wrap provider-chart" aria-label="Session token usage by last activity hour, split into Claude, Codex, and Warp sections" role="img">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{top:10,right:8,left:-18,bottom:0}}>
+          <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false}/>
+          <XAxis dataKey="label" interval={2} tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false}/>
+          <YAxis tickFormatter={formatCompact} tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false}/>
+          <Tooltip content={<ProviderChartTooltip/>} cursor={{fill:"#15211d"}} offset={0} isAnimationActive={false} wrapperStyle={{transition:"none"}}/>
+          {providerSeries.map((provider) => <Bar key={provider.key} dataKey={provider.key} name={provider.label} stackId="providers" fill={provider.color} maxBarSize={26}/>) }
+        </BarChart>
       </ResponsiveContainer>
     </div>
   </>;
@@ -343,7 +416,7 @@ function QuotaDials({ quotas }: {quotas: DashboardData["quotas"]}) {
   </section>;
 }
 
-function Overview({ data, daily, agent, metricRange, onMetricRangeChange, onSession }: {data:DashboardData;daily:MetricRow[];agent:string;metricRange:MetricRange;onMetricRangeChange:(range:MetricRange)=>void;onSession:(session:Session)=>void}) {
+function Overview({ data, daily, sessions, agent, metricRange, onMetricRangeChange, onSession }: {data:DashboardData;daily:MetricRow[];sessions:Session[];agent:string;metricRange:MetricRange;onMetricRangeChange:(range:MetricRange)=>void;onSession:(session:Session)=>void}) {
   const totals = metricTotals(daily);
   const previousDaily = metricRangeRows(data.daily, metricRange, 1).map((row) => selectAgent(row, agent)).filter(Boolean) as MetricRow[];
   const previousTotals = metricTotals(previousDaily);
@@ -352,7 +425,7 @@ function Overview({ data, daily, agent, metricRange, onMetricRangeChange, onSess
   data.daily.slice(-30).forEach((row) => row.agents?.forEach((item) => agentTotals.set(item.agent, (agentTotals.get(item.agent) ?? 0) + item.totalTokens)));
   const agentChart = [...agentTotals.entries()].map(([name, value]) => ({name,value}));
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
-  const recent = data.sessions.filter((session) => agent === "all" || session.agent === agent).slice(0, 5);
+  const recent = sessions.slice(0, 5);
   const cacheShare = totals.tokens ? Math.round(totals.cache / totals.tokens * 100) : 0;
   const previousCacheShare = previousTotals.tokens ? Math.round(previousTotals.cache / previousTotals.tokens * 100) : 0;
   const rangeLabel = metricRange === "1" ? "Latest day" : `Last ${metricRange} days`;
@@ -383,8 +456,10 @@ function Overview({ data, daily, agent, metricRange, onMetricRangeChange, onSess
         <MetricCard eyebrow="CACHE SHARE" value={`${cacheShare}%`} detail={`${formatCompact(totals.cache)} read tokens`} trend={previousTotals.tokens ? cacheShare - previousCacheShare : undefined} trendUnit="pp" icon={Database}/>
       </div>
       <article className="panel usage-trajectory-panel">
-        <div className="panel-heading"><div><span className="overline">USAGE TRAJECTORY</span><h2>Daily activity</h2></div><span className="method-chip"><i/> ccusage derived</span></div>
-        <ProviderTimeline rows={daily} projectActivity={data.projectActivity} activeProvider={agent === "all" ? null : providerKey(agent)} />
+        <div className="panel-heading"><div><span className="overline">USAGE TRAJECTORY</span><h2>Activity</h2>{metricRange === "1" && <p>Sessions grouped by their last recorded activity hour.</p>}</div><span className="method-chip"><i/> ccusage derived</span></div>
+        {metricRange === "1" && daily.length === 1
+          ? <HourlyProviderTimeline date={daily[0].period} sessions={sessions}/>
+          : <ProviderTimeline rows={daily} projectActivity={data.projectActivity} activeProvider={agent === "all" ? null : providerKey(agent)} />}
       </article>
     </section>
     <section className="dashboard-grid">
@@ -473,11 +548,11 @@ export function App() {
   if (!data) return null;
   const current=nav.find(item=>item.id===view)!;
   return <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-    <aside className={sidebar?"open":""}><div className="brand"><span><Orbit/></span><div><b>Usage</b><small>OBSERVATORY</small></div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed(collapsed=>!collapsed)} aria-label={sidebarCollapsed?"Expand navigation":"Collapse navigation"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed?<ChevronRight/>:<ChevronLeft/>}</button><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="Close navigation"><X/></button></div><nav>{nav.map(item=><button key={item.id} className={view===item.id?"active":""} onClick={()=>{setView(item.id);setSidebar(false)}} title={sidebarCollapsed?item.label:undefined}><item.icon/><span>{item.label}</span>{view===item.id&&<i/>}</button>)}</nav><div className="side-status"><span className="status-dot healthy"/><div><b>Local systems nominal</b><small>ccusage v{data.ccusageVersion}</small></div></div><button className="settings-link" onClick={()=>setRules(true)} title={sidebarCollapsed?"Path rules":undefined}><Settings2/> <b>Path rules</b> <span>{data.rules.length}</span></button><p className="privacy-note">No raw usage records leave this machine.</p></aside>
-    <main><header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><span>Observatory</span><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Accent color"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
+    <aside className={sidebar?"open":""}><div className="brand"><span><Orbit/></span><div><b>AI Usage</b><small>OBSERVATORY</small></div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed(collapsed=>!collapsed)} aria-label={sidebarCollapsed?"Expand navigation":"Collapse navigation"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed?<ChevronRight/>:<ChevronLeft/>}</button><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="Close navigation"><X/></button></div><nav>{nav.map(item=><button key={item.id} className={view===item.id?"active":""} onClick={()=>{setView(item.id);setSidebar(false)}} title={sidebarCollapsed?item.label:undefined}><item.icon/><span>{item.label}</span>{view===item.id&&<i/>}</button>)}</nav><div className="side-status"><span className="status-dot healthy"/><div><b>Local systems nominal</b><small>ccusage v{data.ccusageVersion}</small></div></div><button className="settings-link" onClick={()=>setRules(true)} title={sidebarCollapsed?"Path rules":undefined}><Settings2/> <b>Path rules</b> <span>{data.rules.length}</span></button><p className="privacy-note">No raw usage records leave this machine.</p></aside>
+    <main><header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><span>AI Usage Observatory</span><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Accent color"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
       {data.refresh.stale&&<div className="stale-banner">Showing the last successful collection. {data.refresh.lastError}</div>}
       <div className="content">
-        {view==="overview"&&<Overview data={data} daily={daily} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession}/>}
+        {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession}/>}
         {view==="explorer"&&<Explorer data={data} rows={daily} metric={metric} accent={accent} setMetric={setMetric}/>}
         {view==="sessions"&&<Sessions sessions={sessions} onEdit={setSession}/>}
         {view==="projects"&&<Projects data={data}/>}

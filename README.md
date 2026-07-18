@@ -1,4 +1,4 @@
-# Usage Observatory
+# AI Usage Observatory
 
 A local-first mission control for understanding AI coding usage. It combines pinned `ccusage` analytics, metadata-only working-directory indexing, and optional provider quota data from `quota-service`.
 

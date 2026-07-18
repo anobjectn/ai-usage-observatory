@@ -39,7 +39,10 @@ db.exec(`
 const count = db.query("SELECT COUNT(*) AS count FROM path_rules").get() as { count: number };
 if (count.count === 0) {
   db.query("INSERT INTO path_rules (pattern, kind, tag) VALUES (?, ?, ?)").run("**/quota-service*", "glob", "quota-service");
-  db.query("INSERT INTO path_rules (pattern, kind, tag) VALUES (?, ?, ?)").run("**/usage-observatory*", "glob", "usage-observatory");
+  db.query("INSERT INTO path_rules (pattern, kind, tag) VALUES (?, ?, ?)").run("**/ai-usage-observatory*", "glob", "ai-usage-observatory");
+}
+if (!db.query("SELECT id FROM path_rules WHERE pattern = ?").get("**/ai-usage-observatory*")) {
+  db.query("INSERT INTO path_rules (pattern, kind, tag) VALUES (?, ?, ?)").run("**/ai-usage-observatory*", "glob", "ai-usage-observatory");
 }
 if (!db.query("SELECT value FROM settings WHERE key = 'monthlyBudget'").get()) {
   db.query("INSERT INTO settings (key, value) VALUES ('monthlyBudget', '250')").run();
