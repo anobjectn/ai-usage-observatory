@@ -42,12 +42,22 @@ The application binds to localhost and makes no analytics calls. `ccusage` runs 
 
 Set `USAGE_OBSERVATORY_DB` to use another database path. Set `QUOTA_SERVICE_URL` to point at a different quota-service instance.
 
+## Information sources and credit
+
+- [ccusage](https://github.com/ccusage/ccusage) v20.0.17 by ryoppippi (MIT) provides the local usage analytics and offline API-equivalent price estimates.
+- Local Claude Code and Codex session-file headers provide session identifiers and working-directory metadata. Prompt and response content is not stored.
+- `quota-service` optionally provides provider-reported allowance windows, resets, and status. It is a separate localhost service, not a bundled dependency.
+
 ## Methodology boundaries
 
 - Historical cost: `ccusage` only.
 - Provider allowance: optional `quota-service`, visibly labeled provider-reported.
 - Five-hour block: locally reconstructed by `ccusage`; currently Claude Code-scoped.
 - Personal budget: user-defined and not a billing limit.
+
+## Quota-service fallback
+
+Without `quota-service`, the dashboard continues to show ccusage-derived tokens, costs, sessions, projects, and local activity blocks. Provider allowance cards remain unavailable rather than estimating subscription quota from token usage. To restore provider allowance data, configure `QUOTA_SERVICE_URL` to a compatible service exposing `/usage`, `/resets`, and `/status`; this project does not include a direct provider collector.
 
 ## Verification
 

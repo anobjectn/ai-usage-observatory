@@ -771,6 +771,17 @@ function PageTitle({eyebrow,title,description,actions}:{eyebrow:string;title:str
 function Segmented({value,onChange,options,label}:{value:string;onChange:(v:string)=>void;options:Array<{value:string;label:string}>;label?:string}) { return <div className="segmented" aria-label={label}>{options.map(option=><button type="button" key={option.value} className={value===option.value?"active":""} aria-pressed={value===option.value} onClick={()=>onChange(option.value)}>{option.label}</button>)}</div> }
 function Empty({text}:{text:string}) { return <div className="empty"><Orbit/><p>{text}</p></div> }
 
+function InformationSources({data}:{data:DashboardData}) {
+  return <footer className="information-sources" aria-label="Information sources">
+    <div><span className="overline">INFORMATION SOURCES</span><p>Local analytics, metadata, and optional provider allowance data.</p></div>
+    <ul>
+      <li><a href="https://github.com/ccusage/ccusage" target="_blank" rel="noreferrer">ccusage</a><span>v{data.ccusageVersion} by ryoppippi · MIT · local usage analytics and offline price estimates</span></li>
+      <li><b>Local agent records</b><span>Claude Code and Codex session headers · working-directory metadata only</span></li>
+      <li><b>quota-service</b><span>{data.quotas.available ? "Provider-reported allowance data" : "Optional provider allowance service unavailable; no quota estimate is substituted"}</span></li>
+    </ul>
+  </footer>;
+}
+
 const sceneEffectOptions:{key:"starfield"|"parallax"|"twinkle"|"trails";label:string;detail:string}[]=[
   {key:"starfield",label:"Starfield",detail:"Generative star field behind the content on every view"},
   {key:"parallax",label:"Depth parallax",detail:"Stars at different distances drift at different rates"},
@@ -838,6 +849,7 @@ export function App() {
         {view==="models"&&<Models data={data}/>}
         {view==="limits"&&<Limits data={data} onRules={()=>setRules(true)}/>}
       </div>
+      <InformationSources data={data}/>
     </main>
     {session&&<AnnotationModal session={session} onClose={()=>setSession(null)} onSaved={()=>load()}/>} {rules&&<RulesModal data={data} onClose={()=>setRules(false)} onSaved={()=>load(true)}/>} {appearance&&<AppearanceModal accent={accent} onChange={setAccent} favoriteAccents={favoriteAccents} onFavoriteAccentsChange={setFavoriteAccents} dataTextScale={dataTextScale} onDataTextScaleChange={setDataTextScale} sceneEffects={sceneEffects} onSceneEffectsChange={setSceneEffects} onClose={()=>setAppearance(false)}/>} {sidebar&&<div className="scrim" onClick={()=>setSidebar(false)}/>}
   </div>;

@@ -65,7 +65,9 @@ function makeStars(count: number): Star[] {
   const rand = mulberry32(20260718);
   const stars: Star[] = [];
   for (let i = 0; i < count; i++) {
-    const u = rand() * 2 - 1;
+    // Keep a small reserve in the lower sky so the field remains present
+    // behind the content's footer instead of concentrating visually overhead.
+    const u = i % 3 === 0 ? -0.98 + rand() * 0.78 : rand() * 2 - 1;
     const azimuth = rand() * Math.PI * 2;
     const s = Math.sqrt(1 - u * u);
     const radius = 9 + 51 * Math.pow(rand(), 0.6);
