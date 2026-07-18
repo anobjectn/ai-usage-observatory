@@ -234,6 +234,18 @@ function metricRangeRows(rows: MetricRow[], range: MetricRange, periodOffset = 0
   return sorted.filter((row) => row.period >= startPeriod && row.period <= endPeriod);
 }
 
+function sessionDate(session: Session) {
+  const lastActivity = session.metadata?.lastActivity;
+  if (typeof lastActivity === "string") {
+    const date = new Date(lastActivity);
+    if (Number.isFinite(date.getTime())) {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    }
+  }
+  const match = session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
 function metricTotals(rows: MetricRow[]) {
   return rows.reduce((sum, row) => ({ tokens: sum.tokens + row.totalTokens, cost: sum.cost + row.totalCost, output: sum.output + row.outputTokens, cache: sum.cache + row.cacheReadTokens }), {tokens:0,cost:0,output:0,cache:0});
 }
@@ -802,6 +814,14 @@ export function App() {
     if (pathTag === "all") return range.map(row=>selectAgent(row,agent)).filter(Boolean) as MetricRow[];
     return pathFilteredRows(sessions, new Set(range.map((row) => row.period)));
   },[data,agent,days,pathTag,sessions]);
+  const datedSessions=useMemo(()=>{
+    if (!data) return [];
+    const periods = new Set(metricRangeRows(data.daily, days).map((row) => row.period));
+    return sessions.filter((session) => {
+      const date = sessionDate(session);
+      return date !== null && periods.has(date);
+    });
+  },[data,days,sessions]);
   if (loading&&!data) return <div className="boot"><div className="boot-orbit"><Orbit/></div><span>Calibrating local instruments…</span></div>;
   if (error&&!data) return <div className="boot error-state"><Database/><h1>Observatory is offline</h1><p>{error}</p><button className="primary-button" onClick={()=>load()}>Try again</button></div>;
   if (!data) return null;
@@ -813,7 +833,7 @@ export function App() {
       <div className="content">
         {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession} accent={accent} sceneEffects={sceneEffects}/>}
         {view==="explorer"&&<Explorer data={data} rows={daily} sessions={sessions} agent={agent} pathTag={pathTag} metricRange={days} metric={metric} setMetric={setMetric}/>}
-        {view==="sessions"&&<Sessions sessions={sessions} onEdit={setSession}/>}
+        {view==="sessions"&&<Sessions sessions={datedSessions} onEdit={setSession}/>}
         {view==="projects"&&<Projects data={data}/>}
         {view==="models"&&<Models data={data}/>}
         {view==="limits"&&<Limits data={data} onRules={()=>setRules(true)}/>}
