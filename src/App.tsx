@@ -27,6 +27,32 @@ const formatCompact = (value: number) => Intl.NumberFormat("en", { notation: "co
 const formatMoney = (value: number) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatDate = (value: string) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const friendlyProject = (value: string) => value.replace(/^-Users-[^-]+-/, "").replaceAll("-", " / ");
+const providerSeries = [
+  { key: "anthropic", label: "Anthropic", color: "#ff9e64" },
+  { key: "codex", label: "Codex", color: "#78a8ff" },
+  { key: "warp", label: "Warp", color: "#d7b3ff" },
+] as const;
+
+function providerKey(agent: string) {
+  const normalized = agent.toLowerCase();
+  if (normalized.includes("claude") || normalized.includes("anthropic")) return "anthropic";
+  if (normalized.includes("codex")) return "codex";
+  if (normalized.includes("warp")) return "warp";
+  return null;
+}
+
+function resetCopy(timestamp: number | null, verb = "resets") {
+  if (!timestamp || !Number.isFinite(timestamp)) return `${verb} time unavailable`;
+  const delta = timestamp - Date.now();
+  const absolute = new Date(timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  if (delta <= 0) return `expired · was due ${absolute}`;
+  const minutes = Math.max(1, Math.ceil(delta / 60_000));
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  const remainingMinutes = minutes % 60;
+  const countdown = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${remainingMinutes}m` : `${remainingMinutes}m`;
+  return `${verb} in ${countdown} · ${absolute}`;
+}
 
 function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -82,6 +108,90 @@ function Timeline({ rows, metric, brush = false }: {rows:MetricRow[];metric:Metr
   </div>;
 }
 
+function ProviderTimeline({ rows }: {rows:MetricRow[]}) {
+  const data = rows.map((row) => {
+    const values = { anthropic: 0, codex: 0, warp: 0 };
+    if (row.agents?.length) {
+      row.agents.forEach((item) => {
+        const key = providerKey(item.agent);
+        if (key) values[key] += item.totalTokens;
+      });
+    } else {
+      const key = providerKey(row.agent);
+      if (key) values[key] = row.totalTokens;
+    }
+    return { ...values, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
+  });
+  const totals = providerSeries.map((provider) => ({ ...provider, value: data.reduce((sum, row) => sum + row[provider.key], 0) }));
+  return <>
+    <div className="provider-legend" aria-label="Daily activity providers">{totals.map((provider) => <div key={provider.key}><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(provider.value)}</b></div>)}</div>
+    <div className="chart-wrap provider-chart" aria-label="Daily token usage split into Anthropic, Codex, and Warp sections" role="img">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
+          <defs>{providerSeries.map((provider) => <linearGradient key={provider.key} id={`${provider.key}Area`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={provider.color} stopOpacity={0.58}/><stop offset="100%" stopColor={provider.color} stopOpacity={0.13}/></linearGradient>)}</defs>
+          <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false}/>
+          <XAxis dataKey="label" tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false} minTickGap={30}/>
+          <YAxis tickFormatter={formatCompact} tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false}/>
+          <Tooltip content={<ChartTooltip metric="totalTokens"/>} cursor={{stroke:"#71807b",strokeDasharray:"3 3"}}/>
+          {providerSeries.map((provider) => <Area key={provider.key} type="monotone" dataKey={provider.key} name={provider.label} stackId="providers" stroke={provider.color} strokeWidth={1.8} fill={`url(#${provider.key}Area)`} activeDot={{r:4,fill:"#07100f",stroke:provider.color,strokeWidth:2}}/>)}
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  </>;
+}
+
+type QuotaDial = {
+  id: string;
+  provider: "anthropic" | "codex" | "warp";
+  providerLabel: string;
+  windowLabel: string;
+  usedPercent: number | null;
+  resetAt: number | null;
+  resetVerb: "resets" | "renews";
+  state: "ok" | "stale" | "suspended" | "unavailable" | "expired";
+  detail: string;
+};
+
+function quotaDials(quotas: DashboardData["quotas"]): QuotaDial[] {
+  const reports = new Map(quotas.usage?.providers.map((provider) => [provider.provider, provider]) ?? []);
+  const expected = [
+    { provider: "anthropic", providerLabel: "Anthropic", key: "fiveHour", windowLabel: "5-hour", resetVerb: "resets" },
+    { provider: "anthropic", providerLabel: "Anthropic", key: "weekly", windowLabel: "Weekly", resetVerb: "resets" },
+    { provider: "codex", providerLabel: "Codex", key: "fiveHour", windowLabel: "5-hour", resetVerb: "resets" },
+    { provider: "codex", providerLabel: "Codex", key: "weekly", windowLabel: "Weekly", resetVerb: "resets" },
+    { provider: "warp", providerLabel: "Warp", key: "pool", windowLabel: "Monthly", resetVerb: "renews" },
+  ] as const;
+  return expected.map((item) => {
+    const report = reports.get(item.provider);
+    const window = report?.snapshot?.kind === "window" && item.key !== "pool" ? report.snapshot[item.key] : null;
+    const pool = report?.snapshot?.kind === "pool" && item.key === "pool" ? report.snapshot.pool : null;
+    const usedPercent = window?.usedPercent ?? pool?.usedPercent ?? null;
+    const resetAt = window?.resetsAt ?? pool?.refreshesAt ?? null;
+    const hasValue = usedPercent !== null && Number.isFinite(usedPercent);
+    const suspended = item.provider === "codex" && item.key === "fiveHour" && report?.snapshot?.kind === "window" && !window;
+    const expired = hasValue && resetAt !== null && resetAt <= Date.now();
+    const state = suspended ? "suspended" : report?.status === "unavailable" || report?.status === "unknown" || !hasValue ? "unavailable" : expired ? "expired" : report?.status === "stale" ? "stale" : "ok";
+    const detail = pool ? `${pool.used.toLocaleString()} / ${pool.limit.toLocaleString()} requests` : hasValue ? `${Math.max(0, 100 - usedPercent).toFixed(0)}% available` : suspended ? "temporarily suspended" : report?.error ?? "not currently reported";
+    return { id: `${item.provider}-${item.key}`, provider: item.provider, providerLabel: item.providerLabel, windowLabel: item.windowLabel, usedPercent, resetAt, resetVerb: item.resetVerb, state, detail };
+  });
+}
+
+function QuotaDials({ quotas }: {quotas: DashboardData["quotas"]}) {
+  const dials = quotaDials(quotas);
+  return <section className="quota-panel panel">
+    <div className="panel-heading"><div><span className="overline">SUBSCRIPTION WINDOWS</span><h2>Usage & resets</h2></div><span className="method-chip"><i/> provider reported</span></div>
+    <div className="quota-grid">{dials.map((dial) => {
+      const percent = dial.usedPercent === null ? null : Math.max(0, Math.min(100, dial.usedPercent));
+      const stateLabel = dial.state === "ok" ? "current" : dial.state;
+      return <article className={`quota-card ${dial.provider} ${dial.state}`} key={dial.id} aria-label={`${dial.providerLabel} ${dial.windowLabel} window: ${percent === null ? stateLabel : `${percent.toFixed(0)}% used`}`}>
+        <div className="quota-card__head"><span>{dial.providerLabel}</span><i>{stateLabel}</i></div>
+        <div className="quota-dial" style={{"--used":`${percent ?? 0}%`} as React.CSSProperties}><div><strong>{percent === null ? "—" : `${percent.toFixed(0)}%`}</strong><span>{percent === null ? dial.state : "used"}</span></div></div>
+        <div className="quota-card__copy"><b>{dial.windowLabel} window</b><span>{dial.detail}</span><small>{dial.state === "suspended" ? "5-hour rate limit is temporarily suspended" : resetCopy(dial.resetAt, dial.resetVerb)}</small></div>
+      </article>;
+    })}</div>
+  </section>;
+}
+
 function Overview({ data, daily, agent, onSession }: {data:DashboardData;daily:MetricRow[];agent:string;onSession:(session:Session)=>void}) {
   const totals = daily.reduce((sum, row) => ({ tokens: sum.tokens + row.totalTokens, cost: sum.cost + row.totalCost, output: sum.output + row.outputTokens, cache: sum.cache + row.cacheReadTokens }), {tokens:0,cost:0,output:0,cache:0});
   const today = daily.at(-1);
@@ -92,11 +202,6 @@ function Overview({ data, daily, agent, onSession }: {data:DashboardData;daily:M
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
   const recent = data.sessions.filter((session) => agent === "all" || session.agent === agent).slice(0, 5);
   const cacheShare = totals.tokens ? Math.round(totals.cache / totals.tokens * 100) : 0;
-  const providers = (((data.quotas.usage as any)?.providers ?? []) as any[]).map((provider) => {
-    const window = provider.snapshot?.fiveHour ?? provider.snapshot?.weekly ?? provider.snapshot?.pool;
-    const used = Number(window?.usedPercent ?? 0);
-    return { name: provider.provider, headroom: Math.max(0, 100 - used), reset: window?.resetsAt ?? window?.refreshesAt, source: provider.source };
-  });
   return <div className="view-stack page-enter">
     <section className="hero-grid">
       <div>
@@ -112,11 +217,11 @@ function Overview({ data, daily, agent, onSession }: {data:DashboardData;daily:M
       <MetricCard eyebrow="OUTPUT TOKENS" value={formatCompact(totals.output)} detail={`${today ? formatCompact(today.outputTokens) : 0} latest day`} trend={-4} icon={Sparkles}/>
       <MetricCard eyebrow="CACHE SHARE" value={`${cacheShare}%`} detail={`${formatCompact(totals.cache)} read tokens`} icon={Database}/>
     </section>
-    {providers.length > 0 && <section className="quota-strip"><div className="quota-strip__label"><Gauge/><span>PROVIDER<br/>HEADROOM</span></div>{providers.map((provider) => <article key={provider.name}><div className="quota-orb" style={{"--quota":`${provider.headroom}%`} as any}><span>{provider.headroom}%</span></div><div><b>{provider.name}</b><small>{provider.reset ? `resets ${formatDate(new Date(provider.reset).toISOString())}` : provider.source}</small></div><span className="method-chip"><i/> provider reported</span></article>)}</section>}
+    <QuotaDials quotas={data.quotas}/>
     <section className="dashboard-grid">
       <article className="panel panel-wide">
         <div className="panel-heading"><div><span className="overline">USAGE TRAJECTORY</span><h2>Daily activity</h2></div><span className="method-chip"><i/> ccusage derived</span></div>
-        <Timeline rows={daily} metric="totalTokens" />
+        <ProviderTimeline rows={daily} />
       </article>
       <article className="panel block-panel">
         <div className="panel-heading"><div><span className="overline">RECENT WINDOW</span><h2>Five-hour block</h2></div><AlarmClock/></div>

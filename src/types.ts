@@ -14,6 +14,23 @@ export type MetricRow = {
 };
 export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
 export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: { tags: string[]; note: string } };
+export type QuotaWindow = { usedPercent: number; resetsAt: number | null };
+export type WindowQuotaSnapshot = {
+  kind: "window";
+  fiveHour: QuotaWindow | null;
+  weekly: QuotaWindow | null;
+};
+export type PoolQuotaSnapshot = {
+  kind: "pool";
+  pool: { used: number; limit: number; usedPercent: number; refreshesAt: number | null; cadence?: string };
+};
+export type QuotaProvider = {
+  provider: "anthropic" | "codex" | "warp";
+  status: "ok" | "stale" | "unavailable" | "unknown";
+  source: string | null;
+  snapshot: WindowQuotaSnapshot | PoolQuotaSnapshot | null;
+  error?: string;
+};
 export type DashboardData = {
   collectedAt: string;
   ccusageVersion: string;
@@ -27,7 +44,7 @@ export type DashboardData = {
   blocks: Array<{id:string;startTime:string;endTime:string;actualEndTime?:string|null;isActive:boolean;totalTokens:number;costUSD:number;burnRate?:{tokensPerMinute?:number;costPerHour?:number}|null;projection?:{totalTokens?:number;totalCost?:number}|null;models:string[];entries:number}>;
   projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:MetricRow[]}>;
   models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;agents:string[]}>;
-  quotas: {available:boolean;usage?:unknown;resets?:unknown;status?:unknown;error?:string;collectedAt:string};
+  quotas: {available:boolean;usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:unknown;status?:unknown;error?:string;collectedAt:string};
   rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;
   settings: Record<string,string>;
   sources: Array<{name:string;status:string;detail:string;kind:string}>;
