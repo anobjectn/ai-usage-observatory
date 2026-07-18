@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlarmClock, ArrowDownRight, ArrowUpRight, Atom, Bot, Check,
   ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Database, FolderGit2,
-  Gauge, Layers3, Menu, Orbit, PencilLine, RefreshCw, Search, Settings2,
+  Gauge, Layers3, Menu, Orbit, Palette, PencilLine, RefreshCw, Search, Settings2,
   Sparkles, Tag, Telescope, Trash2, X, Zap,
 } from "lucide-react";
 import {
@@ -23,6 +23,17 @@ const nav: Array<{id:View;label:string;icon:typeof Orbit}> = [
   { id: "limits", label: "Limits & sources", icon: Gauge },
 ];
 const palette = ["#b7f25c", "#58d9cf", "#ff9e64", "#d7b3ff", "#78a8ff", "#f2d15c"];
+const defaultAccent = "#b7f25c";
+const neutralAccent = "#919699";
+const favoriteAccents = ["#b7f25c", "#58d9cf", "#78a8ff", "#d7b3ff", "#ff9e64", "#f2d15c"];
+const accentStorageKey = "usage-observatory:accent";
+
+function savedAccent() {
+  try {
+    const value = localStorage.getItem(accentStorageKey);
+    return value && /^#[0-9a-f]{6}$/i.test(value) ? value : defaultAccent;
+  } catch { return defaultAccent; }
+}
 
 const formatCompact = (value: number) => Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const formatMoney = (value: number) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -124,8 +135,8 @@ function ProviderChartTooltip({ active, payload, label, coordinate }: any) {
   const projects = tooltipProjects(row);
   const visibleProjects = projects.slice(0, 4);
   const projectTotal = projects.reduce((sum, project) => sum + project.tokens, 0);
-  const opensRight = coordinate?.x < 176;
-  return <div className={`chart-tooltip provider-tooltip${opensRight ? " provider-tooltip--right" : ""}`} key={label}>
+  const tooltipPosition = row?.tooltipPosition ?? (coordinate?.x < 176 ? "right" : "center");
+  return <div className={`chart-tooltip provider-tooltip provider-tooltip--${tooltipPosition}`} key={label}>
     <span>{label}</span>
     {payload.filter((item:any) => item.value > 0).map((item:any) => {
       const models = tooltipModels(row, item.dataKey);
@@ -155,17 +166,17 @@ function ProviderChartTooltip({ active, payload, label, coordinate }: any) {
   </div>;
 }
 
-function Timeline({ rows, metric, brush = false }: {rows:MetricRow[];metric:Metric;brush?:boolean}) {
+function Timeline({ rows, metric, accent, brush = false }: {rows:MetricRow[];metric:Metric;accent:string;brush?:boolean}) {
   const data = rows.map((row) => ({ ...row, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) }));
   return <div className="chart-wrap" aria-label={`Usage by day, measured in ${metric}`} role="img">
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={{ top: 12, right: 8, left: -18, bottom: brush ? 18 : 0 }}>
-        <defs><linearGradient id="usageGlow" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#b7f25c" stopOpacity={0.36}/><stop offset="100%" stopColor="#b7f25c" stopOpacity={0}/></linearGradient></defs>
+        <defs><linearGradient id="usageGlow" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={accent} stopOpacity={0.36}/><stop offset="100%" stopColor={accent} stopOpacity={0}/></linearGradient></defs>
         <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false}/>
         <XAxis dataKey="label" tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false} minTickGap={30}/>
         <YAxis tickFormatter={(v) => metric === "totalCost" ? `$${formatCompact(v)}` : formatCompact(v)} tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false}/>
-        <Tooltip content={<ChartTooltip metric={metric}/>} cursor={{stroke:"#b7f25c",strokeDasharray:"3 3"}}/>
-        <Area type="monotone" dataKey={metric} name={metric === "totalCost" ? "Cost" : metric === "outputTokens" ? "Output" : "Tokens"} stroke="#b7f25c" strokeWidth={2.2} fill="url(#usageGlow)" activeDot={{r:5,fill:"#07100f",stroke:"#b7f25c",strokeWidth:2}}/>
+        <Tooltip content={<ChartTooltip metric={metric}/>} cursor={{stroke:accent,strokeDasharray:"3 3"}}/>
+        <Area type="monotone" dataKey={metric} name={metric === "totalCost" ? "Cost" : metric === "outputTokens" ? "Output" : "Tokens"} stroke={accent} strokeWidth={2.2} fill="url(#usageGlow)" activeDot={{r:5,fill:"#07100f",stroke:accent,strokeWidth:2}}/>
         {brush && <Brush dataKey="label" height={22} stroke="#536159" fill="#111c19" travellerWidth={6}/>}
       </AreaChart>
     </ResponsiveContainer>
@@ -203,7 +214,7 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
     day[project.provider] = [...(day[project.provider] ?? []), project];
     projectsByDay.set(project.date, day);
   });
-  const data = rows.map((row) => {
+  const data = rows.map((row, index) => {
     const values = { anthropic: 0, codex: 0, warp: 0 };
     const modelMaps = { anthropic: new Map<string, number>(), codex: new Map<string, number>(), warp: new Map<string, number>() };
     if (row.agents?.length) {
@@ -228,7 +239,8 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
     }
     const models = Object.fromEntries(Object.entries(modelMaps).map(([provider, entries]) => [provider, [...entries.entries()].map(([name, tokens]) => ({name, tokens})).sort((a, b) => b.tokens - a.tokens)]));
     const projectGroups = projectsByDay.get(row.period) ?? {};
-    return { ...values, models, projectGroups, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
+    const tooltipPosition = index < 2 ? "right" : index >= rows.length - 2 ? "left" : "center";
+    return { ...values, models, projectGroups, tooltipPosition, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
   });
   const totals = providerSeries.map((provider) => ({ ...provider, value: data.reduce((sum, row) => sum + row[provider.key], 0) }));
   return <>
@@ -396,10 +408,10 @@ function Overview({ data, daily, agent, metricRange, onMetricRangeChange, onSess
   </div>;
 }
 
-function Explorer({ data, rows, metric, setMetric }: {data:DashboardData;rows:MetricRow[];metric:Metric;setMetric:(metric:Metric)=>void}) {
+function Explorer({ data, rows, metric, accent, setMetric }: {data:DashboardData;rows:MetricRow[];metric:Metric;accent:string;setMetric:(metric:Metric)=>void}) {
   const modelData = data.models.slice(0, 8).map((model) => ({name:model.model.replace(/^claude-|^gpt-/,""),value:metric === "totalCost" ? model.cost : metric === "outputTokens" ? model.outputTokens : model.tokens}));
   return <div className="view-stack page-enter"><PageTitle eyebrow="ANALYTICAL WORKSPACE" title="Usage explorer" description="Brush the timeline to focus a period. Global agent and path filters stay linked across the workspace."/>
-    <section className="panel explorer-main"><div className="panel-heading"><div><span className="overline">120-DAY FIELD</span><h2>Activity over time</h2></div><Segmented value={metric} onChange={(v)=>setMetric(v as Metric)} options={[{value:"totalTokens",label:"Tokens"},{value:"totalCost",label:"Cost"},{value:"outputTokens",label:"Output"}]}/></div><Timeline rows={rows} metric={metric} brush/></section>
+    <section className="panel explorer-main"><div className="panel-heading"><div><span className="overline">120-DAY FIELD</span><h2>Activity over time</h2></div><Segmented value={metric} onChange={(v)=>setMetric(v as Metric)} options={[{value:"totalTokens",label:"Tokens"},{value:"totalCost",label:"Cost"},{value:"outputTokens",label:"Output"}]}/></div><Timeline rows={rows} metric={metric} accent={accent} brush/></section>
     <section className="split-grid"><article className="panel"><div className="panel-heading"><div><span className="overline">MODEL DISTRIBUTION</span><h2>Top model signals</h2></div></div><div className="bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={modelData} layout="vertical" margin={{left:10,right:16}}><CartesianGrid stroke="#26312e" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" width={100} tick={{fill:"#a8b5b0",fontSize:12}} axisLine={false} tickLine={false}/><Tooltip content={<ChartTooltip metric={metric}/>} cursor={{fill:"#15211d"}}/><Bar dataKey="value" name="Usage" fill="#58d9cf" radius={[0,6,6,0]}/></BarChart></ResponsiveContainer></div></article><article className="panel"><div className="panel-heading"><div><span className="overline">READ / CREATE / OUTPUT</span><h2>Token composition</h2></div></div><Composition rows={rows}/></article></section>
   </div>;
 }
@@ -432,6 +444,10 @@ function PageTitle({eyebrow,title,description,actions}:{eyebrow:string;title:str
 function Segmented({value,onChange,options,label}:{value:string;onChange:(v:string)=>void;options:Array<{value:string;label:string}>;label?:string}) { return <div className="segmented" aria-label={label}>{options.map(option=><button type="button" key={option.value} className={value===option.value?"active":""} aria-pressed={value===option.value} onClick={()=>onChange(option.value)}>{option.label}</button>)}</div> }
 function Empty({text}:{text:string}) { return <div className="empty"><Orbit/><p>{text}</p></div> }
 
+function AppearanceModal({accent,onChange,onClose}:{accent:string;onChange:(value:string)=>void;onClose:()=>void}) {
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><div className="modal appearance-modal"><button className="modal-close" onClick={onClose} aria-label="Close appearance settings"><X/></button><span className="overline">LOCAL APPEARANCE</span><h2>Accent color</h2><p>Choose the color used for highlights, headings, and primary usage signals. This preference stays on this device.</p><div className="accent-control"><input aria-label="Custom accent color" type="color" value={accent} onChange={event=>onChange(event.target.value)}/><code>{accent.toUpperCase()}</code></div><div className="accent-favorites" aria-label="Favorite accent colors">{favoriteAccents.map(color=><button type="button" key={color} className={accent.toLowerCase()===color.toLowerCase()?"selected":""} style={{backgroundColor:color}} aria-label={`Use ${color} accent`} aria-pressed={accent.toLowerCase()===color.toLowerCase()} onClick={()=>onChange(color)}><Check/></button>)}</div><button type="button" className="reset-accent" onClick={()=>onChange(neutralAccent)}>Reset to contrast-safe gray</button></div></div>;
+}
+
 function AnnotationModal({session,onClose,onSaved}:{session:Session;onClose:()=>void;onSaved:()=>void}) {
   const [note,setNote]=useState(session.annotation.note); const [tags,setTags]=useState(session.annotation.tags.join(", ")); const [saving,setSaving]=useState(false);
   const save=async()=>{setSaving(true);await fetch(`/api/sessions/${encodeURIComponent(session.sessionId)}/annotations`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({note,tags:tags.split(",").map(t=>t.trim()).filter(Boolean)})});setSaving(false);onSaved();onClose();};
@@ -446,7 +462,8 @@ function RulesModal({data,onClose,onSaved}:{data:DashboardData;onClose:()=>void;
 }
 
 export function App() {
-  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false);
+  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent);
+  useEffect(()=>{ document.documentElement.style.setProperty("--accent", accent); try { localStorage.setItem(accentStorageKey, accent); } catch {} },[accent]);
   const agents=useMemo(()=>data?[...new Set(data.daily.flatMap(row=>row.agents?.map(a=>a.agent)??[]))]:[],[data]);
   const pathTags=useMemo(()=>data?[...new Set(data.sessions.flatMap(s=>s.pathTags))]:[],[data]);
   const daily=useMemo(()=>data ? metricRangeRows(data.daily, days).map(row=>selectAgent(row,agent)).filter(Boolean) as MetricRow[] : [],[data,agent,days]);
@@ -457,17 +474,17 @@ export function App() {
   const current=nav.find(item=>item.id===view)!;
   return <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
     <aside className={sidebar?"open":""}><div className="brand"><span><Orbit/></span><div><b>Usage</b><small>OBSERVATORY</small></div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed(collapsed=>!collapsed)} aria-label={sidebarCollapsed?"Expand navigation":"Collapse navigation"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed?<ChevronRight/>:<ChevronLeft/>}</button><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="Close navigation"><X/></button></div><nav>{nav.map(item=><button key={item.id} className={view===item.id?"active":""} onClick={()=>{setView(item.id);setSidebar(false)}} title={sidebarCollapsed?item.label:undefined}><item.icon/><span>{item.label}</span>{view===item.id&&<i/>}</button>)}</nav><div className="side-status"><span className="status-dot healthy"/><div><b>Local systems nominal</b><small>ccusage v{data.ccusageVersion}</small></div></div><button className="settings-link" onClick={()=>setRules(true)} title={sidebarCollapsed?"Path rules":undefined}><Settings2/> <b>Path rules</b> <span>{data.rules.length}</span></button><p className="privacy-note">No raw usage records leave this machine.</p></aside>
-    <main><header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><span>Observatory</span><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
+    <main><header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><span>Observatory</span><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Accent color"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
       {data.refresh.stale&&<div className="stale-banner">Showing the last successful collection. {data.refresh.lastError}</div>}
       <div className="content">
         {view==="overview"&&<Overview data={data} daily={daily} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession}/>}
-        {view==="explorer"&&<Explorer data={data} rows={daily} metric={metric} setMetric={setMetric}/>}
+        {view==="explorer"&&<Explorer data={data} rows={daily} metric={metric} accent={accent} setMetric={setMetric}/>}
         {view==="sessions"&&<Sessions sessions={sessions} onEdit={setSession}/>}
         {view==="projects"&&<Projects data={data}/>}
         {view==="models"&&<Models data={data}/>}
         {view==="limits"&&<Limits data={data} onRules={()=>setRules(true)}/>}
       </div>
     </main>
-    {session&&<AnnotationModal session={session} onClose={()=>setSession(null)} onSaved={()=>load()}/>} {rules&&<RulesModal data={data} onClose={()=>setRules(false)} onSaved={()=>load(true)}/>} {sidebar&&<div className="scrim" onClick={()=>setSidebar(false)}/>}
+    {session&&<AnnotationModal session={session} onClose={()=>setSession(null)} onSaved={()=>load()}/>} {rules&&<RulesModal data={data} onClose={()=>setRules(false)} onSaved={()=>load(true)}/>} {appearance&&<AppearanceModal accent={accent} onChange={setAccent} onClose={()=>setAppearance(false)}/>} {sidebar&&<div className="scrim" onClick={()=>setSidebar(false)}/>}
   </div>;
 }
