@@ -95,6 +95,13 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
   .app-shell.sidebar-collapsed nav button.active::before { left:-13px; }
   .app-shell.sidebar-collapsed .side-status { justify-content:center;padding:12px 0; }
   .app-shell.sidebar-collapsed .settings-link { justify-content:center;padding-left:0;padding-right:0; }
+  .app-shell.sidebar-collapsed nav button[data-tooltip],
+  .app-shell.sidebar-collapsed .side-status[data-tooltip],
+  .app-shell.sidebar-collapsed .settings-link[data-tooltip] { position:relative; }
+  .app-shell.sidebar-collapsed [data-tooltip]::after { content:attr(data-tooltip);position:absolute;left:calc(100% + 13px);top:50%;transform:translate(-4px,-50%);z-index:30;pointer-events:none;opacity:0;visibility:hidden;white-space:nowrap;border:1px solid var(--line-bright);border-radius:7px;background:var(--surface-3);box-shadow:0 8px 22px rgba(0,0,0,.35);padding:6px 8px;color:var(--text);font:10px "IBM Plex Mono", Menlo, monospace;letter-spacing:.02em;transition:opacity .14s ease,transform .14s ease,visibility .14s ease; }
+  .app-shell.sidebar-collapsed [data-tooltip]::before { content:"";position:absolute;left:calc(100% + 8px);top:50%;z-index:31;width:7px;height:7px;transform:translate(-4px,-50%) rotate(45deg);background:var(--surface-3);border-left:1px solid var(--line-bright);border-bottom:1px solid var(--line-bright);pointer-events:none;opacity:0;visibility:hidden;transition:opacity .14s ease,visibility .14s ease; }
+  .app-shell.sidebar-collapsed [data-tooltip]:is(:hover,:focus-visible)::after { opacity:1;visibility:visible;transform:translate(0,-50%); }
+  .app-shell.sidebar-collapsed [data-tooltip]:is(:hover,:focus-visible)::before { opacity:1;visibility:visible; }
 }
 .stale-banner { background:rgba(255,158,100,.1);color:#ffc29d;border-bottom:1px solid rgba(255,158,100,.22);padding:8px 40px;font-size:13px; }
 .view-stack { display:flex;flex-direction:column;gap:20px; }
