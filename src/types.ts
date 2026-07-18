@@ -1,0 +1,35 @@
+export type MetricRow = {
+  agent: string;
+  period: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+  totalCost: number;
+  modelsUsed: string[];
+  agents?: Array<MetricRow & { modelBreakdowns: ModelBreakdown[] }>;
+  modelBreakdowns: ModelBreakdown[];
+  metadata?: { lastActivity?: string; [key: string]: unknown };
+};
+export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
+export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: { tags: string[]; note: string } };
+export type DashboardData = {
+  collectedAt: string;
+  ccusageVersion: string;
+  costMethodology: string;
+  blockScope: string;
+  daily: MetricRow[];
+  weekly: MetricRow[];
+  monthly: MetricRow[];
+  totals: Omit<MetricRow, "agent" | "period" | "modelsUsed" | "modelBreakdowns">;
+  sessions: Session[];
+  blocks: Array<{id:string;startTime:string;endTime:string;actualEndTime?:string|null;isActive:boolean;totalTokens:number;costUSD:number;burnRate?:{tokensPerMinute?:number;costPerHour?:number}|null;projection?:{totalTokens?:number;totalCost?:number}|null;models:string[];entries:number}>;
+  projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:MetricRow[]}>;
+  models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;agents:string[]}>;
+  quotas: {available:boolean;usage?:unknown;resets?:unknown;status?:unknown;error?:string;collectedAt:string};
+  rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;
+  settings: Record<string,string>;
+  sources: Array<{name:string;status:string;detail:string;kind:string}>;
+  refresh: {inProgress:boolean;lastError:string|null;stale:boolean};
+};
