@@ -6,14 +6,15 @@ import {
   Sparkles, Tag, Telescope, Trash2, X, Zap,
 } from "lucide-react";
 import {
-  Area, AreaChart, Bar, BarChart, Brush, CartesianGrid, Cell, Pie, PieChart,
+  Area, AreaChart, Bar, BarChart, Brush, CartesianGrid, Cell, Line, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import type { DashboardData, MetricRow, ProjectActivity, Session } from "./types";
+import type { DashboardData, MetricRow, ProjectActivity, ProjectTrendRow, Session } from "./types";
 
 type View = "overview" | "explorer" | "sessions" | "projects" | "models" | "limits";
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
 type MetricRange = "1" | "7" | "14" | "30" | "120";
+type ProjectSummary = DashboardData["projects"][number];
 const nav: Array<{id:View;label:string;icon:typeof Orbit}> = [
   { id: "overview", label: "Overview", icon: Orbit },
   { id: "explorer", label: "Explorer", icon: Activity },
@@ -506,7 +507,94 @@ function Sessions({sessions,onEdit}:{sessions:Session[];onEdit:(session:Session)
   return <div className="view-stack page-enter"><PageTitle eyebrow="SESSION LEDGER" title="Trace every session" description="Search agent history, inspect working directories, and add local tags or notes without storing transcript content." actions={<label className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search sessions…"/></label>}/><section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Session</th><th>Agent</th><th>Working directory</th><th>Tokens</th><th>Cost</th><th>Last activity</th><th></th></tr></thead><tbody>{pageRows.map(session=><tr key={session.sessionId}><td><b>{session.modelsUsed[0] ?? "Unknown"}</b><small>{session.period.slice(0,18)}</small></td><td><span className={`agent-pill ${session.agent}`}>{session.agent}</span></td><td><span className="cwd" title={session.cwd ?? "Unavailable"}>{session.cwd ?? "Path unavailable"}</span><span className="mini-tags">{[...session.pathTags,...session.annotation.tags].slice(0,3).map(tag=><i key={tag}>{tag}</i>)}</span></td><td><b>{formatCompact(session.totalTokens)}</b><small>{formatCompact(session.outputTokens)} output</small></td><td><b>{formatMoney(session.totalCost)}</b><small>ccusage</small></td><td>{session.metadata?.lastActivity ? formatDate(session.metadata.lastActivity) : "—"}</td><td><button className="icon-button" onClick={()=>onEdit(session)} aria-label="Edit annotation"><PencilLine/></button></td></tr>)}</tbody></table></div>{!pageRows.length&&<Empty text="No sessions match those filters."/>}<div className="pagination"><span>{filtered.length} sessions</span><div><button disabled={page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft/></button><span>{page} / {pages}</span><button disabled={page===pages} onClick={()=>setPage(p=>p+1)}><ChevronRight/></button></div></div></section></div>;
 }
 
-function Projects({data}:{data:DashboardData}) { return <div className="view-stack page-enter"><PageTitle eyebrow="PROJECT CARTOGRAPHY" title="Where the work happened" description="Project grouping is source-dependent. Claude project instances are shown here; path rules extend working-directory visibility across agents."/><section className="card-list">{data.projects.map((project,index)=><article className="rank-card" key={project.name}><span className="rank">{String(index+1).padStart(2,"0")}</span><div className="rank-main"><h3>{friendlyProject(project.name)}</h3><p>{project.models.slice(0,3).join(" · ")}</p><div className="micro-chart">{project.trend.slice(-14).map((point,i)=><i key={i} style={{height:`${Math.max(8,point.totalTokens/Math.max(...project.trend.map(p=>p.totalTokens))*100)}%`}}/>)}</div></div><div className="rank-stat"><span>Tokens</span><b>{formatCompact(project.tokens)}</b></div><div className="rank-stat"><span>Cost</span><b>{formatMoney(project.cost)}</b></div><div className="rank-stat"><span>Active days</span><b>{project.sessions}</b></div></article>)}</section>{!data.projects.length&&<Empty text="No source-exposed projects found in this period."/>}</div> }
+function projectDayRows(trend: ProjectTrendRow[]) {
+  const days = new Map<string, {date:string;tokens:number;cost:number;runs:number;models:Map<string,number>}>();
+  trend.forEach((row) => {
+    const day = days.get(row.date) ?? {date:row.date,tokens:0,cost:0,runs:0,models:new Map<string,number>()};
+    day.tokens += row.totalTokens;
+    day.cost += row.totalCost;
+    day.runs++;
+    row.modelBreakdowns.forEach((model) => {
+      const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+      day.models.set(model.modelName, (day.models.get(model.modelName) ?? 0) + tokens);
+    });
+    days.set(row.date, day);
+  });
+  return [...days.values()].sort((a,b)=>a.date.localeCompare(b.date)).map((day)=>({
+    ...day,
+    label:new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric"}),
+    models:[...day.models.entries()].map(([name,tokens])=>({name,tokens})).sort((a,b)=>b.tokens-a.tokens),
+  }));
+}
+
+function ProjectDayTooltip({active,payload}:{active?:boolean;payload?:any[]}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload as ReturnType<typeof projectDayRows>[number];
+  return <div className="chart-tooltip project-day-tooltip">
+    <span>{new Date(`${row.date}T12:00:00`).toLocaleDateString(undefined,{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</span>
+    <div><i style={{background:"var(--accent)"}}/>Tokens <b>{row.tokens.toLocaleString()}</b></div>
+    <div><i style={{background:"var(--aqua)"}}/>Activity records <b>{row.runs}</b></div>
+    {row.models.slice(0,4).map((model)=><div className="project-day-model" key={model.name}><span>{model.name}</span><b>{formatCompact(model.tokens)}</b></div>)}
+  </div>;
+}
+
+function ProjectDetails({project}:{project:ProjectSummary}) {
+  const days=projectDayRows(project.trend);
+  const modelTotals=new Map<string,number>();
+  days.forEach(day=>day.models.forEach(model=>modelTotals.set(model.name,(modelTotals.get(model.name)??0)+model.tokens)));
+  const models=[...modelTotals.entries()].map(([name,tokens])=>({name,tokens})).sort((a,b)=>b.tokens-a.tokens);
+  const first=days[0]?.date; const last=days.at(-1)?.date;
+  const dateCopy=first&&last ? `${new Date(`${first}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})} — ${new Date(`${last}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}` : "No dated activity";
+  return <div className="project-detail" onClick={event=>event.stopPropagation()}>
+    <div className="project-detail__summary">
+      <div><span>Total tokens</span><strong>{project.tokens.toLocaleString()}</strong></div>
+      <div><span>Activity records</span><strong>{project.trend.length}</strong></div>
+      <div><span>Active days</span><strong>{days.length}</strong></div>
+      <div><span>Time observed</span><strong className="project-time">{dateCopy}</strong></div>
+    </div>
+    <div className="project-detail__grid">
+      <section className="project-viz">
+        <div className="project-viz__head"><div><span className="overline">DAILY SIGNAL</span><h4>Runs and tokens by day</h4></div><div className="project-viz__legend"><span><i/>Tokens</span><span><i/>Records</span></div></div>
+        <div className="project-chart" role="img" aria-label={`Daily token usage and activity records for ${friendlyProject(project.name)}`}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={days} margin={{top:12,right:4,left:-16,bottom:0}}>
+              <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false}/>
+              <XAxis dataKey="label" tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false} minTickGap={24}/>
+              <YAxis yAxisId="tokens" tickFormatter={formatCompact} tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false}/>
+              <YAxis yAxisId="runs" orientation="right" allowDecimals={false} hide/>
+              <Tooltip content={<ProjectDayTooltip/>} cursor={{fill:"rgba(183,242,92,.05)"}}/>
+              <Bar yAxisId="tokens" dataKey="tokens" name="Tokens" fill="var(--accent)" fillOpacity={0.46} radius={[4,4,0,0]}/>
+              <Line yAxisId="runs" type="monotone" dataKey="runs" name="Activity records" stroke="var(--aqua)" strokeWidth={2} dot={false} activeDot={{r:4,fill:"#07100f",stroke:"var(--aqua)",strokeWidth:2}}/>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+      <section className="project-viz model-breakdown">
+        <div className="project-viz__head"><div><span className="overline">MODEL MIX</span><h4>Tokens by model</h4></div><span>{models.length} {models.length===1?"model":"models"}</span></div>
+        <div className="project-model-list">{models.map((model,index)=><div key={model.name} title={`${model.name}: ${model.tokens.toLocaleString()} tokens`}>
+          <div><span><i style={{background:palette[index%palette.length]}}/>{model.name}</span><b>{formatCompact(model.tokens)}</b></div>
+          <div className="project-model-meter"><i style={{width:`${project.tokens?model.tokens/project.tokens*100:0}%`,background:palette[index%palette.length]}}/></div>
+          <small>{project.tokens?Math.round(model.tokens/project.tokens*100):0}%</small>
+        </div>)}</div>
+      </section>
+    </div>
+    <p className="project-detail__note">“Runs” counts source activity records. Elapsed hours are not available in the project report.</p>
+  </div>;
+}
+
+function Projects({data}:{data:DashboardData}) {
+  const [openProject,setOpenProject]=useState<string|null>(null);
+  return <div className="view-stack page-enter"><PageTitle eyebrow="PROJECT CARTOGRAPHY" title="Where the work happened" description="Select a project to inspect its daily activity, model mix, and observed time range."/><section className="card-list project-list">{data.projects.map((project,index)=>{
+    const open=openProject===project.name;
+    const maxTokens=Math.max(...project.trend.map(point=>point.totalTokens),1);
+    return <article className={`project-card${open?" open":""}`} key={project.name}>
+      <button className="rank-card project-row" type="button" onClick={()=>setOpenProject(open?null:project.name)} aria-expanded={open} aria-controls={`project-detail-${index}`}>
+        <span className="rank">{String(index+1).padStart(2,"0")}</span><div className="rank-main"><h3>{friendlyProject(project.name)}</h3><p>{project.models.slice(0,3).join(" · ")}</p><div className="micro-chart" aria-hidden="true">{project.trend.slice(-14).map((point,i)=><i key={i} style={{height:`${Math.max(8,point.totalTokens/maxTokens*100)}%`}}/>)}</div></div><div className="rank-stat"><span>Tokens</span><b>{formatCompact(project.tokens)}</b></div><div className="rank-stat"><span>Cost</span><b>{formatMoney(project.cost)}</b></div><div className="rank-stat"><span>Active days</span><b>{projectDayRows(project.trend).length}</b></div><ChevronRight className="project-row__chevron"/>
+      </button>
+      {open&&<div id={`project-detail-${index}`}><ProjectDetails project={project}/></div>}
+    </article>;
+  })}</section>{!data.projects.length&&<Empty text="No source-exposed projects found in this period."/>}</div>;
+}
 
 function Models({data}:{data:DashboardData}) { const max=Math.max(...data.models.map(m=>m.cost),1); return <div className="view-stack page-enter"><PageTitle eyebrow="MODEL SPECTROGRAPH" title="Model mix and efficiency" description="Compare API-equivalent cost, output volume, and cache behavior using ccusage as the sole analytical cost source."/><section className="model-grid">{data.models.map((model,index)=><article className="model-card" key={model.model}><div className="model-card__head"><span style={{background:palette[index%palette.length]}}>{model.model.startsWith("gpt")?"G":"C"}</span><div><h3>{model.model}</h3><p>{model.agents.join(" · ")}</p></div></div><div className="model-cost"><strong>{formatMoney(model.cost)}</strong><span>API-equivalent</span></div><div className="meter"><i style={{width:`${model.cost/max*100}%`,background:palette[index%palette.length]}}/></div><dl><div><dt>Total tokens</dt><dd>{formatCompact(model.tokens)}</dd></div><div><dt>Output</dt><dd>{formatCompact(model.outputTokens)}</dd></div><div><dt>Cache read</dt><dd>{formatCompact(model.cacheReadTokens)}</dd></div></dl></article>)}</section></div> }
 
