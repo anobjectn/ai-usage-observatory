@@ -13,6 +13,16 @@ export type MetricRow = {
   metadata?: { lastActivity?: string; [key: string]: unknown };
 };
 export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
+export type ProjectTrendRow = Omit<MetricRow, "agent" | "period"> & { date: string; period?: string };
+export type ProjectActivity = {
+  date: string;
+  provider: "anthropic" | "codex";
+  projectId: string;
+  projectName: string;
+  tokens: number;
+  sessions: number;
+  models: Array<{model:string;tokens:number}>;
+};
 export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: { tags: string[]; note: string } };
 export type QuotaWindow = { usedPercent: number; resetsAt: number | null };
 export type BankedResetCredit = {
@@ -47,6 +57,12 @@ export type QuotaResets = {
     status: string;
   };
 };
+export type QuotaHistory = {
+  available: boolean;
+  trackingSince: number | null;
+  windows: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";reachedCount:number}>;
+  codexBankedResets: {usedCount:number};
+};
 export type DashboardData = {
   collectedAt: string;
   ccusageVersion: string;
@@ -57,10 +73,11 @@ export type DashboardData = {
   monthly: MetricRow[];
   totals: Omit<MetricRow, "agent" | "period" | "modelsUsed" | "modelBreakdowns">;
   sessions: Session[];
+  projectActivity: ProjectActivity[];
   blocks: Array<{id:string;startTime:string;endTime:string;actualEndTime?:string|null;isActive:boolean;totalTokens:number;costUSD:number;burnRate?:{tokensPerMinute?:number;costPerHour?:number}|null;projection?:{totalTokens?:number;totalCost?:number}|null;models:string[];entries:number}>;
-  projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:MetricRow[]}>;
+  projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:ProjectTrendRow[]}>;
   models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;agents:string[]}>;
-  quotas: {available:boolean;usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;status?:unknown;error?:string;collectedAt:string};
+  quotas: {available:boolean;usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;history?:QuotaHistory;status?:unknown;error?:string;collectedAt:string};
   rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;
   settings: Record<string,string>;
   sources: Array<{name:string;status:string;detail:string;kind:string}>;

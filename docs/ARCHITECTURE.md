@@ -10,6 +10,7 @@ The React frontend only consumes normalized local API responses. It never reads 
 2. Zod validates unified, block, and Claude project-instance reports.
 3. The metadata-only path indexer incrementally reads session file heads when mtimes change.
 4. Native report sessions are joined to indexed paths without copying transcript content.
+5. Project activity groups joined session totals by provider, working directory, and local last-activity day. A session spanning multiple days is attributed to its latest activity day.
 5. Path rules are evaluated on demand, so edits apply retroactively.
 6. A successful in-memory snapshot replaces the prior one. A failure preserves the last success and marks it stale.
 

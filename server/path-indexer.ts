@@ -11,6 +11,17 @@ export function stableSessionId(agent: string, sourceRelativePath: string, nativ
   return hash.digest("hex").slice(0, 24);
 }
 
+export function sessionReportKeys(agent: string, nativeKey: string, sourceFile: string) {
+  const keys = new Set([nativeKey, basename(sourceFile, ".jsonl")]);
+  if (agent === "codex") {
+    const normalized = sourceFile.replaceAll("\\", "/");
+    const marker = "/.codex/sessions/";
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex >= 0) keys.add(normalized.slice(markerIndex + marker.length).replace(/\.jsonl$/, ""));
+  }
+  return [...keys];
+}
+
 async function parseHead(file: string, agent: "claude" | "codex") {
   const text = await Bun.file(file).slice(0, 96_000).text();
   const lines = text.split("\n").slice(0, 80);
@@ -77,7 +88,6 @@ export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }>
       catch { return false; }
     }).map((rule) => rule.tag) : [];
     const value = { sessionId: row.session_id, agent: row.agent, nativeKey: row.native_session_key, cwd: row.cwd, sourceFile: relative(homedir(), row.source_file), tags };
-    const reportKey = basename(row.source_file, ".jsonl");
-    return [[`${row.agent}:${row.native_session_key}`, value], [`${row.agent}:${reportKey}`, value]];
+    return sessionReportKeys(row.agent, row.native_session_key, row.source_file).map((key) => [`${row.agent}:${key}`, value]);
   }));
 }

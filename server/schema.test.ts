@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { stableSessionId } from "./path-indexer";
+import { aggregateProjectActivity } from "./collector";
+import { sessionReportKeys, stableSessionId } from "./path-indexer";
 import { blocksReportSchema, unifiedReportSchema } from "./schema";
 
 describe("normalized ingestion contracts", () => {
@@ -53,5 +54,21 @@ describe("app-owned session identity", () => {
     const claude = stableSessionId("claude", ".claude/projects/project/a.jsonl", "a");
     const codex = stableSessionId("codex", ".codex/sessions/a.jsonl", "a");
     expect(claude).not.toBe(codex);
+  });
+
+  test("matches Codex report paths to indexed session files", () => {
+    expect(sessionReportKeys("codex", "native-a", "/Users/test/.codex/sessions/2026/07/18/rollout-a.jsonl")).toContain("2026/07/18/rollout-a");
+  });
+});
+
+describe("cross-agent project activity", () => {
+  test("groups session tokens by provider, day, and working directory", () => {
+    const activity = aggregateProjectActivity([
+      { agent:"codex", period:"2026/07/18/rollout-a", totalTokens:100, cwd:"/work/myessentials-ui", metadata:{lastActivity:"2026-07-18T16:00:00Z"}, modelBreakdowns:[{modelName:"gpt-test",inputTokens:60,outputTokens:10,cacheReadTokens:30,cacheCreationTokens:0}] },
+      { agent:"claude", period:"native-a", totalTokens:40, cwd:"/work/myessentials-ui", metadata:{lastActivity:"2026-07-18T17:00:00Z"}, modelBreakdowns:[{modelName:"claude-test",inputTokens:20,outputTokens:5,cacheReadTokens:15,cacheCreationTokens:0}] },
+    ]);
+    expect(activity).toHaveLength(2);
+    expect(activity.find((item) => item.provider === "codex")?.projectName).toBe("myessentials-ui");
+    expect(activity.find((item) => item.provider === "anthropic")?.models[0]).toEqual({model:"claude-test",tokens:40});
   });
 });

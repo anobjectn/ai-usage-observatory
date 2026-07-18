@@ -29,6 +29,7 @@ Open `http://127.0.0.1:4318`.
 - Token composition and ccusage-sourced API-equivalent cost.
 - Linked date, agent, and derived path filters.
 - Tier 1 working-directory index for Claude Code and Codex session records.
+- Daily cross-provider project attribution from session working directories, with per-model token constituents.
 - Glob and regex path rules, evaluated retroactively.
 - Manual session tags and notes.
 - Optional read-only `quota-service` integration at `http://127.0.0.1:8787`.

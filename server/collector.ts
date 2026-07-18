@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths } from "./path-indexer";
@@ -34,6 +35,54 @@ function aggregateProjects(report: Awaited<ReturnType<typeof collectCcusage>>["p
   })).sort((a, b) => b.cost - a.cost);
 }
 
+type ProjectActivitySession = {
+  agent: string;
+  period: string;
+  totalTokens: number;
+  cwd: string | null;
+  metadata?: {lastActivity?:unknown};
+  modelBreakdowns: Array<{modelName:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number}>;
+};
+
+function localDate(value: unknown) {
+  if (typeof value !== "string") return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function activityProvider(agent: string) {
+  const normalized = agent.toLowerCase();
+  if (normalized.includes("claude") || normalized.includes("anthropic")) return "anthropic" as const;
+  if (normalized.includes("codex")) return "codex" as const;
+  return null;
+}
+
+export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
+  const activity = new Map<string, {date:string;provider:"anthropic"|"codex";projectId:string;projectName:string;tokens:number;sessions:number;models:Map<string,number>}>();
+  for (const session of sessions) {
+    const provider = activityProvider(session.agent);
+    const date = localDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    if (!provider || !date || !session.cwd) continue;
+    const projectId = session.cwd.replace(/\/+$/, "");
+    const key = `${date}\0${provider}\0${projectId}`;
+    const bucket = activity.get(key) ?? { date, provider, projectId, projectName: basename(projectId), tokens: 0, sessions: 0, models: new Map<string,number>() };
+    bucket.tokens += session.totalTokens;
+    bucket.sessions++;
+    for (const model of session.modelBreakdowns) {
+      const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+      bucket.models.set(model.modelName, (bucket.models.get(model.modelName) ?? 0) + tokens);
+    }
+    activity.set(key, bucket);
+  }
+  return [...activity.values()].map((item) => ({
+    ...item,
+    models: [...item.models.entries()].map(([model, tokens]) => ({model, tokens})).sort((a, b) => b.tokens - a.tokens),
+  })).sort((a, b) => a.date.localeCompare(b.date) || b.tokens - a.tokens);
+}
+
 async function buildSnapshot() {
   const [, ccusage, quota] = await Promise.all([indexSessionPaths(), collectCcusage(), collectQuota()]);
   const pathIndex = getPathIndex();
@@ -53,6 +102,7 @@ async function buildSnapshot() {
     monthly: ccusage.unified.monthly,
     totals: ccusage.unified.totals,
     sessions,
+    projectActivity: aggregateProjectActivity(sessions),
     blocks: ccusage.blocks.blocks,
     projects: aggregateProjects(ccusage.projects),
     models: aggregateModels(ccusage.unified.daily),
@@ -61,7 +111,7 @@ async function buildSnapshot() {
     settings: getSettings(),
     sources: [
       { name: "ccusage", status: "healthy", detail: `Pinned v${ccusage.version} · offline pricing`, kind: "local analytics" },
-      { name: "Path index", status: "healthy", detail: `${Object.keys(pathIndex).length} session records · metadata only`, kind: "local metadata" },
+      { name: "Path index", status: "healthy", detail: `${sessions.filter((session) => session.cwd).length} sessions joined · metadata only`, kind: "local metadata" },
       { name: "quota-service", status: quota.available ? "healthy" : "unavailable", detail: quota.available ? "Provider-reported limits connected" : quota.error, kind: "provider quota" },
     ],
   };
