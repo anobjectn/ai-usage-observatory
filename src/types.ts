@@ -15,10 +15,18 @@ export type MetricRow = {
 export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
 export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: { tags: string[]; note: string } };
 export type QuotaWindow = { usedPercent: number; resetsAt: number | null };
+export type BankedResetCredit = {
+  id: string;
+  title: string;
+  status: string;
+  expiresAt: string | null;
+};
 export type WindowQuotaSnapshot = {
   kind: "window";
   fiveHour: QuotaWindow | null;
   weekly: QuotaWindow | null;
+  modelWindows?: Record<string, QuotaWindow>;
+  extra?: { bankedResetCreditsAvailable?: number };
 };
 export type PoolQuotaSnapshot = {
   kind: "pool";
@@ -30,6 +38,14 @@ export type QuotaProvider = {
   source: string | null;
   snapshot: WindowQuotaSnapshot | PoolQuotaSnapshot | null;
   error?: string;
+};
+export type QuotaResets = {
+  codexBankedResetCredits?: {
+    availableCount: number;
+    totalEarnedCount: number;
+    credits: BankedResetCredit[];
+    status: string;
+  };
 };
 export type DashboardData = {
   collectedAt: string;
@@ -44,7 +60,7 @@ export type DashboardData = {
   blocks: Array<{id:string;startTime:string;endTime:string;actualEndTime?:string|null;isActive:boolean;totalTokens:number;costUSD:number;burnRate?:{tokensPerMinute?:number;costPerHour?:number}|null;projection?:{totalTokens?:number;totalCost?:number}|null;models:string[];entries:number}>;
   projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:MetricRow[]}>;
   models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;agents:string[]}>;
-  quotas: {available:boolean;usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:unknown;status?:unknown;error?:string;collectedAt:string};
+  quotas: {available:boolean;usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;status?:unknown;error?:string;collectedAt:string};
   rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;
   settings: Record<string,string>;
   sources: Array<{name:string;status:string;detail:string;kind:string}>;

@@ -13,6 +13,7 @@ import type { DashboardData, MetricRow, Session } from "./types";
 
 type View = "overview" | "explorer" | "sessions" | "projects" | "models" | "limits";
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
+type ActivityRange = "day" | "7" | "14" | "30" | "this-month" | "last-month";
 const nav: Array<{id:View;label:string;icon:typeof Orbit}> = [
   { id: "overview", label: "Overview", icon: Orbit },
   { id: "explorer", label: "Explorer", icon: Activity },
@@ -91,6 +92,25 @@ function ChartTooltip({ active, payload, label, metric }: any) {
   return <div className="chart-tooltip"><span>{label}</span>{payload.map((item:any) => <div key={item.dataKey}><i style={{background:item.color}} />{item.name}: <b>{metric === "totalCost" ? formatMoney(item.value) : formatCompact(item.value)}</b></div>)}</div>;
 }
 
+function tooltipModels(row: any, provider: typeof providerSeries[number]["key"]) {
+  return (row?.models?.[provider] ?? []) as Array<{ name: string; tokens: number }>;
+}
+
+function ProviderChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  return <div className="chart-tooltip provider-tooltip" key={label}>
+    <span>{label}</span>
+    {payload.map((item:any) => {
+      const models = tooltipModels(row, item.dataKey);
+      return <section className="tooltip-provider" key={item.dataKey}>
+        <div><i style={{background:item.color}} /><strong>{item.name}</strong><b>{formatCompact(item.value)}</b></div>
+        {models.length > 0 && <ul>{models.map((model) => <li key={model.name}><span>{model.name}</span><b>{formatCompact(model.tokens)}</b></li>)}</ul>}
+      </section>;
+    })}
+  </div>;
+}
+
 function Timeline({ rows, metric, brush = false }: {rows:MetricRow[];metric:Metric;brush?:boolean}) {
   const data = rows.map((row) => ({ ...row, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) }));
   return <div className="chart-wrap" aria-label={`Usage by day, measured in ${metric}`} role="img">
@@ -108,23 +128,61 @@ function Timeline({ rows, metric, brush = false }: {rows:MetricRow[];metric:Metr
   </div>;
 }
 
+function activityRangeRows(rows: MetricRow[], range: ActivityRange) {
+  if (!rows.length) return [];
+  const sorted = [...rows].sort((a, b) => a.period.localeCompare(b.period));
+  const latest = new Date(`${sorted.at(-1)!.period}T12:00:00`);
+  if (range === "this-month") {
+    const month = sorted.at(-1)!.period.slice(0, 7);
+    return sorted.filter((row) => row.period.startsWith(month));
+  }
+  if (range === "last-month") {
+    const monthStart = new Date(latest.getFullYear(), latest.getMonth() - 1, 1, 12);
+    const month = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}`;
+    return sorted.filter((row) => row.period.startsWith(month));
+  }
+  const days = range === "day" ? 1 : Number(range);
+  const cutoff = new Date(latest);
+  cutoff.setDate(cutoff.getDate() - days + 1);
+  const cutoffPeriod = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
+  return sorted.filter((row) => row.period >= cutoffPeriod);
+}
+
 function ProviderTimeline({ rows }: {rows:MetricRow[]}) {
-  const data = rows.map((row) => {
+  const [range, setRange] = useState<ActivityRange>("30");
+  const rangedRows = useMemo(() => activityRangeRows(rows, range), [rows, range]);
+  const data = rangedRows.map((row) => {
     const values = { anthropic: 0, codex: 0, warp: 0 };
+    const modelMaps = { anthropic: new Map<string, number>(), codex: new Map<string, number>(), warp: new Map<string, number>() };
     if (row.agents?.length) {
       row.agents.forEach((item) => {
         const key = providerKey(item.agent);
-        if (key) values[key] += item.totalTokens;
+        if (!key) return;
+        values[key] += item.totalTokens;
+        item.modelBreakdowns.forEach((model) => {
+          const total = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+          modelMaps[key].set(model.modelName, (modelMaps[key].get(model.modelName) ?? 0) + total);
+        });
       });
     } else {
       const key = providerKey(row.agent);
-      if (key) values[key] = row.totalTokens;
+      if (key) {
+        values[key] = row.totalTokens;
+        row.modelBreakdowns.forEach((model) => {
+          const total = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+          modelMaps[key].set(model.modelName, (modelMaps[key].get(model.modelName) ?? 0) + total);
+        });
+      }
     }
-    return { ...values, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
+    const models = Object.fromEntries(Object.entries(modelMaps).map(([provider, entries]) => [provider, [...entries.entries()].map(([name, tokens]) => ({name, tokens})).sort((a, b) => b.tokens - a.tokens)]));
+    return { ...values, models, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
   });
   const totals = providerSeries.map((provider) => ({ ...provider, value: data.reduce((sum, row) => sum + row[provider.key], 0) }));
   return <>
-    <div className="provider-legend" aria-label="Daily activity providers">{totals.map((provider) => <div key={provider.key}><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(provider.value)}</b></div>)}</div>
+    <div className="activity-toolbar">
+      <div className="provider-legend" aria-label="Daily activity providers">{totals.map((provider) => <div key={provider.key}><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(provider.value)}</b></div>)}</div>
+      <label className="range-select"><span>Range</span><select value={range} onChange={(event) => setRange(event.target.value as ActivityRange)}><option value="day">Last day</option><option value="7">Last week</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="this-month">This month</option><option value="last-month">Last month</option></select></label>
+    </div>
     <div className="chart-wrap provider-chart" aria-label="Daily token usage split into Anthropic, Codex, and Warp sections" role="img">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
@@ -132,7 +190,7 @@ function ProviderTimeline({ rows }: {rows:MetricRow[]}) {
           <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false}/>
           <XAxis dataKey="label" tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false} minTickGap={30}/>
           <YAxis tickFormatter={formatCompact} tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false}/>
-          <Tooltip content={<ChartTooltip metric="totalTokens"/>} cursor={{stroke:"#71807b",strokeDasharray:"3 3"}}/>
+          <Tooltip content={<ProviderChartTooltip/>} cursor={{stroke:"#71807b",strokeDasharray:"3 3"}} offset={0} isAnimationActive={false} wrapperStyle={{transition:"none"}}/>
           {providerSeries.map((provider) => <Area key={provider.key} type="monotone" dataKey={provider.key} name={provider.label} stackId="providers" stroke={provider.color} strokeWidth={1.8} fill={`url(#${provider.key}Area)`} activeDot={{r:4,fill:"#07100f",stroke:provider.color,strokeWidth:2}}/>)}
         </AreaChart>
       </ResponsiveContainer>
@@ -140,53 +198,76 @@ function ProviderTimeline({ rows }: {rows:MetricRow[]}) {
   </>;
 }
 
-type QuotaDial = {
+type QuotaState = "ok" | "stale" | "suspended" | "unavailable" | "expired";
+type QuotaBucket = {
   id: string;
-  provider: "anthropic" | "codex" | "warp";
-  providerLabel: string;
   windowLabel: string;
   usedPercent: number | null;
   resetAt: number | null;
   resetVerb: "resets" | "renews";
-  state: "ok" | "stale" | "suspended" | "unavailable" | "expired";
+  state: QuotaState;
   detail: string;
 };
 
-function quotaDials(quotas: DashboardData["quotas"]): QuotaDial[] {
+type QuotaCard = {
+  provider: "anthropic" | "codex" | "warp";
+  providerLabel: string;
+  state: QuotaState;
+  buckets: QuotaBucket[];
+  bankedResets: Array<{ id: string; title: string; expiresAt: string | null }>;
+};
+
+function quotaBucket(id: string, windowLabel: string, usedPercent: number | null, resetAt: number | null, resetVerb: "resets" | "renews", reportStatus: string | undefined, detail?: string, suspended = false): QuotaBucket {
+  const hasValue = usedPercent !== null && Number.isFinite(usedPercent);
+  const expired = hasValue && resetAt !== null && resetAt <= Date.now();
+  const state = suspended ? "suspended" : reportStatus === "unavailable" || reportStatus === "unknown" || !hasValue ? "unavailable" : expired ? "expired" : reportStatus === "stale" ? "stale" : "ok";
+  return { id, windowLabel, usedPercent, resetAt, resetVerb, state, detail: detail ?? (hasValue ? `${Math.max(0, 100 - usedPercent).toFixed(0)}% available` : suspended ? "temporarily suspended" : "not currently reported") };
+}
+
+function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
   const reports = new Map(quotas.usage?.providers.map((provider) => [provider.provider, provider]) ?? []);
-  const expected = [
-    { provider: "anthropic", providerLabel: "Anthropic", key: "fiveHour", windowLabel: "5-hour", resetVerb: "resets" },
-    { provider: "anthropic", providerLabel: "Anthropic", key: "weekly", windowLabel: "Weekly", resetVerb: "resets" },
-    { provider: "codex", providerLabel: "Codex", key: "fiveHour", windowLabel: "5-hour", resetVerb: "resets" },
-    { provider: "codex", providerLabel: "Codex", key: "weekly", windowLabel: "Weekly", resetVerb: "resets" },
-    { provider: "warp", providerLabel: "Warp", key: "pool", windowLabel: "Monthly", resetVerb: "renews" },
-  ] as const;
-  return expected.map((item) => {
-    const report = reports.get(item.provider);
-    const window = report?.snapshot?.kind === "window" && item.key !== "pool" ? report.snapshot[item.key] : null;
-    const pool = report?.snapshot?.kind === "pool" && item.key === "pool" ? report.snapshot.pool : null;
-    const usedPercent = window?.usedPercent ?? pool?.usedPercent ?? null;
-    const resetAt = window?.resetsAt ?? pool?.refreshesAt ?? null;
-    const hasValue = usedPercent !== null && Number.isFinite(usedPercent);
-    const suspended = item.provider === "codex" && item.key === "fiveHour" && report?.snapshot?.kind === "window" && !window;
-    const expired = hasValue && resetAt !== null && resetAt <= Date.now();
-    const state = suspended ? "suspended" : report?.status === "unavailable" || report?.status === "unknown" || !hasValue ? "unavailable" : expired ? "expired" : report?.status === "stale" ? "stale" : "ok";
-    const detail = pool ? `${pool.used.toLocaleString()} / ${pool.limit.toLocaleString()} requests` : hasValue ? `${Math.max(0, 100 - usedPercent).toFixed(0)}% available` : suspended ? "temporarily suspended" : report?.error ?? "not currently reported";
-    return { id: `${item.provider}-${item.key}`, provider: item.provider, providerLabel: item.providerLabel, windowLabel: item.windowLabel, usedPercent, resetAt, resetVerb: item.resetVerb, state, detail };
-  });
+  const anthropic = reports.get("anthropic");
+  const anthropicSnapshot = anthropic?.snapshot?.kind === "window" ? anthropic.snapshot : null;
+  const anthropicBuckets = [
+    quotaBucket("anthropic-five-hour", "5-hour", anthropicSnapshot?.fiveHour?.usedPercent ?? null, anthropicSnapshot?.fiveHour?.resetsAt ?? null, "resets", anthropic?.status, anthropic?.error),
+    quotaBucket("anthropic-weekly", "Weekly", anthropicSnapshot?.weekly?.usedPercent ?? null, anthropicSnapshot?.weekly?.resetsAt ?? null, "resets", anthropic?.status, anthropic?.error),
+    ...Object.entries(anthropicSnapshot?.modelWindows ?? {}).map(([model, window]) => quotaBucket(`anthropic-${model}`, `${model} bucket`, window.usedPercent, window.resetsAt, "resets", anthropic?.status)),
+  ];
+  const codex = reports.get("codex");
+  const codexSnapshot = codex?.snapshot?.kind === "window" ? codex.snapshot : null;
+  const codexBuckets = [
+    quotaBucket("codex-five-hour", "5-hour", codexSnapshot?.fiveHour?.usedPercent ?? null, codexSnapshot?.fiveHour?.resetsAt ?? null, "resets", codex?.status, codex?.error, Boolean(codexSnapshot && !codexSnapshot.fiveHour)),
+    quotaBucket("codex-weekly", "Weekly", codexSnapshot?.weekly?.usedPercent ?? null, codexSnapshot?.weekly?.resetsAt ?? null, "resets", codex?.status, codex?.error),
+  ];
+  const warp = reports.get("warp");
+  const pool = warp?.snapshot?.kind === "pool" ? warp.snapshot.pool : null;
+  const warpBuckets = [quotaBucket("warp-monthly", pool?.cadence ?? "Monthly", pool?.usedPercent ?? null, pool?.refreshesAt ?? null, "renews", warp?.status, pool ? `${pool.used.toLocaleString()} / ${pool.limit.toLocaleString()} requests` : warp?.error)];
+  const banked = quotas.resets?.codexBankedResetCredits;
+  const bankedResets = banked?.credits.filter((credit) => credit.status === "available").map(({id, title, expiresAt}) => ({id, title, expiresAt})) ?? [];
+  return [
+    { provider: "anthropic", providerLabel: "Anthropic", state: anthropic?.status === "ok" ? "ok" : anthropic?.status === "stale" ? "stale" : "unavailable", buckets: anthropicBuckets, bankedResets: [] },
+    { provider: "codex", providerLabel: "Codex", state: codex?.status === "ok" ? "ok" : codex?.status === "stale" ? "stale" : "unavailable", buckets: codexBuckets, bankedResets },
+    { provider: "warp", providerLabel: "Warp", state: warp?.status === "ok" ? "ok" : warp?.status === "stale" ? "stale" : "unavailable", buckets: warpBuckets, bankedResets: [] },
+  ];
 }
 
 function QuotaDials({ quotas }: {quotas: DashboardData["quotas"]}) {
-  const dials = quotaDials(quotas);
+  const cards = quotaCards(quotas);
   return <section className="quota-panel panel">
     <div className="panel-heading"><div><span className="overline">SUBSCRIPTION WINDOWS</span><h2>Usage & resets</h2></div><span className="method-chip"><i/> provider reported</span></div>
-    <div className="quota-grid">{dials.map((dial) => {
-      const percent = dial.usedPercent === null ? null : Math.max(0, Math.min(100, dial.usedPercent));
-      const stateLabel = dial.state === "ok" ? "current" : dial.state;
-      return <article className={`quota-card ${dial.provider} ${dial.state}`} key={dial.id} aria-label={`${dial.providerLabel} ${dial.windowLabel} window: ${percent === null ? stateLabel : `${percent.toFixed(0)}% used`}`}>
-        <div className="quota-card__head"><span>{dial.providerLabel}</span><i>{stateLabel}</i></div>
-        <div className="quota-dial" style={{"--used":`${percent ?? 0}%`} as React.CSSProperties}><div><strong>{percent === null ? "—" : `${percent.toFixed(0)}%`}</strong><span>{percent === null ? dial.state : "used"}</span></div></div>
-        <div className="quota-card__copy"><b>{dial.windowLabel} window</b><span>{dial.detail}</span><small>{dial.state === "suspended" ? "5-hour rate limit is temporarily suspended" : resetCopy(dial.resetAt, dial.resetVerb)}</small></div>
+    <div className="quota-grid">{cards.map((card) => {
+      const stateLabel = card.state === "ok" ? "current" : card.state;
+      return <article className={`quota-card ${card.provider} ${card.state}`} key={card.provider}>
+        <div className="quota-card__head"><span>{card.providerLabel}</span><i>{stateLabel}</i></div>
+        <div className="quota-buckets">{card.buckets.map((bucket) => {
+          const percent = bucket.usedPercent === null ? null : Math.max(0, Math.min(100, bucket.usedPercent));
+          return <div className={`quota-bucket ${bucket.state}`} key={bucket.id} aria-label={`${card.providerLabel} ${bucket.windowLabel}: ${percent === null ? bucket.state : `${percent.toFixed(0)}% used`}`}>
+            <div className="quota-bucket__top"><b>{bucket.windowLabel}</b><span>{percent === null ? bucket.state : `${percent.toFixed(0)}% used · ${bucket.detail}`}</span></div>
+            <div className="quota-meter"><i style={{width:`${percent ?? 0}%`}}/></div>
+            <small>{bucket.state === "suspended" ? "Rate limit temporarily suspended" : resetCopy(bucket.resetAt, bucket.resetVerb)}</small>
+          </div>;
+        })}</div>
+        {card.provider === "codex" && <div className="banked-resets"><div><span>Banked resets</span><b>{card.bankedResets.length} available</b></div>{card.bankedResets.map((credit) => <small key={credit.id}><Sparkles/> {credit.title} · {credit.expiresAt ? `expires ${new Date(credit.expiresAt).toLocaleDateString(undefined, {month:"short", day:"numeric"})}` : "no expiry reported"}</small>)}</div>}
       </article>;
     })}</div>
   </section>;
@@ -202,6 +283,7 @@ function Overview({ data, daily, agent, onSession }: {data:DashboardData;daily:M
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
   const recent = data.sessions.filter((session) => agent === "all" || session.agent === agent).slice(0, 5);
   const cacheShare = totals.tokens ? Math.round(totals.cache / totals.tokens * 100) : 0;
+  const activityDaily = data.daily.map((row) => selectAgent(row, agent)).filter(Boolean) as MetricRow[];
   return <div className="view-stack page-enter">
     <section className="hero-grid">
       <div>
@@ -221,7 +303,7 @@ function Overview({ data, daily, agent, onSession }: {data:DashboardData;daily:M
     <section className="dashboard-grid">
       <article className="panel panel-wide">
         <div className="panel-heading"><div><span className="overline">USAGE TRAJECTORY</span><h2>Daily activity</h2></div><span className="method-chip"><i/> ccusage derived</span></div>
-        <ProviderTimeline rows={daily} />
+        <ProviderTimeline rows={activityDaily} />
       </article>
       <article className="panel block-panel">
         <div className="panel-heading"><div><span className="overline">RECENT WINDOW</span><h2>Five-hour block</h2></div><AlarmClock/></div>
