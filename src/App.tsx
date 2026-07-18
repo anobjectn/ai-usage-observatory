@@ -32,6 +32,11 @@ const favoriteAccentsStorageKey = "usage-observatory:favorite-accents";
 const dataTextScaleStorageKey = "usage-observatory:data-text-scale";
 const defaultDataTextScale = 125;
 
+function faviconHref(accent: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="19" cy="5" r="2" fill="${accent}"/><circle cx="5" cy="19" r="2" fill="${accent}"/></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 function savedAccent() {
   try {
     const value = localStorage.getItem(accentStorageKey);
@@ -696,7 +701,7 @@ function RulesModal({data,onClose,onSaved}:{data:DashboardData;onClose:()=>void;
 
 export function App() {
   const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent); const [favoriteAccents,setFavoriteAccents]=useState(savedFavoriteAccents); const [dataTextScale,setDataTextScale]=useState(savedDataTextScale);
-  useEffect(()=>{ document.documentElement.style.setProperty("--accent", accent); try { localStorage.setItem(accentStorageKey, accent); } catch {} },[accent]);
+  useEffect(()=>{ document.documentElement.style.setProperty("--accent", accent); const favicon=document.querySelector<HTMLLinkElement>("link[rel='icon']"); if(favicon) favicon.href=faviconHref(accent); try { localStorage.setItem(accentStorageKey, accent); } catch {} },[accent]);
   useEffect(()=>{ try { localStorage.setItem(favoriteAccentsStorageKey,JSON.stringify(favoriteAccents)); } catch {} },[favoriteAccents]);
   useEffect(()=>{ const scale=dataTextScale/100; document.documentElement.style.setProperty("--data-text-scale",String(scale)); document.documentElement.style.setProperty("--data-text-primary",`${12*scale}px`); document.documentElement.style.setProperty("--data-text-secondary",`${10*scale}px`); document.documentElement.style.setProperty("--data-text-compact",`${9*scale}px`); document.documentElement.style.setProperty("--data-text-strong",`${15*scale}px`); try { localStorage.setItem(dataTextScaleStorageKey,String(dataTextScale)); } catch {} },[dataTextScale]);
   useEffect(()=>{ const dismiss=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;setSession(null);setRules(false);setAppearance(false);}; window.addEventListener("keydown",dismiss); return()=>window.removeEventListener("keydown",dismiss); },[]);
