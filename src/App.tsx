@@ -10,7 +10,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import type { DashboardData, MetricRow, ProjectActivity, ProjectTrendRow, Session, SessionDetail } from "./types";
+import type { DashboardData, MetricRow, ModelBreakdown, ProjectActivity, ProjectTrendRow, Session, SessionDetail } from "./types";
 
 type View = "overview" | "explorer" | "sessions" | "projects" | "models" | "limits";
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
@@ -236,6 +236,60 @@ function metricRangeRows(rows: MetricRow[], range: MetricRange, periodOffset = 0
 
 function metricTotals(rows: MetricRow[]) {
   return rows.reduce((sum, row) => ({ tokens: sum.tokens + row.totalTokens, cost: sum.cost + row.totalCost, output: sum.output + row.outputTokens, cache: sum.cache + row.cacheReadTokens }), {tokens:0,cost:0,output:0,cache:0});
+}
+
+function modelDistribution(rows: MetricRow[], metric: Metric) {
+  const models = new Map<string, {tokens:number;cost:number;outputTokens:number}>();
+  rows.forEach((row) => {
+    const sources = row.agents?.length ? row.agents : [row];
+    sources.forEach((source) => source.modelBreakdowns.forEach((model) => {
+      const current = models.get(model.modelName) ?? {tokens:0,cost:0,outputTokens:0};
+      current.tokens += model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+      current.cost += model.cost;
+      current.outputTokens += model.outputTokens;
+      models.set(model.modelName, current);
+    }));
+  });
+  const key = metric === "totalCost" ? "cost" : metric === "outputTokens" ? "outputTokens" : "tokens";
+  return [...models.entries()]
+    .map(([name, values]) => ({name:name.replace(/^claude-|^gpt-/, ""), value:values[key]}))
+    .sort((a, b) => b.value - a.value);
+}
+
+function combineMetricRows(rows: MetricRow[], agent: string, period: string): MetricRow {
+  const models = new Map<string, ModelBreakdown>();
+  const totals = rows.reduce((total, row) => {
+    row.modelBreakdowns.forEach((model) => {
+      const current = models.get(model.modelName) ?? { modelName:model.modelName, inputTokens:0, outputTokens:0, cacheReadTokens:0, cacheCreationTokens:0, cost:0 };
+      current.inputTokens += model.inputTokens;
+      current.outputTokens += model.outputTokens;
+      current.cacheReadTokens += model.cacheReadTokens;
+      current.cacheCreationTokens += model.cacheCreationTokens;
+      current.cost += model.cost;
+      models.set(model.modelName, current);
+    });
+    total.inputTokens += row.inputTokens;
+    total.outputTokens += row.outputTokens;
+    total.cacheReadTokens += row.cacheReadTokens;
+    total.cacheCreationTokens += row.cacheCreationTokens;
+    total.totalTokens += row.totalTokens;
+    total.totalCost += row.totalCost;
+    return total;
+  }, { inputTokens:0, outputTokens:0, cacheReadTokens:0, cacheCreationTokens:0, totalTokens:0, totalCost:0 });
+  return { agent, period, ...totals, modelsUsed:[...models.keys()], modelBreakdowns:[...models.values()] };
+}
+
+function pathFilteredRows(sessions: Session[], periods: Set<string>) {
+  const sessionsByPeriod = new Map<string, Session[]>();
+  sessions.forEach((session) => {
+    if (!periods.has(session.period)) return;
+    sessionsByPeriod.set(session.period, [...(sessionsByPeriod.get(session.period) ?? []), session]);
+  });
+  return [...sessionsByPeriod.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([period, daySessions]) => {
+    const agents = [...new Set(daySessions.map((session) => session.agent))]
+      .map((agent) => combineMetricRows(daySessions.filter((session) => session.agent === agent), agent, period));
+    return { ...combineMetricRows(daySessions, "all", period), agents };
+  });
 }
 
 function percentChange(current: number, previous: number) {
@@ -522,16 +576,21 @@ function Overview({ data, daily, sessions, agent, metricRange, onMetricRangeChan
   </div>;
 }
 
-function Explorer({ data, rows, sessions, agent, metricRange, metric, setMetric }: {data:DashboardData;rows:MetricRow[];sessions:Session[];agent:string;metricRange:MetricRange;metric:Metric;setMetric:(metric:Metric)=>void}) {
-  const modelData = data.models.slice(0, 8).map((model) => ({name:model.model.replace(/^claude-|^gpt-/,""),value:metric === "totalCost" ? model.cost : metric === "outputTokens" ? model.outputTokens : model.tokens}));
+function Explorer({ data, rows, sessions, agent, pathTag, metricRange, metric, setMetric }: {data:DashboardData;rows:MetricRow[];sessions:Session[];agent:string;pathTag:string;metricRange:MetricRange;metric:Metric;setMetric:(metric:Metric)=>void}) {
+  const modelData = modelDistribution(rows, metric);
+  const projectActivity = useMemo(() => {
+    if (pathTag === "all") return data.projectActivity;
+    const projectIds = new Set(sessions.map((session) => session.cwd?.replace(/\/+$/, "")).filter(Boolean));
+    return data.projectActivity.filter((activity) => projectIds.has(activity.projectId));
+  }, [data.projectActivity, pathTag, sessions]);
   const rangeLabel = metricRange === "1" ? "LATEST DAY" : `${metricRange}-DAY FIELD`;
   return <div className="view-stack page-enter"><PageTitle eyebrow="ANALYTICAL WORKSPACE" title="Usage explorer" description="Brush the timeline to focus a period. Global agent and path filters stay linked across the workspace."/>
     <section className="panel explorer-main usage-trajectory-panel"><div className="panel-heading"><div><span className="overline">{rangeLabel}</span><h2>Activity by provider</h2>{metricRange === "1" && <p>Sessions grouped by their last recorded activity hour.</p>}</div><span className="method-chip"><i/> ccusage derived</span></div>
       {metricRange === "1" && rows.length === 1
         ? <HourlyProviderTimeline date={rows[0].period} sessions={sessions}/>
-        : <ProviderTimeline rows={rows} projectActivity={data.projectActivity} activeProvider={agent === "all" ? null : providerKey(agent)} />}
+        : <ProviderTimeline rows={rows} projectActivity={projectActivity} activeProvider={agent === "all" ? null : providerKey(agent)} />}
     </section>
-    <section className="split-grid"><article className="panel"><div className="panel-heading"><div><span className="overline">MODEL DISTRIBUTION</span><h2>Top model signals</h2></div><Segmented value={metric} onChange={(v)=>setMetric(v as Metric)} options={[{value:"totalTokens",label:"Tokens"},{value:"totalCost",label:"Cost"},{value:"outputTokens",label:"Output"}]}/></div><div className="bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={modelData} layout="vertical" margin={{left:10,right:16}}><CartesianGrid stroke="#26312e" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" width={100} tick={{fill:"#a8b5b0",fontSize:12}} axisLine={false} tickLine={false}/><Tooltip content={<ChartTooltip metric={metric}/>} cursor={{fill:"#15211d"}}/><Bar dataKey="value" name="Usage" fill="#58d9cf" radius={[0,6,6,0]}/></BarChart></ResponsiveContainer></div></article><article className="panel"><div className="panel-heading"><div><span className="overline">READ / CREATE / OUTPUT</span><h2>Token composition</h2></div></div><Composition rows={rows}/></article></section>
+    <section className="split-grid"><article className="panel"><div className="panel-heading"><div><span className="overline">MODEL DISTRIBUTION</span><h2>Model signals</h2></div><Segmented value={metric} onChange={(v)=>setMetric(v as Metric)} options={[{value:"totalTokens",label:"Tokens"},{value:"totalCost",label:"Cost"},{value:"outputTokens",label:"Output"}]}/></div><div className="bar-chart" style={{height:Math.max(290, modelData.length * 34 + 28)}}><ResponsiveContainer width="100%" height="100%"><BarChart data={modelData} layout="vertical" margin={{left:10,right:16}}><CartesianGrid stroke="#26312e" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" width={100} tick={{fill:"#a8b5b0",fontSize:12}} axisLine={false} tickLine={false}/><Tooltip content={<ChartTooltip metric={metric}/>} cursor={{fill:"#15211d"}} isAnimationActive={false} wrapperStyle={{transition:"none"}}/><Bar dataKey="value" name="Usage" fill="#58d9cf" radius={[0,6,6,0]}/></BarChart></ResponsiveContainer></div></article><article className="panel"><div className="panel-heading"><div><span className="overline">READ / CREATE / OUTPUT</span><h2>Token composition</h2></div></div><Composition rows={rows}/></article></section>
   </div>;
 }
 
@@ -736,8 +795,13 @@ export function App() {
   useEffect(()=>{ const dismiss=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;setSession(null);setRules(false);setAppearance(false);}; window.addEventListener("keydown",dismiss); return()=>window.removeEventListener("keydown",dismiss); },[]);
   const agents=useMemo(()=>data?[...new Set(data.daily.flatMap(row=>row.agents?.map(a=>a.agent)??[]))]:[],[data]);
   const pathTags=useMemo(()=>data?[...new Set(data.sessions.flatMap(s=>s.pathTags))]:[],[data]);
-  const daily=useMemo(()=>data ? metricRangeRows(data.daily, days).map(row=>selectAgent(row,agent)).filter(Boolean) as MetricRow[] : [],[data,agent,days]);
   const sessions=useMemo(()=>data?.sessions.filter(s=>(agent==="all"||s.agent===agent)&&(pathTag==="all"||s.pathTags.includes(pathTag)))??[],[data,agent,pathTag]);
+  const daily=useMemo(()=>{
+    if (!data) return [];
+    const range = metricRangeRows(data.daily, days);
+    if (pathTag === "all") return range.map(row=>selectAgent(row,agent)).filter(Boolean) as MetricRow[];
+    return pathFilteredRows(sessions, new Set(range.map((row) => row.period)));
+  },[data,agent,days,pathTag,sessions]);
   if (loading&&!data) return <div className="boot"><div className="boot-orbit"><Orbit/></div><span>Calibrating local instruments…</span></div>;
   if (error&&!data) return <div className="boot error-state"><Database/><h1>Observatory is offline</h1><p>{error}</p><button className="primary-button" onClick={()=>load()}>Try again</button></div>;
   if (!data) return null;
@@ -748,7 +812,7 @@ export function App() {
       {data.refresh.stale&&<div className="stale-banner">Showing the last successful collection. {data.refresh.lastError}</div>}
       <div className="content">
         {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession} accent={accent} sceneEffects={sceneEffects}/>}
-        {view==="explorer"&&<Explorer data={data} rows={daily} sessions={sessions} agent={agent} metricRange={days} metric={metric} setMetric={setMetric}/>}
+        {view==="explorer"&&<Explorer data={data} rows={daily} sessions={sessions} agent={agent} pathTag={pathTag} metricRange={days} metric={metric} setMetric={setMetric}/>}
         {view==="sessions"&&<Sessions sessions={sessions} onEdit={setSession}/>}
         {view==="projects"&&<Projects data={data}/>}
         {view==="models"&&<Models data={data}/>}
