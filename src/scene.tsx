@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Telescope } from "lucide-react";
 
-export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; trails: boolean };
+export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; trails: boolean; speed: number };
 
 // One shared "camera" orbits the hero object. The starfield reads the same
 // orientation, so dragging the object pans the whole sky behind the content.
@@ -14,16 +14,18 @@ let lastStep = -1;
 
 // Advances shared time + camera inertia/auto-rotation. Both canvases call this
 // each frame; the `lastStep` guard makes only the first caller step the clock.
-function stepScene(now: number, animate: boolean) {
+// `speed` scales ambient motion (auto-rotate, orbit sweep, twinkle) only —
+// a user's drag rotation is never scaled, so dragging always feels 1:1.
+function stepScene(now: number, animate: boolean, speed: number) {
   if (now === lastStep) return;
   const dt = lastStep < 0 ? 0 : Math.min((now - lastStep) / 1000, 0.1);
   lastStep = now;
   if (!animate || !dt) return;
-  clock += dt;
+  clock += dt * speed;
   if (camera.dragging) return;
   const idle = now - camera.lastInput > 2600;
   const pull = Math.min(1, dt * (idle ? 0.5 : 1.6));
-  camera.vyaw += ((idle ? AUTO_YAW : 0) - camera.vyaw) * pull;
+  camera.vyaw += ((idle ? AUTO_YAW * speed : 0) - camera.vyaw) * pull;
   camera.vpitch -= camera.vpitch * pull;
   camera.yaw += camera.vyaw * dt;
   camera.pitch += camera.vpitch * dt;
@@ -113,7 +115,7 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       const animate = !reduced.current;
-      stepScene(now, animate);
+      stepScene(now, animate, propsRef.current.effects.speed);
       if (!animate && !dirtyRef.current && camera.version === drawnVersion) return;
       drawnVersion = camera.version;
       dirtyRef.current = false;
@@ -289,7 +291,7 @@ export function OrbitalScene({ accent, effects }: { accent: string; effects: Sce
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       const animate = !reduced.current;
-      stepScene(now, animate);
+      stepScene(now, animate, propsRef.current.effects.speed);
       if (!animate && !dirtyRef.current && camera.version === drawnVersion) return;
       drawnVersion = camera.version;
       dirtyRef.current = false;
