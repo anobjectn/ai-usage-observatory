@@ -28,4 +28,4 @@ SQLite stores path rules, session working-directory metadata, manual annotations
 
 ## Quota integration
 
-`quota-service` remains an optional, separate localhost dependency. The adapter reads `/usage`, `/resets`, and `/status`. It does not supply analytical cost, so two cost methodologies cannot appear for the same activity.
+[`quota-service`](https://github.com/anobjectn/quota-service) remains an optional, separate localhost dependency. The adapter reads `/usage`, `/resets`, and `/status`. It does not supply analytical cost, so two cost methodologies cannot appear for the same activity.

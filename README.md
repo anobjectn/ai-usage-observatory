@@ -1,6 +1,6 @@
 # AI Usage Observatory
 
-A local-first mission control for understanding AI coding usage. It combines pinned `ccusage` analytics, metadata-only working-directory indexing, and optional provider quota data from `quota-service`.
+A local-first mission control for understanding AI coding usage. It combines pinned `ccusage` analytics, metadata-only working-directory indexing, and optional provider quota data from [`quota-service`](https://github.com/anobjectn/quota-service).
 
 ## Start
 
@@ -32,7 +32,7 @@ Open `http://127.0.0.1:4318`.
 - Daily cross-provider project attribution from session working directories, with per-model token constituents.
 - Glob and regex path rules, evaluated retroactively.
 - Manual session tags and notes.
-- Optional read-only `quota-service` integration at `http://127.0.0.1:8787`.
+- Optional read-only [`quota-service`](https://github.com/anobjectn/quota-service) integration at `http://127.0.0.1:8787`.
 - Startup, 60-second, and manual refresh with last-success retention.
 - A semantic dark Observatory theme with reduced-motion support.
 
@@ -40,24 +40,24 @@ Open `http://127.0.0.1:4318`.
 
 The application binds to localhost and makes no analytics calls. `ccusage` runs in offline-pricing mode. The path indexer reads only the beginning of local session files to extract native session ID and working directory; it stores no prompt or response content. Application state is written to `.usage-observatory/data.db`, which is ignored by Git.
 
-Set `USAGE_OBSERVATORY_DB` to use another database path. Set `QUOTA_SERVICE_URL` to point at a different quota-service instance.
+Set `USAGE_OBSERVATORY_DB` to use another database path. Set `QUOTA_SERVICE_URL` to point at a different [`quota-service`](https://github.com/anobjectn/quota-service) instance.
 
 ## Information sources and credit
 
 - [ccusage](https://github.com/ccusage/ccusage) v20.0.17 by ryoppippi (MIT) provides the local usage analytics and offline API-equivalent price estimates.
 - Local Claude Code and Codex session-file headers provide session identifiers and working-directory metadata. Prompt and response content is not stored.
-- `quota-service` optionally provides provider-reported allowance windows, resets, and status. It is a separate localhost service, not a bundled dependency.
+- [`quota-service`](https://github.com/anobjectn/quota-service) optionally provides provider-reported allowance windows, resets, and status. It is a separate localhost service, not a bundled dependency.
 
 ## Methodology boundaries
 
 - Historical cost: `ccusage` only.
-- Provider allowance: optional `quota-service`, visibly labeled provider-reported.
+- Provider allowance: optional [`quota-service`](https://github.com/anobjectn/quota-service), visibly labeled provider-reported.
 - Five-hour block: locally reconstructed by `ccusage`; currently Claude Code-scoped.
 - Personal budget: user-defined and not a billing limit.
 
 ## Quota-service fallback
 
-Without `quota-service`, the dashboard continues to show ccusage-derived tokens, costs, sessions, projects, and local activity blocks. Provider allowance cards remain unavailable rather than estimating subscription quota from token usage. To restore provider allowance data, configure `QUOTA_SERVICE_URL` to a compatible service exposing `/usage`, `/resets`, and `/status`; this project does not include a direct provider collector.
+Without [`quota-service`](https://github.com/anobjectn/quota-service), the dashboard continues to show ccusage-derived tokens, costs, sessions, projects, and local activity blocks. Provider allowance cards remain unavailable rather than estimating subscription quota from token usage. To restore provider allowance data, configure `QUOTA_SERVICE_URL` to a compatible service exposing `/usage`, `/resets`, and `/status`; this project does not include a direct provider collector.
 
 ## Verification
 

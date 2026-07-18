@@ -777,7 +777,7 @@ function InformationSources({data}:{data:DashboardData}) {
     <ul>
       <li><a href="https://github.com/ccusage/ccusage" target="_blank" rel="noreferrer">ccusage</a><span>v{data.ccusageVersion} by ryoppippi · MIT · local usage analytics and offline price estimates</span></li>
       <li><b>Local agent records</b><span>Claude Code and Codex session headers · working-directory metadata only</span></li>
-      <li><b>quota-service</b><span>{data.quotas.available ? "Provider-reported allowance data" : "Optional provider allowance service unavailable; no quota estimate is substituted"}</span></li>
+      <li><a href="https://github.com/anobjectn/quota-service" target="_blank" rel="noreferrer">quota-service</a><span>{data.quotas.available ? "Provider-reported allowance data" : "Optional provider allowance service unavailable; no quota estimate is substituted"}</span></li>
     </ul>
   </footer>;
 }
