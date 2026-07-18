@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getSnapshot, refresh } from "./collector";
+import { getSessionDetail } from "./session-detail";
 import { createRule, deleteRule, getSettings, listRules, setAnnotation, setSettings, updateRule } from "./store";
 
 const port = Number(process.env.PORT ?? 4318);
@@ -37,6 +38,8 @@ async function api(request: Request, url: URL) {
     setAnnotation(decodeURIComponent(annotationMatch[1]), { tags: Array.isArray(input.tags) ? input.tags.map(String) : [], note: String(input.note ?? "") });
     return json({ ok: true });
   }
+  const detailMatch = path.match(/^\/api\/sessions\/([^/]+)\/detail$/);
+  if (detailMatch && request.method === "GET") return json(await getSessionDetail(decodeURIComponent(detailMatch[1])));
   if (path === "/api/settings" && request.method === "GET") return json(getSettings());
   if (path === "/api/settings" && request.method === "PUT") { setSettings(await body(request) as Record<string, string>); return json(getSettings()); }
 

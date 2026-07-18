@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Activity, AlarmClock, ArrowDownRight, ArrowUpRight, Atom, Bot, Check,
   ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Database, FolderGit2,
-  Gauge, Layers3, Menu, Orbit, Palette, PencilLine, RefreshCw, Search, Settings2,
-  Sparkles, Tag, Telescope, Trash2, X, Zap,
+  Copy, Gauge, Layers3, Menu, Orbit, Palette, PencilLine, RefreshCw, RotateCcw, Search, Settings2,
+  Plus, Sparkles, Tag, Telescope, Trash2, X, Zap,
 } from "lucide-react";
 import {
   Area, AreaChart, Bar, BarChart, Brush, CartesianGrid, Cell, Line, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import type { DashboardData, MetricRow, ProjectActivity, ProjectTrendRow, Session } from "./types";
+import type { DashboardData, MetricRow, ProjectActivity, ProjectTrendRow, Session, SessionDetail } from "./types";
 
 type View = "overview" | "explorer" | "sessions" | "projects" | "models" | "limits";
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
@@ -26,14 +26,31 @@ const nav: Array<{id:View;label:string;icon:typeof Orbit}> = [
 const palette = ["#b7f25c", "#58d9cf", "#ff9e64", "#d7b3ff", "#78a8ff", "#f2d15c"];
 const defaultAccent = "#b7f25c";
 const neutralAccent = "#919699";
-const favoriteAccents = ["#b7f25c", "#58d9cf", "#78a8ff", "#d7b3ff", "#ff9e64", "#f2d15c"];
+const defaultFavoriteAccents = ["#b7f25c", "#58d9cf", "#78a8ff", "#d7b3ff", "#ff9e64", "#f2d15c"];
 const accentStorageKey = "usage-observatory:accent";
+const favoriteAccentsStorageKey = "usage-observatory:favorite-accents";
+const dataTextScaleStorageKey = "usage-observatory:data-text-scale";
+const defaultDataTextScale = 125;
 
 function savedAccent() {
   try {
     const value = localStorage.getItem(accentStorageKey);
     return value && /^#[0-9a-f]{6}$/i.test(value) ? value : defaultAccent;
   } catch { return defaultAccent; }
+}
+
+function savedFavoriteAccents() {
+  try {
+    const value = JSON.parse(localStorage.getItem(favoriteAccentsStorageKey) ?? "[]");
+    return Array.isArray(value) && value.length === defaultFavoriteAccents.length && value.every(color => typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) ? value : defaultFavoriteAccents;
+  } catch { return defaultFavoriteAccents; }
+}
+
+function savedDataTextScale() {
+  try {
+    const value = Number(localStorage.getItem(dataTextScaleStorageKey));
+    return Number.isFinite(value) && value >= 90 && value <= 150 ? value : defaultDataTextScale;
+  } catch { return defaultDataTextScale; }
 }
 
 const formatCompact = (value: number) => Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
@@ -499,12 +516,62 @@ function Composition({rows}:{rows:MetricRow[]}) {
   return <div className="composition"><div className="composition-bar">{items.map(item=><i key={item.label} style={{width:`${item.value/all*100}%`,background:item.color}}/>)}</div>{items.map(item=><div className="composition-row" key={item.label}><i style={{background:item.color}}/><span>{item.label}</span><b>{formatCompact(item.value)}</b><small>{Math.round(item.value/all*100)}%</small></div>)}</div>;
 }
 
+function SessionDetailPanel({ session, detail, loading }: {session:Session;detail?:SessionDetail;loading:boolean}) {
+  if (loading) return <div className="session-detail session-detail--loading">Reading the local session record…</div>;
+  if (!detail?.available) return <div className="session-detail session-detail--empty">The indexed record is no longer available locally.</div>;
+  const models = session.modelBreakdowns.length
+    ? session.modelBreakdowns.map((model) => ({ modelName: model.modelName, tokens: model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens }))
+    : session.modelsUsed.map((modelName) => ({ modelName, tokens: null }));
+  return <div className="session-detail">
+    <div className="session-detail__summary">
+      <div><span>TRANSCRIPT EVENTS</span><strong>{detail.eventsRead}</strong></div>
+      <div><span>TOOL CALLS</span><strong>{detail.tools.reduce((total, tool) => total + tool.count, 0)}</strong></div>
+      <div><span>FILES TOUCHED</span><strong>{detail.files.length}</strong></div>
+      <div className="diff-count"><span>PATCH SUMMARY</span><strong><i>+{detail.additions}</i><em>−{detail.deletions}</em></strong></div>
+    </div>
+    <div className="session-detail__grid">
+      <section className="session-detail__section session-prompts"><div className="session-detail__head"><span className="overline">PROMPTS</span><small>{detail.prompts.length ? "Most recent first" : "No prompt events detected"}</small></div>{detail.prompts.length ? <ol>{detail.prompts.map((prompt, index) => <li key={`${index}-${prompt.slice(0, 24)}`}><pre>{prompt}</pre></li>)}</ol> : <p>Prompt text was not available in this session format.</p>}</section>
+      <section className="session-detail__section"><div className="session-detail__head"><span className="overline">TOOLS</span><small>{detail.tools.length ? "Observed calls" : "No tool calls detected"}</small></div>{detail.tools.length ? <ul className="tool-list">{detail.tools.map((tool) => <li key={tool.name}><code>{tool.name}</code><b>×{tool.count}</b></li>)}</ul> : <p>No structured tool calls were found.</p>}</section>
+      <section className="session-detail__section"><div className="session-detail__head"><span className="overline">FILES & PATCHES</span><small>{detail.files.length ? `${detail.files.length} files` : "No patch payload found"}</small></div>{detail.files.length ? <ul className="file-list">{detail.files.map((file) => <li key={file.path}><span className={`file-status ${file.status}`}>{file.status[0]}</span><code title={file.path}>{file.path}</code></li>)}</ul> : <p>File changes are detected from structured patch calls only.</p>}</section>
+      <section className="session-detail__section"><div className="session-detail__head"><span className="overline">MODEL MIX</span><small>{models.length} model{models.length === 1 ? "" : "s"}</small></div><ul className="model-list">{models.map((model) => <li key={model.modelName}><span>{model.modelName}</span><b>{model.tokens === null ? "—" : formatCompact(model.tokens)}</b></li>)}</ul></section>
+    </div>
+  </div>;
+}
+
 function Sessions({sessions,onEdit}:{sessions:Session[];onEdit:(session:Session)=>void}) {
-  const [query,setQuery] = useState(""); const [page,setPage] = useState(1); const pageSize=15;
+  type SortKey = "activity" | "session" | "agent" | "cwd" | "tokens" | "cost";
+  const [query,setQuery] = useState(""); const [page,setPage] = useState(1); const [expanded,setExpanded] = useState<string | null>(null); const [details,setDetails] = useState<Record<string,SessionDetail>>({}); const [loadingDetail,setLoadingDetail] = useState<string | null>(null); const [sort,setSort] = useState<{key:SortKey;direction:"asc"|"desc"}>({key:"activity",direction:"desc"}); const pageSize=15;
   const filtered=sessions.filter(s=>`${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
-  const pages=Math.max(1,Math.ceil(filtered.length/pageSize)); const pageRows=filtered.slice((page-1)*pageSize,page*pageSize);
+  const sorted=[...filtered].sort((left,right)=>{
+    const value=(session:Session):string|number=>{
+      if(sort.key==="activity") return Date.parse(String(session.metadata?.lastActivity ?? "")) || 0;
+      if(sort.key==="session") return session.modelsUsed[0] ?? "";
+      if(sort.key==="agent") return session.agent;
+      if(sort.key==="cwd") return session.cwd ?? "";
+      if(sort.key==="tokens") return session.totalTokens;
+      return session.totalCost;
+    };
+    const a=value(left),b=value(right); const comparison=typeof a==="number"&&typeof b==="number"?a-b:String(a).localeCompare(String(b));
+    return sort.direction==="asc"?comparison:-comparison;
+  });
+  const pages=Math.max(1,Math.ceil(sorted.length/pageSize)); const pageRows=sorted.slice((page-1)*pageSize,page*pageSize);
   useEffect(()=>setPage(1),[query,sessions]);
-  return <div className="view-stack page-enter"><PageTitle eyebrow="SESSION LEDGER" title="Trace every session" description="Search agent history, inspect working directories, and add local tags or notes without storing transcript content." actions={<label className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search sessions…"/></label>}/><section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Session</th><th>Agent</th><th>Working directory</th><th>Tokens</th><th>Cost</th><th>Last activity</th><th></th></tr></thead><tbody>{pageRows.map(session=><tr key={session.sessionId}><td><b>{session.modelsUsed[0] ?? "Unknown"}</b><small>{session.period.slice(0,18)}</small></td><td><span className={`agent-pill ${session.agent}`}>{session.agent}</span></td><td><span className="cwd" title={session.cwd ?? "Unavailable"}>{session.cwd ?? "Path unavailable"}</span><span className="mini-tags">{[...session.pathTags,...session.annotation.tags].slice(0,3).map(tag=><i key={tag}>{tag}</i>)}</span></td><td><b>{formatCompact(session.totalTokens)}</b><small>{formatCompact(session.outputTokens)} output</small></td><td><b>{formatMoney(session.totalCost)}</b><small>ccusage</small></td><td>{session.metadata?.lastActivity ? formatDate(session.metadata.lastActivity) : "—"}</td><td><button className="icon-button" onClick={()=>onEdit(session)} aria-label="Edit annotation"><PencilLine/></button></td></tr>)}</tbody></table></div>{!pageRows.length&&<Empty text="No sessions match those filters."/>}<div className="pagination"><span>{filtered.length} sessions</span><div><button disabled={page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft/></button><span>{page} / {pages}</span><button disabled={page===pages} onClick={()=>setPage(p=>p+1)}><ChevronRight/></button></div></div></section></div>;
+  const sortBy=(key:SortKey)=>{setSort(current=>current.key===key?{key,direction:current.direction==="desc"?"asc":"desc"}:{key,direction:key==="activity"||key==="tokens"||key==="cost"?"desc":"asc"});setPage(1);};
+  const toggle = async (session: Session) => {
+    if (expanded === session.sessionId) return setExpanded(null);
+    setExpanded(session.sessionId);
+    if (details[session.sessionId]) return;
+    setLoadingDetail(session.sessionId);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.sessionId)}/detail`);
+      if (!response.ok) throw new Error("Session details are unavailable");
+      const detail = await response.json() as SessionDetail;
+      setDetails((current) => ({ ...current, [session.sessionId]: detail }));
+    } catch { setDetails((current) => ({ ...current, [session.sessionId]: { available: false, prompts: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 } })); }
+    finally { setLoadingDetail(null); }
+  };
+  const header=(key:SortKey,label:string)=><th aria-sort={sort.key===key?(sort.direction==="asc"?"ascending":"descending"):"none"}><button type="button" className={`sort-header ${sort.key===key?"active":""}`} onClick={()=>sortBy(key)}>{label}<span aria-hidden="true">{sort.key===key?(sort.direction==="asc"?"↑":"↓"):"↕"}</span></button></th>;
+  return <div className="view-stack page-enter"><PageTitle eyebrow="SESSION LEDGER" title="Trace every session" description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine." actions={<label className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search sessions…"/></label>}/><section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{header("activity","Last activity")}{header("session","Session")}{header("agent","Agent")}{header("cwd","Working directory")}{header("tokens","Tokens")}{header("cost","Cost")}<th></th><th></th></tr></thead><tbody>{pageRows.map(session => <Fragment key={session.sessionId}><tr className={`session-row ${expanded === session.sessionId ? "session-row-open" : ""}`} tabIndex={0} aria-expanded={expanded === session.sessionId} aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}`} onClick={()=>void toggle(session)} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==="Enter"||event.key===" ")){event.preventDefault();void toggle(session);}}}><td><span className="session-activity">{session.metadata?.lastActivity ? formatDate(session.metadata.lastActivity) : "—"}</span></td><td><span><b>{session.modelsUsed[0] ?? "Unknown"}</b><small>{session.period.slice(0,18)}</small></span></td><td className="session-row__agent"><span className={`agent-pill ${session.agent}`}>{session.agent}</span></td><td><span className="cwd" title={session.cwd ?? "Unavailable"}>{session.cwd ?? "Path unavailable"}</span><span className="mini-tags">{[...session.pathTags,...session.annotation.tags].slice(0,3).map(tag=><i key={tag}>{tag}</i>)}</span></td><td><b>{formatCompact(session.totalTokens)}</b><small>{formatCompact(session.outputTokens)} output</small></td><td><b>{formatMoney(session.totalCost)}</b><small>ccusage</small></td><td className="session-row__actions" onClick={event=>event.stopPropagation()}><button className="icon-button" onClick={()=>onEdit(session)} aria-label="Edit annotation"><PencilLine/></button></td><td className="session-row__toggle" onClick={event=>event.stopPropagation()}><button type="button" className="session-detail-toggle" onClick={()=>void toggle(session)} aria-label={expanded === session.sessionId ? "Close session details" : "Open session details"} aria-expanded={expanded === session.sessionId}><Plus/></button></td></tr>{expanded === session.sessionId && <tr className="session-detail-row"><td colSpan={8}><SessionDetailPanel session={session} detail={details[session.sessionId]} loading={loadingDetail === session.sessionId}/></td></tr>}</Fragment>)}</tbody></table></div>{!pageRows.length&&<Empty text="No sessions match those filters."/>}<div className="pagination"><span>{filtered.length} sessions</span><div><button disabled={page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft/></button><span>{page} / {pages}</span><button disabled={page===pages} onClick={()=>setPage(p=>p+1)}><ChevronRight/></button></div></div></section></div>;
 }
 
 function projectDayRows(trend: ProjectTrendRow[]) {
@@ -607,8 +674,11 @@ function PageTitle({eyebrow,title,description,actions}:{eyebrow:string;title:str
 function Segmented({value,onChange,options,label}:{value:string;onChange:(v:string)=>void;options:Array<{value:string;label:string}>;label?:string}) { return <div className="segmented" aria-label={label}>{options.map(option=><button type="button" key={option.value} className={value===option.value?"active":""} aria-pressed={value===option.value} onClick={()=>onChange(option.value)}>{option.label}</button>)}</div> }
 function Empty({text}:{text:string}) { return <div className="empty"><Orbit/><p>{text}</p></div> }
 
-function AppearanceModal({accent,onChange,onClose}:{accent:string;onChange:(value:string)=>void;onClose:()=>void}) {
-  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><div className="modal appearance-modal"><button className="modal-close" onClick={onClose} aria-label="Close appearance settings"><X/></button><span className="overline">LOCAL APPEARANCE</span><h2>Accent color</h2><p>Choose the color used for highlights, headings, and primary usage signals. This preference stays on this device.</p><div className="accent-control"><input aria-label="Custom accent color" type="color" value={accent} onChange={event=>onChange(event.target.value)}/><code>{accent.toUpperCase()}</code></div><div className="accent-favorites" aria-label="Favorite accent colors">{favoriteAccents.map(color=><button type="button" key={color} className={accent.toLowerCase()===color.toLowerCase()?"selected":""} style={{backgroundColor:color}} aria-label={`Use ${color} accent`} aria-pressed={accent.toLowerCase()===color.toLowerCase()} onClick={()=>onChange(color)}><Check/></button>)}</div><button type="button" className="reset-accent" onClick={()=>onChange(neutralAccent)}>Reset to contrast-safe gray</button></div></div>;
+function AppearanceModal({accent,onChange,favoriteAccents,onFavoriteAccentsChange,dataTextScale,onDataTextScaleChange,onClose}:{accent:string;onChange:(value:string)=>void;favoriteAccents:string[];onFavoriteAccentsChange:(value:string[])=>void;dataTextScale:number;onDataTextScaleChange:(value:number)=>void;onClose:()=>void}) {
+  const [editingFavorites,setEditingFavorites]=useState(false); const [copied,setCopied]=useState(false);
+  const copyAccent=async()=>{try { await navigator.clipboard.writeText(accent); setCopied(true); window.setTimeout(()=>setCopied(false),1600); } catch {} };
+  const replaceFavorite=(index:number)=>{onFavoriteAccentsChange(favoriteAccents.map((color,colorIndex)=>colorIndex===index?accent:color));setEditingFavorites(false);};
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><div className="modal appearance-modal"><button className="modal-close" onClick={onClose} aria-label="Close appearance settings"><X/></button><span className="overline">LOCAL APPEARANCE</span><h2>Appearance</h2><p>Adjust visual signals and data readability. These preferences stay on this device.</p><span className="appearance-label">Accent color</span><div className="accent-control"><input aria-label="Custom accent color" type="color" value={accent} onChange={event=>onChange(event.target.value)}/><code>{accent.toUpperCase()}</code></div><div className={`accent-favorites${editingFavorites?" editing":""}`} aria-label="Favorite accent colors">{favoriteAccents.map((color,index)=><button type="button" key={`${color}-${index}`} className={accent.toLowerCase()===color.toLowerCase()?"selected":""} style={{backgroundColor:color}} aria-label={editingFavorites?`Replace ${color} with ${accent}`:`Use ${color} accent`} aria-pressed={!editingFavorites&&accent.toLowerCase()===color.toLowerCase()} onClick={()=>editingFavorites?replaceFavorite(index):onChange(color)}>{editingFavorites?<PencilLine/>:<Check/>}</button>)}</div><div className="accent-favorite-controls"><button type="button" className="accent-icon-button" onClick={()=>setEditingFavorites(editing=>!editing)} aria-label={editingFavorites?"Finish editing favorite colors":"Edit favorite colors"} aria-pressed={editingFavorites}><PencilLine/></button><button type="button" className="accent-icon-button" onClick={()=>void copyAccent()} aria-label="Copy current accent color"><span className="copy-status" aria-live="polite">{copied?"Copied":"Copy"}</span>{copied?<Check/>:<Copy/>}</button></div>{editingFavorites&&<div className="accent-favorite-editor"><p>Pick a new color above, then choose the favorite chip to replace.</p><button type="button" onClick={()=>{onFavoriteAccentsChange(defaultFavoriteAccents);setEditingFavorites(false)}}><RotateCcw/> Reset favorites</button></div>}<button type="button" className="reset-accent" onClick={()=>onChange(neutralAccent)}>Reset to contrast-safe gray</button><div className="data-text-setting"><div><b>Data text size</b><small>Tables and dense data rows across every view</small></div><div className="data-text-control"><button type="button" onClick={()=>onDataTextScaleChange(Math.max(90,dataTextScale-10))} disabled={dataTextScale<=90} aria-label="Decrease data text size">−</button><output aria-live="polite">{dataTextScale}%</output><button type="button" onClick={()=>onDataTextScaleChange(Math.min(150,dataTextScale+10))} disabled={dataTextScale>=150} aria-label="Increase data text size">+</button></div></div></div></div>;
 }
 
 function AnnotationModal({session,onClose,onSaved}:{session:Session;onClose:()=>void;onSaved:()=>void}) {
@@ -625,8 +695,11 @@ function RulesModal({data,onClose,onSaved}:{data:DashboardData;onClose:()=>void;
 }
 
 export function App() {
-  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent);
+  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent); const [favoriteAccents,setFavoriteAccents]=useState(savedFavoriteAccents); const [dataTextScale,setDataTextScale]=useState(savedDataTextScale);
   useEffect(()=>{ document.documentElement.style.setProperty("--accent", accent); try { localStorage.setItem(accentStorageKey, accent); } catch {} },[accent]);
+  useEffect(()=>{ try { localStorage.setItem(favoriteAccentsStorageKey,JSON.stringify(favoriteAccents)); } catch {} },[favoriteAccents]);
+  useEffect(()=>{ const scale=dataTextScale/100; document.documentElement.style.setProperty("--data-text-scale",String(scale)); document.documentElement.style.setProperty("--data-text-primary",`${12*scale}px`); document.documentElement.style.setProperty("--data-text-secondary",`${10*scale}px`); document.documentElement.style.setProperty("--data-text-compact",`${9*scale}px`); document.documentElement.style.setProperty("--data-text-strong",`${15*scale}px`); try { localStorage.setItem(dataTextScaleStorageKey,String(dataTextScale)); } catch {} },[dataTextScale]);
+  useEffect(()=>{ const dismiss=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;setSession(null);setRules(false);setAppearance(false);}; window.addEventListener("keydown",dismiss); return()=>window.removeEventListener("keydown",dismiss); },[]);
   const agents=useMemo(()=>data?[...new Set(data.daily.flatMap(row=>row.agents?.map(a=>a.agent)??[]))]:[],[data]);
   const pathTags=useMemo(()=>data?[...new Set(data.sessions.flatMap(s=>s.pathTags))]:[],[data]);
   const daily=useMemo(()=>data ? metricRangeRows(data.daily, days).map(row=>selectAgent(row,agent)).filter(Boolean) as MetricRow[] : [],[data,agent,days]);
@@ -636,8 +709,8 @@ export function App() {
   if (!data) return null;
   const current=nav.find(item=>item.id===view)!;
   return <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-    <aside className={sidebar?"open":""}><div className="brand"><span><Orbit/></span><div><b>AI Usage</b><small>OBSERVATORY</small></div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed(collapsed=>!collapsed)} aria-label={sidebarCollapsed?"Expand navigation":"Collapse navigation"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed?<ChevronRight/>:<ChevronLeft/>}</button><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="Close navigation"><X/></button></div><nav>{nav.map(item=><button key={item.id} className={view===item.id?"active":""} onClick={()=>{setView(item.id);setSidebar(false)}} title={sidebarCollapsed?item.label:undefined}><item.icon/><span>{item.label}</span>{view===item.id&&<i/>}</button>)}</nav><div className="side-status"><span className="status-dot healthy"/><div><b>Local systems nominal</b><small>ccusage v{data.ccusageVersion}</small></div></div><button className="settings-link" onClick={()=>setRules(true)} title={sidebarCollapsed?"Path rules":undefined}><Settings2/> <b>Path rules</b> <span>{data.rules.length}</span></button><p className="privacy-note">No raw usage records leave this machine.</p></aside>
-    <main><header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><span>AI Usage Observatory</span><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Accent color"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
+    <aside className={sidebar?"open":""}><div className="brand"><button type="button" className="brand-home" onClick={()=>{setView("overview");setSidebar(false)}} aria-label="Go to Overview"><Orbit/></button><div><b>AI Usage</b><small>OBSERVATORY</small></div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed(collapsed=>!collapsed)} aria-label={sidebarCollapsed?"Expand navigation":"Collapse navigation"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed?<ChevronRight/>:<ChevronLeft/>}</button><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="Close navigation"><X/></button></div><nav>{nav.map(item=><button key={item.id} className={view===item.id?"active":""} onClick={()=>{setView(item.id);setSidebar(false)}} title={sidebarCollapsed?item.label:undefined}><item.icon/><span>{item.label}</span>{view===item.id&&<i/>}</button>)}</nav><div className="side-status"><span className="status-dot healthy"/><div><b>Local systems nominal</b><small>ccusage v{data.ccusageVersion}</small></div></div><button className="settings-link" onClick={()=>setRules(true)} title={sidebarCollapsed?"Path rules":undefined}><Settings2/> <b>Path rules</b> <span>{data.rules.length}</span></button><p className="privacy-note">No raw usage records leave this machine.</p></aside>
+    <main><header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><button type="button" onClick={()=>setView("overview")}>AI Usage Observatory</button><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Accent color"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
       {data.refresh.stale&&<div className="stale-banner">Showing the last successful collection. {data.refresh.lastError}</div>}
       <div className="content">
         {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession}/>}
@@ -648,6 +721,6 @@ export function App() {
         {view==="limits"&&<Limits data={data} onRules={()=>setRules(true)}/>}
       </div>
     </main>
-    {session&&<AnnotationModal session={session} onClose={()=>setSession(null)} onSaved={()=>load()}/>} {rules&&<RulesModal data={data} onClose={()=>setRules(false)} onSaved={()=>load(true)}/>} {appearance&&<AppearanceModal accent={accent} onChange={setAccent} onClose={()=>setAppearance(false)}/>} {sidebar&&<div className="scrim" onClick={()=>setSidebar(false)}/>}
+    {session&&<AnnotationModal session={session} onClose={()=>setSession(null)} onSaved={()=>load()}/>} {rules&&<RulesModal data={data} onClose={()=>setRules(false)} onSaved={()=>load(true)}/>} {appearance&&<AppearanceModal accent={accent} onChange={setAccent} favoriteAccents={favoriteAccents} onFavoriteAccentsChange={setFavoriteAccents} dataTextScale={dataTextScale} onDataTextScaleChange={setDataTextScale} onClose={()=>setAppearance(false)}/>} {sidebar&&<div className="scrim" onClick={()=>setSidebar(false)}/>}
   </div>;
 }

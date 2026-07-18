@@ -91,3 +91,8 @@ export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }>
     return sessionReportKeys(row.agent, row.native_session_key, row.source_file).map((key) => [`${row.agent}:${key}`, value]);
   }));
 }
+
+export function getSessionSource(sessionId: string) {
+  const row = db.query("SELECT agent, source_file FROM session_paths WHERE session_id = ?").get(sessionId) as {agent:string;source_file:string} | null;
+  return row ? { agent: row.agent, sourceFile: row.source_file } : null;
+}

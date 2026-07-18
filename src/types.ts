@@ -24,6 +24,15 @@ export type ProjectActivity = {
   models: Array<{model:string;tokens:number}>;
 };
 export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: { tags: string[]; note: string } };
+export type SessionDetail = {
+  available: boolean;
+  prompts: string[];
+  tools: Array<{ name: string; count: number }>;
+  files: Array<{ path: string; status: "added" | "modified" | "deleted" }>;
+  additions: number;
+  deletions: number;
+  eventsRead: number;
+};
 export type QuotaWindow = { usedPercent: number; resetsAt: number | null };
 export type BankedResetCredit = {
   id: string;
