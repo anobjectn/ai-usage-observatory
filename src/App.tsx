@@ -104,6 +104,21 @@ function resetCopy(timestamp: number | null, verb = "resets") {
   return `${verb} in ${countdown} · ${absolute}`;
 }
 
+function expiryCopy(timestamp: string | null) {
+  if (!timestamp) return { text: "no expiry reported", urgent: false };
+  const expiresAt = Date.parse(timestamp);
+  if (!Number.isFinite(expiresAt)) return { text: "expiry time unavailable", urgent: false };
+  const delta = expiresAt - Date.now();
+  const absolute = new Date(expiresAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  if (delta <= 0) return { text: `expired · was due ${absolute}`, urgent: false };
+  const minutes = Math.max(1, Math.ceil(delta / 60_000));
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  const remainingMinutes = minutes % 60;
+  const countdown = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${remainingMinutes}m` : `${remainingMinutes}m`;
+  return { text: `expires in ${countdown} · ${absolute}`, urgent: delta <= 24 * 60 * 60 * 1_000 };
+}
+
 function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -448,7 +463,10 @@ function QuotaDials({ quotas }: {quotas: DashboardData["quotas"]}) {
             </div>
           </div>;
         })}</div>
-        {card.provider === "codex" && <div className="banked-resets"><div><span>Banked resets</span><b>{card.bankedResets.length} available</b></div><div className="reset-use"><span>Resets used</span><b>{quotas.history?.available ? `${card.usedResetCount} observed` : "Not tracked"}</b></div>{card.bankedResets.map((credit) => <small key={credit.id}><Sparkles/> {credit.title} · {credit.expiresAt ? `expires ${new Date(credit.expiresAt).toLocaleDateString(undefined, {month:"short", day:"numeric"})}` : "no expiry reported"}</small>)}</div>}
+        {card.provider === "codex" && <div className="banked-resets"><div><span>Banked resets</span><b>{card.bankedResets.length} available</b></div><div className="reset-use"><span>Resets used</span><b>{quotas.history?.available ? `${card.usedResetCount} observed` : "Not tracked"}</b></div>{card.bankedResets.map((credit) => {
+          const expiry = expiryCopy(credit.expiresAt);
+          return <small className={expiry.urgent ? "expiring-soon" : undefined} key={credit.id}><Sparkles/> {credit.title} · {expiry.text}</small>;
+        })}</div>}
       </article>;
     })}</div>
   </section>;
