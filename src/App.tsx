@@ -17,6 +17,7 @@ type View = "overview" | "explorer" | "sessions" | "projects" | "models" | "limi
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
 type MetricRange = "1" | "7" | "14" | "30" | "120";
 type ProjectSummary = DashboardData["projects"][number];
+type ProjectSessionDetail = { session: Session; detail: SessionDetail };
 const nav: Array<{id:View;label:string;icon:typeof Orbit}> = [
   { id: "overview", label: "Overview", icon: Orbit },
   { id: "explorer", label: "Explorer", icon: Activity },
@@ -70,6 +71,23 @@ function savedDataTextScale() {
     const value = Number(localStorage.getItem(dataTextScaleStorageKey));
     return Number.isFinite(value) && value >= 90 && value <= 150 ? value : defaultDataTextScale;
   } catch { return defaultDataTextScale; }
+}
+
+function initialView(): View {
+  const value = new URLSearchParams(window.location.search).get("view");
+  return nav.some((item) => item.id === value) ? value as View : "overview";
+}
+
+function initialSessionId() {
+  return new URLSearchParams(window.location.search).get("session");
+}
+
+function sessionHref(sessionId: string) {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("view", "sessions");
+  url.searchParams.set("session", sessionId);
+  return `${url.pathname}${url.search}`;
 }
 
 const sceneEffectsStorageKey = "usage-observatory:scene-effects";
@@ -710,7 +728,7 @@ function SessionDetailPanel({ session, detail, loading }: {session:Session;detai
   </div>;
 }
 
-function Sessions({sessions,onEdit}:{sessions:Session[];onEdit:(session:Session)=>void}) {
+function Sessions({sessions,onEdit,focusSessionId}:{sessions:Session[];onEdit:(session:Session)=>void;focusSessionId?:string|null}) {
   type SortKey = "activity" | "session" | "agent" | "cwd" | "tokens" | "cost";
   const [query,setQuery] = useState(""); const [page,setPage] = useState(1); const [expanded,setExpanded] = useState<string | null>(null); const [details,setDetails] = useState<Record<string,SessionDetail>>({}); const [loadingDetail,setLoadingDetail] = useState<string | null>(null); const [sort,setSort] = useState<{key:SortKey;direction:"asc"|"desc"}>({key:"activity",direction:"desc"}); const pageSize=15;
   const filtered=sessions.filter(s=>`${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
@@ -742,6 +760,13 @@ function Sessions({sessions,onEdit}:{sessions:Session[];onEdit:(session:Session)
     } catch { setDetails((current) => ({ ...current, [session.sessionId]: { available: false, prompts: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 } })); }
     finally { setLoadingDetail(null); }
   };
+  useEffect(()=>{
+    if (!focusSessionId) return;
+    const index=sorted.findIndex((session)=>session.sessionId===focusSessionId);
+    if(index<0)return;
+    setPage(Math.floor(index/pageSize)+1);
+    if(expanded!==focusSessionId) void toggle(sorted[index]);
+  },[focusSessionId]);
   const header=(key:SortKey,label:string)=><th aria-sort={sort.key===key?(sort.direction==="asc"?"ascending":"descending"):"none"}><button type="button" className={`sort-header ${sort.key===key?"active":""}`} onClick={()=>sortBy(key)}>{label}<span aria-hidden="true">{sort.key===key?(sort.direction==="asc"?"↑":"↓"):"↕"}</span></button></th>;
   return <div className="view-stack page-enter"><PageTitle eyebrow="SESSION LEDGER" title="Trace every session" description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine." actions={<label className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search sessions…"/></label>}/><section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{header("activity","Last activity")}{header("session","Session")}{header("agent","Agent")}{header("cwd","Working directory")}{header("tokens","Tokens")}{header("cost","Cost")}<th></th><th></th></tr></thead><tbody>{pageRows.map(session => <Fragment key={session.sessionId}><tr className={`session-row ${expanded === session.sessionId ? "session-row-open" : ""}`} tabIndex={0} aria-expanded={expanded === session.sessionId} aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}`} onClick={()=>void toggle(session)} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==="Enter"||event.key===" ")){event.preventDefault();void toggle(session);}}}><td><span className="session-activity">{session.metadata?.lastActivity ? formatDate(session.metadata.lastActivity) : "—"}</span></td><td><span><b>{session.modelsUsed[0] ?? "Unknown"}</b><small>{session.period.slice(0,18)}</small></span></td><td className="session-row__agent"><span className={`agent-pill ${session.agent}`}>{session.agent}</span></td><td><span className="cwd" title={session.cwd ?? "Unavailable"}>{session.cwd ?? "Path unavailable"}</span><span className="mini-tags">{[...session.pathTags,...session.annotation.tags].slice(0,3).map(tag=><i key={tag}>{tag}</i>)}</span></td><td><b>{formatCompact(session.totalTokens)}</b><small>{formatCompact(session.outputTokens)} output</small></td><td><b>{formatMoney(session.totalCost)}</b><small>ccusage</small></td><td className="session-row__actions" onClick={event=>event.stopPropagation()}><button className="icon-button" onClick={()=>onEdit(session)} aria-label="Edit annotation"><PencilLine/></button></td><td className="session-row__toggle" onClick={event=>event.stopPropagation()}><button type="button" className="session-detail-toggle" onClick={()=>void toggle(session)} aria-label={expanded === session.sessionId ? "Close session details" : "Open session details"} aria-expanded={expanded === session.sessionId}><Plus/></button></td></tr>{expanded === session.sessionId && <tr className="session-detail-row"><td colSpan={8}><SessionDetailPanel session={session} detail={details[session.sessionId]} loading={loadingDetail === session.sessionId}/></td></tr>}</Fragment>)}</tbody></table></div>{!pageRows.length&&<Empty text="No sessions match those filters."/>}<div className="pagination"><span>{filtered.length} sessions</span><div><button disabled={page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft/></button><span>{page} / {pages}</span><button disabled={page===pages} onClick={()=>setPage(p=>p+1)}><ChevronRight/></button></div></div></section></div>;
 }
@@ -795,9 +820,25 @@ function ProjectDayTooltip({active,payload,coordinate}:{active?:boolean;payload?
   </div>;
 }
 
-function ProjectDetails({project,activity}:{project:ProjectSummary;activity:ProjectActivity[]}) {
+function ProjectDetails({project,activity,sessions,onOpenSession}:{project:ProjectSummary;activity:ProjectActivity[];sessions:Session[];onOpenSession:(sessionId:string)=>void}) {
   type ModelSortKey="name"|"tokens"|"cost";
   const [modelSort,setModelSort]=useState<{key:ModelSortKey;direction:"asc"|"desc"}>({key:"tokens",direction:"desc"});
+  const [sessionDetails,setSessionDetails]=useState<ProjectSessionDetail[]>([]);
+  const [loadingSessions,setLoadingSessions]=useState(true);
+  useEffect(()=>{
+    let cancelled=false;
+    setLoadingSessions(true);
+    Promise.all(sessions.map(async(session)=>{
+      try {
+        const response=await fetch(`/api/sessions/${encodeURIComponent(session.sessionId)}/detail`);
+        if(!response.ok)throw new Error("Session details are unavailable");
+        return {session,detail:await response.json() as SessionDetail};
+      } catch {
+        return {session,detail:{available:false,prompts:[],tools:[],files:[],additions:0,deletions:0,eventsRead:0} satisfies SessionDetail};
+      }
+    })).then((details)=>{if(!cancelled){setSessionDetails(details);setLoadingSessions(false);}});
+    return()=>{cancelled=true;};
+  },[sessions]);
   const days=projectDayRows(project.trend,activity);
   const modelTotals=new Map<string,{tokens:number;cost:number}>();
   days.forEach(day=>day.models.forEach(model=>{const totals=modelTotals.get(model.name)??{tokens:0,cost:0};totals.tokens+=model.tokens;totals.cost+=model.cost;modelTotals.set(model.name,totals);}));
@@ -809,12 +850,17 @@ function ProjectDetails({project,activity}:{project:ProjectSummary;activity:Proj
   const sortModels=(key:ModelSortKey)=>setModelSort((current)=>current.key===key?{key,direction:current.direction==="asc"?"desc":"asc"}:{key,direction:key==="name"?"asc":"desc"});
   const modelSortButton=(key:ModelSortKey,label:string)=><button type="button" className={modelSort.key===key?"active":undefined} aria-label={`Sort models by ${label} ${modelSort.key===key&&modelSort.direction==="asc"?"descending":"ascending"}`} aria-pressed={modelSort.key===key} onClick={()=>sortModels(key)}><span>{label}</span><i aria-hidden="true">{modelSort.key===key?(modelSort.direction==="asc"?"↑":"↓"):"↕"}</i></button>;
   const first=days[0]?.date; const last=days.at(-1)?.date;
+  const orderedSessionDetails=[...sessionDetails].sort((left,right)=>String(right.session.metadata?.lastActivity??"").localeCompare(String(left.session.metadata?.lastActivity??"")));
+  const changedFiles=new Set(sessionDetails.flatMap(({detail})=>detail.files.map((file)=>file.path)));
+  const additions=sessionDetails.reduce((sum,{detail})=>sum+detail.additions,0);
+  const deletions=sessionDetails.reduce((sum,{detail})=>sum+detail.deletions,0);
   const dateCopy=first&&last ? `${new Date(`${first}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})} — ${new Date(`${last}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}` : "No dated activity";
   return <div className="project-detail" onClick={event=>event.stopPropagation()}>
     <div className="project-detail__summary">
       <div><span>Total tokens</span><strong>{project.tokens.toLocaleString()}</strong></div>
       <div><span>Activity records</span><strong>{project.trend.length}</strong></div>
       <div><span>Active days</span><strong>{days.length}</strong></div>
+      <div><span>Files changed</span><strong>{loadingSessions?"…":changedFiles.size}</strong></div>
       <div><span>Time observed</span><strong className="project-time">{dateCopy}</strong></div>
     </div>
     <div className="project-detail__grid">
@@ -845,11 +891,24 @@ function ProjectDetails({project,activity}:{project:ProjectSummary;activity:Proj
         </div>)}</div>
       </section>
     </div>
+    <section className="project-sessions" aria-label={`Sessions for ${friendlyProject(project.name)}`}>
+      <div className="project-sessions__head">
+        <div><span className="overline">SESSION CHANGES</span><h4>Diff trail</h4></div>
+        <div className="project-diff-total"><span>{sessions.length} {sessions.length===1?"session":"sessions"}</span><strong><i>+{additions}</i><em>−{deletions}</em></strong></div>
+      </div>
+      {loadingSessions?<p className="project-sessions__state">Reading local session patches…</p>:orderedSessionDetails.length?<ol className="project-session-list">{orderedSessionDetails.map(({session,detail})=>
+        <li key={session.sessionId}>
+          <div className="project-session-meta"><span className={`agent-pill ${session.agent}`}>{session.agent}</span><div><b>{session.modelsUsed[0]??"Unknown model"}</b><small>{session.metadata?.lastActivity?formatDate(session.metadata.lastActivity):session.period}</small></div></div>
+          <div className="project-session-files"><span>{detail.available?`${detail.files.length} ${detail.files.length===1?"file":"files"}`:"Patch unavailable"}</span>{detail.files.length>0&&<small title={detail.files.map((file)=>file.path).join("\n")}>{detail.files.slice(0,3).map((file)=>file.path.split("/").at(-1)).join(" · ")}{detail.files.length>3?` · +${detail.files.length-3}`:""}</small>}</div>
+          <div className="project-session-diff"><i>+{detail.additions}</i><em>−{detail.deletions}</em></div>
+          <a href={sessionHref(session.sessionId)} onClick={(event)=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();onOpenSession(session.sessionId);}}>Open session <ArrowUpRight/></a>
+        </li>)}</ol>:<p className="project-sessions__state">No indexed sessions were found for this project.</p>}
+    </section>
     <p className="project-detail__note">“Runs” counts source activity records. Elapsed hours are not available in the project report.</p>
   </div>;
 }
 
-function Projects({data}:{data:DashboardData}) {
+function Projects({data,onOpenSession}:{data:DashboardData;onOpenSession:(sessionId:string)=>void}) {
   const [openProject,setOpenProject]=useState<string|null>(null);
   const [query,setQuery]=useState("");
   const [sort,setSort]=useState("tokens-desc");
@@ -870,7 +929,7 @@ function Projects({data}:{data:DashboardData}) {
       <button className="rank-card project-row" type="button" onClick={()=>setOpenProject(open?null:project.name)} aria-expanded={open} aria-controls={`project-detail-${index}`}>
         <span className="rank">{String(index+1).padStart(2,"0")}</span><div className="rank-main"><h3>{friendlyProject(project.name)}</h3><p>{project.models.slice(0,3).join(" · ")}</p><div className="micro-chart" aria-hidden="true">{project.trend.slice(-14).map((point,i)=><i key={i} style={{height:`${Math.max(8,point.totalTokens/maxTokens*100)}%`}}/>)}</div></div><div className="rank-stat"><span>Tokens</span><b>{formatCompact(project.tokens)}</b></div><div className="rank-stat"><span>Cost</span><b>{formatMoney(project.cost)}</b></div><div className="rank-stat"><span>Active days</span><b>{projectDayRows(project.trend).length}</b></div><Plus className="project-row__toggle" aria-hidden="true"/>
       </button>
-      {open&&<div id={`project-detail-${index}`}><ProjectDetails project={project} activity={data.projectActivity.filter((activity)=>activity.projectId===project.name)}/></div>}
+      {open&&<div id={`project-detail-${index}`}><ProjectDetails project={project} activity={data.projectActivity.filter((activity)=>activity.projectId===project.name)} sessions={data.sessions.filter((session)=>(session.cwd??"").replace(/\/+$/,"")===project.name)} onOpenSession={onOpenSession}/></div>}
     </article>;
   })}</section>{!data.projects.length?<Empty text="No source-exposed projects found in this period."/>:!visibleProjects.length&&<Empty text="No projects match that search."/>}</div>;
 }
@@ -987,11 +1046,12 @@ function RulesModal({data,onClose,onSaved}:{data:DashboardData;onClose:()=>void;
 }
 
 export function App() {
-  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent); const [providerColors,setProviderColors]=useState<ProviderColors>(savedProviderColors); const [favoriteAccents,setFavoriteAccents]=useState(savedFavoriteAccents); const [dataTextScale,setDataTextScale]=useState(savedDataTextScale); const [sceneEffects,setSceneEffects]=useState<SceneEffects>(savedSceneEffects); const reducedMotion=usePrefersReducedMotion();
+  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>(initialView); const [focusSessionId,setFocusSessionId]=useState<string|null>(initialSessionId); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent); const [providerColors,setProviderColors]=useState<ProviderColors>(savedProviderColors); const [favoriteAccents,setFavoriteAccents]=useState(savedFavoriteAccents); const [dataTextScale,setDataTextScale]=useState(savedDataTextScale); const [sceneEffects,setSceneEffects]=useState<SceneEffects>(savedSceneEffects); const reducedMotion=usePrefersReducedMotion();
   useEffect(()=>{ document.documentElement.style.setProperty("--accent", accent); const favicon=document.querySelector<HTMLLinkElement>("link[rel='icon']"); if(favicon) favicon.href=faviconHref(accent); try { localStorage.setItem(accentStorageKey, accent); } catch {} },[accent]);
   useEffect(()=>{ document.documentElement.style.setProperty("--anthropic-color",providerColors.anthropic); document.documentElement.style.setProperty("--openai-color",providerColors.openai); document.documentElement.style.setProperty("--warp-color",providerColors.warp); try { localStorage.setItem(providerColorsStorageKey,JSON.stringify(providerColors)); } catch {} },[providerColors]);
   useEffect(()=>{ try { localStorage.setItem(favoriteAccentsStorageKey,JSON.stringify(favoriteAccents)); } catch {} },[favoriteAccents]);
   useEffect(()=>{ try { localStorage.setItem(sceneEffectsStorageKey,JSON.stringify(sceneEffects)); } catch {} },[sceneEffects]);
+  useEffect(()=>{const navigate=(event:PopStateEvent)=>{const state=event.state as {view?:View;sessionId?:string}|null;setView(state?.view??initialView());setFocusSessionId(state?.sessionId??initialSessionId());};window.addEventListener("popstate",navigate);return()=>window.removeEventListener("popstate",navigate);},[]);
   useEffect(()=>{ const scale=dataTextScale/100; document.documentElement.style.setProperty("--data-text-scale",String(scale)); document.documentElement.style.setProperty("--data-text-primary",`${12*scale}px`); document.documentElement.style.setProperty("--data-text-secondary",`${10*scale}px`); document.documentElement.style.setProperty("--data-text-compact",`${9*scale}px`); document.documentElement.style.setProperty("--data-text-strong",`${15*scale}px`); try { localStorage.setItem(dataTextScaleStorageKey,String(dataTextScale)); } catch {} },[dataTextScale]);
   useEffect(()=>{ const dismiss=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;setSession(null);setRules(false);}; window.addEventListener("keydown",dismiss); return()=>window.removeEventListener("keydown",dismiss); },[]);
   const agents=useMemo(()=>data?[...new Set(data.daily.flatMap(row=>row.agents?.map(a=>a.agent)??[]))]:[],[data]);
@@ -1011,6 +1071,12 @@ export function App() {
       return date !== null && periods.has(date);
     });
   },[data,days,sessions]);
+  const visibleSessions=useMemo(()=>{
+    if(!data)return datedSessions;
+    const focused=focusSessionId?data.sessions.find((session)=>session.sessionId===focusSessionId):undefined;
+    return focused&&!datedSessions.some((session)=>session.sessionId===focused.sessionId)?[focused,...datedSessions]:datedSessions;
+  },[data,datedSessions,focusSessionId]);
+  const openSession=(sessionId:string)=>{history.replaceState({view},"",window.location.href);history.pushState({view:"sessions",sessionId},"",sessionHref(sessionId));setFocusSessionId(sessionId);setView("sessions");window.scrollTo({top:0,behavior:"smooth"});};
   const resetAppearance=()=>{setAccent(defaultAccent);setProviderColors(defaultProviderColors);setFavoriteAccents(defaultFavoriteAccents);setDataTextScale(defaultDataTextScale);setSceneEffects(defaultSceneEffects);};
   if (loading&&!data) return <div className="boot"><div className="boot-orbit"><Orbit/></div><span>Calibrating local instruments…</span></div>;
   if (error&&!data) return <div className="boot error-state"><Database/><h1>Observatory is offline</h1><p>{error}</p><button className="primary-button" onClick={()=>load()}>Try again</button></div>;
@@ -1023,8 +1089,8 @@ export function App() {
       <div className="content">
         {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession} accent={accent} providerColors={providerColors} sceneEffects={sceneEffects}/>}
         {view==="explorer"&&<Explorer data={data} rows={daily} sessions={sessions} agent={agent} pathTag={pathTag} metricRange={days} metric={metric} setMetric={setMetric}/>}
-        {view==="sessions"&&<Sessions sessions={datedSessions} onEdit={setSession}/>}
-        {view==="projects"&&<Projects data={data}/>}
+        {view==="sessions"&&<Sessions sessions={visibleSessions} onEdit={setSession} focusSessionId={focusSessionId}/>}
+        {view==="projects"&&<Projects data={data} onOpenSession={openSession}/>}
         {view==="models"&&<Models data={data}/>}
         {view==="limits"&&<Limits data={data} onRules={()=>setRules(true)}/>}
       </div>
