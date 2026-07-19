@@ -64,11 +64,11 @@ describe("app-owned session identity", () => {
 describe("cross-agent project activity", () => {
   test("groups session tokens by provider, day, and working directory", () => {
     const activity = aggregateProjectActivity([
-      { agent:"codex", period:"2026/07/18/rollout-a", totalTokens:100, cwd:"/work/myessentials-ui", metadata:{lastActivity:"2026-07-18T16:00:00Z"}, modelBreakdowns:[{modelName:"gpt-test",inputTokens:60,outputTokens:10,cacheReadTokens:30,cacheCreationTokens:0}] },
-      { agent:"claude", period:"native-a", totalTokens:40, cwd:"/work/myessentials-ui", metadata:{lastActivity:"2026-07-18T17:00:00Z"}, modelBreakdowns:[{modelName:"claude-test",inputTokens:20,outputTokens:5,cacheReadTokens:15,cacheCreationTokens:0}] },
+      { agent:"codex", period:"2026/07/18/rollout-a", totalTokens:100, totalCost:0.01, cwd:"/work/myessentials-ui", metadata:{lastActivity:"2026-07-18T16:00:00Z"}, modelBreakdowns:[{modelName:"gpt-test",inputTokens:60,outputTokens:10,cacheReadTokens:30,cacheCreationTokens:0,cost:0.01}] },
+      { agent:"claude", period:"native-a", totalTokens:40, totalCost:0.02, cwd:"/work/myessentials-ui", metadata:{lastActivity:"2026-07-18T17:00:00Z"}, modelBreakdowns:[{modelName:"claude-test",inputTokens:20,outputTokens:5,cacheReadTokens:15,cacheCreationTokens:0,cost:0.02}] },
     ]);
     expect(activity).toHaveLength(2);
     expect(activity.find((item) => item.provider === "codex")?.projectName).toBe("myessentials-ui");
-    expect(activity.find((item) => item.provider === "anthropic")?.models[0]).toEqual({model:"claude-test",tokens:40});
+    expect(activity.find((item) => item.provider === "anthropic")?.models[0]).toEqual({model:"claude-test",tokens:40,cost:0.02});
   });
 });

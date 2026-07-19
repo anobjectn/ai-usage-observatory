@@ -41,7 +41,8 @@ type ProjectActivitySession = {
   totalTokens: number;
   cwd: string | null;
   metadata?: {lastActivity?:unknown};
-  modelBreakdowns: Array<{modelName:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number}>;
+  totalCost: number;
+  modelBreakdowns: Array<{modelName:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number}>;
 };
 
 function localDate(value: unknown) {
@@ -61,25 +62,29 @@ function activityProvider(agent: string) {
 }
 
 export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
-  const activity = new Map<string, {date:string;provider:"anthropic"|"codex";projectId:string;projectName:string;tokens:number;sessions:number;models:Map<string,number>}>();
+  const activity = new Map<string, {date:string;provider:"anthropic"|"codex";projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>();
   for (const session of sessions) {
     const provider = activityProvider(session.agent);
     const date = localDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
     if (!provider || !date || !session.cwd) continue;
     const projectId = session.cwd.replace(/\/+$/, "");
     const key = `${date}\0${provider}\0${projectId}`;
-    const bucket = activity.get(key) ?? { date, provider, projectId, projectName: basename(projectId), tokens: 0, sessions: 0, models: new Map<string,number>() };
+    const bucket = activity.get(key) ?? { date, provider, projectId, projectName: basename(projectId), tokens: 0, cost: 0, sessions: 0, models: new Map<string,{tokens:number;cost:number}>() };
     bucket.tokens += session.totalTokens;
+    bucket.cost += session.totalCost;
     bucket.sessions++;
     for (const model of session.modelBreakdowns) {
       const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-      bucket.models.set(model.modelName, (bucket.models.get(model.modelName) ?? 0) + tokens);
+      const current = bucket.models.get(model.modelName) ?? {tokens:0,cost:0};
+      current.tokens += tokens;
+      current.cost += model.cost;
+      bucket.models.set(model.modelName, current);
     }
     activity.set(key, bucket);
   }
   return [...activity.values()].map((item) => ({
     ...item,
-    models: [...item.models.entries()].map(([model, tokens]) => ({model, tokens})).sort((a, b) => b.tokens - a.tokens),
+    models: [...item.models.entries()].map(([model, values]) => ({model, ...values})).sort((a, b) => b.tokens - a.tokens),
   })).sort((a, b) => a.date.localeCompare(b.date) || b.tokens - a.tokens);
 }
 

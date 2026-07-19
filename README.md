@@ -67,11 +67,10 @@ Set `USAGE_OBSERVATORY_DB` to use another database path. Set `QUOTA_SERVICE_URL`
 - Five-hour block: locally reconstructed by `ccusage`; currently Claude Code-scoped.
 - Personal budget: user-defined and not a billing limit.
 
-## Quota-service fallback
+
+### Use your own quota service instead of [`quota-service`](https://github.com/anobjectn/quota-service) or leave it out
 
 Without [`quota-service`](https://github.com/anobjectn/quota-service), the dashboard continues to show ccusage-derived tokens, costs, sessions, projects, and local activity blocks. Provider allowance cards remain unavailable rather than estimating subscription quota from token usage. This project does not include a direct provider collector.
-
-### Use your own quota service
 
 Set `QUOTA_SERVICE_URL` to the base URL of a replacement service. AI Usage Observatory reads it only; it makes concurrent `GET` requests to `/usage`, `/resets`, and `/status`, with a four-second timeout per request. Each endpoint must return a successful JSON response for the quota source to be available. `/status` is retained for source-health reporting and may return any JSON value.
 

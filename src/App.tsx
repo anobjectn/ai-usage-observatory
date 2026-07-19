@@ -5,7 +5,8 @@ import {
   Copy, Gauge, Layers3, Menu, Orbit, Palette, PencilLine, RefreshCw, RotateCcw, Search, Settings2,
   Plus, Sparkles, Tag, Trash2, X, Zap,
 } from "lucide-react";
-import { OrbitalScene, Starfield, type SceneEffects } from "./scene";
+import { OrbitalScene, Starfield, type ProviderColors, type SceneEffects } from "./scene";
+import { providerHeadroom } from "./quota-headroom";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -25,10 +26,11 @@ const nav: Array<{id:View;label:string;icon:typeof Orbit}> = [
   { id: "limits", label: "Limits & sources", icon: Gauge },
 ];
 const palette = ["#b7f25c", "#58d9cf", "#ff9e64", "#d7b3ff", "#78a8ff", "#f2d15c"];
-const defaultAccent = "#b7f25c";
-const neutralAccent = "#919699";
-const defaultFavoriteAccents = ["#b7f25c", "#58d9cf", "#78a8ff", "#d7b3ff", "#ff9e64", "#f2d15c"];
+const defaultAccent = "#78a8ff";
+const defaultProviderColors: ProviderColors = { anthropic: "#d97757", openai: "#eaeaea", warp: "#d7b3ff" };
+const defaultFavoriteAccents = ["#78a8ff", "#b7f25c", "#58d9cf", "#f08bb4", "#f2d15c", "#ff786f"];
 const accentStorageKey = "usage-observatory:accent";
+const providerColorsStorageKey = "usage-observatory:provider-colors";
 const favoriteAccentsStorageKey = "usage-observatory:favorite-accents";
 const dataTextScaleStorageKey = "usage-observatory:data-text-scale";
 const defaultDataTextScale = 125;
@@ -52,6 +54,17 @@ function savedFavoriteAccents() {
   } catch { return defaultFavoriteAccents; }
 }
 
+function savedProviderColors(): ProviderColors {
+  try {
+    const value = JSON.parse(localStorage.getItem(providerColorsStorageKey) ?? "{}");
+    return {
+      anthropic: typeof value.anthropic === "string" && /^#[0-9a-f]{6}$/i.test(value.anthropic) ? value.anthropic : defaultProviderColors.anthropic,
+      openai: typeof value.openai === "string" && /^#[0-9a-f]{6}$/i.test(value.openai) ? value.openai : defaultProviderColors.openai,
+      warp: typeof value.warp === "string" && /^#[0-9a-f]{6}$/i.test(value.warp) ? value.warp : defaultProviderColors.warp,
+    };
+  } catch { return defaultProviderColors; }
+}
+
 function savedDataTextScale() {
   try {
     const value = Number(localStorage.getItem(dataTextScaleStorageKey));
@@ -60,7 +73,7 @@ function savedDataTextScale() {
 }
 
 const sceneEffectsStorageKey = "usage-observatory:scene-effects";
-const defaultSceneEffects: SceneEffects = { starfield: true, parallax: true, twinkle: true, trails: true, speed: 0.15, starDensity: 4 };
+const defaultSceneEffects: SceneEffects = { starfield: true, parallax: true, twinkle: false, speed: 0.3, starDensity: 3 };
 
 function savedSceneEffects(): SceneEffects {
   try {
@@ -68,11 +81,23 @@ function savedSceneEffects(): SceneEffects {
     const speed = Number(value.speed);
     const starDensity = Number(value.starDensity);
     return {
-      starfield: value.starfield !== false, parallax: value.parallax !== false, twinkle: value.twinkle !== false, trails: value.trails !== false,
+      starfield: value.starfield !== false, parallax: value.parallax !== false, twinkle: value.twinkle === true,
       speed: Number.isFinite(speed) && speed >= 0.1 && speed <= 3 ? speed : defaultSceneEffects.speed,
       starDensity: Number.isInteger(starDensity) && starDensity >= 1 && starDensity <= 6 ? starDensity : defaultSceneEffects.starDensity,
     };
   } catch { return defaultSceneEffects; }
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduced(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  return reduced;
 }
 
 const formatCompact = (value: number) => Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
@@ -80,9 +105,9 @@ const formatMoney = (value: number) => `$${value.toLocaleString(undefined, { min
 const formatDate = (value: string) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const friendlyProject = (value: string) => value.replace(/^-Users-[^-]+-/, "").replaceAll("-", " / ");
 const providerSeries = [
-  { key: "anthropic", label: "Claude", color: "#ff9e64" },
-  { key: "codex", label: "Codex", color: "#78a8ff" },
-  { key: "warp", label: "Warp", color: "#d7b3ff" },
+  { key: "anthropic", label: "Claude", color: "var(--anthropic-color)" },
+  { key: "codex", label: "Codex", color: "var(--openai-color)" },
+  { key: "warp", label: "Warp", color: "var(--warp-color)" },
 ] as const;
 
 function providerKey(agent: string) {
@@ -159,13 +184,14 @@ function ChartTooltip({ active, payload, label, metric }: any) {
 }
 
 function tooltipModels(row: any, provider: typeof providerSeries[number]["key"]) {
-  return (row?.models?.[provider] ?? []) as Array<{ name: string; tokens: number }>;
+  return (row?.models?.[provider] ?? []) as Array<{ name: string; tokens: number; cost: number }>;
 }
 
 type TooltipProject = {
   projectId: string;
   projectName: string;
   tokens: number;
+  cost: number;
   providers: ProjectActivity[];
 };
 
@@ -173,8 +199,9 @@ function tooltipProjects(row: any): TooltipProject[] {
   const projects = new Map<string, TooltipProject>();
   const groups = (row?.projectGroups ?? {}) as Record<string,ProjectActivity[]>;
   Object.values(groups).flat().forEach((activity) => {
-    const project = projects.get(activity.projectId) ?? {projectId:activity.projectId,projectName:activity.projectName,tokens:0,providers:[]};
+    const project = projects.get(activity.projectId) ?? {projectId:activity.projectId,projectName:activity.projectName,tokens:0,cost:0,providers:[]};
     project.tokens += activity.tokens;
+    project.cost += activity.cost;
     project.providers.push(activity);
     projects.set(activity.projectId, project);
   });
@@ -190,33 +217,34 @@ function ProviderChartTooltip({ active, payload, label, coordinate }: any) {
   const projects = tooltipProjects(row);
   const visibleProjects = projects.slice(0, 4);
   const projectTotal = projects.reduce((sum, project) => sum + project.tokens, 0);
+  const projectCost = projects.reduce((sum, project) => sum + project.cost, 0);
   const tooltipPosition = row?.tooltipPosition ?? (coordinate?.x < 176 ? "right" : "center");
   return <div className={`chart-tooltip provider-tooltip provider-tooltip--${tooltipPosition}`} key={label}>
-    <span>{label}</span>
+    <div className="tooltip-columns"><span>{label}</span><small>Tokens</small><small>API $</small></div>
     {payload.filter((item:any) => item.value > 0).map((item:any) => {
       const models = tooltipModels(row, item.dataKey);
       const visibleModels = models.slice(0, 3);
       return <section className="tooltip-provider" key={item.dataKey}>
-        <div className="tooltip-provider__head"><i style={{background:item.color}} /><strong>{item.name}</strong><b>{formatCompact(item.value)}</b></div>
-        {visibleModels.length > 0 && <ul className="tooltip-provider-models">{visibleModels.map((model) => <li key={model.name}><span>{model.name}</span><b>{formatCompact(model.tokens)}</b></li>)}</ul>}
-        {models.length > visibleModels.length && <small className="tooltip-model-more">+{models.length - visibleModels.length} more · {formatCompact(models.slice(3).reduce((sum, model) => sum + model.tokens, 0))}</small>}
+        <div className="tooltip-provider__head"><i style={{background:item.color}} /><strong>{item.name}</strong><b>{formatCompact(item.value)}</b><b>{formatMoney(row?.costs?.[item.dataKey] ?? 0)}</b></div>
+        {visibleModels.length > 0 && <ul className="tooltip-provider-models">{visibleModels.map((model) => <li key={model.name}><span>{model.name}</span><b>{formatCompact(model.tokens)}</b><b>{formatMoney(model.cost)}</b></li>)}</ul>}
+        {models.length > visibleModels.length && <small className="tooltip-more-row tooltip-model-more"><span>+{models.length - visibleModels.length} more</span><b>{formatCompact(models.slice(3).reduce((sum, model) => sum + model.tokens, 0))}</b><b>{formatMoney(models.slice(3).reduce((sum, model) => sum + model.cost, 0))}</b></small>}
       </section>;
     })}
     {visibleProjects.length > 0 && <section className="tooltip-projects">
-      <div className="tooltip-projects__head"><strong>Projects</strong><b>{formatCompact(projectTotal)}</b></div>
+      <div className="tooltip-projects__head"><strong>Projects</strong><b>{formatCompact(projectTotal)}</b><b>{formatMoney(projectCost)}</b></div>
       <ol className="tooltip-project-list">{visibleProjects.map((project) => <li key={project.projectId}>
-        <div className="tooltip-project-row"><span>{project.projectName}</span><b>{formatCompact(project.tokens)}</b></div>
+        <div className="tooltip-project-row"><span>{project.projectName}</span><b>{formatCompact(project.tokens)}</b><b>{formatMoney(project.cost)}</b></div>
         <div className="tooltip-project-providers">{project.providers.map((providerActivity) => {
           const provider = providerSeries.find((item) => item.key === providerActivity.provider)!;
           const visibleModels = providerActivity.models.slice(0, 3);
           return <section key={providerActivity.provider}>
-            <div className="tooltip-project-provider"><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(providerActivity.tokens)}</b></div>
-            {visibleModels.length > 0 && <ul className="tooltip-project-models">{visibleModels.map((model) => <li key={model.model}><span>{model.model}</span><b>{formatCompact(model.tokens)}</b></li>)}</ul>}
-            {providerActivity.models.length > visibleModels.length && <small className="tooltip-model-more project">+{providerActivity.models.length - visibleModels.length} more · {formatCompact(providerActivity.models.slice(3).reduce((sum, model) => sum + model.tokens, 0))}</small>}
+            <div className="tooltip-project-provider"><i style={{background:provider.color}}/><span>{provider.label}</span><b>{formatCompact(providerActivity.tokens)}</b><b>{formatMoney(providerActivity.cost)}</b></div>
+            {visibleModels.length > 0 && <ul className="tooltip-project-models">{visibleModels.map((model) => <li key={model.model}><span>{model.model}</span><b>{formatCompact(model.tokens)}</b><b>{formatMoney(model.cost)}</b></li>)}</ul>}
+            {providerActivity.models.length > visibleModels.length && <small className="tooltip-more-row tooltip-model-more project"><span>+{providerActivity.models.length - visibleModels.length} more</span><b>{formatCompact(providerActivity.models.slice(3).reduce((sum, model) => sum + model.tokens, 0))}</b><b>{formatMoney(providerActivity.models.slice(3).reduce((sum, model) => sum + model.cost, 0))}</b></small>}
           </section>;
         })}</div>
       </li>)}</ol>
-      {projects.length > visibleProjects.length && <small className="tooltip-project-more">+{projects.length - visibleProjects.length} more projects · {formatCompact(projects.slice(4).reduce((sum, project) => sum + project.tokens, 0))}</small>}
+      {projects.length > visibleProjects.length && <small className="tooltip-more-row tooltip-project-more"><span>+{projects.length - visibleProjects.length} more projects</span><b>{formatCompact(projects.slice(4).reduce((sum, project) => sum + project.tokens, 0))}</b><b>{formatMoney(projects.slice(4).reduce((sum, project) => sum + project.cost, 0))}</b></small>}
     </section>}
   </div>;
 }
@@ -320,31 +348,40 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
   });
   const data = rows.map((row, index) => {
     const values = { anthropic: 0, codex: 0, warp: 0 };
-    const modelMaps = { anthropic: new Map<string, number>(), codex: new Map<string, number>(), warp: new Map<string, number>() };
+    const costs = { anthropic: 0, codex: 0, warp: 0 };
+    const modelMaps = { anthropic: new Map<string, {tokens:number;cost:number}>(), codex: new Map<string, {tokens:number;cost:number}>(), warp: new Map<string, {tokens:number;cost:number}>() };
     if (row.agents?.length) {
       row.agents.forEach((item) => {
         const key = providerKey(item.agent);
         if (!key) return;
         values[key] += item.totalTokens;
+        costs[key] += item.totalCost;
         item.modelBreakdowns.forEach((model) => {
           const total = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-          modelMaps[key].set(model.modelName, (modelMaps[key].get(model.modelName) ?? 0) + total);
+          const current = modelMaps[key].get(model.modelName) ?? {tokens:0,cost:0};
+          current.tokens += total;
+          current.cost += model.cost;
+          modelMaps[key].set(model.modelName, current);
         });
       });
     } else {
       const key = providerKey(row.agent);
       if (key) {
         values[key] = row.totalTokens;
+        costs[key] = row.totalCost;
         row.modelBreakdowns.forEach((model) => {
           const total = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-          modelMaps[key].set(model.modelName, (modelMaps[key].get(model.modelName) ?? 0) + total);
+          const current = modelMaps[key].get(model.modelName) ?? {tokens:0,cost:0};
+          current.tokens += total;
+          current.cost += model.cost;
+          modelMaps[key].set(model.modelName, current);
         });
       }
     }
-    const models = Object.fromEntries(Object.entries(modelMaps).map(([provider, entries]) => [provider, [...entries.entries()].map(([name, tokens]) => ({name, tokens})).sort((a, b) => b.tokens - a.tokens)]));
+    const models = Object.fromEntries(Object.entries(modelMaps).map(([provider, entries]) => [provider, [...entries.entries()].map(([name, values]) => ({name, ...values})).sort((a, b) => b.tokens - a.tokens)]));
     const projectGroups = projectsByDay.get(row.period) ?? {};
     const tooltipPosition = index < 2 ? "right" : index >= rows.length - 2 ? "left" : "center";
-    return { ...values, models, projectGroups, tooltipPosition, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
+    return { ...values, costs, models, projectGroups, tooltipPosition, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
   });
   const totals = providerSeries.map((provider) => ({ ...provider, value: data.reduce((sum, row) => sum + row[provider.key], 0) }));
   return <>
@@ -375,12 +412,13 @@ function HourlyProviderTimeline({ date, sessions }: {date:string;sessions:Sessio
     anthropic: 0,
     codex: 0,
     warp: 0,
-    models: { anthropic: [] as Array<{name:string;tokens:number}>, codex: [] as Array<{name:string;tokens:number}>, warp: [] as Array<{name:string;tokens:number}> },
-    modelMaps: { anthropic: new Map<string,number>(), codex: new Map<string,number>(), warp: new Map<string,number>() },
+    costs: { anthropic: 0, codex: 0, warp: 0 },
+    models: { anthropic: [] as Array<{name:string;tokens:number;cost:number}>, codex: [] as Array<{name:string;tokens:number;cost:number}>, warp: [] as Array<{name:string;tokens:number;cost:number}> },
+    modelMaps: { anthropic: new Map<string,{tokens:number;cost:number}>(), codex: new Map<string,{tokens:number;cost:number}>(), warp: new Map<string,{tokens:number;cost:number}>() },
     projectGroups: {} as Record<string,ProjectActivity[]>,
     projectMaps: {
-      anthropic: new Map<string,{projectId:string;projectName:string;tokens:number;sessions:number;models:Map<string,number>}>(),
-      codex: new Map<string,{projectId:string;projectName:string;tokens:number;sessions:number;models:Map<string,number>}>(),
+      anthropic: new Map<string,{projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>(),
+      codex: new Map<string,{projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>(),
     },
     tooltipPosition: hour < 6 ? "right" : hour >= 18 ? "left" : "center",
     label: new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, {hour:"numeric"}),
@@ -393,31 +431,39 @@ function HourlyProviderTimeline({ date, sessions }: {date:string;sessions:Sessio
     if (!provider) return;
     const bucket = data[timestamp.getHours()];
     bucket[provider] += session.totalTokens;
+    bucket.costs[provider] += session.totalCost;
     session.modelBreakdowns.forEach((model) => {
       const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-      bucket.modelMaps[provider].set(model.modelName, (bucket.modelMaps[provider].get(model.modelName) ?? 0) + tokens);
+      const current = bucket.modelMaps[provider].get(model.modelName) ?? {tokens:0,cost:0};
+      current.tokens += tokens;
+      current.cost += model.cost;
+      bucket.modelMaps[provider].set(model.modelName, current);
     });
     if (session.cwd && provider !== "warp") {
       const projectId = session.cwd.replace(/\/+$/, "");
-      const project = bucket.projectMaps[provider].get(projectId) ?? {projectId,projectName:projectId.split("/").at(-1) ?? projectId,tokens:0,sessions:0,models:new Map<string,number>()};
+      const project = bucket.projectMaps[provider].get(projectId) ?? {projectId,projectName:projectId.split("/").at(-1) ?? projectId,tokens:0,cost:0,sessions:0,models:new Map<string,{tokens:number;cost:number}>()};
       project.tokens += session.totalTokens;
+      project.cost += session.totalCost;
       project.sessions++;
       session.modelBreakdowns.forEach((model) => {
         const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-        project.models.set(model.modelName, (project.models.get(model.modelName) ?? 0) + tokens);
+        const current = project.models.get(model.modelName) ?? {tokens:0,cost:0};
+        current.tokens += tokens;
+        current.cost += model.cost;
+        project.models.set(model.modelName, current);
       });
       bucket.projectMaps[provider].set(projectId, project);
     }
   });
   data.forEach((bucket) => providerSeries.forEach((provider) => {
-    bucket.models[provider.key] = [...bucket.modelMaps[provider.key].entries()].map(([name, tokens]) => ({name,tokens})).sort((a,b) => b.tokens - a.tokens);
+    bucket.models[provider.key] = [...bucket.modelMaps[provider.key].entries()].map(([name, values]) => ({name,...values})).sort((a,b) => b.tokens - a.tokens);
   }));
   data.forEach((bucket) => (["anthropic", "codex"] as const).forEach((provider) => {
     bucket.projectGroups[provider] = [...bucket.projectMaps[provider].values()].map((project) => ({
       ...project,
       provider,
       date,
-      models: [...project.models.entries()].map(([model, tokens]) => ({model,tokens})).sort((a,b) => b.tokens - a.tokens),
+      models: [...project.models.entries()].map(([model, values]) => ({model,...values})).sort((a,b) => b.tokens - a.tokens),
     })).sort((a,b) => b.tokens - a.tokens);
   }));
   const totals = providerSeries.map((provider) => ({...provider,value:data.reduce((sum,bucket)=>sum+bucket[provider.key],0)}));
@@ -489,7 +535,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
   const bankedResets = banked?.credits.filter((credit) => credit.status === "available").map(({id, title, expiresAt}) => ({id, title, expiresAt})) ?? [];
   return [
     { provider: "anthropic", providerLabel: "Anthropic", state: anthropic?.status === "ok" ? "ok" : anthropic?.status === "stale" ? "stale" : "unavailable", buckets: anthropicBuckets, bankedResets: [], usedResetCount: 0 },
-    { provider: "codex", providerLabel: "Codex", state: codex?.status === "ok" ? "ok" : codex?.status === "stale" ? "stale" : "unavailable", buckets: codexBuckets, bankedResets, usedResetCount: quotas.history?.codexBankedResets.usedCount ?? 0 },
+    { provider: "codex", providerLabel: "OpenAI", state: codex?.status === "ok" ? "ok" : codex?.status === "stale" ? "stale" : "unavailable", buckets: codexBuckets, bankedResets, usedResetCount: quotas.history?.codexBankedResets.usedCount ?? 0 },
     { provider: "warp", providerLabel: "Warp", state: warp?.status === "ok" ? "ok" : warp?.status === "stale" ? "stale" : "unavailable", buckets: warpBuckets, bankedResets: [], usedResetCount: 0 },
   ];
 }
@@ -523,7 +569,7 @@ function QuotaDials({ quotas }: {quotas: DashboardData["quotas"]}) {
   </section>;
 }
 
-function Overview({ data, daily, sessions, agent, metricRange, onMetricRangeChange, onSession, accent, sceneEffects }: {data:DashboardData;daily:MetricRow[];sessions:Session[];agent:string;metricRange:MetricRange;onMetricRangeChange:(range:MetricRange)=>void;onSession:(session:Session)=>void;accent:string;sceneEffects:SceneEffects}) {
+function Overview({ data, daily, sessions, agent, metricRange, onMetricRangeChange, onSession, accent, providerColors, sceneEffects }: {data:DashboardData;daily:MetricRow[];sessions:Session[];agent:string;metricRange:MetricRange;onMetricRangeChange:(range:MetricRange)=>void;onSession:(session:Session)=>void;accent:string;providerColors:ProviderColors;sceneEffects:SceneEffects}) {
   const totals = metricTotals(daily);
   const previousDaily = metricRangeRows(data.daily, metricRange, 1).map((row) => selectAgent(row, agent)).filter(Boolean) as MetricRow[];
   const previousTotals = metricTotals(previousDaily);
@@ -548,7 +594,7 @@ function Overview({ data, daily, sessions, agent, metricRange, onMetricRangeChan
         <h1>Your AI Usage <em>Observatory.</em></h1>
         <p className="hero-copy">A local-first view of where agent time, tokens, and estimated API-equivalent cost are going.</p>
       </div>
-      <OrbitalScene accent={accent} effects={sceneEffects}/>
+      <OrbitalScene accent={accent} effects={sceneEffects} providerColors={providerColors} headroom={providerHeadroom(data.quotas)}/>
     </section>
     <QuotaDials quotas={data.quotas}/>
     <section className="metric-summary" aria-labelledby="metric-summary-title">
@@ -784,11 +830,10 @@ function InformationSources({data}:{data:DashboardData}) {
   </footer>;
 }
 
-const sceneEffectOptions:{key:"starfield"|"parallax"|"twinkle"|"trails";label:string;detail:string}[]=[
+const sceneEffectOptions:{key:"starfield"|"parallax"|"twinkle";label:string;detail:string}[]=[
   {key:"starfield",label:"Starfield",detail:"Generative star field behind the content on every view"},
   {key:"parallax",label:"Depth parallax",detail:"Stars at different distances drift at different rates"},
   {key:"twinkle",label:"Twinkle & tint",detail:"Star flicker with accent and aqua tinted highlights"},
-  {key:"trails",label:"Satellite trails",detail:"Fading motion trails behind the orbiting satellites"},
 ];
 const starDensityLabels = ["", "Minimal", "Sparse", "Balanced", "Dense", "Dark Sky", "Oh My!"];
 const unchangedDismissals = ["fine, leaving it as is then", "nothing then? cool", "maybe next time?", "later"];
@@ -800,25 +845,29 @@ function randomDismissal(options:string[]) {
   return options[Math.floor(Math.random()*options.length)];
 }
 
-function AppearanceModal({accent,onChange,favoriteAccents,onFavoriteAccentsChange,dataTextScale,onDataTextScaleChange,sceneEffects,onSceneEffectsChange,onClose}:{accent:string;onChange:(value:string)=>void;favoriteAccents:string[];onFavoriteAccentsChange:(value:string[])=>void;dataTextScale:number;onDataTextScaleChange:(value:number)=>void;sceneEffects:SceneEffects;onSceneEffectsChange:(value:SceneEffects)=>void;onClose:()=>void}) {
-  const [editingFavorites,setEditingFavorites]=useState(false);
+function ColorControl({label,value,onChange}:{label:string;value:string;onChange:(value:string)=>void}) {
   const [copied,setCopied]=useState(false);
+  const copy=async()=>{try { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(()=>setCopied(false),1600); } catch {}};
+  return <label className="appearance-color-setting"><span>{label}</span><div className="accent-control"><input aria-label={`${label} color`} type="color" value={value} onChange={event=>onChange(event.target.value)}/><code>{value.toUpperCase()}</code><button type="button" className="accent-copy-button" onClick={()=>void copy()} aria-label={copied?`${label} color copied`:`Copy ${label.toLowerCase()} color`} title={copied?"Copied":"Copy color"}>{copied?<Check/>:<Copy/>}</button></div></label>;
+}
+
+function AppearanceModal({accent,onChange,providerColors,onProviderColorsChange,favoriteAccents,onFavoriteAccentsChange,dataTextScale,onDataTextScaleChange,sceneEffects,onSceneEffectsChange,reducedMotion,onReset,onClose}:{accent:string;onChange:(value:string)=>void;providerColors:ProviderColors;onProviderColorsChange:(value:ProviderColors)=>void;favoriteAccents:string[];onFavoriteAccentsChange:(value:string[])=>void;dataTextScale:number;onDataTextScaleChange:(value:number)=>void;sceneEffects:SceneEffects;onSceneEffectsChange:(value:SceneEffects)=>void;reducedMotion:boolean;onReset:()=>void;onClose:()=>void}) {
+  const [editingFavorites,setEditingFavorites]=useState(false);
   const [dismissal,setDismissal]=useState<string|null>(null);
   const closeTimer=useRef<number|null>(null);
-  const initial=useRef({accent,favoriteAccents:[...favoriteAccents],dataTextScale,sceneEffects:{...sceneEffects}});
-  const copyAccent=async()=>{try { await navigator.clipboard.writeText(accent); setCopied(true); window.setTimeout(()=>setCopied(false),1600); } catch {} };
+  const initial=useRef({accent,providerColors:{...providerColors},favoriteAccents:[...favoriteAccents],dataTextScale,sceneEffects:{...sceneEffects}});
   const replaceFavorite=(index:number)=>{onFavoriteAccentsChange(favoriteAccents.map((color,colorIndex)=>colorIndex===index?accent:color));setEditingFavorites(false);};
   const dismiss=useCallback(()=>{
     if(dismissal) return;
     const starting=initial.current;
     const sceneChanged=JSON.stringify(sceneEffects)!==JSON.stringify(starting.sceneEffects);
-    const changed=accent!==starting.accent||JSON.stringify(favoriteAccents)!==JSON.stringify(starting.favoriteAccents)||dataTextScale!==starting.dataTextScale||sceneChanged;
+    const changed=accent!==starting.accent||JSON.stringify(providerColors)!==JSON.stringify(starting.providerColors)||JSON.stringify(favoriteAccents)!==JSON.stringify(starting.favoriteAccents)||dataTextScale!==starting.dataTextScale||sceneChanged;
     const setToMax=(sceneEffects.speed!==starting.sceneEffects.speed&&sceneEffects.speed===3)||(sceneEffects.starDensity!==starting.sceneEffects.starDensity&&sceneEffects.starDensity===6);
     const setToMin=(sceneEffects.speed!==starting.sceneEffects.speed&&sceneEffects.speed===0.1)||(sceneEffects.starDensity!==starting.sceneEffects.starDensity&&sceneEffects.starDensity===1);
     const options=!changed?unchangedDismissals:setToMax?maxDismissals:setToMin?minDismissals:changedDismissals;
     setDismissal(randomDismissal(options));
     closeTimer.current=window.setTimeout(onClose,2050);
-  },[accent,dataTextScale,dismissal,favoriteAccents,onClose,sceneEffects]);
+  },[accent,dataTextScale,dismissal,favoriteAccents,onClose,providerColors,sceneEffects]);
   useEffect(()=>()=>{if(closeTimer.current!==null)window.clearTimeout(closeTimer.current)},[]);
   useEffect(()=>{const onKeyDown=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;event.preventDefault();event.stopPropagation();dismiss()};document.addEventListener("keydown",onKeyDown,true);return()=>document.removeEventListener("keydown",onKeyDown,true)},[dismiss]);
 
@@ -829,19 +878,28 @@ function AppearanceModal({accent,onChange,favoriteAccents,onFavoriteAccentsChang
         <span className="overline">LOCAL APPEARANCE</span>
         <h2>Appearance</h2>
         <p>Adjust visual signals and data readability. These preferences stay on this device.</p>
-        <span className="appearance-label">Accent color</span>
-        <div className="accent-control"><input aria-label="Custom accent color" type="color" value={accent} onChange={event=>onChange(event.target.value)}/><code>{accent.toUpperCase()}</code><button type="button" className="accent-copy-button" onClick={()=>void copyAccent()} aria-label={copied?"Accent color copied":"Copy current accent color"} title={copied?"Copied":"Copy color"}>{copied?<Check/>:<Copy/>}</button></div>
+        <span className="appearance-label">Signal colors</span>
+        <div className="appearance-color-grid">
+          <ColorControl label="Accent" value={accent} onChange={onChange}/>
+          <ColorControl label="Anthropic" value={providerColors.anthropic} onChange={value=>onProviderColorsChange({...providerColors,anthropic:value})}/>
+          <ColorControl label="OpenAI" value={providerColors.openai} onChange={value=>onProviderColorsChange({...providerColors,openai:value})}/>
+          <ColorControl label="Warp" value={providerColors.warp} onChange={value=>onProviderColorsChange({...providerColors,warp:value})}/>
+        </div>
+        <p className="signal-color-note">Provider colors identify quota headroom across satellites, charts, and limit cards.</p>
         <div className={`accent-favorites${editingFavorites?" editing":""}`} aria-label="Favorite accent colors">{favoriteAccents.map((color,index)=><button type="button" key={`${color}-${index}`} className={accent.toLowerCase()===color.toLowerCase()?"selected":""} style={{backgroundColor:color}} aria-label={editingFavorites?`Replace ${color} with ${accent}`:`Use ${color} accent`} aria-pressed={!editingFavorites&&accent.toLowerCase()===color.toLowerCase()} onClick={()=>editingFavorites?replaceFavorite(index):onChange(color)}>{editingFavorites?<PencilLine/>:<Check/>}</button>)}<button type="button" className="accent-favorite-edit" onClick={()=>setEditingFavorites(editing=>!editing)} aria-label={editingFavorites?"Finish editing favorite colors":"Edit favorite colors"} aria-pressed={editingFavorites} title={editingFavorites?"Done editing":"Edit favorites"}><PencilLine/></button></div>
         {editingFavorites&&<div className="accent-favorite-editor"><p>Pick a new color above, then choose the favorite chip to replace.</p><button type="button" onClick={()=>{onFavoriteAccentsChange(defaultFavoriteAccents);setEditingFavorites(false)}}><RotateCcw/> Reset favorites</button></div>}
-        <button type="button" className="reset-accent" onClick={()=>onChange(neutralAccent)}>Reset to contrast-safe gray</button>
         <div className="data-text-setting"><div><b>Data text size</b><small>Tables and dense data rows across every view</small></div><div className="data-text-control"><button type="button" onClick={()=>onDataTextScaleChange(Math.max(90,dataTextScale-10))} disabled={dataTextScale<=90} aria-label="Decrease data text size">−</button><output aria-live="polite">{dataTextScale}%</output><button type="button" onClick={()=>onDataTextScaleChange(Math.min(150,dataTextScale+10))} disabled={dataTextScale>=150} aria-label="Increase data text size">+</button></div></div>
         <div className="scene-effects">
           <span className="appearance-label">Observatory scene effects</span>
-          {sceneEffectOptions.map(option=><div className="effect-row" key={option.key}><div><b>{option.label}</b><small>{option.detail}</small></div><button type="button" role="switch" className="effect-switch" aria-checked={sceneEffects[option.key]} aria-label={option.label} onClick={()=>onSceneEffectsChange({...sceneEffects,[option.key]:!sceneEffects[option.key]})}/></div>)}
-          <div className="effect-row"><div><b>Star density</b><small>Six fixed levels, from a visible floor to extreme depth</small></div><div className="speed-control density-control"><input type="range" min={1} max={6} step={1} value={sceneEffects.starDensity} disabled={!sceneEffects.starfield} aria-label="Star density" aria-valuetext={starDensityLabels[sceneEffects.starDensity]} onChange={event=>onSceneEffectsChange({...sceneEffects,starDensity:Number(event.target.value)})}/><output aria-live="polite">{starDensityLabels[sceneEffects.starDensity]}</output></div></div>
+          {sceneEffectOptions.map(option=>{
+            const systemSuppressed=option.key==="starfield"&&reducedMotion&&sceneEffects.starfield;
+            return <div className="effect-row" key={option.key}><div><b>{option.label}</b><small>{option.detail}</small>{systemSuppressed&&<small className="system-motion-note">Off because Reduce Motion is enabled in system settings.</small>}</div><button type="button" role="switch" className="effect-switch" aria-checked={systemSuppressed?false:sceneEffects[option.key]} aria-label={option.label} onClick={()=>onSceneEffectsChange({...sceneEffects,[option.key]:!sceneEffects[option.key]})}/></div>;
+          })}
+          <div className="effect-row"><div><b>Star density</b><small>Six fixed levels, from a visible floor to extreme depth</small></div><div className="speed-control density-control"><input type="range" min={1} max={6} step={1} value={sceneEffects.starDensity} disabled={!sceneEffects.starfield||reducedMotion} aria-label="Star density" aria-valuetext={starDensityLabels[sceneEffects.starDensity]} onChange={event=>onSceneEffectsChange({...sceneEffects,starDensity:Number(event.target.value)})}/><output aria-live="polite">{starDensityLabels[sceneEffects.starDensity]}</output></div></div>
           <div className="effect-row"><div><b>Animation speed</b><small>Rate of auto-rotation, orbits, and twinkle</small></div><div className="speed-control"><input type="range" min={0.1} max={3} step={0.05} value={sceneEffects.speed} aria-label="Animation speed" onChange={event=>onSceneEffectsChange({...sceneEffects,speed:Number(event.target.value)})}/><output aria-live="polite">{sceneEffects.speed.toFixed(2)}x</output></div></div>
           <small>Motion effects pause automatically when your system prefers reduced motion.</small>
         </div>
+        <button type="button" className="reset-appearance" onClick={()=>{onReset();setEditingFavorites(false)}}><RotateCcw/> Reset all appearance settings</button>
       </div>
     </div>
     {dismissal&&<div className={`appearance-dismissal${maxDismissals.includes(dismissal) ? " appearance-dismissal--max" : ""}`} role="status"><h2>{dismissal}</h2></div>}
@@ -862,8 +920,9 @@ function RulesModal({data,onClose,onSaved}:{data:DashboardData;onClose:()=>void;
 }
 
 export function App() {
-  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent); const [favoriteAccents,setFavoriteAccents]=useState(savedFavoriteAccents); const [dataTextScale,setDataTextScale]=useState(savedDataTextScale); const [sceneEffects,setSceneEffects]=useState<SceneEffects>(savedSceneEffects);
+  const {data,error,loading,load}=useDashboard(); const [view,setView]=useState<View>("overview"); const [agent,setAgent]=useState("all"); const [days,setDays]=useState<MetricRange>("30"); const [pathTag,setPathTag]=useState("all"); const [metric,setMetric]=useState<Metric>("totalTokens"); const [sidebar,setSidebar]=useState(false); const [sidebarCollapsed,setSidebarCollapsed]=useState(false); const [session,setSession]=useState<Session|null>(null); const [rules,setRules]=useState(false); const [appearance,setAppearance]=useState(false); const [accent,setAccent]=useState(savedAccent); const [providerColors,setProviderColors]=useState<ProviderColors>(savedProviderColors); const [favoriteAccents,setFavoriteAccents]=useState(savedFavoriteAccents); const [dataTextScale,setDataTextScale]=useState(savedDataTextScale); const [sceneEffects,setSceneEffects]=useState<SceneEffects>(savedSceneEffects); const reducedMotion=usePrefersReducedMotion();
   useEffect(()=>{ document.documentElement.style.setProperty("--accent", accent); const favicon=document.querySelector<HTMLLinkElement>("link[rel='icon']"); if(favicon) favicon.href=faviconHref(accent); try { localStorage.setItem(accentStorageKey, accent); } catch {} },[accent]);
+  useEffect(()=>{ document.documentElement.style.setProperty("--anthropic-color",providerColors.anthropic); document.documentElement.style.setProperty("--openai-color",providerColors.openai); document.documentElement.style.setProperty("--warp-color",providerColors.warp); try { localStorage.setItem(providerColorsStorageKey,JSON.stringify(providerColors)); } catch {} },[providerColors]);
   useEffect(()=>{ try { localStorage.setItem(favoriteAccentsStorageKey,JSON.stringify(favoriteAccents)); } catch {} },[favoriteAccents]);
   useEffect(()=>{ try { localStorage.setItem(sceneEffectsStorageKey,JSON.stringify(sceneEffects)); } catch {} },[sceneEffects]);
   useEffect(()=>{ const scale=dataTextScale/100; document.documentElement.style.setProperty("--data-text-scale",String(scale)); document.documentElement.style.setProperty("--data-text-primary",`${12*scale}px`); document.documentElement.style.setProperty("--data-text-secondary",`${10*scale}px`); document.documentElement.style.setProperty("--data-text-compact",`${9*scale}px`); document.documentElement.style.setProperty("--data-text-strong",`${15*scale}px`); try { localStorage.setItem(dataTextScaleStorageKey,String(dataTextScale)); } catch {} },[dataTextScale]);
@@ -885,16 +944,17 @@ export function App() {
       return date !== null && periods.has(date);
     });
   },[data,days,sessions]);
+  const resetAppearance=()=>{setAccent(defaultAccent);setProviderColors(defaultProviderColors);setFavoriteAccents(defaultFavoriteAccents);setDataTextScale(defaultDataTextScale);setSceneEffects(defaultSceneEffects);};
   if (loading&&!data) return <div className="boot"><div className="boot-orbit"><Orbit/></div><span>Calibrating local instruments…</span></div>;
   if (error&&!data) return <div className="boot error-state"><Database/><h1>Observatory is offline</h1><p>{error}</p><button className="primary-button" onClick={()=>load()}>Try again</button></div>;
   if (!data) return null;
   const current=nav.find(item=>item.id===view)!;
   return <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
     <aside className={sidebar?"open":""}><div className="brand"><button type="button" className="brand-home" onClick={()=>{setView("overview");setSidebar(false)}} aria-label="Go to Overview"><Orbit/></button><div><b>AI Usage</b><small>OBSERVATORY</small></div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed(collapsed=>!collapsed)} aria-label={sidebarCollapsed?"Expand navigation":"Collapse navigation"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed?<ChevronRight/>:<ChevronLeft/>}</button><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="Close navigation"><X/></button></div><nav>{nav.map(item=><button key={item.id} className={view===item.id?"active":""} onClick={()=>{setView(item.id);setSidebar(false)}} aria-label={item.label} data-tooltip={item.label}><item.icon/><span>{item.label}</span>{view===item.id&&<i/>}</button>)}</nav><div className="side-status" data-tooltip={`Local systems nominal — ccusage v${data.ccusageVersion}`} aria-label={`Local systems nominal, ccusage version ${data.ccusageVersion}`} tabIndex={sidebarCollapsed ? 0 : undefined}><span className="status-dot healthy"/><div><b>Local systems nominal</b><small>ccusage v{data.ccusageVersion}</small></div></div><button className="settings-link" onClick={()=>setRules(true)} data-tooltip="Path rules"><Settings2/> <b>Path rules</b> <span>{data.rules.length}</span></button><p className="privacy-note">No raw usage records leave this machine.</p></aside>
-    <main>{sceneEffects.starfield&&<Starfield accent={accent} effects={sceneEffects}/>}<header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><button type="button" onClick={()=>setView("overview")}>AI Usage Observatory</button><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Accent color"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
+    <main>{sceneEffects.starfield&&!reducedMotion&&<Starfield accent={accent} effects={sceneEffects}/>}<header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><button type="button" onClick={()=>setView("overview")}>AI Usage Observatory</button><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Appearance settings"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
       {data.refresh.stale&&<div className="stale-banner">Showing the last successful collection. {data.refresh.lastError}</div>}
       <div className="content">
-        {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession} accent={accent} sceneEffects={sceneEffects}/>}
+        {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession} accent={accent} providerColors={providerColors} sceneEffects={sceneEffects}/>}
         {view==="explorer"&&<Explorer data={data} rows={daily} sessions={sessions} agent={agent} pathTag={pathTag} metricRange={days} metric={metric} setMetric={setMetric}/>}
         {view==="sessions"&&<Sessions sessions={datedSessions} onEdit={setSession}/>}
         {view==="projects"&&<Projects data={data}/>}
@@ -903,6 +963,9 @@ export function App() {
       </div>
       <InformationSources data={data}/>
     </main>
-    {session&&<AnnotationModal session={session} onClose={()=>setSession(null)} onSaved={()=>load()}/>} {rules&&<RulesModal data={data} onClose={()=>setRules(false)} onSaved={()=>load(true)}/>} {appearance&&<AppearanceModal accent={accent} onChange={setAccent} favoriteAccents={favoriteAccents} onFavoriteAccentsChange={setFavoriteAccents} dataTextScale={dataTextScale} onDataTextScaleChange={setDataTextScale} sceneEffects={sceneEffects} onSceneEffectsChange={setSceneEffects} onClose={()=>setAppearance(false)}/>} {sidebar&&<div className="scrim" onClick={()=>setSidebar(false)}/>}
+    {session&&<AnnotationModal session={session} onClose={()=>setSession(null)} onSaved={()=>load()}/>}
+    {rules&&<RulesModal data={data} onClose={()=>setRules(false)} onSaved={()=>load(true)}/>}
+    {appearance&&<AppearanceModal accent={accent} onChange={setAccent} providerColors={providerColors} onProviderColorsChange={setProviderColors} favoriteAccents={favoriteAccents} onFavoriteAccentsChange={setFavoriteAccents} dataTextScale={dataTextScale} onDataTextScaleChange={setDataTextScale} sceneEffects={sceneEffects} onSceneEffectsChange={setSceneEffects} reducedMotion={reducedMotion} onReset={resetAppearance} onClose={()=>setAppearance(false)}/>}
+    {sidebar&&<div className="scrim" onClick={()=>setSidebar(false)}/>}
   </div>;
 }

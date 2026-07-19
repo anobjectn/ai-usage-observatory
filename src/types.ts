@@ -20,8 +20,9 @@ export type ProjectActivity = {
   projectId: string;
   projectName: string;
   tokens: number;
+  cost: number;
   sessions: number;
-  models: Array<{model:string;tokens:number}>;
+  models: Array<{model:string;tokens:number;cost:number}>;
 };
 export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: { tags: string[]; note: string } };
 export type SessionDetail = {

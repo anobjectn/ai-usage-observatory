@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Telescope } from "lucide-react";
+import type { ProviderHeadroom } from "./quota-headroom";
 
-export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; trails: boolean; speed: number; starDensity: number };
+export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; speed: number; starDensity: number };
+export type ProviderColors = { anthropic: string; openai: string; warp: string };
 
 const STAR_DENSITY_MULTIPLIERS = [0, 0.2, 0.42, 0.68, 1, 1.65, 4.95];
 const MAX_STAR_DENSITY = STAR_DENSITY_MULTIPLIERS.length - 1;
@@ -163,20 +165,21 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
   return <div className="starfield" aria-hidden="true"><canvas ref={canvasRef} /></div>;
 }
 
-type Dot = { x: number; y: number; size: number; color: string; alpha: number };
+type Dot = { x: number; y: number; size: number; color: string; alpha: number; hollow?: boolean };
 type Seg = { ax: number; ay: number; bx: number; by: number; color: string; alpha: number };
 
 const RINGS = [
-  { r: 1.55, tiltX: 1.13, tiltZ: -0.31, aqua: false, speed: 0.5, dir: 1, phase: 1.2 },
-  { r: 1.82, tiltX: 1.36, tiltZ: 0.56, aqua: true, speed: 0.36, dir: -1, phase: 4.0 },
-];
+  { provider: "anthropic", r: 1.55, tiltX: 1.13, tiltZ: -0.31, speed: 0.5, dir: 1, phase: 1.2 },
+  { provider: "openai", r: 1.82, tiltX: 1.36, tiltZ: 0.56, speed: 0.36, dir: -1, phase: 4.0 },
+  { provider: "warp", r: 2.08, tiltX: 0.83, tiltZ: 0.92, speed: 0.29, dir: 1, phase: 5.45 },
+] as const;
 
-export function OrbitalScene({ accent, effects }: { accent: string; effects: SceneEffects }) {
+export function OrbitalScene({ accent, effects, providerColors, headroom }: { accent: string; effects: SceneEffects; providerColors: ProviderColors; headroom: ProviderHeadroom[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const propsRef = useRef({ accent, effects });
+  const propsRef = useRef({ accent, effects, providerColors, headroom });
   const dirtyRef = useRef(true);
   const reduced = useReducedMotionRef();
-  useEffect(() => { propsRef.current = { accent, effects }; dirtyRef.current = true; }, [accent, effects]);
+  useEffect(() => { propsRef.current = { accent, effects, providerColors, headroom }; dirtyRef.current = true; }, [accent, effects, providerColors, headroom]);
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
@@ -187,7 +190,7 @@ export function OrbitalScene({ accent, effects }: { accent: string; effects: Sce
     observer.observe(canvas);
 
     const draw = (animate: boolean) => {
-      const { accent, effects } = propsRef.current;
+      const { accent, providerColors, headroom } = propsRef.current;
       ctx.clearRect(0, 0, w, h);
       const midX = w / 2, midY = h / 2;
       const D = 3.4, sphereR = Math.min(w, h) * 0.163;
@@ -205,7 +208,11 @@ export function OrbitalScene({ accent, effects }: { accent: string; effects: Sce
       const backDots: Dot[] = [], frontDots: Dot[] = [];
       const backSegs: Seg[] = [], frontSegs: Seg[] = [];
       for (const ring of RINGS) {
-        const color = ring.aqua ? AQUA : accent;
+        const signal = headroom.find((item) => item.provider === ring.provider);
+        const color = providerColors[ring.provider];
+        const known = signal?.percent !== null && signal?.percent !== undefined;
+        const normalized = known ? signal.percent! / 100 : 0;
+        const staleMultiplier = signal?.state === "stale" ? 0.55 : 1;
         const cosTX = Math.cos(ring.tiltX), sinTX = Math.sin(ring.tiltX);
         const cosTZ = Math.cos(ring.tiltZ), sinTZ = Math.sin(ring.tiltZ);
         const ringPoint = (theta: number): [number, number, number] => {
@@ -218,20 +225,23 @@ export function OrbitalScene({ accent, effects }: { accent: string; effects: Sce
         for (let i = 1; i <= steps; i++) {
           const point = project(...ringPoint(i / steps * Math.PI * 2));
           const seg = { ax: prev[0], ay: prev[1], bx: point[0], by: point[1], color, alpha: 0 };
-          if ((prev[2] + point[2]) / 2 < 0) { seg.alpha = 0.11; backSegs.push(seg); }
-          else { seg.alpha = 0.3; frontSegs.push(seg); }
+          if ((prev[2] + point[2]) / 2 < 0) { seg.alpha = (known ? 0.07 + normalized * 0.05 : 0.07) * staleMultiplier; backSegs.push(seg); }
+          else { seg.alpha = (known ? 0.18 + normalized * 0.14 : 0.14) * staleMultiplier; frontSegs.push(seg); }
           prev = point;
         }
         const angle = ring.phase + clock * ring.speed * ring.dir;
-        const pulse = animate ? 1 + 0.3 * Math.sin(clock * 1.26 + ring.phase) : 1;
-        const trailCount = effects.trails ? 16 : 0;
+        const pulse = animate && known && normalized > 0 ? 1 + 0.2 * Math.sin(clock * 1.26 + ring.phase) : 1;
+        const trailCount = known ? Math.round(18 * normalized) : 0;
         for (let k = trailCount; k >= 0; k--) {
           const [sx, syp, z] = project(...ringPoint(angle - ring.dir * k * 0.055));
-          const fade = 1 - k / 17;
+          const fade = trailCount ? 1 - k / (trailCount + 1) : 1;
+          const exhausted = known && normalized === 0;
           const dot = {
             x: sx, y: syp,
-            size: k === 0 ? 3 * pulse : 2.2 * fade,
-            color, alpha: k === 0 ? 0.95 : 0.38 * fade,
+            size: k === 0 ? (known ? (exhausted ? 0.65 : 1.5 + 4.2 * Math.sqrt(normalized)) * pulse : 2.2) : (1 + 2.2 * normalized) * fade,
+            color,
+            alpha: (k === 0 ? known ? exhausted ? 0.08 : 0.28 + 0.7 * normalized : 0.48 : (0.12 + 0.34 * normalized) * fade) * staleMultiplier,
+            hollow: !known && k === 0,
           };
           (z < 0 ? backDots : frontDots).push(dot);
         }
@@ -247,6 +257,12 @@ export function OrbitalScene({ accent, effects }: { accent: string; effects: Sce
         for (const dot of dots) {
           ctx.fillStyle = rgba(dot.color, dot.alpha * 0.25);
           ctx.beginPath(); ctx.arc(dot.x, dot.y, dot.size * 2.4, 0, Math.PI * 2); ctx.fill();
+          if (dot.hollow) {
+            ctx.strokeStyle = rgba(dot.color, dot.alpha);
+            ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.arc(dot.x, dot.y, dot.size, 0, Math.PI * 2); ctx.stroke();
+            continue;
+          }
           ctx.fillStyle = rgba(dot.color, dot.alpha);
           ctx.beginPath(); ctx.arc(dot.x, dot.y, dot.size, 0, Math.PI * 2); ctx.fill();
         }
@@ -349,5 +365,15 @@ export function OrbitalScene({ accent, effects }: { accent: string; effects: Sce
       window.removeEventListener("pointercancel", up);
     };
   }, []);
-  return <div className="orbital-viz" aria-hidden="true"><canvas ref={canvasRef} /><div className="scene-icon"><Telescope /></div></div>;
+  return <div className="orbital-viz">
+    <canvas ref={canvasRef} aria-hidden="true" />
+    <div className="scene-icon" aria-hidden="true"><Telescope /></div>
+    <div className="orbit-legend" aria-label="Provider quota headroom">
+      {headroom.map((signal) => {
+        const label = signal.provider === "openai" ? "OpenAI" : signal.provider === "anthropic" ? "Anthropic" : "Warp";
+        const value = signal.percent === null ? "Unknown" : `${Math.round(signal.percent)}%`;
+        return <div key={signal.provider}><i style={{ background: providerColors[signal.provider], color: providerColors[signal.provider] }} /><span>{label}</span><b>{value}</b>{signal.state === "stale" && <small>stale</small>}</div>;
+      })}
+    </div>
+  </div>;
 }
