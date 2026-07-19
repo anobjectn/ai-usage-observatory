@@ -2,6 +2,18 @@
 
 A local-first mission control for understanding AI coding usage. It combines pinned `ccusage` analytics, metadata-only working-directory indexing, and optional provider quota data from [`quota-service`](https://github.com/anobjectn/quota-service).
 
+## Screenshots
+
+![Overview dashboard with provider usage and reset windows](docs/screenshots/overview.png)
+
+![Overview activity and usage trajectory](docs/screenshots/overview-activity.png)
+
+![Usage explorer with provider activity and model distribution](docs/screenshots/explorer.png)
+
+![Sessions view](docs/screenshots/sessions.png)
+
+![Appearance settings](docs/screenshots/appearance.png)
+
 ## Start
 
 Requirements: Bun 1.3 or newer.
