@@ -69,7 +69,75 @@ Set `USAGE_OBSERVATORY_DB` to use another database path. Set `QUOTA_SERVICE_URL`
 
 ## Quota-service fallback
 
-Without [`quota-service`](https://github.com/anobjectn/quota-service), the dashboard continues to show ccusage-derived tokens, costs, sessions, projects, and local activity blocks. Provider allowance cards remain unavailable rather than estimating subscription quota from token usage. To restore provider allowance data, configure `QUOTA_SERVICE_URL` to a compatible service exposing `/usage`, `/resets`, and `/status`; this project does not include a direct provider collector.
+Without [`quota-service`](https://github.com/anobjectn/quota-service), the dashboard continues to show ccusage-derived tokens, costs, sessions, projects, and local activity blocks. Provider allowance cards remain unavailable rather than estimating subscription quota from token usage. This project does not include a direct provider collector.
+
+### Use your own quota service
+
+Set `QUOTA_SERVICE_URL` to the base URL of a replacement service. AI Usage Observatory reads it only; it makes concurrent `GET` requests to `/usage`, `/resets`, and `/status`, with a four-second timeout per request. Each endpoint must return a successful JSON response for the quota source to be available. `/status` is retained for source-health reporting and may return any JSON value.
+
+`/usage` must return an object with `generatedAt` (a number) and `providers` (an array). Each provider has a `provider` value of `anthropic`, `codex`, or `warp`; a `status` of `ok`, `stale`, `unavailable`, or `unknown`; a nullable `source`; and a nullable `snapshot`. `error` is optional. A window snapshot supports Anthropic and Codex allowance windows; a pool snapshot supports Warp-style request pools:
+
+```json
+{
+  "generatedAt": 1763894400000,
+  "providers": [
+    {
+      "provider": "anthropic",
+      "status": "ok",
+      "source": "my-collector",
+      "snapshot": {
+        "kind": "window",
+        "fiveHour": { "usedPercent": 36, "resetsAt": 1763912400000 },
+        "weekly": { "usedPercent": 12, "resetsAt": 1764499200000 },
+        "modelWindows": {
+          "example-model": { "usedPercent": 18, "resetsAt": 1763912400000 }
+        }
+      }
+    },
+    {
+      "provider": "warp",
+      "status": "ok",
+      "source": "my-collector",
+      "snapshot": {
+        "kind": "pool",
+        "pool": {
+          "used": 42,
+          "limit": 100,
+          "usedPercent": 42,
+          "refreshesAt": 1767225600000,
+          "cadence": "Monthly"
+        }
+      }
+    }
+  ]
+}
+```
+
+Window fields `fiveHour` and `weekly` may be `null`; `modelWindows` is optional. Every window uses a numeric `usedPercent` and a Unix-millisecond `resetsAt` (or `null`). A pool uses numeric `used`, `limit`, and `usedPercent`, a Unix-millisecond `refreshesAt` (or `null`), and an optional `cadence` label.
+
+`/resets` may return an empty object when you do not provide banked Codex reset credits. When provided, use this shape:
+
+```json
+{
+  "codexBankedResetCredits": {
+    "availableCount": 1,
+    "totalEarnedCount": 3,
+    "status": "ok",
+    "credits": [
+      {
+        "id": "credit-123",
+        "title": "Extra reset",
+        "status": "available",
+        "expiresAt": "2026-12-31T00:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+The dashboard uses `available` credits for the visible banked-reset list. It does not require a particular `status` string for individual credits, and `expiresAt` may be `null`.
+
+The optional local history summary (observed quota reaches and consumed reset credits) is specific to quota-service's SQLite database. It is not part of the HTTP replacement contract. It remains unavailable for another service unless it also provides a compatible database through `QUOTA_DB_PATH`.
 
 ## Verification
 
