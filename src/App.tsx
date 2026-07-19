@@ -109,6 +109,7 @@ const providerSeries = [
   { key: "codex", label: "Codex", color: "var(--openai-color)" },
   { key: "warp", label: "Warp", color: "var(--warp-color)" },
 ] as const;
+const stackedProviderSeries = [...providerSeries].reverse();
 
 function providerKey(agent: string) {
   const normalized = agent.toLowerCase();
@@ -221,7 +222,7 @@ function ProviderChartTooltip({ active, payload, label, coordinate }: any) {
   const tooltipPosition = row?.tooltipPosition ?? (coordinate?.x < 176 ? "right" : "center");
   return <div className={`chart-tooltip provider-tooltip provider-tooltip--${tooltipPosition}`} key={label}>
     <div className="tooltip-columns"><span>{label}</span><small>Tokens</small><small>API $</small></div>
-    {payload.filter((item:any) => item.value > 0).map((item:any) => {
+    {providerSeries.map((provider) => payload.find((item:any) => item.dataKey === provider.key)).filter((item:any) => item?.value > 0).map((item:any) => {
       const models = tooltipModels(row, item.dataKey);
       const visibleModels = models.slice(0, 3);
       return <section className="tooltip-provider" key={item.dataKey}>
@@ -394,7 +395,7 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
           <XAxis dataKey="label" tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false} minTickGap={30}/>
           <YAxis tickFormatter={formatCompact} tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false}/>
           <Tooltip content={<ProviderChartTooltip/>} cursor={{stroke:"#71807b",strokeDasharray:"3 3"}} offset={0} isAnimationActive={false} wrapperStyle={{transition:"none"}}/>
-          {providerSeries.map((provider) => <Area key={provider.key} type="monotone" dataKey={provider.key} name={provider.label} stackId="providers" stroke={provider.color} strokeWidth={1.8} fill={`url(#${provider.key}Area)`} activeDot={{r:4,fill:"#07100f",stroke:provider.color,strokeWidth:2}}/>)}
+          {stackedProviderSeries.map((provider) => <Area key={provider.key} type="monotone" dataKey={provider.key} name={provider.label} stackId="providers" stroke={provider.color} strokeWidth={1.8} fill={`url(#${provider.key}Area)`} activeDot={{r:4,fill:"#07100f",stroke:provider.color,strokeWidth:2}}/>)}
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -476,7 +477,7 @@ function HourlyProviderTimeline({ date, sessions }: {date:string;sessions:Sessio
           <XAxis dataKey="label" interval={2} tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false}/>
           <YAxis tickFormatter={formatCompact} tick={{fill:"#71807b",fontSize:12}} tickLine={false} axisLine={false}/>
           <Tooltip content={<ProviderChartTooltip/>} cursor={{fill:"#15211d"}} offset={0} isAnimationActive={false} wrapperStyle={{transition:"none"}}/>
-          {providerSeries.map((provider) => <Bar key={provider.key} dataKey={provider.key} name={provider.label} stackId="providers" fill={provider.color} maxBarSize={26}/>) }
+          {stackedProviderSeries.map((provider) => <Bar key={provider.key} dataKey={provider.key} name={provider.label} stackId="providers" fill={provider.color} maxBarSize={26}/>) }
         </BarChart>
       </ResponsiveContainer>
     </div>
