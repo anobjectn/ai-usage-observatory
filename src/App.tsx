@@ -791,9 +791,9 @@ const sceneEffectOptions:{key:"starfield"|"parallax"|"twinkle"|"trails";label:st
   {key:"trails",label:"Satellite trails",detail:"Fading motion trails behind the orbiting satellites"},
 ];
 const starDensityLabels = ["", "Minimal", "Sparse", "Balanced", "Dense", "Dark Sky", "Oh My!"];
-const unchangedDismissals = ["fine, leaving it as is", "nothing then? cool", "maybe next time?", "later"];
-const changedDismissals = ["Gotcha", "You Got It", "Fine"];
-const maxDismissals = ["Nice!", "Oh, I see!", "Oh, its like that"];
+const unchangedDismissals = ["fine, leaving it as is then", "nothing then? cool", "maybe next time?", "later"];
+const changedDismissals = ["Gotcha!", "You Got It", "Done"];
+const maxDismissals = ["Nice!!", "Oh, I see!", "Oh, its like that?"];
 const minDismissals = ["Chillin", "ok then"];
 
 function randomDismissal(options:string[]) {
@@ -844,7 +844,7 @@ function AppearanceModal({accent,onChange,favoriteAccents,onFavoriteAccentsChang
         </div>
       </div>
     </div>
-    {dismissal&&<div className="appearance-dismissal" role="status"><h2>{dismissal}</h2></div>}
+    {dismissal&&<div className={`appearance-dismissal${maxDismissals.includes(dismissal) ? " appearance-dismissal--max" : ""}`} role="status"><h2>{dismissal}</h2></div>}
   </div>;
 }
 
