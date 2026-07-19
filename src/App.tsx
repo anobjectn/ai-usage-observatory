@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlarmClock, ArrowDownRight, ArrowUpRight, Atom, Bot, Check,
   ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Database, FolderGit2,
@@ -60,15 +60,17 @@ function savedDataTextScale() {
 }
 
 const sceneEffectsStorageKey = "usage-observatory:scene-effects";
-const defaultSceneEffects: SceneEffects = { starfield: true, parallax: true, twinkle: true, trails: true, speed: 0.15 };
+const defaultSceneEffects: SceneEffects = { starfield: true, parallax: true, twinkle: true, trails: true, speed: 0.15, starDensity: 4 };
 
 function savedSceneEffects(): SceneEffects {
   try {
     const value = JSON.parse(localStorage.getItem(sceneEffectsStorageKey) ?? "");
     const speed = Number(value.speed);
+    const starDensity = Number(value.starDensity);
     return {
       starfield: value.starfield !== false, parallax: value.parallax !== false, twinkle: value.twinkle !== false, trails: value.trails !== false,
       speed: Number.isFinite(speed) && speed >= 0.1 && speed <= 3 ? speed : defaultSceneEffects.speed,
+      starDensity: Number.isInteger(starDensity) && starDensity >= 1 && starDensity <= 6 ? starDensity : defaultSceneEffects.starDensity,
     };
   } catch { return defaultSceneEffects; }
 }
@@ -788,12 +790,62 @@ const sceneEffectOptions:{key:"starfield"|"parallax"|"twinkle"|"trails";label:st
   {key:"twinkle",label:"Twinkle & tint",detail:"Star flicker with accent and aqua tinted highlights"},
   {key:"trails",label:"Satellite trails",detail:"Fading motion trails behind the orbiting satellites"},
 ];
+const starDensityLabels = ["", "Minimal", "Sparse", "Balanced", "Dense", "Dark Sky", "Oh My!"];
+const unchangedDismissals = ["fine, leaving it as is", "nothing then? cool", "maybe next time?", "later"];
+const changedDismissals = ["Gotcha", "You Got It", "Fine"];
+const maxDismissals = ["Nice!", "Oh, I see!", "Oh, its like that"];
+const minDismissals = ["Chillin", "ok then"];
+
+function randomDismissal(options:string[]) {
+  return options[Math.floor(Math.random()*options.length)];
+}
 
 function AppearanceModal({accent,onChange,favoriteAccents,onFavoriteAccentsChange,dataTextScale,onDataTextScaleChange,sceneEffects,onSceneEffectsChange,onClose}:{accent:string;onChange:(value:string)=>void;favoriteAccents:string[];onFavoriteAccentsChange:(value:string[])=>void;dataTextScale:number;onDataTextScaleChange:(value:number)=>void;sceneEffects:SceneEffects;onSceneEffectsChange:(value:SceneEffects)=>void;onClose:()=>void}) {
-  const [editingFavorites,setEditingFavorites]=useState(false); const [copied,setCopied]=useState(false);
+  const [editingFavorites,setEditingFavorites]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const [dismissal,setDismissal]=useState<string|null>(null);
+  const closeTimer=useRef<number|null>(null);
+  const initial=useRef({accent,favoriteAccents:[...favoriteAccents],dataTextScale,sceneEffects:{...sceneEffects}});
   const copyAccent=async()=>{try { await navigator.clipboard.writeText(accent); setCopied(true); window.setTimeout(()=>setCopied(false),1600); } catch {} };
   const replaceFavorite=(index:number)=>{onFavoriteAccentsChange(favoriteAccents.map((color,colorIndex)=>colorIndex===index?accent:color));setEditingFavorites(false);};
-  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><div className="modal appearance-modal"><button className="modal-close" onClick={onClose} aria-label="Close appearance settings"><X/></button><span className="overline">LOCAL APPEARANCE</span><h2>Appearance</h2><p>Adjust visual signals and data readability. These preferences stay on this device.</p><span className="appearance-label">Accent color</span><div className="accent-control"><input aria-label="Custom accent color" type="color" value={accent} onChange={event=>onChange(event.target.value)}/><code>{accent.toUpperCase()}</code><button type="button" className="accent-copy-button" onClick={()=>void copyAccent()} aria-label={copied?"Accent color copied":"Copy current accent color"} title={copied?"Copied":"Copy color"}>{copied?<Check/>:<Copy/>}</button></div><div className={`accent-favorites${editingFavorites?" editing":""}`} aria-label="Favorite accent colors">{favoriteAccents.map((color,index)=><button type="button" key={`${color}-${index}`} className={accent.toLowerCase()===color.toLowerCase()?"selected":""} style={{backgroundColor:color}} aria-label={editingFavorites?`Replace ${color} with ${accent}`:`Use ${color} accent`} aria-pressed={!editingFavorites&&accent.toLowerCase()===color.toLowerCase()} onClick={()=>editingFavorites?replaceFavorite(index):onChange(color)}>{editingFavorites?<PencilLine/>:<Check/>}</button>)}<button type="button" className="accent-favorite-edit" onClick={()=>setEditingFavorites(editing=>!editing)} aria-label={editingFavorites?"Finish editing favorite colors":"Edit favorite colors"} aria-pressed={editingFavorites} title={editingFavorites?"Done editing":"Edit favorites"}><PencilLine/></button></div>{editingFavorites&&<div className="accent-favorite-editor"><p>Pick a new color above, then choose the favorite chip to replace.</p><button type="button" onClick={()=>{onFavoriteAccentsChange(defaultFavoriteAccents);setEditingFavorites(false)}}><RotateCcw/> Reset favorites</button></div>}<button type="button" className="reset-accent" onClick={()=>onChange(neutralAccent)}>Reset to contrast-safe gray</button><div className="data-text-setting"><div><b>Data text size</b><small>Tables and dense data rows across every view</small></div><div className="data-text-control"><button type="button" onClick={()=>onDataTextScaleChange(Math.max(90,dataTextScale-10))} disabled={dataTextScale<=90} aria-label="Decrease data text size">−</button><output aria-live="polite">{dataTextScale}%</output><button type="button" onClick={()=>onDataTextScaleChange(Math.min(150,dataTextScale+10))} disabled={dataTextScale>=150} aria-label="Increase data text size">+</button></div></div><div className="scene-effects"><span className="appearance-label">Observatory scene effects</span>{sceneEffectOptions.map(option=><div className="effect-row" key={option.key}><div><b>{option.label}</b><small>{option.detail}</small></div><button type="button" role="switch" className="effect-switch" aria-checked={sceneEffects[option.key]} aria-label={option.label} onClick={()=>onSceneEffectsChange({...sceneEffects,[option.key]:!sceneEffects[option.key]})}/></div>)}<div className="effect-row"><div><b>Animation speed</b><small>Rate of auto-rotation, orbits, and twinkle</small></div><div className="speed-control"><input type="range" min={0.1} max={3} step={0.05} value={sceneEffects.speed} aria-label="Animation speed" onChange={event=>onSceneEffectsChange({...sceneEffects,speed:Number(event.target.value)})}/><output aria-live="polite">{sceneEffects.speed.toFixed(2)}x</output></div></div><small>Motion effects pause automatically when your system prefers reduced motion.</small></div></div></div>;
+  const dismiss=useCallback(()=>{
+    if(dismissal) return;
+    const starting=initial.current;
+    const sceneChanged=JSON.stringify(sceneEffects)!==JSON.stringify(starting.sceneEffects);
+    const changed=accent!==starting.accent||JSON.stringify(favoriteAccents)!==JSON.stringify(starting.favoriteAccents)||dataTextScale!==starting.dataTextScale||sceneChanged;
+    const setToMax=(sceneEffects.speed!==starting.sceneEffects.speed&&sceneEffects.speed===3)||(sceneEffects.starDensity!==starting.sceneEffects.starDensity&&sceneEffects.starDensity===6);
+    const setToMin=(sceneEffects.speed!==starting.sceneEffects.speed&&sceneEffects.speed===0.1)||(sceneEffects.starDensity!==starting.sceneEffects.starDensity&&sceneEffects.starDensity===1);
+    const options=!changed?unchangedDismissals:setToMax?maxDismissals:setToMin?minDismissals:changedDismissals;
+    setDismissal(randomDismissal(options));
+    closeTimer.current=window.setTimeout(onClose,2050);
+  },[accent,dataTextScale,dismissal,favoriteAccents,onClose,sceneEffects]);
+  useEffect(()=>()=>{if(closeTimer.current!==null)window.clearTimeout(closeTimer.current)},[]);
+  useEffect(()=>{const onKeyDown=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;event.preventDefault();event.stopPropagation();dismiss()};document.addEventListener("keydown",onKeyDown,true);return()=>document.removeEventListener("keydown",onKeyDown,true)},[dismiss]);
+
+  return <div className={`modal-backdrop appearance-backdrop${dismissal?" modal-backdrop--dismissing":""}`} onMouseDown={event=>{if(event.target===event.currentTarget)dismiss()}}>
+    <div className={`modal appearance-modal${dismissal?" appearance-modal--dismissing":""}`}>
+      <div className="appearance-content">
+        <button className="modal-close" onClick={dismiss} aria-label="Close appearance settings"><X/></button>
+        <span className="overline">LOCAL APPEARANCE</span>
+        <h2>Appearance</h2>
+        <p>Adjust visual signals and data readability. These preferences stay on this device.</p>
+        <span className="appearance-label">Accent color</span>
+        <div className="accent-control"><input aria-label="Custom accent color" type="color" value={accent} onChange={event=>onChange(event.target.value)}/><code>{accent.toUpperCase()}</code><button type="button" className="accent-copy-button" onClick={()=>void copyAccent()} aria-label={copied?"Accent color copied":"Copy current accent color"} title={copied?"Copied":"Copy color"}>{copied?<Check/>:<Copy/>}</button></div>
+        <div className={`accent-favorites${editingFavorites?" editing":""}`} aria-label="Favorite accent colors">{favoriteAccents.map((color,index)=><button type="button" key={`${color}-${index}`} className={accent.toLowerCase()===color.toLowerCase()?"selected":""} style={{backgroundColor:color}} aria-label={editingFavorites?`Replace ${color} with ${accent}`:`Use ${color} accent`} aria-pressed={!editingFavorites&&accent.toLowerCase()===color.toLowerCase()} onClick={()=>editingFavorites?replaceFavorite(index):onChange(color)}>{editingFavorites?<PencilLine/>:<Check/>}</button>)}<button type="button" className="accent-favorite-edit" onClick={()=>setEditingFavorites(editing=>!editing)} aria-label={editingFavorites?"Finish editing favorite colors":"Edit favorite colors"} aria-pressed={editingFavorites} title={editingFavorites?"Done editing":"Edit favorites"}><PencilLine/></button></div>
+        {editingFavorites&&<div className="accent-favorite-editor"><p>Pick a new color above, then choose the favorite chip to replace.</p><button type="button" onClick={()=>{onFavoriteAccentsChange(defaultFavoriteAccents);setEditingFavorites(false)}}><RotateCcw/> Reset favorites</button></div>}
+        <button type="button" className="reset-accent" onClick={()=>onChange(neutralAccent)}>Reset to contrast-safe gray</button>
+        <div className="data-text-setting"><div><b>Data text size</b><small>Tables and dense data rows across every view</small></div><div className="data-text-control"><button type="button" onClick={()=>onDataTextScaleChange(Math.max(90,dataTextScale-10))} disabled={dataTextScale<=90} aria-label="Decrease data text size">−</button><output aria-live="polite">{dataTextScale}%</output><button type="button" onClick={()=>onDataTextScaleChange(Math.min(150,dataTextScale+10))} disabled={dataTextScale>=150} aria-label="Increase data text size">+</button></div></div>
+        <div className="scene-effects">
+          <span className="appearance-label">Observatory scene effects</span>
+          {sceneEffectOptions.map(option=><div className="effect-row" key={option.key}><div><b>{option.label}</b><small>{option.detail}</small></div><button type="button" role="switch" className="effect-switch" aria-checked={sceneEffects[option.key]} aria-label={option.label} onClick={()=>onSceneEffectsChange({...sceneEffects,[option.key]:!sceneEffects[option.key]})}/></div>)}
+          <div className="effect-row"><div><b>Star density</b><small>Six fixed levels, from a visible floor to extreme depth</small></div><div className="speed-control density-control"><input type="range" min={1} max={6} step={1} value={sceneEffects.starDensity} disabled={!sceneEffects.starfield} aria-label="Star density" aria-valuetext={starDensityLabels[sceneEffects.starDensity]} onChange={event=>onSceneEffectsChange({...sceneEffects,starDensity:Number(event.target.value)})}/><output aria-live="polite">{starDensityLabels[sceneEffects.starDensity]}</output></div></div>
+          <div className="effect-row"><div><b>Animation speed</b><small>Rate of auto-rotation, orbits, and twinkle</small></div><div className="speed-control"><input type="range" min={0.1} max={3} step={0.05} value={sceneEffects.speed} aria-label="Animation speed" onChange={event=>onSceneEffectsChange({...sceneEffects,speed:Number(event.target.value)})}/><output aria-live="polite">{sceneEffects.speed.toFixed(2)}x</output></div></div>
+          <small>Motion effects pause automatically when your system prefers reduced motion.</small>
+        </div>
+      </div>
+    </div>
+    {dismissal&&<div className="appearance-dismissal" role="status"><h2>{dismissal}</h2></div>}
+  </div>;
 }
 
 function AnnotationModal({session,onClose,onSaved}:{session:Session;onClose:()=>void;onSaved:()=>void}) {
@@ -815,7 +867,7 @@ export function App() {
   useEffect(()=>{ try { localStorage.setItem(favoriteAccentsStorageKey,JSON.stringify(favoriteAccents)); } catch {} },[favoriteAccents]);
   useEffect(()=>{ try { localStorage.setItem(sceneEffectsStorageKey,JSON.stringify(sceneEffects)); } catch {} },[sceneEffects]);
   useEffect(()=>{ const scale=dataTextScale/100; document.documentElement.style.setProperty("--data-text-scale",String(scale)); document.documentElement.style.setProperty("--data-text-primary",`${12*scale}px`); document.documentElement.style.setProperty("--data-text-secondary",`${10*scale}px`); document.documentElement.style.setProperty("--data-text-compact",`${9*scale}px`); document.documentElement.style.setProperty("--data-text-strong",`${15*scale}px`); try { localStorage.setItem(dataTextScaleStorageKey,String(dataTextScale)); } catch {} },[dataTextScale]);
-  useEffect(()=>{ const dismiss=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;setSession(null);setRules(false);setAppearance(false);}; window.addEventListener("keydown",dismiss); return()=>window.removeEventListener("keydown",dismiss); },[]);
+  useEffect(()=>{ const dismiss=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;setSession(null);setRules(false);}; window.addEventListener("keydown",dismiss); return()=>window.removeEventListener("keydown",dismiss); },[]);
   const agents=useMemo(()=>data?[...new Set(data.daily.flatMap(row=>row.agents?.map(a=>a.agent)??[]))]:[],[data]);
   const pathTags=useMemo(()=>data?[...new Set(data.sessions.flatMap(s=>s.pathTags))]:[],[data]);
   const sessions=useMemo(()=>data?.sessions.filter(s=>(agent==="all"||s.agent===agent)&&(pathTag==="all"||s.pathTags.includes(pathTag)))??[],[data,agent,pathTag]);

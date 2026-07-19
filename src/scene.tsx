@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import { Telescope } from "lucide-react";
 
-export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; trails: boolean; speed: number };
+export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; trails: boolean; speed: number; starDensity: number };
+
+const STAR_DENSITY_MULTIPLIERS = [0, 0.2, 0.42, 0.68, 1, 1.65, 4.95];
+const MAX_STAR_DENSITY = STAR_DENSITY_MULTIPLIERS.length - 1;
 
 // One shared "camera" orbits the hero object. The starfield reads the same
 // orientation, so dragging the object pans the whole sky behind the content.
@@ -100,7 +103,7 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
-    let w = 0, h = 0, raf = 0, drawnVersion = -1;
+    let w = 0, h = 0, raf = 0, drawnVersion = -1, baseStarCount = 0;
     let stars: Star[] = [];
     const resize = () => {
       ({ w, h } = fitCanvas(canvas, ctx));
@@ -108,7 +111,8 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
       // so scale the on-screen density target by the visible solid-angle share.
       const f = h * 0.8;
       const coverage = Math.atan(w / 2 / f) * Math.atan(h / 2 / f) / Math.PI;
-      stars = makeStars(Math.min(6000, Math.round(w * h / 3200 / Math.max(0.02, coverage))));
+      baseStarCount = Math.min(6000, Math.round(w * h / 3200 / Math.max(0.02, coverage)));
+      stars = makeStars(Math.min(30000, Math.round(baseStarCount * STAR_DENSITY_MULTIPLIERS[MAX_STAR_DENSITY])));
       dirtyRef.current = true;
     };
     resize();
@@ -126,8 +130,11 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
       const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
       const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
       const f = h * 0.8, midX = w / 2, midY = h / 2, D = 2.5;
-      for (const star of stars) {
-        const r = effects.parallax ? star.radius : 30;
+      const density = Math.min(MAX_STAR_DENSITY, Math.max(1, Math.round(effects.starDensity)));
+      const visibleStarCount = Math.min(stars.length, Math.round(baseStarCount * STAR_DENSITY_MULTIPLIERS[density]));
+      for (let index = 0; index < visibleStarCount; index++) {
+        const star = stars[index];
+        const r = effects.parallax ? density === MAX_STAR_DENSITY ? 4 + (star.radius - 9) * 2.2 : star.radius : 30;
         const wx = star.x * r, wy = star.y * r, wz = star.z * r;
         const rx = wx * cy + wz * sy, rz = wz * cy - wx * sy;
         const ry = wy * cp - rz * sp;
