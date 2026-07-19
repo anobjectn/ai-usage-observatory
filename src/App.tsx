@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlarmClock, ArrowDownRight, ArrowUpRight, Atom, Bot, Check,
   ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Database, FolderGit2,
@@ -103,7 +103,7 @@ function usePrefersReducedMotion() {
 const formatCompact = (value: number) => Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const formatMoney = (value: number) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatDate = (value: string) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-const friendlyProject = (value: string) => value.replace(/^-Users-[^-]+-/, "").replaceAll("-", " / ");
+const friendlyProject = (value: string) => value.startsWith("/") ? value.split("/").filter(Boolean).at(-1) ?? value : value.replace(/^-Users-[^-]+-/, "").replaceAll("-", " / ");
 const providerSeries = [
   { key: "anthropic", label: "Claude", color: "var(--anthropic-color)" },
   { key: "codex", label: "Codex", color: "var(--openai-color)" },
@@ -184,6 +184,34 @@ function ChartTooltip({ active, payload, label, metric }: any) {
   return <div className="chart-tooltip"><span>{label}</span>{payload.map((item:any) => <div key={item.dataKey}><i style={{background:item.color}} />{item.name}: <b>{metric === "totalCost" ? formatMoney(item.value) : formatCompact(item.value)}</b></div>)}</div>;
 }
 
+function useClampedTooltip(active: boolean, coordinate?: {x?: number}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const tooltip = ref.current;
+    const chart = tooltip?.closest(".recharts-wrapper");
+    const wrapper = tooltip?.parentElement;
+    if (!active || !tooltip || !(chart instanceof HTMLElement) || !wrapper || typeof coordinate?.x !== "number") return;
+
+    const chartBounds = chart.getBoundingClientRect();
+    const edgePadding = 8;
+    tooltip.style.setProperty("--tooltip-width", `${Math.max(0, Math.min(410, chartBounds.width - edgePadding * 2))}px`);
+    const wrapperBounds = wrapper.getBoundingClientRect();
+    const centeredOffset = chartBounds.left + coordinate.x - wrapperBounds.left - tooltip.offsetWidth / 2;
+    tooltip.style.setProperty("--tooltip-x", `${centeredOffset}px`);
+
+    const tooltipBounds = tooltip.getBoundingClientRect();
+    const leftBoundary = Math.max(chartBounds.left, 0) + edgePadding;
+    const rightBoundary = Math.min(chartBounds.right, window.innerWidth) - edgePadding;
+    const shift = tooltipBounds.left < leftBoundary
+      ? leftBoundary - tooltipBounds.left
+      : tooltipBounds.right > rightBoundary
+        ? rightBoundary - tooltipBounds.right
+        : 0;
+    tooltip.style.setProperty("--tooltip-x", `${centeredOffset + shift}px`);
+  });
+  return ref;
+}
+
 function tooltipModels(row: any, provider: typeof providerSeries[number]["key"]) {
   return (row?.models?.[provider] ?? []) as Array<{ name: string; tokens: number; cost: number }>;
 }
@@ -213,14 +241,14 @@ function tooltipProjects(row: any): TooltipProject[] {
 }
 
 function ProviderChartTooltip({ active, payload, label, coordinate }: any) {
+  const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
   const projects = tooltipProjects(row);
   const visibleProjects = projects.slice(0, 4);
   const projectTotal = projects.reduce((sum, project) => sum + project.tokens, 0);
   const projectCost = projects.reduce((sum, project) => sum + project.cost, 0);
-  const tooltipPosition = row?.tooltipPosition ?? (coordinate?.x < 176 ? "right" : "center");
-  return <div className={`chart-tooltip provider-tooltip provider-tooltip--${tooltipPosition}`} key={label}>
+  return <div className="chart-tooltip provider-tooltip" key={label} ref={tooltipRef}>
     <div className="tooltip-columns"><span>{label}</span><small>Tokens</small><small>API $</small></div>
     {providerSeries.map((provider) => payload.find((item:any) => item.dataKey === provider.key)).filter((item:any) => item?.value > 0).map((item:any) => {
       const models = tooltipModels(row, item.dataKey);
@@ -347,7 +375,7 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
     day[project.provider] = [...(day[project.provider] ?? []), project];
     projectsByDay.set(project.date, day);
   });
-  const data = rows.map((row, index) => {
+  const data = rows.map((row) => {
     const values = { anthropic: 0, codex: 0, warp: 0 };
     const costs = { anthropic: 0, codex: 0, warp: 0 };
     const modelMaps = { anthropic: new Map<string, {tokens:number;cost:number}>(), codex: new Map<string, {tokens:number;cost:number}>(), warp: new Map<string, {tokens:number;cost:number}>() };
@@ -381,8 +409,7 @@ function ProviderTimeline({ rows, projectActivity, activeProvider }: {rows:Metri
     }
     const models = Object.fromEntries(Object.entries(modelMaps).map(([provider, entries]) => [provider, [...entries.entries()].map(([name, values]) => ({name, ...values})).sort((a, b) => b.tokens - a.tokens)]));
     const projectGroups = projectsByDay.get(row.period) ?? {};
-    const tooltipPosition = index < 2 ? "right" : index >= rows.length - 2 ? "left" : "center";
-    return { ...values, costs, models, projectGroups, tooltipPosition, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
+    return { ...values, costs, models, projectGroups, label: new Date(`${row.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }) };
   });
   const totals = providerSeries.map((provider) => ({ ...provider, value: data.reduce((sum, row) => sum + row[provider.key], 0) }));
   return <>
@@ -421,7 +448,6 @@ function HourlyProviderTimeline({ date, sessions }: {date:string;sessions:Sessio
       anthropic: new Map<string,{projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>(),
       codex: new Map<string,{projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>(),
     },
-    tooltipPosition: hour < 6 ? "right" : hour >= 18 ? "left" : "center",
     label: new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, {hour:"numeric"}),
   }));
   sessions.forEach((session) => {
@@ -720,42 +746,68 @@ function Sessions({sessions,onEdit}:{sessions:Session[];onEdit:(session:Session)
   return <div className="view-stack page-enter"><PageTitle eyebrow="SESSION LEDGER" title="Trace every session" description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine." actions={<label className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search sessions…"/></label>}/><section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{header("activity","Last activity")}{header("session","Session")}{header("agent","Agent")}{header("cwd","Working directory")}{header("tokens","Tokens")}{header("cost","Cost")}<th></th><th></th></tr></thead><tbody>{pageRows.map(session => <Fragment key={session.sessionId}><tr className={`session-row ${expanded === session.sessionId ? "session-row-open" : ""}`} tabIndex={0} aria-expanded={expanded === session.sessionId} aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}`} onClick={()=>void toggle(session)} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==="Enter"||event.key===" ")){event.preventDefault();void toggle(session);}}}><td><span className="session-activity">{session.metadata?.lastActivity ? formatDate(session.metadata.lastActivity) : "—"}</span></td><td><span><b>{session.modelsUsed[0] ?? "Unknown"}</b><small>{session.period.slice(0,18)}</small></span></td><td className="session-row__agent"><span className={`agent-pill ${session.agent}`}>{session.agent}</span></td><td><span className="cwd" title={session.cwd ?? "Unavailable"}>{session.cwd ?? "Path unavailable"}</span><span className="mini-tags">{[...session.pathTags,...session.annotation.tags].slice(0,3).map(tag=><i key={tag}>{tag}</i>)}</span></td><td><b>{formatCompact(session.totalTokens)}</b><small>{formatCompact(session.outputTokens)} output</small></td><td><b>{formatMoney(session.totalCost)}</b><small>ccusage</small></td><td className="session-row__actions" onClick={event=>event.stopPropagation()}><button className="icon-button" onClick={()=>onEdit(session)} aria-label="Edit annotation"><PencilLine/></button></td><td className="session-row__toggle" onClick={event=>event.stopPropagation()}><button type="button" className="session-detail-toggle" onClick={()=>void toggle(session)} aria-label={expanded === session.sessionId ? "Close session details" : "Open session details"} aria-expanded={expanded === session.sessionId}><Plus/></button></td></tr>{expanded === session.sessionId && <tr className="session-detail-row"><td colSpan={8}><SessionDetailPanel session={session} detail={details[session.sessionId]} loading={loadingDetail === session.sessionId}/></td></tr>}</Fragment>)}</tbody></table></div>{!pageRows.length&&<Empty text="No sessions match those filters."/>}<div className="pagination"><span>{filtered.length} sessions</span><div><button disabled={page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft/></button><span>{page} / {pages}</span><button disabled={page===pages} onClick={()=>setPage(p=>p+1)}><ChevronRight/></button></div></div></section></div>;
 }
 
-function projectDayRows(trend: ProjectTrendRow[]) {
-  const days = new Map<string, {date:string;tokens:number;cost:number;runs:number;models:Map<string,number>}>();
+function projectDayRows(trend: ProjectTrendRow[], activity: ProjectActivity[] = []) {
+  const days = new Map<string, {date:string;tokens:number;cost:number;runs:number;models:Map<string,{tokens:number;cost:number}>}>();
   trend.forEach((row) => {
-    const day = days.get(row.date) ?? {date:row.date,tokens:0,cost:0,runs:0,models:new Map<string,number>()};
+    const day = days.get(row.date) ?? {date:row.date,tokens:0,cost:0,runs:0,models:new Map<string,{tokens:number;cost:number}>()};
     day.tokens += row.totalTokens;
     day.cost += row.totalCost;
     day.runs++;
     row.modelBreakdowns.forEach((model) => {
       const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-      day.models.set(model.modelName, (day.models.get(model.modelName) ?? 0) + tokens);
+      const current=day.models.get(model.modelName)??{tokens:0,cost:0};
+      current.tokens+=tokens;
+      current.cost+=model.cost;
+      day.models.set(model.modelName,current);
     });
     days.set(row.date, day);
   });
+  const providersByDay = new Map<string, ProjectActivity[]>();
+  activity.forEach((item) => providersByDay.set(item.date, [...(providersByDay.get(item.date) ?? []), item]));
   return [...days.values()].sort((a,b)=>a.date.localeCompare(b.date)).map((day)=>({
     ...day,
+    runs:providersByDay.has(day.date) ? providersByDay.get(day.date)!.reduce((sum,item)=>sum+item.sessions,0) : day.runs,
     label:new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric"}),
-    models:[...day.models.entries()].map(([name,tokens])=>({name,tokens})).sort((a,b)=>b.tokens-a.tokens),
+    models:[...day.models.entries()].map(([name,totals])=>({name,...totals})).sort((a,b)=>b.tokens-a.tokens),
+    providers:(providersByDay.get(day.date) ?? []).sort((a,b)=>providerSeries.findIndex((provider)=>provider.key===a.provider)-providerSeries.findIndex((provider)=>provider.key===b.provider)),
   }));
 }
 
-function ProjectDayTooltip({active,payload}:{active?:boolean;payload?:any[]}) {
+function ProjectDayTooltip({active,payload,coordinate}:{active?:boolean;payload?:any[];coordinate?:{x?:number}}) {
+  const tooltipRef=useClampedTooltip(Boolean(active),coordinate);
   if (!active || !payload?.length) return null;
   const row = payload[0].payload as ReturnType<typeof projectDayRows>[number];
-  return <div className="chart-tooltip project-day-tooltip">
-    <span>{new Date(`${row.date}T12:00:00`).toLocaleDateString(undefined,{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</span>
-    <div><i style={{background:"var(--accent)"}}/>Tokens <b>{row.tokens.toLocaleString()}</b></div>
-    <div><i style={{background:"var(--aqua)"}}/>Activity records <b>{row.runs}</b></div>
-    {row.models.slice(0,4).map((model)=><div className="project-day-model" key={model.name}><span>{model.name}</span><b>{formatCompact(model.tokens)}</b></div>)}
+  const dateLabel=new Date(`${row.date}T12:00:00`).toLocaleDateString(undefined,{weekday:"short",month:"long",day:"numeric",year:"numeric"});
+  return <div className="chart-tooltip provider-tooltip" key={row.date} ref={tooltipRef}>
+    <div className="tooltip-columns"><span>{dateLabel}</span><small>Tokens</small><small>API $</small></div>
+    <section className="tooltip-projects">
+      <div className="tooltip-projects__head"><strong>Total</strong><b>{formatCompact(row.tokens)}</b><b>{formatMoney(row.cost)}</b></div>
+    </section>
+    {row.providers.map((providerActivity) => {
+      const provider=providerSeries.find((item)=>item.key===providerActivity.provider)!;
+      const visibleModels=providerActivity.models.slice(0,3);
+      return <section className="tooltip-provider" key={providerActivity.provider}>
+        <div className="tooltip-provider__head"><i style={{background:provider.color}}/><strong>{provider.label}</strong><b>{formatCompact(providerActivity.tokens)}</b><b>{formatMoney(providerActivity.cost)}</b></div>
+        {visibleModels.length>0&&<ul className="tooltip-provider-models">{visibleModels.map((model)=><li key={model.model}><span>{model.model}</span><b>{formatCompact(model.tokens)}</b><b>{formatMoney(model.cost)}</b></li>)}</ul>}
+        {providerActivity.models.length>visibleModels.length&&<small className="tooltip-more-row tooltip-model-more"><span>+{providerActivity.models.length-visibleModels.length} more</span><b>{formatCompact(providerActivity.models.slice(3).reduce((sum,model)=>sum+model.tokens,0))}</b><b>{formatMoney(providerActivity.models.slice(3).reduce((sum,model)=>sum+model.cost,0))}</b></small>}
+      </section>;
+    })}
   </div>;
 }
 
-function ProjectDetails({project}:{project:ProjectSummary}) {
-  const days=projectDayRows(project.trend);
-  const modelTotals=new Map<string,number>();
-  days.forEach(day=>day.models.forEach(model=>modelTotals.set(model.name,(modelTotals.get(model.name)??0)+model.tokens)));
-  const models=[...modelTotals.entries()].map(([name,tokens])=>({name,tokens})).sort((a,b)=>b.tokens-a.tokens);
+function ProjectDetails({project,activity}:{project:ProjectSummary;activity:ProjectActivity[]}) {
+  type ModelSortKey="name"|"tokens"|"cost";
+  const [modelSort,setModelSort]=useState<{key:ModelSortKey;direction:"asc"|"desc"}>({key:"tokens",direction:"desc"});
+  const days=projectDayRows(project.trend,activity);
+  const modelTotals=new Map<string,{tokens:number;cost:number}>();
+  days.forEach(day=>day.models.forEach(model=>{const totals=modelTotals.get(model.name)??{tokens:0,cost:0};totals.tokens+=model.tokens;totals.cost+=model.cost;modelTotals.set(model.name,totals);}));
+  const modelEntries=[...modelTotals.entries()].map(([name,totals])=>({name,...totals})).sort((a,b)=>b.tokens-a.tokens).map((model,colorIndex)=>({...model,colorIndex}));
+  const models=[...modelEntries].sort((left,right)=>{
+    const comparison=modelSort.key==="name"?left.name.localeCompare(right.name):left[modelSort.key]-right[modelSort.key];
+    return modelSort.direction==="asc"?comparison:-comparison;
+  });
+  const sortModels=(key:ModelSortKey)=>setModelSort((current)=>current.key===key?{key,direction:current.direction==="asc"?"desc":"asc"}:{key,direction:key==="name"?"asc":"desc"});
+  const modelSortButton=(key:ModelSortKey,label:string)=><button type="button" className={modelSort.key===key?"active":undefined} aria-label={`Sort models by ${label} ${modelSort.key===key&&modelSort.direction==="asc"?"descending":"ascending"}`} aria-pressed={modelSort.key===key} onClick={()=>sortModels(key)}><span>{label}</span><i aria-hidden="true">{modelSort.key===key?(modelSort.direction==="asc"?"↑":"↓"):"↕"}</i></button>;
   const first=days[0]?.date; const last=days.at(-1)?.date;
   const dateCopy=first&&last ? `${new Date(`${first}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})} — ${new Date(`${last}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}` : "No dated activity";
   return <div className="project-detail" onClick={event=>event.stopPropagation()}>
@@ -775,7 +827,7 @@ function ProjectDetails({project}:{project:ProjectSummary}) {
               <XAxis dataKey="label" tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false} minTickGap={24}/>
               <YAxis yAxisId="tokens" tickFormatter={formatCompact} tick={{fill:"#71807b",fontSize:11}} tickLine={false} axisLine={false}/>
               <YAxis yAxisId="runs" orientation="right" allowDecimals={false} hide/>
-              <Tooltip content={<ProjectDayTooltip/>} cursor={{fill:"rgba(183,242,92,.05)"}}/>
+              <Tooltip content={<ProjectDayTooltip/>} cursor={{fill:"rgba(183,242,92,.05)"}} offset={0} isAnimationActive={false} wrapperStyle={{transition:"none"}}/>
               <Bar yAxisId="tokens" dataKey="tokens" name="Tokens" fill="var(--accent)" fillOpacity={0.46} radius={[4,4,0,0]}/>
               <Line yAxisId="runs" type="monotone" dataKey="runs" name="Activity records" stroke="var(--aqua)" strokeWidth={2} dot={false} activeDot={{r:4,fill:"#07100f",stroke:"var(--aqua)",strokeWidth:2}}/>
             </BarChart>
@@ -783,11 +835,13 @@ function ProjectDetails({project}:{project:ProjectSummary}) {
         </div>
       </section>
       <section className="project-viz model-breakdown">
-        <div className="project-viz__head"><div><span className="overline">MODEL MIX</span><h4>Tokens by model</h4></div><span>{models.length} {models.length===1?"model":"models"}</span></div>
-        <div className="project-model-list">{models.map((model,index)=><div key={model.name} title={`${model.name}: ${model.tokens.toLocaleString()} tokens`}>
-          <div><span><i style={{background:palette[index%palette.length]}}/>{model.name}</span><b>{formatCompact(model.tokens)}</b></div>
-          <div className="project-model-meter"><i style={{width:`${project.tokens?model.tokens/project.tokens*100:0}%`,background:palette[index%palette.length]}}/></div>
-          <small>{project.tokens?Math.round(model.tokens/project.tokens*100):0}%</small>
+        <div className="project-viz__head"><div><span className="overline">MODEL MIX</span><h4>Usage by model</h4></div><span>{models.length} {models.length===1?"model":"models"}</span></div>
+        <div className="project-model-total"><span>Overall total</span><b><small>Tokens</small>{formatCompact(project.tokens)}</b><b><small>API eq.</small>{formatMoney(project.cost)}</b></div>
+        <div className="project-model-sort" aria-label="Sort model usage">{modelSortButton("name","Model")}{modelSortButton("tokens","Tokens")}{modelSortButton("cost","API eq.")}</div>
+        <div className="project-model-list">{models.map((model)=><div key={model.name} title={`${model.name}: ${model.tokens.toLocaleString()} tokens · ${formatMoney(model.cost)} API-equivalent`}>
+          <div><span><i style={{background:palette[model.colorIndex%palette.length]}}/>{model.name}</span><b>{formatCompact(model.tokens)}</b><b>{formatMoney(model.cost)}</b></div>
+          <div className="project-model-meter"><i style={{width:`${project.tokens?model.tokens/project.tokens*100:0}%`,background:palette[model.colorIndex%palette.length]}}/></div>
+          <small>{project.tokens?Math.round(model.tokens/project.tokens*100):0}% of tokens</small>
         </div>)}</div>
       </section>
     </div>
@@ -797,16 +851,28 @@ function ProjectDetails({project}:{project:ProjectSummary}) {
 
 function Projects({data}:{data:DashboardData}) {
   const [openProject,setOpenProject]=useState<string|null>(null);
-  return <div className="view-stack page-enter"><PageTitle eyebrow="PROJECT CARTOGRAPHY" title="Where the work happened" description="Select a project to inspect its daily activity, model mix, and observed time range."/><section className="card-list project-list">{data.projects.map((project,index)=>{
+  const [query,setQuery]=useState("");
+  const [sort,setSort]=useState("tokens-desc");
+  const visibleProjects=useMemo(()=>{
+    const [key,direction]=sort.split("-") as ["name"|"tokens"|"cost"|"sessions","asc"|"desc"];
+    const matches=data.projects.filter(project=>`${friendlyProject(project.name)} ${project.models.join(" ")}`.toLowerCase().includes(query.trim().toLowerCase()));
+    return [...matches].sort((left,right)=>{
+      const value=(project:ProjectSummary):string|number=>key==="name"?friendlyProject(project.name):project[key];
+      const a=value(left),b=value(right);
+      const comparison=typeof a==="number"&&typeof b==="number"?a-b:String(a).localeCompare(String(b));
+      return direction==="asc"?comparison:-comparison;
+    });
+  },[data.projects,query,sort]);
+  return <div className="view-stack page-enter"><PageTitle eyebrow="PROJECT CARTOGRAPHY" title="Where the work happened" description="Select a project to inspect its daily activity, model mix, and observed time range." actions={<div className="project-controls"><label className="search"><Search/><span className="sr-only">Search projects</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search projects…"/></label><label className="project-sort"><span>Sort</span><select value={sort} onChange={event=>setSort(event.target.value)}><option value="tokens-desc">Tokens: high to low</option><option value="tokens-asc">Tokens: low to high</option><option value="cost-desc">Cost: high to low</option><option value="cost-asc">Cost: low to high</option><option value="sessions-desc">Sessions: high to low</option><option value="sessions-asc">Sessions: low to high</option><option value="name-asc">Name: A to Z</option><option value="name-desc">Name: Z to A</option></select></label></div>}/><section className="card-list project-list">{visibleProjects.map((project,index)=>{
     const open=openProject===project.name;
     const maxTokens=Math.max(...project.trend.map(point=>point.totalTokens),1);
     return <article className={`project-card${open?" open":""}`} key={project.name}>
       <button className="rank-card project-row" type="button" onClick={()=>setOpenProject(open?null:project.name)} aria-expanded={open} aria-controls={`project-detail-${index}`}>
-        <span className="rank">{String(index+1).padStart(2,"0")}</span><div className="rank-main"><h3>{friendlyProject(project.name)}</h3><p>{project.models.slice(0,3).join(" · ")}</p><div className="micro-chart" aria-hidden="true">{project.trend.slice(-14).map((point,i)=><i key={i} style={{height:`${Math.max(8,point.totalTokens/maxTokens*100)}%`}}/>)}</div></div><div className="rank-stat"><span>Tokens</span><b>{formatCompact(project.tokens)}</b></div><div className="rank-stat"><span>Cost</span><b>{formatMoney(project.cost)}</b></div><div className="rank-stat"><span>Active days</span><b>{projectDayRows(project.trend).length}</b></div><ChevronRight className="project-row__chevron"/>
+        <span className="rank">{String(index+1).padStart(2,"0")}</span><div className="rank-main"><h3>{friendlyProject(project.name)}</h3><p>{project.models.slice(0,3).join(" · ")}</p><div className="micro-chart" aria-hidden="true">{project.trend.slice(-14).map((point,i)=><i key={i} style={{height:`${Math.max(8,point.totalTokens/maxTokens*100)}%`}}/>)}</div></div><div className="rank-stat"><span>Tokens</span><b>{formatCompact(project.tokens)}</b></div><div className="rank-stat"><span>Cost</span><b>{formatMoney(project.cost)}</b></div><div className="rank-stat"><span>Active days</span><b>{projectDayRows(project.trend).length}</b></div><Plus className="project-row__toggle" aria-hidden="true"/>
       </button>
-      {open&&<div id={`project-detail-${index}`}><ProjectDetails project={project}/></div>}
+      {open&&<div id={`project-detail-${index}`}><ProjectDetails project={project} activity={data.projectActivity.filter((activity)=>activity.projectId===project.name)}/></div>}
     </article>;
-  })}</section>{!data.projects.length&&<Empty text="No source-exposed projects found in this period."/>}</div>;
+  })}</section>{!data.projects.length?<Empty text="No source-exposed projects found in this period."/>:!visibleProjects.length&&<Empty text="No projects match that search."/>}</div>;
 }
 
 function Models({data}:{data:DashboardData}) { const max=Math.max(...data.models.map(m=>m.cost),1); return <div className="view-stack page-enter"><PageTitle eyebrow="MODEL SPECTROGRAPH" title="Model mix and efficiency" description="Compare API-equivalent cost, output volume, and cache behavior using ccusage as the sole analytical cost source."/><section className="model-grid">{data.models.map((model,index)=><article className="model-card" key={model.model}><div className="model-card__head"><span style={{background:palette[index%palette.length]}}>{model.model.startsWith("gpt")?"G":"C"}</span><div><h3>{model.model}</h3><p>{model.agents.join(" · ")}</p></div></div><div className="model-cost"><strong>{formatMoney(model.cost)}</strong><span>API-equivalent</span></div><div className="meter"><i style={{width:`${model.cost/max*100}%`,background:palette[index%palette.length]}}/></div><dl><div><dt>Total tokens</dt><dd>{formatCompact(model.tokens)}</dd></div><div><dt>Output</dt><dd>{formatCompact(model.outputTokens)}</dd></div><div><dt>Cache read</dt><dd>{formatCompact(model.cacheReadTokens)}</dd></div></dl></article>)}</section></div> }

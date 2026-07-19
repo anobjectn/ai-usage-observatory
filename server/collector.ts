@@ -24,17 +24,6 @@ function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unifi
   return [...models.values()].map((model) => ({ ...model, agents: [...model.agents] })).sort((a, b) => b.cost - a.cost);
 }
 
-function aggregateProjects(report: Awaited<ReturnType<typeof collectCcusage>>["projects"]) {
-  return Object.entries(report.projects).map(([name, rows]) => ({
-    name,
-    tokens: rows.reduce((sum, row) => sum + row.totalTokens, 0),
-    cost: rows.reduce((sum, row) => sum + row.totalCost, 0),
-    sessions: rows.length,
-    models: [...new Set(rows.flatMap((row) => row.modelsUsed))],
-    trend: rows,
-  })).sort((a, b) => b.cost - a.cost);
-}
-
 type ProjectActivitySession = {
   agent: string;
   period: string;
@@ -44,6 +33,53 @@ type ProjectActivitySession = {
   totalCost: number;
   modelBreakdowns: Array<{modelName:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number}>;
 };
+
+type ProjectModelTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number};
+
+export function aggregateProjects(sessions: ProjectActivitySession[]) {
+  const projects = new Map<string, {name:string;tokens:number;cost:number;sessions:number;models:Map<string,number>;days:Map<string,{date:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number;models:Map<string,ProjectModelTotals>}>}>();
+  for (const session of sessions) {
+    const date = localDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    if (!activityProvider(session.agent) || !date || !session.cwd) continue;
+    const projectId = session.cwd.replace(/\/+$/, "");
+    const project = projects.get(projectId) ?? {name:projectId,tokens:0,cost:0,sessions:0,models:new Map(),days:new Map()};
+    const day = project.days.get(date) ?? {date,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,totalTokens:0,totalCost:0,models:new Map()};
+    project.tokens += session.totalTokens;
+    project.cost += session.totalCost;
+    project.sessions++;
+    day.totalTokens += session.totalTokens;
+    day.totalCost += session.totalCost;
+    for (const model of session.modelBreakdowns) {
+      const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+      project.models.set(model.modelName, (project.models.get(model.modelName) ?? 0) + tokens);
+      day.inputTokens += model.inputTokens;
+      day.outputTokens += model.outputTokens;
+      day.cacheReadTokens += model.cacheReadTokens;
+      day.cacheCreationTokens += model.cacheCreationTokens;
+      const current = day.models.get(model.modelName) ?? {inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,cost:0};
+      current.inputTokens += model.inputTokens;
+      current.outputTokens += model.outputTokens;
+      current.cacheReadTokens += model.cacheReadTokens;
+      current.cacheCreationTokens += model.cacheCreationTokens;
+      current.cost += model.cost;
+      day.models.set(model.modelName, current);
+    }
+    project.days.set(date, day);
+    projects.set(projectId, project);
+  }
+  return [...projects.values()].map((project) => ({
+    name: project.name,
+    tokens: project.tokens,
+    cost: project.cost,
+    sessions: project.sessions,
+    models: [...project.models.entries()].sort((a, b) => b[1] - a[1]).map(([model]) => model),
+    trend: [...project.days.values()].sort((a, b) => a.date.localeCompare(b.date)).map((day) => {
+      const {models, ...totals} = day;
+      const modelBreakdowns = [...models.entries()].map(([modelName, values]) => ({modelName,...values})).sort((a, b) => (b.inputTokens + b.outputTokens + b.cacheReadTokens + b.cacheCreationTokens) - (a.inputTokens + a.outputTokens + a.cacheReadTokens + a.cacheCreationTokens));
+      return {...totals,modelsUsed:modelBreakdowns.map((model) => model.modelName),modelBreakdowns};
+    }),
+  })).sort((a, b) => b.cost - a.cost);
+}
 
 function localDate(value: unknown) {
   if (typeof value !== "string") return null;
@@ -109,7 +145,7 @@ async function buildSnapshot() {
     sessions,
     projectActivity: aggregateProjectActivity(sessions),
     blocks: ccusage.blocks.blocks,
-    projects: aggregateProjects(ccusage.projects),
+    projects: aggregateProjects(sessions),
     models: aggregateModels(ccusage.unified.daily),
     quotas: quota,
     rules: listRules(),

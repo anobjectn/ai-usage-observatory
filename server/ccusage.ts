@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { blocksReportSchema, projectsReportSchema, unifiedReportSchema } from "./schema";
+import { blocksReportSchema, unifiedReportSchema } from "./schema";
 
 const binary = join(process.cwd(), "node_modules", ".bin", "ccusage");
 
@@ -19,11 +19,10 @@ export async function ccusageVersion() {
 
 export async function collectCcusage() {
   const since = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
-  const [unified, blocks, projects, version] = await Promise.all([
+  const [unified, blocks, version] = await Promise.all([
     invoke(["daily", "--sections", "daily,weekly,monthly,session", "--by-agent", "--json", "--offline", "--since", since]).then((value) => unifiedReportSchema.parse(value)),
     invoke(["blocks", "--recent", "--json", "--offline"]).then((value) => blocksReportSchema.parse(value)),
-    invoke(["claude", "daily", "--instances", "--json", "--offline", "--since", since]).then((value) => projectsReportSchema.parse(value)),
     ccusageVersion(),
   ]);
-  return { unified, blocks, projects, version };
+  return { unified, blocks, version };
 }

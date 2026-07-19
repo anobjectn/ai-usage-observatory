@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit ccusage Upstream"
+  short_description: "Assess ccusage upgrades and opportunities"
+  default_prompt: "Use $audit-ccusage-upstream to compare this project with current ccusage upstream and generate the dark HTML assessment report."

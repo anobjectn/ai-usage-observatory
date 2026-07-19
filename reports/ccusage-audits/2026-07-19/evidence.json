@@ -1,0 +1,315 @@
+{
+  "metadata": {
+    "title": "ccusage upstream audit — 2026-07-19",
+    "generated_at": "2026-07-19T19:03:59-04:00",
+    "repository": "AI Usage Observatory",
+    "upstream_repository": "ccusage/ccusage"
+  },
+  "versions": {
+    "pinned": "20.0.17",
+    "resolved": "20.0.17",
+    "installed": "20.0.17",
+    "latest_stable": "20.0.17",
+    "latest_upstream_commit": "07eb5f26b827",
+    "status": "current",
+    "released_versions_behind": 0
+  },
+  "assessment": {
+    "complexity": "none",
+    "recommendation": "Do not change the dependency: the Observatory already matches the latest stable release. Keep Codex-derived totals and API-equivalent cost visibly qualified for fork/subagent-heavy histories, watch issue #1434 and the unmerged fix in PR #1435, and reassess when a runtime release lands.",
+    "summary": "The project is exactly current at ccusage 20.0.17 and its consumed JSON contracts validate. Six commits exist after the release, but all are build, CI, Nix, benchmark, fixture-generation, or release-process work. Separately, upstream has a reproducible Codex fork/subagent replay overcount in 20.0.17 and current main; the proposed runtime fix is not merged."
+  },
+  "sources": [
+    {
+      "label": "ccusage on npm",
+      "url": "https://www.npmjs.com/package/ccusage",
+      "note": "Registry metadata reports latest stable 20.0.17."
+    },
+    {
+      "label": "ccusage repository",
+      "url": "https://github.com/ccusage/ccusage",
+      "note": "Canonical upstream source and current feature documentation."
+    },
+    {
+      "label": "v20.0.17 release notes",
+      "url": "https://github.com/ccusage/ccusage/releases/tag/v20.0.17",
+      "note": "Published 2026-07-10; latest stable release."
+    },
+    {
+      "label": "v20.0.17 to main comparison",
+      "url": "https://github.com/ccusage/ccusage/compare/v20.0.17...main",
+      "note": "Six post-release commits; no adapter or report-contract runtime changes."
+    },
+    {
+      "label": "Upstream usage and features",
+      "url": "https://github.com/ccusage/ccusage/blob/main/apps/ccusage/README.md",
+      "note": "Unified sources, JSON, offline mode, timezone, pricing overrides, and Claude instances."
+    },
+    {
+      "label": "Codex accounting bug #1434",
+      "url": "https://github.com/ccusage/ccusage/issues/1434",
+      "note": "Open report of fork/subagent history overcount on 20.0.17."
+    },
+    {
+      "label": "Unmerged Codex replay fix #1435",
+      "url": "https://github.com/ccusage/ccusage/pull/1435",
+      "note": "Closed without merge after automation; proposed structural deduplication."
+    },
+    {
+      "label": "Independent Codex replay reproduction #1460",
+      "url": "https://github.com/ccusage/ccusage/issues/1460",
+      "note": "Reports the same overcount in 20.0.17 and Rust HEAD."
+    },
+    {
+      "label": "Codex blocks proposal #1431",
+      "url": "https://github.com/ccusage/ccusage/issues/1431",
+      "note": "Feature proposal; not present in the 20.0.17 CLI."
+    },
+    {
+      "label": "Reasoning-effort proposal #1452",
+      "url": "https://github.com/ccusage/ccusage/issues/1452",
+      "note": "Proposed Codex effortBreakdown JSON; not merged."
+    }
+  ],
+  "released_changes": [],
+  "unreleased_changes": [
+    {
+      "title": "Six post-release commits affect development and release tooling only",
+      "version": "main after v20.0.17",
+      "date": "2026-07-19",
+      "category": "Build and CI tooling",
+      "summary": "Observed upstream changes cover Nix dependency caching, a Babashka benchmark harness, Bun fixture generation, CI cache maintenance, dev-shell worktree setup, and tagpr release triggers.",
+      "impact": "No Observatory runtime, CLI flag, JSON report, pricing, adapter, or session-identity change is visible in the comparison. This is an observed file-level result, not a prediction about a future release.",
+      "complexity": "none",
+      "required_work": [],
+      "affected_files": [],
+      "evidence": [
+        {
+          "label": "Compare v20.0.17...main",
+          "url": "https://github.com/ccusage/ccusage/compare/v20.0.17...main"
+        },
+        {
+          "label": "Latest upstream commit",
+          "url": "https://github.com/ccusage/ccusage/commit/07eb5f26b8279591842576f02f62b529b7fb3a00"
+        }
+      ]
+    }
+  ],
+  "opportunities": [
+    {
+      "title": "Extend metadata-only project enrichment beyond Claude and Codex",
+      "value": "Unified ccusage reports already ingest 15 supported agent sources, but Observatory project paths, stable session enrichment, and project activity currently cover only Claude and Codex. Adding selected high-value sources would turn existing aggregate rows into project-level analytics.",
+      "fit": "Fits the local-only architecture if each added source gets an explicit metadata-head parser, stable native-key mapping, and regression fixtures without copying prompt or response content.",
+      "effort": "medium",
+      "recommendation": "prototype",
+      "required_work": [
+        "Choose sources based on actual local usage rather than implementing all agents at once.",
+        "Add source-specific path discovery and native session-key extraction in server/path-indexer.ts.",
+        "Expand provider/project types and identity fixtures while preserving annotation continuity.",
+        "Surface unsupported enrichment explicitly instead of presenting missing paths as collection failure."
+      ],
+      "evidence": [
+        {
+          "label": "Supported upstream sources",
+          "url": "https://github.com/ccusage/ccusage/blob/main/apps/ccusage/README.md#supported-sources"
+        }
+      ]
+    },
+    {
+      "title": "Expose an explicit reporting timezone",
+      "value": "ccusage supports IANA timezones, while the Observatory currently accepts the process/system timezone implicitly. An explicit setting would make day, week, and month boundaries deterministic when the app moves between machines or environments.",
+      "fit": "This remains local and can be passed as a CLI argument alongside --offline. The same setting must also drive Observatory-side local-date grouping to avoid mixed boundaries.",
+      "effort": "low",
+      "recommendation": "adopt",
+      "required_work": [
+        "Add and validate an IANA timezone setting.",
+        "Pass --timezone to unified and block commands.",
+        "Use the same timezone in project aggregation and document the boundary."
+      ],
+      "evidence": [
+        {
+          "label": "Timezone feature",
+          "url": "https://github.com/ccusage/ccusage/blob/main/apps/ccusage/README.md#features"
+        }
+      ]
+    },
+    {
+      "title": "Add governed local pricing overrides for newly released models",
+      "value": "Upstream configuration supports runtime pricing overrides keyed by raw model name. A controlled override could prevent temporary zero or stale API-equivalent costs while bundled offline pricing catches up.",
+      "fit": "Compatible with offline operation, but the Observatory must label overrides separately, record their source and effective date, and avoid implying that user-supplied values are upstream ccusage defaults.",
+      "effort": "medium",
+      "recommendation": "prototype",
+      "required_work": [
+        "Use an Observatory-owned explicit config path instead of relying on ambient auto-discovery.",
+        "Validate model names and numeric pricing fields against the bundled schema.",
+        "Expose override provenance in methodology and source health.",
+        "Add cost regression fixtures before enabling an override."
+      ],
+      "evidence": [
+        {
+          "label": "Custom pricing overrides",
+          "url": "https://github.com/ccusage/ccusage/blob/main/apps/ccusage/README.md#features"
+        }
+      ]
+    },
+    {
+      "title": "Codex five-hour block reporting",
+      "value": "A Codex-focused block report could complement the existing Claude-only locally reconstructed blocks and make the block scope less asymmetric.",
+      "fit": "The installed CLI has no `codex blocks` command. Treat this as a watch item, not an available integration. If upstream ships it, its reset-based grouping must remain distinct from provider-reported quota-service allowance data.",
+      "effort": "unknown",
+      "recommendation": "watch",
+      "required_work": [
+        "Wait for an upstream runtime implementation and documented JSON contract.",
+        "Add a separate schema and source label; do not merge it with authoritative provider quota.",
+        "Validate reset timestamps and cross-session grouping against fixtures."
+      ],
+      "evidence": [
+        {
+          "label": "Feature proposal #1431",
+          "url": "https://github.com/ccusage/ccusage/issues/1431"
+        }
+      ]
+    },
+    {
+      "title": "Codex usage by reasoning effort",
+      "value": "Reasoning-effort attribution could make the Observatory's model-efficiency views more useful by distinguishing low, medium, high, xhigh, and max usage within a model.",
+      "fit": "The proposed effortBreakdown JSON is not in 20.0.17 or main. Wait for an upstream contract before adding product/UI dependencies; a local prototype would require raw event interpretation outside the current ccusage boundary.",
+      "effort": "medium",
+      "recommendation": "watch",
+      "required_work": [
+        "Monitor for a merged upstream parser and stable JSON field.",
+        "Add optional schema support so older rows remain valid.",
+        "Define how effort affects charts without implying model quality."
+      ],
+      "evidence": [
+        {
+          "label": "Feature proposal #1452",
+          "url": "https://github.com/ccusage/ccusage/issues/1452"
+        }
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "title": "Significant accounting issues for Codex",
+      "number": 1434,
+      "state": "open",
+      "relevance": "Applies to 20.0.17. Fork and subagent logs can replay parent token history, causing potentially material overcount in token and API-equivalent cost totals. The Observatory consumes those totals directly.",
+      "url": "https://github.com/ccusage/ccusage/issues/1434"
+    },
+    {
+      "title": "Codex fork replays spanning multiple seconds are counted as native usage",
+      "number": 1460,
+      "state": "closed by automation",
+      "relevance": "Provides a minimized reproduction against both 20.0.17 and current Rust HEAD. Closure does not indicate a shipped fix; the current main comparison contains no Codex parser change.",
+      "url": "https://github.com/ccusage/ccusage/issues/1460"
+    },
+    {
+      "title": "Add ccusage codex blocks",
+      "number": 1431,
+      "state": "closed by automation",
+      "relevance": "Potential Observatory feature, but the installed CLI help confirms that Codex currently exposes daily, monthly, and session commands only.",
+      "url": "https://github.com/ccusage/ccusage/issues/1431"
+    },
+    {
+      "title": "Add Codex usage breakdown by reasoning effort",
+      "number": 1452,
+      "state": "closed by automation",
+      "relevance": "Potential input for model-efficiency analytics, but no effortBreakdown contract is available in stable or current main.",
+      "url": "https://github.com/ccusage/ccusage/issues/1452"
+    }
+  ],
+  "local_surface": [
+    {
+      "path": "package.json and bun.lock",
+      "role": "Exact dependency pin and platform binary resolution",
+      "risk": "low",
+      "notes": "Both resolve 20.0.17 and agree with the installed binary."
+    },
+    {
+      "path": "server/ccusage.ts",
+      "role": "CLI invocation boundary for unified multi-section and Claude block JSON",
+      "risk": "high",
+      "notes": "Flags and top-level output shapes are compatibility-sensitive; current commands validate at 20.0.17."
+    },
+    {
+      "path": "server/schema.ts",
+      "role": "Zod boundary for unified rows, per-agent/model breakdowns, totals, and blocks",
+      "risk": "high",
+      "notes": "Current structural samples match. Optional upstream additions are stripped unless the schema intentionally preserves them."
+    },
+    {
+      "path": "server/collector.ts",
+      "role": "Normalizes sessions, models, project activity, and displayed totals",
+      "risk": "high",
+      "notes": "It trusts ccusage totals; upstream Codex replay overcount therefore propagates to charts, projects, and API-equivalent cost."
+    },
+    {
+      "path": "server/path-indexer.ts",
+      "role": "Metadata-only Claude/Codex path discovery and stable session identity",
+      "risk": "high",
+      "notes": "Any new agent source or upstream native-key change requires an explicit parser and migration-safe compatibility mapping."
+    },
+    {
+      "path": "server/schema.test.ts",
+      "role": "Normalized contract and stable identity regression coverage",
+      "risk": "medium",
+      "notes": "Covers synthetic shapes and project aggregation, but not pinned real-output fixtures or fork-replay accounting."
+    },
+    {
+      "path": "docs/ARCHITECTURE.md and README.md",
+      "role": "Privacy, attribution, methodology, and identity guarantees",
+      "risk": "medium",
+      "notes": "Future upgrades must preserve local-only collection and distinguish reconstructed activity from provider quota."
+    },
+    {
+      "path": "src/App.tsx and src/types.ts",
+      "role": "Displays version, source attribution, sessions, models, projects, and block scope",
+      "risk": "medium",
+      "notes": "New agents or effort/block dimensions would require type and presentation decisions, not only ingestion changes."
+    }
+  ],
+  "validation": [
+    {
+      "check": "Pinned, locked, and installed version agreement",
+      "status": "passed",
+      "notes": "package.json, bun.lock, and `ccusage --version` all report 20.0.17."
+    },
+    {
+      "check": "npm latest stable lookup",
+      "status": "passed",
+      "notes": "Registry metadata reports 20.0.17."
+    },
+    {
+      "check": "Upstream release-to-main comparison",
+      "status": "passed",
+      "notes": "Six commits ahead; changed files are limited to build, CI, Nix, benchmark, fixture, and release tooling."
+    },
+    {
+      "check": "Unified multi-section JSON structural run",
+      "status": "passed",
+      "notes": "Top-level sections and daily, session, agent, model, and totals keys match the local schemas; only key names and counts were retained."
+    },
+    {
+      "check": "Claude blocks JSON structural run",
+      "status": "passed",
+      "notes": "The block array and consumed fields match the local schema; only key names and counts were retained."
+    },
+    {
+      "check": "bun test",
+      "status": "passed",
+      "notes": "14 tests passed with no failures."
+    },
+    {
+      "check": "bun run typecheck",
+      "status": "passed",
+      "notes": "TypeScript completed without errors."
+    }
+  ],
+  "limitations": [
+    "No standalone CHANGELOG or CHANGES file exists in the current upstream tree; GitHub release notes and the exact comparison view were used instead.",
+    "The audit did not inspect raw Codex or Claude transcript content and did not quantify whether this machine's history contains fork/subagent replay patterns.",
+    "Upstream issues #1431, #1452, and #1460 were closed immediately by contribution automation; their closed state does not mean the requested feature or fix shipped.",
+    "The working tree contains unrelated uncommitted application changes. The audit assessed the current working-tree integration and did not modify those files."
+  ]
+}
