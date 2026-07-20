@@ -4,15 +4,19 @@ A local-first mission control for understanding AI coding usage. It combines pin
 
 ## Screenshots
 
-![Overview dashboard with provider usage and reset windows](docs/screenshots/overview.png)
+![Overview dashboard with subscription windows and usage trajectory](docs/screenshots/1.dashboard.png)
 
-![Overview activity and usage trajectory](docs/screenshots/overview-activity.png)
+![Usage explorer with provider activity and model distribution](docs/screenshots/2.explorer.png)
 
-![Usage explorer with provider activity and model distribution](docs/screenshots/explorer.png)
+![Session ledger with transcript, tool, and patch details](docs/screenshots/3.sessions.png)
 
-![Sessions view](docs/screenshots/sessions.png)
+![Project cartography with daily signal, model mix, and diff trail](docs/screenshots/4.projects.png)
 
-![Appearance settings](docs/screenshots/appearance.png)
+![Model mix and efficiency comparison](docs/screenshots/5.models.png)
+
+![Limits and sources with data source health](docs/screenshots/6.limits-and-sources.png)
+
+![Appearance settings for signal colors, text size, and scene effects](docs/screenshots/7.appearance.png)
 
 ## Start
 
