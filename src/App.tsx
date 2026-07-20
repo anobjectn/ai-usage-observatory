@@ -56,6 +56,7 @@ import {
   Line,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -70,6 +71,11 @@ import type {
   Session,
   SessionDetail,
 } from "./types";
+import {
+  dailyQuotaMarkers,
+  hourlyQuotaMarkers,
+  type QuotaMarker,
+} from "./quota-markers";
 import {
   Empty,
   InformationSources,
@@ -562,6 +568,7 @@ function useClampedTooltip(active: boolean, coordinate?: { x?: number }) {
 }
 
 type TimelineTooltipRow = {
+  label?: string;
   costs?: Partial<Record<(typeof providerSeries)[number]["key"], number>>;
   models?: Partial<
     Record<
@@ -645,7 +652,7 @@ function ProviderChartTooltip({
       ref={tooltipRef}
     >
       <div className="tooltip-columns">
-        <span>{label}</span>
+        <span>{timelineRow?.label ?? label}</span>
         <small>Tokens</small>
         <small>API $</small>
       </div>
@@ -997,14 +1004,73 @@ function percentChange(current: number, previous: number) {
     : undefined;
 }
 
+const quotaMarkerColors = {
+  anthropic: "var(--anthropic-color)",
+  codex: "var(--openai-color)",
+} as const;
+
+function QuotaMarkerLegend({ markers }: { markers: QuotaMarker[] }) {
+  if (markers.length === 0) return null;
+  const hasClaude = markers.some((marker) => marker.provider === "anthropic");
+  const hasCodex = markers.some((marker) => marker.provider === "codex");
+  return (
+    <div className="quota-marker-legend" aria-label="Quota event markers">
+      {hasClaude && <span><i className="anthropic" />Claude events</span>}
+      {hasCodex && <span><i className="codex" />Codex events</span>}
+    </div>
+  );
+}
+
+function QuotaReferenceLines({
+  markers,
+  yAxisId,
+}: {
+  markers: QuotaMarker[];
+  yAxisId?: string;
+}) {
+  return markers.map((marker) => (
+    <ReferenceLine
+      key={marker.key}
+      x={marker.x}
+      yAxisId={yAxisId}
+      stroke={quotaMarkerColors[marker.provider]}
+      strokeWidth={1.5}
+      strokeDasharray="3 3"
+      ifOverflow="extendDomain"
+      label={{
+        content: ({ viewBox }) => {
+          if (!viewBox || !("x" in viewBox) || !("y" in viewBox)) return null;
+          const labelX = Number(viewBox.x) - 2;
+          const labelY = Number(viewBox.y) + 4;
+          return (
+            <text
+              x={labelX}
+              y={labelY}
+              fill={quotaMarkerColors[marker.provider]}
+              fontSize={9}
+              fontFamily="var(--font-label)"
+              textAnchor="end"
+              transform={`rotate(-90 ${labelX} ${labelY})`}
+            >
+              {marker.label}
+            </text>
+          );
+        },
+      }}
+    />
+  ));
+}
+
 function ProviderTimeline({
   rows,
   projectActivity,
   activeProvider,
+  quotaHistory,
 }: {
   rows: MetricRow[];
   projectActivity: ProjectActivity[];
   activeProvider: (typeof providerSeries)[number]["key"] | null;
+  quotaHistory: DashboardData["quotas"]["history"];
 }) {
   const projectsByDay = new Map<string, Record<string, ProjectActivity[]>>();
   projectActivity.forEach((project) => {
@@ -1074,6 +1140,7 @@ function ProviderTimeline({
     const projectGroups = projectsByDay.get(row.period) ?? {};
     return {
       ...values,
+      period: row.period,
       costs,
       models,
       projectGroups,
@@ -1087,6 +1154,11 @@ function ProviderTimeline({
     ...provider,
     value: data.reduce((sum, row) => sum + row[provider.key], 0),
   }));
+  const quotaMarkers = dailyQuotaMarkers(
+    quotaHistory,
+    rows.map((row) => row.period),
+    activeProvider,
+  );
   return (
     <>
       <div className="provider-legend" aria-label="Activity providers">
@@ -1098,6 +1170,7 @@ function ProviderTimeline({
           </div>
         ))}
       </div>
+      <QuotaMarkerLegend markers={quotaMarkers} />
       <div
         className="chart-wrap provider-chart"
         aria-label="Token usage by day, split into Claude, Codex, and Warp sections"
@@ -1137,7 +1210,8 @@ function ProviderTimeline({
               vertical={false}
             />
             <XAxis
-              dataKey="label"
+              dataKey="period"
+              tickFormatter={periodTickLabel}
               tick={{ fill: "#71807b", fontSize: 12 }}
               tickLine={false}
               axisLine={false}
@@ -1156,6 +1230,7 @@ function ProviderTimeline({
               isAnimationActive={false}
               wrapperStyle={{ transition: "none" }}
             />
+            <QuotaReferenceLines markers={quotaMarkers} />
             {stackedProviderSeries.map((provider) => (
               <Area
                 key={provider.key}
@@ -1187,12 +1262,29 @@ function localPeriod(value: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function periodTickLabel(value: string) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function hourTickLabel(value: string) {
+  return new Date(2000, 0, 1, Number(value)).toLocaleTimeString(undefined, {
+    hour: "numeric",
+  });
+}
+
 function HourlyProviderTimeline({
   date,
   sessions,
+  quotaHistory,
+  activeProvider,
 }: {
   date: string;
   sessions: Session[];
+  quotaHistory: DashboardData["quotas"]["history"];
+  activeProvider: (typeof providerSeries)[number]["key"] | null;
 }) {
   const data = Array.from({ length: 24 }, (_, hour) => ({
     anthropic: 0,
@@ -1234,6 +1326,7 @@ function HourlyProviderTimeline({
         }
       >(),
     },
+    hour: String(hour),
     label: new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, {
       hour: "numeric",
     }),
@@ -1320,6 +1413,7 @@ function HourlyProviderTimeline({
     ...provider,
     value: data.reduce((sum, bucket) => sum + bucket[provider.key], 0),
   }));
+  const quotaMarkers = hourlyQuotaMarkers(quotaHistory, date, activeProvider);
   return (
     <>
       <div className="provider-legend" aria-label="Activity providers">
@@ -1331,6 +1425,7 @@ function HourlyProviderTimeline({
           </div>
         ))}
       </div>
+      <QuotaMarkerLegend markers={quotaMarkers} />
       <div
         className="chart-wrap provider-chart"
         aria-label="Session token usage by last activity hour, split into Claude, Codex, and Warp sections"
@@ -1347,7 +1442,8 @@ function HourlyProviderTimeline({
               vertical={false}
             />
             <XAxis
-              dataKey="label"
+              dataKey="hour"
+              tickFormatter={hourTickLabel}
               interval={2}
               tick={{ fill: "#71807b", fontSize: 12 }}
               tickLine={false}
@@ -1366,6 +1462,7 @@ function HourlyProviderTimeline({
               isAnimationActive={false}
               wrapperStyle={{ transition: "none" }}
             />
+            <QuotaReferenceLines markers={quotaMarkers} />
             {stackedProviderSeries.map((provider) => (
               <Bar
                 key={provider.key}
@@ -1954,12 +2051,15 @@ function Overview({
             <HourlyProviderTimeline
               date={daily[0].period}
               sessions={sessions}
+              quotaHistory={data.quotas.history}
+              activeProvider={agent === "all" ? null : providerKey(agent)}
             />
           ) : (
             <ProviderTimeline
               rows={daily}
               projectActivity={data.projectActivity}
               activeProvider={agent === "all" ? null : providerKey(agent)}
+              quotaHistory={data.quotas.history}
             />
           )}
         </article>
@@ -2154,12 +2254,18 @@ function Explorer({
           </span>
         </div>
         {metricRange === "1" && rows.length === 1 ? (
-          <HourlyProviderTimeline date={rows[0].period} sessions={sessions} />
+          <HourlyProviderTimeline
+            date={rows[0].period}
+            sessions={sessions}
+            quotaHistory={data.quotas.history}
+            activeProvider={agent === "all" ? null : providerKey(agent)}
+          />
         ) : (
           <ProviderTimeline
             rows={rows}
             projectActivity={projectActivity}
             activeProvider={agent === "all" ? null : providerKey(agent)}
+            quotaHistory={data.quotas.history}
           />
         )}
       </section>
@@ -2892,12 +2998,14 @@ function ProjectDetails({
   activity,
   sessions,
   daily,
+  quotaHistory,
   onOpenSession,
 }: {
   project: ProjectSummary;
   activity: ProjectActivity[];
   sessions: Session[];
   daily: MetricRow[];
+  quotaHistory: DashboardData["quotas"]["history"];
   onOpenSession: (sessionId: string) => void;
 }) {
   type ModelSortKey = "name" | "tokens" | "cost";
@@ -2956,6 +3064,10 @@ function ProjectDetails({
   const chartDays = projectDayRows(
     projectTrendRowsInRange(project.trend, daily),
     activity.filter((item) => daily.some((row) => row.period === item.date)),
+  );
+  const quotaMarkers = dailyQuotaMarkers(
+    quotaHistory,
+    chartDays.map((day) => day.date),
   );
   const modelTotals = new Map<string, { tokens: number; cost: number }>();
   days.forEach((day) =>
@@ -3070,6 +3182,7 @@ function ProjectDetails({
               </span>
             </div>
           </div>
+          <QuotaMarkerLegend markers={quotaMarkers} />
           <div
             className="project-chart"
             role="img"
@@ -3086,7 +3199,8 @@ function ProjectDetails({
                   vertical={false}
                 />
                 <XAxis
-                  dataKey="label"
+                  dataKey="date"
+                  tickFormatter={periodTickLabel}
                   tick={{ fill: "#71807b", fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
@@ -3112,6 +3226,7 @@ function ProjectDetails({
                   isAnimationActive={false}
                   wrapperStyle={{ transition: "none" }}
                 />
+                <QuotaReferenceLines markers={quotaMarkers} yAxisId="tokens" />
                 <Bar
                   yAxisId="tokens"
                   dataKey="tokens"
@@ -3442,6 +3557,7 @@ function Projects({
                         (session.cwd ?? "").replace(/\/+$/, "") ===
                         project.name,
                     )}
+                    quotaHistory={data.quotas.history}
                     onOpenSession={onOpenSession}
                   />
                 </div>
