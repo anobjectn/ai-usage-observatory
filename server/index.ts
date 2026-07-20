@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { getSnapshot, refresh } from "./collector";
 import { getSessionDetail } from "./session-detail";
 import { createRule, deleteRule, getSettings, listRules, setAnnotation, setSettings, updateRule } from "./store";
@@ -14,6 +14,17 @@ async function body(request: Request) {
 
 function errorResponse(error: unknown, status = 500) {
   return json({ error: error instanceof Error ? error.message : String(error) }, status);
+}
+
+function isLoopbackHost(host: string | null) {
+  if (!host) return false;
+  try { return ["127.0.0.1", "::1", "localhost"].includes(new URL(`http://${host}`).hostname); }
+  catch { return false; }
+}
+
+function isWithin(directory: string, target: string) {
+  const path = relative(directory, target);
+  return path === "" || (!path.startsWith("..") && !isAbsolute(path));
 }
 
 async function api(request: Request, url: URL) {
@@ -66,11 +77,12 @@ const server = Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
     try {
+      if (!isLoopbackHost(request.headers.get("host"))) return errorResponse("Forbidden host", 403);
       if (url.pathname.startsWith("/api/")) return await api(request, url);
-      const dist = join(process.cwd(), "dist");
+      const dist = resolve(process.cwd(), "dist");
       if (existsSync(dist)) {
-        const requested = join(dist, url.pathname === "/" ? "index.html" : url.pathname);
-        const file = Bun.file(existsSync(requested) ? requested : join(dist, "index.html"));
+        const requested = resolve(dist, `.${url.pathname === "/" ? "/index.html" : url.pathname}`);
+        const file = Bun.file(isWithin(dist, requested) && existsSync(requested) ? requested : resolve(dist, "index.html"));
         return new Response(file);
       }
       return new Response("AI Usage Observatory API is running. Start Vite with `bun run dev:client`.", { status: 200 });

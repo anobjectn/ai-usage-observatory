@@ -9,15 +9,29 @@ let snapshot: Snapshot | null = null;
 let refreshPromise: Promise<Snapshot> | null = null;
 let lastError: string | null = null;
 
+type ModelUsage = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
+
+function modelTokens(model: ModelUsage) {
+  return model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+}
+
+function accumulateModel<T>(models: Map<string, T>, model: ModelUsage, create: () => T, update: (current: T, model: ModelUsage) => void) {
+  const current = models.get(model.modelName) ?? create();
+  update(current, model);
+  models.set(model.modelName, current);
+  return current;
+}
+
 function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unified"]["daily"]) {
   const models = new Map<string, {model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;agents:Set<string>}>();
   for (const row of rows) for (const agent of row.agents ?? []) for (const model of agent.modelBreakdowns) {
-    const current = models.get(model.modelName) ?? { model: model.modelName, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, agents: new Set<string>() };
-    current.tokens += model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-    current.cost += model.cost;
-    current.inputTokens += model.inputTokens;
-    current.outputTokens += model.outputTokens;
-    current.cacheReadTokens += model.cacheReadTokens;
+    const current = accumulateModel(models, model, () => ({ model: model.modelName, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, agents: new Set<string>() }), (current, entry) => {
+      current.tokens += modelTokens(entry);
+      current.cost += entry.cost;
+      current.inputTokens += entry.inputTokens;
+      current.outputTokens += entry.outputTokens;
+      current.cacheReadTokens += entry.cacheReadTokens;
+    });
     current.agents.add(agent.agent);
     models.set(model.modelName, current);
   }
@@ -50,19 +64,19 @@ export function aggregateProjects(sessions: ProjectActivitySession[]) {
     day.totalTokens += session.totalTokens;
     day.totalCost += session.totalCost;
     for (const model of session.modelBreakdowns) {
-      const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+      const tokens = modelTokens(model);
       project.models.set(model.modelName, (project.models.get(model.modelName) ?? 0) + tokens);
       day.inputTokens += model.inputTokens;
       day.outputTokens += model.outputTokens;
       day.cacheReadTokens += model.cacheReadTokens;
       day.cacheCreationTokens += model.cacheCreationTokens;
-      const current = day.models.get(model.modelName) ?? {inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,cost:0};
-      current.inputTokens += model.inputTokens;
-      current.outputTokens += model.outputTokens;
-      current.cacheReadTokens += model.cacheReadTokens;
-      current.cacheCreationTokens += model.cacheCreationTokens;
-      current.cost += model.cost;
-      day.models.set(model.modelName, current);
+      accumulateModel(day.models, model, () => ({inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,cost:0}), (current, entry) => {
+        current.inputTokens += entry.inputTokens;
+        current.outputTokens += entry.outputTokens;
+        current.cacheReadTokens += entry.cacheReadTokens;
+        current.cacheCreationTokens += entry.cacheCreationTokens;
+        current.cost += entry.cost;
+      });
     }
     project.days.set(date, day);
     projects.set(projectId, project);
@@ -110,11 +124,10 @@ export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
     bucket.cost += session.totalCost;
     bucket.sessions++;
     for (const model of session.modelBreakdowns) {
-      const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-      const current = bucket.models.get(model.modelName) ?? {tokens:0,cost:0};
-      current.tokens += tokens;
-      current.cost += model.cost;
-      bucket.models.set(model.modelName, current);
+      accumulateModel(bucket.models, model, () => ({tokens:0,cost:0}), (current, entry) => {
+        current.tokens += modelTokens(entry);
+        current.cost += entry.cost;
+      });
     }
     activity.set(key, bucket);
   }
