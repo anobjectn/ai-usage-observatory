@@ -1404,6 +1404,7 @@ type QuotaCard = {
   buckets: QuotaBucket[];
   bankedResets: Array<{ id: string; title: string; expiresAt: string | null }>;
   usedResetCount: number;
+  usedResets: Array<{ id: string; title: string; usedAt: number }>;
 };
 
 function quotaBucket(
@@ -1568,6 +1569,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       buckets: anthropicBuckets,
       bankedResets: [],
       usedResetCount: 0,
+      usedResets: [],
     },
     {
       provider: "codex",
@@ -1581,6 +1583,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       buckets: codexBuckets,
       bankedResets,
       usedResetCount: quotas.history?.codexBankedResets.usedCount ?? 0,
+      usedResets: quotas.history?.codexBankedResets.used ?? [],
     },
     {
       provider: "warp",
@@ -1594,6 +1597,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       buckets: warpBuckets,
       bankedResets: [],
       usedResetCount: 0,
+      usedResets: [],
     },
   ];
 }
@@ -1714,29 +1718,44 @@ function QuotaDials({ quotas }: { quotas: DashboardData["quotas"] }) {
               </div>
               {card.provider === "codex" && (
                 <div className="banked-resets">
-                  <div>
-                    <span>Banked resets</span>
-                    <b>{card.bankedResets.length} available</b>
+                  <div className="reset-summary">
+                    <div className="reset-summary__heading">
+                      <span>Banked resets</span>
+                      <b>{card.bankedResets.length} available</b>
+                    </div>
+                    {card.bankedResets.map((credit) => {
+                      const expiry = expiryCopy(credit.expiresAt);
+                      return (
+                        <small
+                          className={expiry.urgent ? "expiring-soon" : undefined}
+                          key={credit.id}
+                        >
+                          <Sparkles /> {credit.title} · {expiry.text}
+                        </small>
+                      );
+                    })}
                   </div>
-                  <div className="reset-use">
-                    <span>Resets used</span>
-                    <b>
-                      {quotas.history?.available
-                        ? `${card.usedResetCount} observed`
-                        : "Not tracked"}
-                    </b>
-                  </div>
-                  {card.bankedResets.map((credit) => {
-                    const expiry = expiryCopy(credit.expiresAt);
-                    return (
-                      <small
-                        className={expiry.urgent ? "expiring-soon" : undefined}
-                        key={credit.id}
-                      >
-                        <Sparkles /> {credit.title} · {expiry.text}
+                  <div className="reset-summary reset-use">
+                    <div className="reset-summary__heading">
+                      <span>Resets used</span>
+                      <b>
+                        {quotas.history?.available
+                          ? `${card.usedResetCount} observed`
+                          : "Not tracked"}
+                      </b>
+                    </div>
+                    {card.usedResets.map((reset) => (
+                      <small key={reset.id}>
+                        <Sparkles /> {reset.title} · used {new Date(reset.usedAt).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
                       </small>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
               )}
             </article>

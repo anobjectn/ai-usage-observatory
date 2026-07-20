@@ -22,9 +22,21 @@ describe("quota history summary", () => {
   test("counts an available reset credit that disappears before expiry as used", () => {
     const expiry = new Date(10_000).toISOString();
     const resets = [
-      { capturedAt: 1_000, creditsJson: JSON.stringify([{id:"credit-1",status:"available",expiresAt:expiry}]) },
+      { capturedAt: 1_000, creditsJson: JSON.stringify([{id:"credit-1",title:"Extra reset",status:"available",expiresAt:expiry}]) },
       { capturedAt: 2_000, creditsJson: "[]" },
     ];
-    expect(summarizeQuotaHistory([], resets).codexBankedResets.usedCount).toBe(1);
+    expect(summarizeQuotaHistory([], resets).codexBankedResets).toEqual({
+      usedCount: 1,
+      used: [{ id: "credit-1", title: "Extra reset", usedAt: 2_000 }],
+    });
+  });
+
+  test("records reset credits explicitly reported as used", () => {
+    const resets = [
+      { capturedAt: 3_000, creditsJson: JSON.stringify([{id:"credit-2",title:"Weekly reset",status:"used"}]) },
+    ];
+    expect(summarizeQuotaHistory([], resets).codexBankedResets.used).toEqual([
+      { id: "credit-2", title: "Weekly reset", usedAt: 3_000 },
+    ]);
   });
 });

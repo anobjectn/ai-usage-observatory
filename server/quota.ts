@@ -8,7 +8,7 @@ const defaultHistoryDbPath = join(homedir(), ".quota-service", "quota.db");
 
 type SnapshotHistoryRow = { provider: string; capturedAt: number; snapshotJson: string | null };
 type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
-type ResetCreditHistory = { id?: string; status?: string | null; expiresAt?: string | null };
+type ResetCreditHistory = { id?: string; title?: string | null; status?: string | null; expiresAt?: string | null };
 
 export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetRows: ResetHistoryRow[]) {
   const reachedCycles = new Map<string, Map<string, number>>();
@@ -33,7 +33,12 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
     } catch { /* Ignore malformed historical rows; current quota collection remains available. */ }
   }
 
-  const usedResetIds = new Set<string>();
+  const usedResets = new Map<string, { id: string; title: string; usedAt: number }>();
+  const recordUsedReset = (id: string, credit: ResetCreditHistory, usedAt: number) => {
+    if (!usedResets.has(id)) {
+      usedResets.set(id, { id, title: credit.title?.trim() || "Banked reset", usedAt });
+    }
+  };
   let previousAvailable = new Map<string, ResetCreditHistory>();
   for (const row of [...resetRows].sort((a, b) => a.capturedAt - b.capturedAt)) {
     trackingSince = trackingSince === null ? row.capturedAt : Math.min(trackingSince, row.capturedAt);
@@ -43,12 +48,12 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
     for (const credit of credits) {
       if (!credit.id) continue;
       const status = credit.status?.toLowerCase();
-      if (status && ["used", "consumed", "redeemed"].includes(status)) usedResetIds.add(credit.id);
+      if (status && ["used", "consumed", "redeemed"].includes(status)) recordUsedReset(credit.id, credit, row.capturedAt);
       if (status === "available") currentAvailable.set(credit.id, credit);
     }
     for (const [id, credit] of previousAvailable) {
       const expiry = credit.expiresAt ? Date.parse(credit.expiresAt) : NaN;
-      if (!currentAvailable.has(id) && (!Number.isFinite(expiry) || expiry > row.capturedAt)) usedResetIds.add(id);
+      if (!currentAvailable.has(id) && (!Number.isFinite(expiry) || expiry > row.capturedAt)) recordUsedReset(id, credit, row.capturedAt);
     }
     previousAvailable = currentAvailable;
   }
@@ -64,15 +69,16 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
       reachedAt,
     };
   }));
-  return { available: snapshotRows.length > 0 || resetRows.length > 0, trackingSince, windows, codexBankedResets: { usedCount: usedResetIds.size } };
+  const used = [...usedResets.values()].sort((left, right) => right.usedAt - left.usedAt);
+  return { available: snapshotRows.length > 0 || resetRows.length > 0, trackingSince, windows, codexBankedResets: { usedCount: used.length, used } };
 }
 
 function collectQuotaHistory() {
   try {
     const host = new URL(baseUrl).hostname;
-    if (!process.env.QUOTA_DB_PATH && host !== "127.0.0.1" && host !== "localhost") return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0 } };
+    if (!process.env.QUOTA_DB_PATH && host !== "127.0.0.1" && host !== "localhost") return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0, used: [] } };
     const dbPath = process.env.QUOTA_DB_PATH ?? defaultHistoryDbPath;
-    if (!existsSync(dbPath)) return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0 } };
+    if (!existsSync(dbPath)) return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0, used: [] } };
     const db = new Database(dbPath, { readonly: true });
     try {
       const snapshotRows = db.query("SELECT provider, captured_at AS capturedAt, snapshot_json AS snapshotJson FROM snapshots WHERE status IN ('ok', 'stale') ORDER BY captured_at").all() as SnapshotHistoryRow[];
@@ -80,7 +86,7 @@ function collectQuotaHistory() {
       return summarizeQuotaHistory(snapshotRows, resetRows);
     } finally { db.close(); }
   } catch {
-    return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0 } };
+    return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0, used: [] } };
   }
 }
 

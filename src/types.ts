@@ -71,7 +71,7 @@ export type QuotaHistory = {
   available: boolean;
   trackingSince: number | null;
   windows: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";reachedCount:number;lastReachedAt:number|null;reachedAt:number[]}>;
-  codexBankedResets: {usedCount:number};
+  codexBankedResets: {usedCount:number;used:Array<{id:string;title:string;usedAt:number}>};
 };
 export type DashboardData = {
   collectedAt: string;
