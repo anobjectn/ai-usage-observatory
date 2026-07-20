@@ -731,6 +731,7 @@ function SessionDetailPanel({ session, detail, loading }: {session:Session;detai
 function Sessions({sessions,onEdit,focusSessionId}:{sessions:Session[];onEdit:(session:Session)=>void;focusSessionId?:string|null}) {
   type SortKey = "activity" | "session" | "agent" | "cwd" | "tokens" | "cost";
   const [query,setQuery] = useState(""); const [page,setPage] = useState(1); const [expanded,setExpanded] = useState<string | null>(null); const [details,setDetails] = useState<Record<string,SessionDetail>>({}); const [loadingDetail,setLoadingDetail] = useState<string | null>(null); const [sort,setSort] = useState<{key:SortKey;direction:"asc"|"desc"}>({key:"activity",direction:"desc"}); const pageSize=15;
+  const focusedRowRef=useRef<HTMLTableRowElement|null>(null);
   const filtered=sessions.filter(s=>`${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
   const sorted=[...filtered].sort((left,right)=>{
     const value=(session:Session):string|number=>{
@@ -767,8 +768,12 @@ function Sessions({sessions,onEdit,focusSessionId}:{sessions:Session[];onEdit:(s
     setPage(Math.floor(index/pageSize)+1);
     if(expanded!==focusSessionId) void toggle(sorted[index]);
   },[focusSessionId]);
+  useLayoutEffect(()=>{
+    if(!focusSessionId||expanded!==focusSessionId)return;
+    focusedRowRef.current?.scrollIntoView({block:"start"});
+  },[focusSessionId,page,expanded]);
   const header=(key:SortKey,label:string)=><th aria-sort={sort.key===key?(sort.direction==="asc"?"ascending":"descending"):"none"}><button type="button" className={`sort-header ${sort.key===key?"active":""}`} onClick={()=>sortBy(key)}>{label}<span aria-hidden="true">{sort.key===key?(sort.direction==="asc"?"↑":"↓"):"↕"}</span></button></th>;
-  return <div className="view-stack page-enter"><PageTitle eyebrow="SESSION LEDGER" title="Trace every session" description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine." actions={<label className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search sessions…"/></label>}/><section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{header("activity","Last activity")}{header("session","Session")}{header("agent","Agent")}{header("cwd","Working directory")}{header("tokens","Tokens")}{header("cost","Cost")}<th></th><th></th></tr></thead><tbody>{pageRows.map(session => <Fragment key={session.sessionId}><tr className={`session-row ${expanded === session.sessionId ? "session-row-open" : ""}`} tabIndex={0} aria-expanded={expanded === session.sessionId} aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}`} onClick={()=>void toggle(session)} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==="Enter"||event.key===" ")){event.preventDefault();void toggle(session);}}}><td><span className="session-activity">{session.metadata?.lastActivity ? formatDate(session.metadata.lastActivity) : "—"}</span></td><td><span><b>{session.modelsUsed[0] ?? "Unknown"}</b><small>{session.period.slice(0,18)}</small></span></td><td className="session-row__agent"><span className={`agent-pill ${session.agent}`}>{session.agent}</span></td><td><span className="cwd" title={session.cwd ?? "Unavailable"}>{session.cwd ?? "Path unavailable"}</span><span className="mini-tags">{[...session.pathTags,...session.annotation.tags].slice(0,3).map(tag=><i key={tag}>{tag}</i>)}</span></td><td><b>{formatCompact(session.totalTokens)}</b><small>{formatCompact(session.outputTokens)} output</small></td><td><b>{formatMoney(session.totalCost)}</b><small>ccusage</small></td><td className="session-row__actions" onClick={event=>event.stopPropagation()}><button className="icon-button" onClick={()=>onEdit(session)} aria-label="Edit annotation"><PencilLine/></button></td><td className="session-row__toggle" onClick={event=>event.stopPropagation()}><button type="button" className="session-detail-toggle" onClick={()=>void toggle(session)} aria-label={expanded === session.sessionId ? "Close session details" : "Open session details"} aria-expanded={expanded === session.sessionId}><Plus/></button></td></tr>{expanded === session.sessionId && <tr className="session-detail-row"><td colSpan={8}><SessionDetailPanel session={session} detail={details[session.sessionId]} loading={loadingDetail === session.sessionId}/></td></tr>}</Fragment>)}</tbody></table></div>{!pageRows.length&&<Empty text="No sessions match those filters."/>}<div className="pagination"><span>{filtered.length} sessions</span><div><button disabled={page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft/></button><span>{page} / {pages}</span><button disabled={page===pages} onClick={()=>setPage(p=>p+1)}><ChevronRight/></button></div></div></section></div>;
+  return <div className="view-stack page-enter"><PageTitle eyebrow="SESSION LEDGER" title="Trace every session" description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine." actions={<label className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search sessions…"/></label>}/><section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{header("activity","Last activity")}{header("session","Session")}{header("agent","Agent")}{header("cwd","Working directory")}{header("tokens","Tokens")}{header("cost","Cost")}<th></th><th></th></tr></thead><tbody>{pageRows.map(session => <Fragment key={session.sessionId}><tr ref={session.sessionId===focusSessionId?focusedRowRef:undefined} className={`session-row ${expanded === session.sessionId ? "session-row-open" : ""}`} tabIndex={0} aria-expanded={expanded === session.sessionId} aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}`} onClick={()=>void toggle(session)} onKeyDown={event=>{if(event.target===event.currentTarget&&(event.key==="Enter"||event.key===" ")){event.preventDefault();void toggle(session);}}}><td><span className="session-activity">{session.metadata?.lastActivity ? formatDate(session.metadata.lastActivity) : "—"}</span></td><td><span><b>{session.modelsUsed[0] ?? "Unknown"}</b><small>{session.period.slice(0,18)}</small></span></td><td className="session-row__agent"><span className={`agent-pill ${session.agent}`}>{session.agent}</span></td><td><span className="cwd" title={session.cwd ?? "Unavailable"}>{session.cwd ?? "Path unavailable"}</span><span className="mini-tags">{[...session.pathTags,...session.annotation.tags].slice(0,3).map(tag=><i key={tag}>{tag}</i>)}</span></td><td><b>{formatCompact(session.totalTokens)}</b><small>{formatCompact(session.outputTokens)} output</small></td><td><b>{formatMoney(session.totalCost)}</b><small>ccusage</small></td><td className="session-row__actions" onClick={event=>event.stopPropagation()}><button className="icon-button" onClick={()=>onEdit(session)} aria-label="Edit annotation"><PencilLine/></button></td><td className="session-row__toggle" onClick={event=>event.stopPropagation()}><button type="button" className="session-detail-toggle" onClick={()=>void toggle(session)} aria-label={expanded === session.sessionId ? "Close session details" : "Open session details"} aria-expanded={expanded === session.sessionId}><Plus/></button></td></tr>{expanded === session.sessionId && <tr className="session-detail-row"><td colSpan={8}><SessionDetailPanel session={session} detail={details[session.sessionId]} loading={loadingDetail === session.sessionId}/></td></tr>}</Fragment>)}</tbody></table></div>{!pageRows.length&&<Empty text="No sessions match those filters."/>}<div className="pagination"><span>{filtered.length} sessions</span><div><button disabled={page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft/></button><span>{page} / {pages}</span><button disabled={page===pages} onClick={()=>setPage(p=>p+1)}><ChevronRight/></button></div></div></section></div>;
 }
 
 function projectDayRows(trend: ProjectTrendRow[], activity: ProjectActivity[] = []) {
@@ -934,7 +939,53 @@ function Projects({data,onOpenSession}:{data:DashboardData;onOpenSession:(sessio
   })}</section>{!data.projects.length?<Empty text="No source-exposed projects found in this period."/>:!visibleProjects.length&&<Empty text="No projects match that search."/>}</div>;
 }
 
-function Models({data}:{data:DashboardData}) { const max=Math.max(...data.models.map(m=>m.cost),1); return <div className="view-stack page-enter"><PageTitle eyebrow="MODEL SPECTROGRAPH" title="Model mix and efficiency" description="Compare API-equivalent cost, output volume, and cache behavior using ccusage as the sole analytical cost source."/><section className="model-grid">{data.models.map((model,index)=><article className="model-card" key={model.model}><div className="model-card__head"><span style={{background:palette[index%palette.length]}}>{model.model.startsWith("gpt")?"G":"C"}</span><div><h3>{model.model}</h3><p>{model.agents.join(" · ")}</p></div></div><div className="model-cost"><strong>{formatMoney(model.cost)}</strong><span>API-equivalent</span></div><div className="meter"><i style={{width:`${model.cost/max*100}%`,background:palette[index%palette.length]}}/></div><dl><div><dt>Total tokens</dt><dd>{formatCompact(model.tokens)}</dd></div><div><dt>Output</dt><dd>{formatCompact(model.outputTokens)}</dd></div><div><dt>Cache read</dt><dd>{formatCompact(model.cacheReadTokens)}</dd></div></dl></article>)}</section></div> }
+function Models({data,onOpenSession}:{data:DashboardData;onOpenSession:(sessionId:string)=>void}) {
+  const [openModels,setOpenModels]=useState<Set<string>>(()=>new Set());
+  const [pages,setPages]=useState<Record<string,number>>({});
+  const max=Math.max(...data.models.map(model=>model.cost),1);
+  const pageSize=5;
+  const toggleModel=(model:string)=>setOpenModels(current=>{
+    const next=new Set(current);
+    if(next.has(model))next.delete(model);else next.add(model);
+    return next;
+  });
+  return <div className="view-stack page-enter">
+    <PageTitle eyebrow="MODEL SPECTROGRAPH" title="Model mix and efficiency" description="Compare API-equivalent cost, output volume, and cache behavior using ccusage as the sole analytical cost source."/>
+    <section className="model-grid">{data.models.map((model,index)=>{
+      const sessions=data.sessions
+        .filter(session=>session.modelsUsed.includes(model.model))
+        .sort((left,right)=>String(right.metadata?.lastActivity??right.period).localeCompare(String(left.metadata?.lastActivity??left.period)));
+      const open=openModels.has(model.model);
+      const page=Math.min(pages[model.model]??1,Math.max(1,Math.ceil(sessions.length/pageSize)));
+      const pageCount=Math.max(1,Math.ceil(sessions.length/pageSize));
+      const pageSessions=sessions.slice((page-1)*pageSize,page*pageSize);
+      const panelId=`model-sessions-${index}`;
+      return <article className={`model-card${open?" model-card--open":""}`} key={model.model}>
+        <div className="model-card__head"><span style={{background:palette[index%palette.length]}}>{model.model.startsWith("gpt")?"G":"C"}</span><div><h3>{model.model}</h3><p>{model.agents.join(" · ")}</p></div></div>
+        <div className="model-cost"><strong>{formatMoney(model.cost)}</strong><span>API-equivalent</span></div>
+        <div className="meter"><i style={{width:`${model.cost/max*100}%`,background:palette[index%palette.length]}}/></div>
+        <dl><div><dt>Total tokens</dt><dd>{formatCompact(model.tokens)}</dd></div><div><dt>Output</dt><dd>{formatCompact(model.outputTokens)}</dd></div><div><dt>Cache read</dt><dd>{formatCompact(model.cacheReadTokens)}</dd></div></dl>
+        <button type="button" className="model-sessions-toggle" aria-expanded={open} aria-controls={panelId} onClick={()=>toggleModel(model.model)}>
+          <span><b>{sessions.length}</b> {sessions.length===1?"session":"sessions"}</span><Plus aria-hidden="true"/>
+        </button>
+        {open&&<div className="model-sessions" id={panelId}>
+          {pageSessions.length?<ol>{pageSessions.map(session=><li key={session.sessionId}>
+            <a href={sessionHref(session.sessionId)} onClick={(event)=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();onOpenSession(session.sessionId);}}>
+              <span><b>{friendlyProject(session.cwd??"Path unavailable")}</b><small>{session.metadata?.lastActivity?formatDate(session.metadata.lastActivity):session.period}</small></span>
+              <span className="model-session-usage"><b>{formatCompact(session.totalTokens)}</b><small>{formatMoney(session.totalCost)}</small></span>
+              <ArrowUpRight aria-hidden="true"/>
+            </a>
+          </li>)}</ol>:<p>No indexed sessions use this model.</p>}
+          {sessions.length>pageSize&&<div className="model-session-pagination" aria-label={`Session pages for ${model.model}`}>
+            <button type="button" disabled={page===1} aria-label="Previous session page" onClick={()=>setPages(current=>({...current,[model.model]:page-1}))}><ChevronLeft/></button>
+            <span>{page} / {pageCount}</span>
+            <button type="button" disabled={page===pageCount} aria-label="Next session page" onClick={()=>setPages(current=>({...current,[model.model]:page+1}))}><ChevronRight/></button>
+          </div>}
+        </div>}
+      </article>;
+    })}</section>
+  </div>;
+}
 
 function Limits({data,onRules}:{data:DashboardData;onRules:()=>void}) {
   const budget=Number(data.settings.monthlyBudget??250); const month=data.monthly.at(-1)?.totalCost??0; const ratio=Math.min(100,month/budget*100);
@@ -944,6 +995,7 @@ function Limits({data,onRules}:{data:DashboardData;onRules:()=>void}) {
 function PageTitle({eyebrow,title,description,actions}:{eyebrow:string;title:string;description:string;actions?:React.ReactNode}) { return <header className="page-title"><div><span className="overline">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>{actions}</header> }
 function Segmented({value,onChange,options,label}:{value:string;onChange:(v:string)=>void;options:Array<{value:string;label:string}>;label?:string}) { return <div className="segmented" aria-label={label}>{options.map(option=><button type="button" key={option.value} className={value===option.value?"active":""} aria-pressed={value===option.value} onClick={()=>onChange(option.value)}>{option.label}</button>)}</div> }
 function Empty({text}:{text:string}) { return <div className="empty"><Orbit/><p>{text}</p></div> }
+function GitHubMark() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.2.8-.5v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.3 1.9 1.3 1.1 1.9 2.8 1.4 3.5 1.1.1-.8.4-1.4.8-1.7-2.7-.3-5.6-1.4-5.6-6.1 0-1.4.5-2.5 1.3-3.4-.1-.3-.6-1.6.1-3.3 0 0 1.1-.4 3.6 1.3a12.4 12.4 0 0 1 6.5 0c2.5-1.7 3.6-1.3 3.6-1.3.7 1.7.3 3 .1 3.3.8.9 1.3 2 1.3 3.4 0 4.7-2.9 5.8-5.6 6.1.4.4.8 1.1.8 2.2v3.2c0 .3.2.6.8.5A12 12 0 0 0 12 .3Z"/></svg>; }
 
 function InformationSources({data}:{data:DashboardData}) {
   return <footer className="information-sources" aria-label="Information sources">
@@ -953,6 +1005,7 @@ function InformationSources({data}:{data:DashboardData}) {
       <li><b>Local agent records</b><span>Claude Code and Codex session headers · working-directory metadata only</span></li>
       <li><a href="https://github.com/anobjectn/quota-service" target="_blank" rel="noreferrer">quota-service</a><span>{data.quotas.available ? "Provider-reported allowance data" : "Optional provider allowance service unavailable; no quota estimate is substituted"}</span></li>
     </ul>
+    <a className="information-sources__repository" href="https://github.com/anobjectn/ai-usage-observatory" target="_blank" rel="noreferrer"><GitHubMark/><span>AI Usage Observatory</span></a>
   </footer>;
 }
 
@@ -1076,7 +1129,7 @@ export function App() {
     const focused=focusSessionId?data.sessions.find((session)=>session.sessionId===focusSessionId):undefined;
     return focused&&!datedSessions.some((session)=>session.sessionId===focused.sessionId)?[focused,...datedSessions]:datedSessions;
   },[data,datedSessions,focusSessionId]);
-  const openSession=(sessionId:string)=>{history.replaceState({view},"",window.location.href);history.pushState({view:"sessions",sessionId},"",sessionHref(sessionId));setFocusSessionId(sessionId);setView("sessions");window.scrollTo({top:0,behavior:"smooth"});};
+  const openSession=(sessionId:string)=>{history.replaceState({view},"",window.location.href);history.pushState({view:"sessions",sessionId},"",sessionHref(sessionId));setFocusSessionId(sessionId);setView("sessions");};
   const resetAppearance=()=>{setAccent(defaultAccent);setProviderColors(defaultProviderColors);setFavoriteAccents(defaultFavoriteAccents);setDataTextScale(defaultDataTextScale);setSceneEffects(defaultSceneEffects);};
   if (loading&&!data) return <div className="boot"><div className="boot-orbit"><Orbit/></div><span>Calibrating local instruments…</span></div>;
   if (error&&!data) return <div className="boot error-state"><Database/><h1>Observatory is offline</h1><p>{error}</p><button className="primary-button" onClick={()=>load()}>Try again</button></div>;
@@ -1084,14 +1137,14 @@ export function App() {
   const current=nav.find(item=>item.id===view)!;
   return <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
     <aside className={sidebar?"open":""}><div className="brand"><button type="button" className="brand-home" onClick={()=>{setView("overview");setSidebar(false)}} aria-label="Go to Overview"><Orbit/></button><div><b>AI Usage</b><small>OBSERVATORY</small></div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed(collapsed=>!collapsed)} aria-label={sidebarCollapsed?"Expand navigation":"Collapse navigation"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed?<ChevronRight/>:<ChevronLeft/>}</button><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="Close navigation"><X/></button></div><nav>{nav.map(item=><button key={item.id} className={view===item.id?"active":""} onClick={()=>{setView(item.id);setSidebar(false)}} aria-label={item.label} data-tooltip={item.label}><item.icon/><span>{item.label}</span>{view===item.id&&<i/>}</button>)}</nav><div className="side-status" data-tooltip={`Local systems nominal — ccusage v${data.ccusageVersion}`} aria-label={`Local systems nominal, ccusage version ${data.ccusageVersion}`} tabIndex={sidebarCollapsed ? 0 : undefined}><span className="status-dot healthy"/><div><b>Local systems nominal</b><small>ccusage v{data.ccusageVersion}</small></div></div><button className="settings-link" onClick={()=>setRules(true)} data-tooltip="Path rules"><Settings2/> <b>Path rules</b> <span>{data.rules.length}</span></button><p className="privacy-note">No raw usage records leave this machine.</p></aside>
-    <main>{sceneEffects.starfield&&!reducedMotion&&<Starfield accent={accent} effects={sceneEffects}/>}<header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><button type="button" onClick={()=>setView("overview")}>AI Usage Observatory</button><ChevronRight/><b>{current.label}</b></div><div className="global-controls"><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Appearance settings"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
+    <main>{sceneEffects.starfield&&!reducedMotion&&<Starfield accent={accent} effects={sceneEffects}/>}<header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu/></button><div className="breadcrumbs"><button type="button" onClick={()=>setView("overview")}>AI Usage Observatory</button><ChevronRight/><b>{current.label}</b></div><div className="global-controls">{view!=="models"&&view!=="limits"&&<><label><span>Agent</span><select value={agent} onChange={e=>setAgent(e.target.value)}><option value="all">All agents</option>{agents.map(a=><option value={a} key={a}>{a}</option>)}</select></label><label><span>Path</span><select value={pathTag} onChange={e=>setPathTag(e.target.value)}><option value="all">All paths</option>{pathTags.map(tag=><option value={tag} key={tag}>{tag}</option>)}</select></label>{view!=="overview"&&<Segmented label="Dashboard time span" value={days} onChange={(value)=>setDays(value as MetricRange)} options={[{value:"1",label:"1d"},{value:"7",label:"7d"},{value:"14",label:"14d"},{value:"30",label:"30d"},{value:"120",label:"120d"}]}/>}</>}<button className="appearance-button" onClick={()=>setAppearance(true)} title="Appearance settings"><Palette/><span>Appearance</span></button><button className="refresh-button" onClick={()=>load(true)} title="Refresh local sources"><RefreshCw className={loading?"spin":""}/><span>{loading?"Collecting":"Refresh"}</span></button></div></header>
       {data.refresh.stale&&<div className="stale-banner">Showing the last successful collection. {data.refresh.lastError}</div>}
       <div className="content">
         {view==="overview"&&<Overview data={data} daily={daily} sessions={sessions} agent={agent} metricRange={days} onMetricRangeChange={setDays} onSession={setSession} accent={accent} providerColors={providerColors} sceneEffects={sceneEffects}/>}
         {view==="explorer"&&<Explorer data={data} rows={daily} sessions={sessions} agent={agent} pathTag={pathTag} metricRange={days} metric={metric} setMetric={setMetric}/>}
         {view==="sessions"&&<Sessions sessions={visibleSessions} onEdit={setSession} focusSessionId={focusSessionId}/>}
         {view==="projects"&&<Projects data={data} onOpenSession={openSession}/>}
-        {view==="models"&&<Models data={data}/>}
+        {view==="models"&&<Models data={data} onOpenSession={openSession}/>}
         {view==="limits"&&<Limits data={data} onRules={()=>setRules(true)}/>}
       </div>
       <InformationSources data={data}/>
