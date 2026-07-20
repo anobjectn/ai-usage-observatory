@@ -14,7 +14,7 @@ A local-first mission control for understanding AI coding usage. It combines pin
 
 ![Model mix and efficiency comparison](docs/screenshots/5.models.png)
 
-![Limits and sources with data source health](docs/screenshots/6.limits-and-sources.png)
+![Data provenance with source separation and data source health](docs/screenshots/6.data-provenance.png)
 
 ![Appearance settings for signal colors, text size, and scene effects](docs/screenshots/7.appearance.png)
 
