@@ -203,6 +203,71 @@ function sessionHref(sessionId: string) {
   return `${url.pathname}${url.search}`;
 }
 
+function viewHref(view: View) {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("view", view);
+  return `${url.pathname}${url.search}`;
+}
+
+function useModalFocusTrap(onEscape: () => void) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusInitial = window.requestAnimationFrame(() => {
+      const initial =
+        dialog.querySelector<HTMLElement>("[data-autofocus], [autofocus]") ??
+        dialog.querySelector<HTMLElement>(focusableSelector);
+      (initial ?? dialog).focus();
+    });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onEscapeRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [
+        ...dialog.querySelectorAll<HTMLElement>(focusableSelector),
+      ];
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last ||
+          !dialog.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(focusInitial);
+      document.removeEventListener("keydown", onKeyDown, true);
+      previouslyFocused?.focus();
+    };
+  }, []);
+
+  return dialogRef;
+}
+
 const sceneEffectsStorageKey = "usage-observatory:scene-effects";
 const defaultSceneEffects: SceneEffects = {
   starfield: true,
@@ -795,13 +860,23 @@ function metricTotals(rows: MetricRow[]) {
 function modelDistribution(rows: MetricRow[], metric: Metric) {
   const models = new Map<
     string,
-    { tokens: number; cost: number; outputTokens: number }
+    {
+      name: string;
+      provider: ReturnType<typeof providerKey>;
+      tokens: number;
+      cost: number;
+      outputTokens: number;
+    }
   >();
   rows.forEach((row) => {
     const sources = row.agents?.length ? row.agents : [row];
-    sources.forEach((source) =>
+    sources.forEach((source) => {
+      const provider = providerKey(source.agent);
       source.modelBreakdowns.forEach((model) => {
-        const current = models.get(model.modelName) ?? {
+        const modelKey = `${provider ?? "unknown"}:${model.modelName}`;
+        const current = models.get(modelKey) ?? {
+          name: model.modelName,
+          provider,
           tokens: 0,
           cost: 0,
           outputTokens: 0,
@@ -813,9 +888,9 @@ function modelDistribution(rows: MetricRow[], metric: Metric) {
           model.cacheCreationTokens;
         current.cost += model.cost;
         current.outputTokens += model.outputTokens;
-        models.set(model.modelName, current);
-      }),
-    );
+        models.set(modelKey, current);
+      });
+    });
   });
   const key =
     metric === "totalCost"
@@ -823,10 +898,14 @@ function modelDistribution(rows: MetricRow[], metric: Metric) {
       : metric === "outputTokens"
         ? "outputTokens"
         : "tokens";
-  return [...models.entries()]
-    .map(([name, values]) => ({
-      name: name.replace(/^claude-|^gpt-/, ""),
+  return [...models.values()]
+    .map((values) => ({
+      name: values.name.replace(/^claude-|^gpt-/, ""),
       value: values[key],
+      provider: values.provider,
+      color:
+        providerSeries.find((series) => series.key === values.provider)?.color ??
+        "var(--aqua)",
     }))
     .sort((a, b) => b.value - a.value);
 }
@@ -2072,9 +2151,15 @@ function Explorer({
                 <Bar
                   dataKey="value"
                   name="Usage"
-                  fill="#58d9cf"
                   radius={[0, 6, 6, 0]}
-                />
+                >
+                  {modelData.map((entry) => (
+                    <Cell
+                      key={`${entry.provider ?? "unknown"}-${entry.name}`}
+                      fill={entry.color}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -2303,7 +2388,7 @@ function Sessions({
   const pageSize = 15;
   const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
   const filtered = sessions.filter((s) =>
-    `${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`
+    `${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd ?? ""} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
@@ -2327,7 +2412,8 @@ function Sessions({
   });
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => setPage(1), [query, sessions]);
+  useEffect(() => setPage(1), [query]);
+  useEffect(() => setPage((current) => Math.min(current, pages)), [pages]);
   const sortBy = (key: SortKey) => {
     setSort((current) =>
       current.key === key
@@ -2420,6 +2506,16 @@ function Sessions({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search sessions…"
             />
+            {query && (
+              <button
+                type="button"
+                className="search-clear"
+                onClick={() => setQuery("")}
+                aria-label="Clear session search"
+              >
+                Clear
+              </button>
+            )}
           </label>
         }
       />
@@ -3169,6 +3265,16 @@ function Projects({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search projects…"
               />
+              {query && (
+                <button
+                  type="button"
+                  className="search-clear"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear project search"
+                >
+                  Clear
+                </button>
+              )}
             </label>
             <label className="project-sort">
               <span>Sort</span>
@@ -3749,16 +3855,7 @@ function AppearanceModal({
     },
     [],
   );
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      dismiss();
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [dismiss]);
+  const dialogRef = useModalFocusTrap(dismiss);
 
   return (
     <div
@@ -3768,7 +3865,12 @@ function AppearanceModal({
       }}
     >
       <div
+        ref={dialogRef}
         className={`modal appearance-modal${dismissal ? " appearance-modal--dismissing" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="appearance-modal-title"
+        tabIndex={-1}
       >
         <div className="appearance-content">
           <button
@@ -3779,7 +3881,7 @@ function AppearanceModal({
             <X />
           </button>
           <span className="overline">LOCAL APPEARANCE</span>
-          <h2>Appearance</h2>
+          <h2 id="appearance-modal-title">Appearance</h2>
           <p>
             Adjust visual signals and data readability. These preferences stay
             on this device.
@@ -4033,6 +4135,18 @@ function AnnotationModal({
   const [note, setNote] = useState(session.annotation.note);
   const [tags, setTags] = useState(session.annotation.tags.join(", "));
   const [saving, setSaving] = useState(false);
+  const dirty =
+    note !== session.annotation.note ||
+    tags !== session.annotation.tags.join(", ");
+  const requestClose = useCallback(() => {
+    if (
+      !dirty ||
+      window.confirm("Discard your unsaved annotation changes?")
+    ) {
+      onClose();
+    }
+  }, [dirty, onClose]);
+  const dialogRef = useModalFocusTrap(requestClose);
   const save = async () => {
     setSaving(true);
     await fetch(
@@ -4057,15 +4171,27 @@ function AnnotationModal({
     <div
       className="modal-backdrop"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
-      <div className="modal">
-        <button className="modal-close" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="annotation-modal-title"
+        tabIndex={-1}
+      >
+        <button
+          type="button"
+          className="modal-close"
+          onClick={requestClose}
+          aria-label="Close annotation editor"
+        >
           <X />
         </button>
         <span className="overline">LOCAL ANNOTATION</span>
-        <h2>Mark this session</h2>
+        <h2 id="annotation-modal-title">Mark this session</h2>
         <p>
           {session.modelsUsed.join(", ")} · {formatCompact(session.totalTokens)}{" "}
           tokens
@@ -4073,6 +4199,8 @@ function AnnotationModal({
         <label>
           Tags
           <input
+            autoFocus
+            data-autofocus
             value={tags}
             onChange={(e) => setTags(e.target.value)}
             placeholder="feature, research, client-work"
@@ -4125,6 +4253,7 @@ function RulesModal({
     await fetch(`/api/rules/${id}`, { method: "DELETE" });
     onSaved();
   };
+  const dialogRef = useModalFocusTrap(onClose);
   return (
     <div
       className="modal-backdrop"
@@ -4132,12 +4261,24 @@ function RulesModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="modal rules-modal">
-        <button className="modal-close" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        className="modal rules-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rules-modal-title"
+        tabIndex={-1}
+      >
+        <button
+          type="button"
+          className="modal-close"
+          onClick={onClose}
+          aria-label="Close path rules"
+        >
           <X />
         </button>
         <span className="overline">DERIVED METADATA</span>
-        <h2>Working-directory rules</h2>
+        <h2 id="rules-modal-title">Working-directory rules</h2>
         <p>
           Rules are re-evaluated over indexed paths. Only path strings are
           stored; transcript content is never copied.
@@ -4256,10 +4397,9 @@ export function App() {
     } catch {}
   }, [sceneEffects]);
   useEffect(() => {
-    const navigate = (event: PopStateEvent) => {
-      const state = event.state as { view?: View; sessionId?: string } | null;
-      setView(state?.view ?? initialView());
-      setFocusSessionId(state?.sessionId ?? initialSessionId());
+    const navigate = () => {
+      setView(initialView());
+      setFocusSessionId(initialSessionId());
     };
     window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
@@ -4290,15 +4430,6 @@ export function App() {
       localStorage.setItem(dataTextScaleStorageKey, String(dataTextScale));
     } catch {}
   }, [dataTextScale]);
-  useEffect(() => {
-    const dismiss = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setSession(null);
-      setRules(false);
-    };
-    window.addEventListener("keydown", dismiss);
-    return () => window.removeEventListener("keydown", dismiss);
-  }, []);
   const agents = useMemo(
     () =>
       data
@@ -4354,9 +4485,15 @@ export function App() {
       ? [focused, ...datedSessions]
       : datedSessions;
   }, [data, datedSessions, focusSessionId]);
+  const navigateToView = (nextView: View) => {
+    setSidebar(false);
+    if (nextView === view && !focusSessionId) return;
+    window.history.pushState({ view: nextView }, "", viewHref(nextView));
+    setFocusSessionId(null);
+    setView(nextView);
+  };
   const openSession = (sessionId: string) => {
-    history.replaceState({ view }, "", window.location.href);
-    history.pushState(
+    window.history.pushState(
       { view: "sessions", sessionId },
       "",
       sessionHref(sessionId),
@@ -4400,10 +4537,7 @@ export function App() {
           <button
             type="button"
             className="brand-home"
-            onClick={() => {
-              setView("overview");
-              setSidebar(false);
-            }}
+            onClick={() => navigateToView("overview")}
             aria-label="Go to Overview"
           >
             <Orbit />
@@ -4435,10 +4569,7 @@ export function App() {
             <button
               key={item.id}
               className={view === item.id ? "active" : ""}
-              onClick={() => {
-                setView(item.id);
-                setSidebar(false);
-              }}
+              onClick={() => navigateToView(item.id)}
               aria-label={item.label}
               data-tooltip={item.label}
             >
@@ -4478,7 +4609,7 @@ export function App() {
             <Menu />
           </button>
           <div className="breadcrumbs">
-            <button type="button" onClick={() => setView("overview")}>
+            <button type="button" onClick={() => navigateToView("overview")}>
               AI Usage Observatory
             </button>
             <ChevronRight />
