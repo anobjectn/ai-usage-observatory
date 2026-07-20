@@ -140,7 +140,7 @@ Window fields `fiveHour` and `weekly` may be `null`; `modelWindows` is optional.
 
 The dashboard uses `available` credits for the visible banked-reset list. It does not require a particular `status` string for individual credits, and `expiresAt` may be `null`.
 
-The optional local history summary (observed quota reaches and consumed reset credits) is specific to quota-service's SQLite database. It is not part of the HTTP replacement contract. It remains unavailable for another service unless it also provides a compatible database through `QUOTA_DB_PATH`.
+The optional local history summary (observed quota reaches and consumed reset credits) is specific to quota-service's SQLite database. For each 5-hour and weekly allowance, it retains the first local observation for every full quota cycle and lists all observed-at-limit times alongside the total. It is not part of the HTTP replacement contract. It remains unavailable for another service unless it also provides a compatible database through `QUOTA_DB_PATH`.
 
 ## Verification
 

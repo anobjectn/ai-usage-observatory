@@ -70,7 +70,7 @@ export type QuotaResets = {
 export type QuotaHistory = {
   available: boolean;
   trackingSince: number | null;
-  windows: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";reachedCount:number}>;
+  windows: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";reachedCount:number;lastReachedAt:number|null;reachedAt:number[]}>;
   codexBankedResets: {usedCount:number};
 };
 export type DashboardData = {

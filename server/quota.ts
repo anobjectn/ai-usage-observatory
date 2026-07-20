@@ -11,7 +11,7 @@ type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
 type ResetCreditHistory = { id?: string; status?: string | null; expiresAt?: string | null };
 
 export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetRows: ResetHistoryRow[]) {
-  const reachedCycles = new Map<string, Set<string>>();
+  const reachedCycles = new Map<string, Map<string, number>>();
   let trackingSince: number | null = null;
   for (const row of snapshotRows) {
     trackingSince = trackingSince === null ? row.capturedAt : Math.min(trackingSince, row.capturedAt);
@@ -23,8 +23,11 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
         if (!value || Number(value.usedPercent) < 100) continue;
         const key = `${row.provider}:${window}`;
         const cycle = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
-        const cycles = reachedCycles.get(key) ?? new Set<string>();
-        cycles.add(cycle);
+        const cycles = reachedCycles.get(key) ?? new Map<string, number>();
+        const firstObservedAt = cycles.get(cycle);
+        if (firstObservedAt === undefined || row.capturedAt < firstObservedAt) {
+          cycles.set(cycle, row.capturedAt);
+        }
         reachedCycles.set(key, cycles);
       }
     } catch { /* Ignore malformed historical rows; current quota collection remains available. */ }
@@ -50,11 +53,17 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
     previousAvailable = currentAvailable;
   }
 
-  const windows = (["codex", "anthropic"] as const).flatMap((provider) => (["fiveHour", "weekly"] as const).map((window) => ({
-    provider,
-    window,
-    reachedCount: reachedCycles.get(`${provider}:${window}`)?.size ?? 0,
-  })));
+  const windows = (["codex", "anthropic"] as const).flatMap((provider) => (["fiveHour", "weekly"] as const).map((window) => {
+    const reachedAt = [...(reachedCycles.get(`${provider}:${window}`)?.values() ?? [])]
+      .sort((left, right) => right - left);
+    return {
+      provider,
+      window,
+      reachedCount: reachedAt.length,
+      lastReachedAt: reachedAt[0] ?? null,
+      reachedAt,
+    };
+  }));
   return { available: snapshotRows.length > 0 || resetRows.length > 0, trackingSince, windows, codexBankedResets: { usedCount: usedResetIds.size } };
 }
 

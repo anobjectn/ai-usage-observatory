@@ -9,8 +9,14 @@ describe("quota history summary", () => {
       { provider: "anthropic", capturedAt: 3, snapshotJson: JSON.stringify({kind:"window",fiveHour:{usedPercent:100,resetsAt:21_600_000},weekly:{usedPercent:100,resetsAt:604_800_000}}) },
     ];
     const summary = summarizeQuotaHistory(snapshots, []);
-    expect(summary.windows.find((item) => item.provider === "anthropic" && item.window === "fiveHour")?.reachedCount).toBe(2);
-    expect(summary.windows.find((item) => item.provider === "anthropic" && item.window === "weekly")?.reachedCount).toBe(1);
+    const fiveHour = summary.windows.find((item) => item.provider === "anthropic" && item.window === "fiveHour");
+    const weekly = summary.windows.find((item) => item.provider === "anthropic" && item.window === "weekly");
+    expect(fiveHour?.reachedCount).toBe(2);
+    expect(fiveHour?.lastReachedAt).toBe(3);
+    expect(fiveHour?.reachedAt).toEqual([3, 1]);
+    expect(weekly?.reachedCount).toBe(1);
+    expect(weekly?.lastReachedAt).toBe(3);
+    expect(weekly?.reachedAt).toEqual([3]);
   });
 
   test("counts an available reset credit that disappears before expiry as used", () => {

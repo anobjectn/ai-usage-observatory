@@ -1389,6 +1389,7 @@ type QuotaBucket = {
   detail: string;
   historyWindow?: "fiveHour" | "weekly";
   reachedCount?: number;
+  reachedAt?: number[];
 };
 
 type QuotaCard = {
@@ -1411,6 +1412,7 @@ function quotaBucket(
   suspended = false,
   historyWindow?: "fiveHour" | "weekly",
   reachedCount?: number,
+  reachedAt?: number[],
 ): QuotaBucket {
   const hasValue = usedPercent !== null && Number.isFinite(usedPercent);
   const expired = hasValue && resetAt !== null && resetAt <= Date.now();
@@ -1439,6 +1441,7 @@ function quotaBucket(
           : "not currently reported"),
     historyWindow,
     reachedCount,
+    reachedAt,
   };
 }
 
@@ -1447,13 +1450,13 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
     quotas.usage?.providers.map((provider) => [provider.provider, provider]) ??
       [],
   );
-  const reachedCount = (
+  const reachHistory = (
     provider: "codex" | "anthropic",
     window: "fiveHour" | "weekly",
   ) =>
     quotas.history?.windows.find(
       (item) => item.provider === provider && item.window === window,
-    )?.reachedCount;
+    );
   const anthropic = reports.get("anthropic");
   const anthropicSnapshot =
     anthropic?.snapshot?.kind === "window" ? anthropic.snapshot : null;
@@ -1468,7 +1471,8 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       anthropic?.error,
       false,
       "fiveHour",
-      reachedCount("anthropic", "fiveHour"),
+      reachHistory("anthropic", "fiveHour")?.reachedCount,
+      reachHistory("anthropic", "fiveHour")?.reachedAt,
     ),
     quotaBucket(
       "anthropic-weekly",
@@ -1480,7 +1484,8 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       anthropic?.error,
       false,
       "weekly",
-      reachedCount("anthropic", "weekly"),
+      reachHistory("anthropic", "weekly")?.reachedCount,
+      reachHistory("anthropic", "weekly")?.reachedAt,
     ),
     ...Object.entries(anthropicSnapshot?.modelWindows ?? {}).map(
       ([model, window]) =>
@@ -1508,7 +1513,8 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       codex?.error,
       Boolean(codexSnapshot && !codexSnapshot.fiveHour),
       "fiveHour",
-      reachedCount("codex", "fiveHour"),
+      reachHistory("codex", "fiveHour")?.reachedCount,
+      reachHistory("codex", "fiveHour")?.reachedAt,
     ),
     quotaBucket(
       "codex-weekly",
@@ -1520,7 +1526,8 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       codex?.error,
       false,
       "weekly",
-      reachedCount("codex", "weekly"),
+      reachHistory("codex", "weekly")?.reachedCount,
+      reachHistory("codex", "weekly")?.reachedAt,
     ),
   ];
   const warp = reports.get("warp");
@@ -1668,12 +1675,31 @@ function QuotaDials({ quotas }: { quotas: DashboardData["quotas"] }) {
                         </small>
                         {bucket.historyWindow && (
                           <div className="quota-history">
-                            <span>Quota reached</span>
-                            <b>
-                              {bucket.reachedCount === undefined
-                                ? "Not tracked"
-                                : `${bucket.reachedCount}× observed`}
-                            </b>
+                            <div className="quota-history__head">
+                              <span>Recorded reaches</span>
+                              <b>
+                                {bucket.reachedCount === undefined
+                                  ? "Not tracked"
+                                  : `${bucket.reachedCount}× observed`}
+                              </b>
+                            </div>
+                            {bucket.reachedAt && bucket.reachedAt.length > 0 && (
+                              <ol aria-label={`${card.providerLabel} ${bucket.windowLabel} quota reaches`}>
+                                {bucket.reachedAt.map((reachedAt) => (
+                                  <li key={reachedAt}>
+                                    <time dateTime={new Date(reachedAt).toISOString()}>
+                                      {new Date(reachedAt).toLocaleString(undefined, {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                        hour: "numeric",
+                                        minute: "2-digit",
+                                      })}
+                                    </time>
+                                  </li>
+                                ))}
+                              </ol>
+                            )}
                           </div>
                         )}
                       </div>
