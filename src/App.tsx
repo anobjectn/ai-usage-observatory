@@ -2782,6 +2782,14 @@ function projectDayRows(
     }));
 }
 
+export function projectTrendRowsInRange(
+  trend: ProjectTrendRow[],
+  daily: MetricRow[],
+) {
+  const periods = new Set(daily.map((row) => row.period));
+  return trend.filter((row) => periods.has(row.date));
+}
+
 function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
   const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
   if (!active || !payload?.length) return null;
@@ -2864,11 +2872,13 @@ function ProjectDetails({
   project,
   activity,
   sessions,
+  daily,
   onOpenSession,
 }: {
   project: ProjectSummary;
   activity: ProjectActivity[];
   sessions: Session[];
+  daily: MetricRow[];
   onOpenSession: (sessionId: string) => void;
 }) {
   type ModelSortKey = "name" | "tokens" | "cost";
@@ -2924,6 +2934,10 @@ function ProjectDetails({
     };
   }, [sessions]);
   const days = projectDayRows(project.trend, activity);
+  const chartDays = projectDayRows(
+    projectTrendRowsInRange(project.trend, daily),
+    activity.filter((item) => daily.some((row) => row.period === item.date)),
+  );
   const modelTotals = new Map<string, { tokens: number; cost: number }>();
   days.forEach((day) =>
     day.models.forEach((model) => {
@@ -3044,7 +3058,7 @@ function ProjectDetails({
           >
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={days}
+                data={chartDays}
                 margin={{ top: 12, right: 4, left: -16, bottom: 0 }}
               >
                 <CartesianGrid
@@ -3268,9 +3282,11 @@ function ProjectDetails({
 
 function Projects({
   data,
+  daily,
   onOpenSession,
 }: {
   data: DashboardData;
+  daily: MetricRow[];
   onOpenSession: (sessionId: string) => void;
 }) {
   const [openProject, setOpenProject] = useState<string | null>(null);
@@ -3398,6 +3414,7 @@ function Projects({
                 <div id={`project-detail-${index}`}>
                   <ProjectDetails
                     project={project}
+                    daily={daily}
                     activity={data.projectActivity.filter(
                       (activity) => activity.projectId === project.name,
                     )}
@@ -4667,34 +4684,38 @@ export function App() {
           <div className="global-controls">
             {view !== "models" && view !== "limits" && (
               <>
-                <label>
-                  <span>Agent</span>
-                  <select
-                    value={agent}
-                    onChange={(e) => setAgent(e.target.value)}
-                  >
-                    <option value="all">All agents</option>
-                    {agents.map((a) => (
-                      <option value={a} key={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Path</span>
-                  <select
-                    value={pathTag}
-                    onChange={(e) => setPathTag(e.target.value)}
-                  >
-                    <option value="all">All paths</option>
-                    {pathTags.map((tag) => (
-                      <option value={tag} key={tag}>
-                        {tag}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {view !== "projects" && (
+                  <label>
+                    <span>Agent</span>
+                    <select
+                      value={agent}
+                      onChange={(e) => setAgent(e.target.value)}
+                    >
+                      <option value="all">All agents</option>
+                      {agents.map((a) => (
+                        <option value={a} key={a}>
+                          {a}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {view !== "projects" && (
+                  <label>
+                    <span>Path</span>
+                    <select
+                      value={pathTag}
+                      onChange={(e) => setPathTag(e.target.value)}
+                    >
+                      <option value="all">All paths</option>
+                      {pathTags.map((tag) => (
+                        <option value={tag} key={tag}>
+                          {tag}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {view !== "overview" && (
                   <Segmented
                     label="Dashboard time span"
@@ -4769,7 +4790,11 @@ export function App() {
             />
           )}
           {view === "projects" && (
-            <Projects data={data} onOpenSession={openSession} />
+            <Projects
+              data={data}
+              daily={metricRangeRows(data.daily, days)}
+              onOpenSession={openSession}
+            />
           )}
           {view === "models" && (
             <Models data={data} onOpenSession={openSession} />

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { pathFilteredRows } from "./App";
-import type { Session } from "./types";
+import { pathFilteredRows, projectTrendRowsInRange } from "./App";
+import type { MetricRow, ProjectTrendRow, Session } from "./types";
 
 function session(overrides: Partial<Session>): Session {
   return {
@@ -71,4 +71,21 @@ test("pathFilteredRows combines matching sessions only within the selected perio
     cacheReadTokens: 20,
     cost: 0.03,
   });
+});
+
+test("projectTrendRowsInRange uses the dashboard time window", () => {
+  const daily = [
+    { period: "2026-07-17" },
+    { period: "2026-07-18" },
+  ] as MetricRow[];
+  const trend = [
+    { date: "2026-07-16" },
+    { date: "2026-07-17" },
+    { date: "2026-07-18" },
+  ] as ProjectTrendRow[];
+
+  expect(projectTrendRowsInRange(trend, daily).map((row) => row.date)).toEqual([
+    "2026-07-17",
+    "2026-07-18",
+  ]);
 });
