@@ -408,13 +408,18 @@ function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const dashboardEtag = useRef<string | null>(null);
   const load = async (refresh = false) => {
     setLoading(true);
     setError(null);
     try {
       if (refresh) await fetch("/api/refresh", { method: "POST" });
-      const response = await fetch("/api/dashboard");
+      const response = await fetch("/api/dashboard", {
+        headers: dashboardEtag.current ? { "If-None-Match": dashboardEtag.current } : undefined,
+      });
+      if (response.status === 304) return;
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      dashboardEtag.current = response.headers.get("ETag");
       setData(await response.json());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -1795,10 +1800,18 @@ function Overview({
       ),
     ),
   );
-  const agentChart = [...agentTotals.entries()].map(([name, value]) => ({
-    name,
-    value,
-  }));
+  const agentChart = [...agentTotals.entries()].map(([name, value], index) => {
+    const provider = providerKey(name);
+    const color =
+      provider === "anthropic"
+        ? providerColors.anthropic
+        : provider === "codex"
+          ? providerColors.openai
+          : provider === "warp"
+            ? providerColors.warp
+            : palette[index % palette.length];
+    return { name, value, color };
+  });
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
   const recent = sessions.slice(0, 5);
   const cacheShare = totals.tokens
@@ -2001,8 +2014,8 @@ function Overview({
                     outerRadius={68}
                     stroke="none"
                   >
-                    {agentChart.map((_, i) => (
-                      <Cell key={i} fill={palette[i]} />
+                    {agentChart.map((item) => (
+                      <Cell key={item.name} fill={item.color} />
                     ))}
                   </Pie>
                 </PieChart>
@@ -2013,9 +2026,9 @@ function Overview({
               </span>
             </div>
             <div className="legend">
-              {agentChart.map((item, i) => (
+              {agentChart.map((item) => (
                 <div key={item.name}>
-                  <i style={{ background: palette[i] }} />
+                  <i style={{ background: item.color }} />
                   <span>{item.name}</span>
                   <b>
                     {Math.round(
@@ -2413,12 +2426,15 @@ function Sessions({
   );
   const pageSize = 15;
   const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
-  const filtered = sessions.filter((s) =>
-    `${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd ?? ""} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
-  const sorted = [...filtered].sort((left, right) => {
+  const filtered = useMemo(() => {
+    const normalizedQuery = query.toLowerCase();
+    return sessions.filter((s) =>
+      `${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd ?? ""} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [query, sessions]);
+  const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const value = (session: Session): string | number => {
       if (sort.key === "activity")
         return Date.parse(String(session.metadata?.lastActivity ?? "")) || 0;
@@ -2435,7 +2451,7 @@ function Sessions({
         ? a - b
         : String(a).localeCompare(String(b));
     return sort.direction === "asc" ? comparison : -comparison;
-  });
+  }), [filtered, sort]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => setPage(1), [query]);
@@ -2867,16 +2883,21 @@ function ProjectDetails({
   useEffect(() => {
     let cancelled = false;
     setLoadingSessions(true);
-    Promise.all(
-      sessions.map(async (session) => {
+    const loadDetails = async () => {
+      const details: ProjectSessionDetail[] = [];
+      let next = 0;
+      const worker = async () => {
+        while (!cancelled) {
+          const session = sessions[next++];
+          if (!session) return;
         try {
           const response = await fetch(
             `/api/sessions/${encodeURIComponent(session.sessionId)}/detail`,
           );
           if (!response.ok) throw new Error("Session details are unavailable");
-          return { session, detail: (await response.json()) as SessionDetail };
+          details.push({ session, detail: (await response.json()) as SessionDetail });
         } catch {
-          return {
+          details.push({
             session,
             detail: {
               available: false,
@@ -2887,15 +2908,17 @@ function ProjectDetails({
               deletions: 0,
               eventsRead: 0,
             } satisfies SessionDetail,
-          };
+          });
         }
-      }),
-    ).then((details) => {
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, sessions.length) }, worker));
       if (!cancelled) {
         setSessionDetails(details);
         setLoadingSessions(false);
       }
-    });
+    };
+    void loadDetails();
     return () => {
       cancelled = true;
     };

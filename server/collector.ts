@@ -182,6 +182,7 @@ export async function refresh() {
 }
 
 export async function getSnapshot() {
-  const result = snapshot ?? await refresh();
+  const isStale = !snapshot || Date.now() - Date.parse(snapshot.collectedAt) >= 60_000;
+  const result = isStale ? await refresh() : snapshot!;
   return { ...result, refresh: { inProgress: Boolean(refreshPromise), lastError, stale: Boolean(lastError) } };
 }

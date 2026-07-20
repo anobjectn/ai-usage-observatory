@@ -127,7 +127,7 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .kicker span { width:6px;height:6px;background:var(--accent);border-radius:50%;box-shadow:0 0 8px var(--accent); }
 .hero-grid h1,.page-title h1 { font-size:clamp(34px,4vw,58px);line-height:.98;letter-spacing:-.055em;margin:0;font-weight:500; }
 .hero-grid h1 em { font-family:var(--serif-font);font-weight:var(--font-weight-medium);color:var(--accent); }
-.hero-copy { max-width:610px;color:var(--muted);font-size:15px;line-height:1.65;margin-top:20px; }
+.hero-copy { max-width:610px;color:var(--muted);font-size:15px;line-height:1.65;margin-top:20px;text-wrap:balance; }
 .orbital-viz { width:280px;height:210px;position:relative;justify-self:end; }
 .orbital-viz canvas { position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none; }
 .orbital-viz canvas:active { cursor:grabbing; }

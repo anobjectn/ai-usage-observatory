@@ -81,12 +81,15 @@ function globRegex(pattern: string) {
 
 export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }> {
   const rows = db.query("SELECT session_id, agent, native_session_key, cwd, source_file FROM session_paths").all() as Array<{session_id:string;agent:string;native_session_key:string;cwd:string|null;source_file:string}>;
-  const rules = listRules();
+  const rules = listRules().flatMap((rule) => {
+    try {
+      return [{ tag: rule.tag, matcher: rule.kind === "regex" ? new RegExp(rule.pattern, "i") : globRegex(rule.pattern) }];
+    } catch {
+      return [];
+    }
+  });
   return Object.fromEntries(rows.flatMap((row) => {
-    const tags = row.cwd ? rules.filter((rule) => {
-      try { return (rule.kind === "regex" ? new RegExp(rule.pattern, "i") : globRegex(rule.pattern)).test(row.cwd!); }
-      catch { return false; }
-    }).map((rule) => rule.tag) : [];
+    const tags = row.cwd ? rules.filter((rule) => rule.matcher.test(row.cwd!)).map((rule) => rule.tag) : [];
     const value = { sessionId: row.session_id, agent: row.agent, nativeKey: row.native_session_key, cwd: row.cwd, sourceFile: relative(homedir(), row.source_file), tags };
     return sessionReportKeys(row.agent, row.native_session_key, row.source_file).map((key) => [`${row.agent}:${key}`, value]);
   }));

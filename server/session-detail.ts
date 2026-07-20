@@ -1,4 +1,5 @@
 import { getSessionSource } from "./path-indexer";
+import { stat } from "node:fs/promises";
 
 type JsonRecord = Record<string, unknown>;
 type ToolCall = { name: string; count: number };
@@ -15,6 +16,7 @@ export type SessionDetail = {
 };
 
 const detailUnavailable: SessionDetail = { available: false, prompts: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 };
+const detailCache = new Map<string, { mtimeMs: number; detail: Promise<SessionDetail> }>();
 
 function record(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -147,7 +149,7 @@ function claudeEditPatch(item: JsonRecord, files: Map<string, FileChange>, count
   files.set(filePath, { path: filePath, status: existing?.status === "added" ? "added" : "modified" });
 }
 
-export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
+async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   const source = getSessionSource(sessionId);
   if (!source || !await Bun.file(source.sourceFile).exists()) return detailUnavailable;
 
@@ -184,4 +186,25 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
     deletions: counts.deletions,
     eventsRead,
   };
+}
+
+export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
+  const source = getSessionSource(sessionId);
+  if (!source) return detailUnavailable;
+
+  let mtimeMs: number;
+  try {
+    mtimeMs = (await stat(source.sourceFile)).mtimeMs;
+  } catch {
+    return detailUnavailable;
+  }
+  const cached = detailCache.get(sessionId);
+  if (cached?.mtimeMs === mtimeMs) return cached.detail;
+
+  const detail = readSessionDetail(sessionId);
+  detailCache.set(sessionId, { mtimeMs, detail });
+  void detail.catch(() => {
+    if (detailCache.get(sessionId)?.detail === detail) detailCache.delete(sessionId);
+  });
+  return detail;
 }

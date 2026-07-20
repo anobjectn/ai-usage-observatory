@@ -6,6 +6,12 @@ import { createRule, deleteRule, getSettings, listRules, setAnnotation, setSetti
 
 const port = Number(process.env.PORT ?? 4318);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
+const dashboard = (request: Request, value: Awaited<ReturnType<typeof getSnapshot>>) => {
+  const etag = `\"${value.collectedAt}\"`;
+  const headers = { "Cache-Control": "private, no-cache", ETag: etag };
+  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  return Response.json(value, { headers });
+};
 
 async function body(request: Request) {
   try { return await request.json() as Record<string, unknown>; }
@@ -29,7 +35,7 @@ function isWithin(directory: string, target: string) {
 
 async function api(request: Request, url: URL) {
   const path = url.pathname;
-  if (request.method === "GET" && path === "/api/dashboard") return json(await getSnapshot());
+  if (request.method === "GET" && path === "/api/dashboard") return dashboard(request, await getSnapshot());
   if (request.method === "POST" && path === "/api/refresh") return json(await refresh());
   if (request.method === "GET" && path === "/api/rules") return json(listRules());
   if (request.method === "POST" && path === "/api/rules") {
@@ -91,5 +97,3 @@ const server = Bun.serve({
 });
 
 console.log(`AI Usage Observatory listening on http://${server.hostname}:${server.port}`);
-refresh().catch((error) => console.error("Initial refresh failed:", error));
-setInterval(() => refresh().catch(() => undefined), 60_000);
