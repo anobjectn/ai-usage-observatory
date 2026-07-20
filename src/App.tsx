@@ -2538,7 +2538,7 @@ function Sessions({
     <div className="view-stack page-enter">
       <PageTitle
         eyebrow="SESSION LEDGER"
-        title="Trace every session"
+        title="Trace sessions"
         description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine."
         actions={
           <label className="search">
