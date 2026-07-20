@@ -371,8 +371,9 @@ function combineMetricRows(rows: MetricRow[], agent: string, period: string): Me
 function pathFilteredRows(sessions: Session[], periods: Set<string>) {
   const sessionsByPeriod = new Map<string, Session[]>();
   sessions.forEach((session) => {
-    if (!periods.has(session.period)) return;
-    sessionsByPeriod.set(session.period, [...(sessionsByPeriod.get(session.period) ?? []), session]);
+    const date = sessionDate(session);
+    if (date === null || !periods.has(date)) return;
+    sessionsByPeriod.set(date, [...(sessionsByPeriod.get(date) ?? []), session]);
   });
   return [...sessionsByPeriod.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([period, daySessions]) => {
     const agents = [...new Set(daySessions.map((session) => session.agent))]

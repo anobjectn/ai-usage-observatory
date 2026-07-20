@@ -30,11 +30,31 @@ function text(value: unknown): string {
   return text(value.content ?? value.message);
 }
 
+function contentItemsText(content: unknown, textTypes: string[]) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item): item is JsonRecord => record(item) && textTypes.includes(String(item.type)) && typeof item.text === "string")
+    .map((item) => item.text as string)
+    .join("\n");
+}
+
+const syntheticPromptWrappers = [/^<environment_context>/, /^<user_instructions>/];
+
 function promptFrom(row: JsonRecord) {
   const payload = record(row.payload) ? row.payload : row;
   const type = String(payload.type ?? row.type ?? "");
-  if (type !== "user" && type !== "user_message") return "";
-  return text(payload.message ?? payload.content).trim();
+  let prompt = "";
+  if (type === "user" && record(row.message)) {
+    // Claude Code stuffs tool_result payloads into "user" rows too; only "text" items are real prompts.
+    prompt = contentItemsText(row.message.content, ["text"]);
+  } else if (type === "user_message") {
+    prompt = text(payload.message ?? payload.content);
+  } else if (type === "message" && payload.role === "user") {
+    prompt = contentItemsText(payload.content, ["input_text", "text"]);
+  }
+  prompt = prompt.trim();
+  return syntheticPromptWrappers.some((wrapper) => wrapper.test(prompt)) ? "" : prompt;
 }
 
 function walk(value: unknown, visit: (item: JsonRecord) => void) {
@@ -45,16 +65,35 @@ function walk(value: unknown, visit: (item: JsonRecord) => void) {
   }
 }
 
-function patchSummary(value: string, files: Map<string, FileChange>, counts: { additions: number; deletions: number }) {
-  const lines = value.split("\n");
-  for (const line of lines) {
+const beginPatchMarker = "*** Begin Patch";
+const endPatchMarker = "*** End Patch";
+
+// Some Codex tool-calling variants ("apply_patch" directly, or a generic "exec" that runs JS
+// source calling `tools.apply_patch(patch)`) don't line-break the patch text itself: the source
+// carries it as a JS string literal with escaped "\n"s instead of real newlines. Only unescape
+// when the extracted span has no real newline of its own, so a genuine multi-line patch (which
+// already has real line breaks) is never touched.
+function unescapeJsStringLiteral(value: string) {
+  return value.replace(/\\(n|"|\\)/g, (_, escaped: string) => (escaped === "n" ? "\n" : escaped));
+}
+
+// Codex's apply_patch carries its own custom patch format (not unified diff) in a single string
+// argument. This only runs on the bounded Begin/End Patch span of a tool call's own argument,
+// never on arbitrary transcript strings, so a `git diff` a model prints to the user inside a
+// shell result can't be mistaken for a real edit.
+function applyPatchSummary(value: string, files: Map<string, FileChange>, counts: { additions: number; deletions: number }) {
+  const begin = value.indexOf(beginPatchMarker);
+  const end = value.indexOf(endPatchMarker, begin);
+  if (begin < 0 || end < 0) return;
+  const span = value.slice(begin, end + endPatchMarker.length);
+  const body = span.includes("\n") ? span : unescapeJsStringLiteral(span);
+  for (const line of body.split("\n")) {
     const custom = line.match(/^\*\*\* (Add|Update|Delete) File: (.+)$/);
     if (custom) {
       const status = custom[1] === "Add" ? "added" : custom[1] === "Delete" ? "deleted" : "modified";
       files.set(custom[2], { path: custom[2], status });
+      continue;
     }
-    const unified = line.match(/^\+\+\+ b\/(.+)$/) ?? line.match(/^--- a\/(.+)$/);
-    if (unified && unified[1] !== "/dev/null") files.set(unified[1], { path: unified[1], status: "modified" });
     if (line.startsWith("+") && !line.startsWith("+++")) counts.additions++;
     if (line.startsWith("-") && !line.startsWith("---")) counts.deletions++;
   }
@@ -68,6 +107,13 @@ function toolName(item: JsonRecord) {
   return typeof name === "string" ? name : null;
 }
 
+function codexApplyPatch(item: JsonRecord, files: Map<string, FileChange>, counts: { additions: number; deletions: number }) {
+  if (toolName(item) === null) return;
+  const nested = record(item.function) ? item.function : null;
+  const input = typeof item.input === "string" ? item.input : typeof nested?.arguments === "string" ? nested.arguments : null;
+  if (input && input.includes(beginPatchMarker)) applyPatchSummary(input, files, counts);
+}
+
 function structuredChanges(item: JsonRecord, files: Map<string, FileChange>) {
   if (!record(item.changes)) return;
   for (const [path, change] of Object.entries(item.changes)) {
@@ -78,12 +124,36 @@ function structuredChanges(item: JsonRecord, files: Map<string, FileChange>) {
   }
 }
 
+// Claude Code's Edit/Write tool results (toolUseResult) are visited directly by walk(); they sit
+// alongside the tool_use call rather than inside it, so this checks the shape rather than a name.
+function claudeEditPatch(item: JsonRecord, files: Map<string, FileChange>, counts: { additions: number; deletions: number }) {
+  const filePath = item.filePath;
+  if (typeof filePath !== "string") return;
+  if (item.type === "create" && typeof item.content === "string") {
+    counts.additions += item.content === "" ? 0 : item.content.split("\n").length;
+    files.set(filePath, { path: filePath, status: "added" });
+    return;
+  }
+  if (!Array.isArray(item.structuredPatch)) return;
+  for (const hunk of item.structuredPatch) {
+    if (!record(hunk) || !Array.isArray(hunk.lines)) continue;
+    for (const line of hunk.lines) {
+      if (typeof line !== "string") continue;
+      if (line.startsWith("+")) counts.additions++;
+      else if (line.startsWith("-")) counts.deletions++;
+    }
+  }
+  const existing = files.get(filePath);
+  files.set(filePath, { path: filePath, status: existing?.status === "added" ? "added" : "modified" });
+}
+
 export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
   const source = getSessionSource(sessionId);
   if (!source || !await Bun.file(source.sourceFile).exists()) return detailUnavailable;
 
   const raw = await Bun.file(source.sourceFile).slice(0, 12_000_000).text();
   const prompts: string[] = [];
+  const seenPrompts = new Set<string>();
   const tools = new Map<string, number>();
   const files = new Map<string, FileChange>();
   const counts = { additions: 0, deletions: 0 };
@@ -95,12 +165,13 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
       const row = JSON.parse(line) as JsonRecord;
       eventsRead++;
       const prompt = promptFrom(row);
-      if (prompt && !prompts.includes(prompt)) prompts.push(prompt.slice(0, 2_000));
+      if (prompt && !seenPrompts.has(prompt)) { seenPrompts.add(prompt); prompts.push(prompt.slice(0, 2_000)); }
       walk(row, (item) => {
         const name = toolName(item);
         if (name) tools.set(name, (tools.get(name) ?? 0) + 1);
+        codexApplyPatch(item, files, counts);
         structuredChanges(item, files);
-        for (const value of Object.values(item)) if (typeof value === "string" && (value.includes("*** Update File:") || value.includes("+++ b/") || value.includes("*** Add File:"))) patchSummary(value, files, counts);
+        claudeEditPatch(item, files, counts);
       });
     } catch { /* incomplete JSONL lines are normal while a session is active */ }
   }
