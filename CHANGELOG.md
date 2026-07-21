@@ -7,16 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-21
+
 ### Added
 
 - Show recorded quota-reset usage details and provider quota events on activity
   timelines.
+- Add a reviewed repository release workflow for Codex and Claude Code with
+  explicit approval gates.
 
 ### Changed
 
 - Rename the Limits & sources view to Sources while preserving legacy links.
-- Add provider token totals beneath activity dates and clarify project chart
-  labels and layout.
+- Add provider token totals beneath activity dates, clarify project chart
+  labels and layout, and segment project token bars by provider.
 
 ### Fixed
 
@@ -52,5 +56,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/anobjectn/ai-usage-observatory/releases/tag/v1.0.0
