@@ -2,9 +2,15 @@ import { expect, test } from "bun:test";
 import {
   pathFilteredRows,
   periodTickLabel,
+  projectDayRows,
   projectTrendRowsInRange,
 } from "./App";
-import type { MetricRow, ProjectTrendRow, Session } from "./types";
+import type {
+  MetricRow,
+  ProjectActivity,
+  ProjectTrendRow,
+  Session,
+} from "./types";
 
 function session(overrides: Partial<Session>): Session {
   return {
@@ -92,6 +98,34 @@ test("projectTrendRowsInRange uses the dashboard time window", () => {
     "2026-07-17",
     "2026-07-18",
   ]);
+});
+
+test("projectDayRows exposes provider token segments", () => {
+  const trend = [
+    {
+      date: "2026-07-18",
+      inputTokens: 40,
+      outputTokens: 10,
+      cacheReadTokens: 50,
+      cacheCreationTokens: 0,
+      totalTokens: 100,
+      totalCost: 0.1,
+      modelsUsed: [],
+      modelBreakdowns: [],
+    },
+  ] satisfies ProjectTrendRow[];
+  const activity = [
+    { date: "2026-07-18", provider: "anthropic", tokens: 35, sessions: 1 },
+    { date: "2026-07-18", provider: "codex", tokens: 65, sessions: 2 },
+  ] as ProjectActivity[];
+
+  expect(projectDayRows(trend, activity)[0]).toMatchObject({
+    anthropic: 35,
+    codex: 65,
+    warp: 0,
+    unattributed: 0,
+    runs: 3,
+  });
 });
 
 test("periodTickLabel prepends an unambiguous weekday code", () => {

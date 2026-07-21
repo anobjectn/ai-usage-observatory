@@ -2929,7 +2929,7 @@ function Sessions({
   );
 }
 
-function projectDayRows(
+export function projectDayRows(
   trend: ProjectTrendRow[],
   activity: ProjectActivity[] = [],
 ) {
@@ -2976,26 +2976,40 @@ function projectDayRows(
   );
   return [...days.values()]
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((day) => ({
-      ...day,
-      runs: providersByDay.has(day.date)
-        ? providersByDay
-            .get(day.date)!
-            .reduce((sum, item) => sum + item.sessions, 0)
-        : day.runs,
-      label: new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-      }),
-      models: [...day.models.entries()]
-        .map(([name, totals]) => ({ name, ...totals }))
-        .sort((a, b) => b.tokens - a.tokens),
-      providers: (providersByDay.get(day.date) ?? []).sort(
+    .map((day) => {
+      const providers = (providersByDay.get(day.date) ?? []).sort(
         (a, b) =>
           providerSeries.findIndex((provider) => provider.key === a.provider) -
           providerSeries.findIndex((provider) => provider.key === b.provider),
-      ),
-    }));
+      );
+      const providerTokens = providers.reduce(
+        (totals, item) => {
+          totals[item.provider] += item.tokens;
+          return totals;
+        },
+        { anthropic: 0, codex: 0, warp: 0 },
+      );
+      const attributedTokens = Object.values(providerTokens).reduce(
+        (sum, tokens) => sum + tokens,
+        0,
+      );
+      return {
+        ...day,
+        ...providerTokens,
+        unattributed: Math.max(0, day.tokens - attributedTokens),
+        runs: providers.length
+          ? providers.reduce((sum, item) => sum + item.sessions, 0)
+          : day.runs,
+        label: new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        }),
+        models: [...day.models.entries()]
+          .map(([name, totals]) => ({ name, ...totals }))
+          .sort((a, b) => b.tokens - a.tokens),
+        providers,
+      };
+    });
 }
 
 export function projectTrendRowsInRange(
@@ -3160,6 +3174,19 @@ function ProjectDetails({
     quotaHistory,
     chartDays.map((day) => day.date),
   );
+  const projectProviderSeries = providerSeries
+    .map((provider) => ({
+      ...provider,
+      value: chartDays.reduce(
+        (sum, day) => sum + day[provider.key],
+        0,
+      ),
+    }))
+    .filter((provider) => provider.value > 0);
+  const unattributedTokens = chartDays.reduce(
+    (sum, day) => sum + day.unattributed,
+    0,
+  );
   const modelTotals = new Map<string, { tokens: number; cost: number }>();
   days.forEach((day) =>
     day.models.forEach((model) => {
@@ -3262,11 +3289,19 @@ function ProjectDetails({
               <span className="overline">DAILY SIGNAL</span>
               <h4>Runs and tokens by day</h4>
             </div>
-            <div className="project-viz__legend">
-              <span>
-                <i />
-                Tokens
-              </span>
+            <div className="project-viz__legend" aria-label="Chart series">
+              {projectProviderSeries.map((provider) => (
+                <span key={provider.key}>
+                  <i style={{ background: provider.color }} />
+                  {provider.label}
+                </span>
+              ))}
+              {unattributedTokens > 0 && (
+                <span>
+                  <i />
+                  Unattributed
+                </span>
+              )}
               <span>
                 <i />
                 Records
@@ -3277,7 +3312,7 @@ function ProjectDetails({
           <div
             className="project-chart"
             role="img"
-            aria-label={`Daily token usage and activity records for ${friendlyProject(project.name)}`}
+            aria-label={`Daily token usage segmented by provider, with activity records for ${friendlyProject(project.name)}`}
           >
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
@@ -3333,13 +3368,26 @@ function ProjectDetails({
                   wrapperStyle={{ transition: "none" }}
                 />
                 <QuotaReferenceLines markers={quotaMarkers} yAxisId="tokens" />
+                {stackedProviderSeries.map((provider) => (
+                  <Bar
+                    key={provider.key}
+                    yAxisId="tokens"
+                    dataKey={provider.key}
+                    name={provider.label}
+                    stackId="providers"
+                    fill={provider.color}
+                    fillOpacity={0.72}
+                    radius={[3, 3, 0, 0]}
+                  />
+                ))}
                 <Bar
                   yAxisId="tokens"
-                  dataKey="tokens"
-                  name="Tokens"
+                  dataKey="unattributed"
+                  name="Unattributed"
+                  stackId="providers"
                   fill="var(--accent)"
                   fillOpacity={0.46}
-                  radius={[4, 4, 0, 0]}
+                  radius={[3, 3, 0, 0]}
                 />
                 <Line
                   yAxisId="runs"
