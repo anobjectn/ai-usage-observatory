@@ -1028,37 +1028,43 @@ function QuotaReferenceLines({
   markers: QuotaMarker[];
   yAxisId?: string;
 }) {
-  return markers.map((marker) => (
-    <ReferenceLine
-      key={marker.key}
-      x={marker.x}
-      yAxisId={yAxisId}
-      stroke={quotaMarkerColors[marker.provider]}
-      strokeWidth={1.5}
-      strokeDasharray="3 3"
-      ifOverflow="extendDomain"
-      label={{
-        content: ({ viewBox }) => {
-          if (!viewBox || !("x" in viewBox) || !("y" in viewBox)) return null;
-          const labelX = Number(viewBox.x) - 2;
-          const labelY = Number(viewBox.y) + 4;
-          return (
-            <text
-              x={labelX}
-              y={labelY}
-              fill={quotaMarkerColors[marker.provider]}
-              fontSize={9}
-              fontFamily="var(--font-label)"
-              textAnchor="end"
-              transform={`rotate(-90 ${labelX} ${labelY})`}
-            >
-              {marker.label}
-            </text>
-          );
-        },
-      }}
-    />
-  ));
+  return markers.map((marker, markerIndex) => {
+    const sharedXIndex = markers
+      .slice(0, markerIndex)
+      .filter((candidate) => candidate.x === marker.x).length;
+    return (
+      <ReferenceLine
+        key={marker.key}
+        x={marker.x}
+        yAxisId={yAxisId}
+        stroke={quotaMarkerColors[marker.provider]}
+        strokeWidth={1.5}
+        strokeDasharray="3 3"
+        strokeDashoffset={sharedXIndex * 3}
+        ifOverflow="extendDomain"
+        label={{
+          content: ({ viewBox }) => {
+            if (!viewBox || !("x" in viewBox) || !("y" in viewBox)) return null;
+            const labelX = Number(viewBox.x) - 2 - sharedXIndex * 11;
+            const labelY = Number(viewBox.y) + 4;
+            return (
+              <text
+                x={labelX}
+                y={labelY}
+                fill={quotaMarkerColors[marker.provider]}
+                fontSize={9}
+                fontFamily="var(--font-label)"
+                textAnchor="end"
+                transform={`rotate(-90 ${labelX} ${labelY})`}
+              >
+                {marker.label}
+              </text>
+            );
+          },
+        }}
+      />
+    );
+  });
 }
 
 function ProviderTimeline({
