@@ -154,6 +154,13 @@ bun test
 bun run build
 ```
 
+To start a release in Codex or Claude Code, ask an agent to "make a new
+release" or invoke the repository's `release-ai-usage-observatory` skill
+(`$release-ai-usage-observatory` in Codex,
+`/release-ai-usage-observatory` in Claude Code). The agent will prepare a
+version recommendation and release bundle for review before execution. See the
+[project release process](docs/RELEASING.md) for the enforced workflow.
+
 ## Deferred from the larger plan
 
 The first release intentionally defers additional theme packs, wallpaper engines, git-aware worktree canonicalization, touched-file indexing, task classification, filesystem watching, a desktop wrapper, and native provider collectors.

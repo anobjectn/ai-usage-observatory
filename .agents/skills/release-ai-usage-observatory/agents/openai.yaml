@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release AI Usage Observatory"
+  short_description: "Plan, review, and publish project releases"
+  default_prompt: "Use $release-ai-usage-observatory to make a new release."
