@@ -84,7 +84,7 @@ import {
 } from "./views/chrome";
 
 type View =
-  "overview" | "explorer" | "sessions" | "projects" | "models" | "limits";
+  "overview" | "explorer" | "sessions" | "projects" | "models" | "sources";
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
 type MetricRange = "1" | "7" | "14" | "30" | "120";
 type ProjectSummary = DashboardData["projects"][number];
@@ -95,7 +95,7 @@ const nav: Array<{ id: View; label: string; icon: typeof Orbit }> = [
   { id: "sessions", label: "Sessions", icon: Layers3 },
   { id: "projects", label: "Projects", icon: FolderGit2 },
   { id: "models", label: "Models", icon: Atom },
-  { id: "limits", label: "Limits & sources", icon: Gauge },
+  { id: "sources", label: "Sources", icon: Gauge },
 ];
 const palette = [
   "#b7f25c",
@@ -194,7 +194,19 @@ function savedDataTextScale() {
 
 function initialView(): View {
   const value = new URLSearchParams(window.location.search).get("view");
+  if (value === "limits") return "sources";
   return nav.some((item) => item.id === value) ? (value as View) : "overview";
+}
+
+function convertLegacyViewUrl() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("view") !== "limits") return;
+  url.searchParams.set("view", "sources");
+  window.history.replaceState(
+    { ...window.history.state, view: "sources" },
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
 }
 
 function initialSessionId() {
@@ -344,6 +356,50 @@ const providerSeries = [
   { key: "warp", label: "Warp", color: "var(--warp-color)" },
 ] as const;
 const stackedProviderSeries = [...providerSeries].reverse();
+
+type ActivityAxisTickProps = {
+  x?: number | string;
+  y?: number | string;
+  payload?: { value?: string };
+  tokens: Array<{ color: string; value: number }>;
+};
+
+function ActivityAxisTick({ x = 0, y = 0, payload, tokens }: ActivityAxisTickProps) {
+  const visibleTokens = tokens.filter((item) => item.value > 0);
+  const labels = visibleTokens.length
+    ? visibleTokens
+    : [{ color: "var(--dim)", value: 0 }];
+  return (
+    <g transform={`translate(${Number(x)} ${Number(y)})`}>
+      <text
+        x={0}
+        y={4}
+        fill="#71807b"
+        fontSize={11}
+        fontFamily="var(--font-label)"
+        textAnchor="middle"
+        dominantBaseline="hanging"
+      >
+        {periodTickLabel(String(payload?.value ?? ""))}
+      </text>
+      {labels.map((item, index) => (
+        <text
+          key={`${item.color}-${index}`}
+          x={0}
+          y={19 + index * 12}
+          fill={item.color}
+          fontSize={9}
+          fontFamily="var(--font-label)"
+          fontWeight={600}
+          textAnchor="middle"
+          dominantBaseline="hanging"
+        >
+          {formatCompact(item.value)}
+        </text>
+      ))}
+    </g>
+  );
+}
 
 function providerKey(agent: string) {
   const normalized = agent.toLowerCase();
@@ -1045,20 +1101,31 @@ function QuotaReferenceLines({
         label={{
           content: ({ viewBox }) => {
             if (!viewBox || !("x" in viewBox) || !("y" in viewBox)) return null;
-            const labelX = Number(viewBox.x) - 2 - sharedXIndex * 11;
+            const labelX = Number(viewBox.x) - 2 - sharedXIndex * 7;
             const labelY = Number(viewBox.y) + 4;
+            const labelWidth = marker.label.length * 5.4;
             return (
-              <text
-                x={labelX}
-                y={labelY}
-                fill={quotaMarkerColors[marker.provider]}
-                fontSize={9}
-                fontFamily="var(--font-label)"
-                textAnchor="end"
-                transform={`rotate(-90 ${labelX} ${labelY})`}
-              >
-                {marker.label}
-              </text>
+              <g transform={`translate(${labelX} ${labelY}) rotate(-90)`}>
+                <rect
+                  x={-labelWidth - 1}
+                  y={-10}
+                  width={labelWidth + 3}
+                  height={11}
+                  rx={1.5}
+                  fill="#000"
+                  fillOpacity={0.6}
+                />
+                <text
+                  x={0}
+                  y={0}
+                  fill={quotaMarkerColors[marker.provider]}
+                  fontSize={9}
+                  fontFamily="var(--font-label)"
+                  textAnchor="end"
+                >
+                  {marker.label}
+                </text>
+              </g>
             );
           },
         }}
@@ -1217,11 +1284,24 @@ function ProviderTimeline({
             />
             <XAxis
               dataKey="period"
-              tickFormatter={periodTickLabel}
-              tick={{ fill: "#71807b", fontSize: 12 }}
+              tick={(props) => {
+                const row = data.find(
+                  (item) => item.period === String(props.payload?.value ?? ""),
+                );
+                return (
+                  <ActivityAxisTick
+                    {...props}
+                    tokens={providerSeries.map((provider) => ({
+                      color: provider.color,
+                      value: row?.[provider.key] ?? 0,
+                    }))}
+                  />
+                );
+              }}
               tickLine={false}
               axisLine={false}
               minTickGap={30}
+              height={64}
             />
             <YAxis
               tickFormatter={formatCompact}
@@ -3211,11 +3291,26 @@ function ProjectDetails({
                 />
                 <XAxis
                   dataKey="date"
-                  tickFormatter={periodTickLabel}
-                  tick={{ fill: "#71807b", fontSize: 11 }}
+                  tick={(props) => {
+                    const day = chartDays.find(
+                      (item) => item.date === String(props.payload?.value ?? ""),
+                    );
+                    const tokens = day?.providers.length
+                      ? day.providers.map((providerActivity) => ({
+                          color:
+                            providerSeries.find(
+                              (provider) =>
+                                provider.key === providerActivity.provider,
+                            )?.color ?? "var(--accent)",
+                          value: providerActivity.tokens,
+                        }))
+                      : [{ color: "var(--accent)", value: day?.tokens ?? 0 }];
+                    return <ActivityAxisTick {...props} tokens={tokens} />;
+                  }}
                   tickLine={false}
                   axisLine={false}
                   minTickGap={24}
+                  height={64}
                 />
                 <YAxis
                   yAxisId="tokens"
@@ -3778,7 +3873,7 @@ function Models({
   );
 }
 
-function Limits({
+function Sources({
   data,
   onRules,
 }: {
@@ -3804,7 +3899,7 @@ function Limits({
           </button>
         }
       />
-      <section className="limits-grid">
+      <section className="sources-grid">
         <article className="panel distinction">
           <span className="source-symbol provider">
             <Gauge />
@@ -4610,9 +4705,11 @@ export function App() {
   }, [sceneEffects]);
   useEffect(() => {
     const navigate = () => {
+      convertLegacyViewUrl();
       setView(initialView());
       setFocusSessionId(initialSessionId());
     };
+    convertLegacyViewUrl();
     window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
   }, []);
@@ -4828,7 +4925,7 @@ export function App() {
             <b>{current.label}</b>
           </div>
           <div className="global-controls">
-            {view !== "models" && view !== "limits" && (
+            {view !== "models" && view !== "sources" && (
               <>
                 {view !== "projects" && (
                   <label>
@@ -4945,8 +5042,8 @@ export function App() {
           {view === "models" && (
             <Models data={data} onOpenSession={openSession} />
           )}
-          {view === "limits" && (
-            <Limits data={data} onRules={() => setRules(true)} />
+          {view === "sources" && (
+            <Sources data={data} onRules={() => setRules(true)} />
           )}
         </div>
         <InformationSources data={data} />

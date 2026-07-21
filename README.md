@@ -40,7 +40,7 @@ Open `http://127.0.0.1:4318`.
 
 ## What ships in this first release
 
-- Overview, Explorer, Sessions, Projects, Models, and Limits/source-health views.
+- Overview, Explorer, Sessions, Projects, Models, and Sources views.
 - Daily, weekly, monthly, session, project-instance, and five-hour-block ingestion from pinned `ccusage@20.0.17`.
 - Token composition and ccusage-sourced API-equivalent cost.
 - Linked date, agent, and derived path filters.
