@@ -1268,11 +1268,16 @@ function localPeriod(value: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function periodTickLabel(value: string) {
-  return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
+export function periodTickLabel(value: string) {
+  const date = new Date(`${value}T12:00:00`);
+  const weekday = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][
+    date.getDay()
+  ];
+  const period = date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
+  return `${weekday} ${period}`;
 }
 
 function hourTickLabel(value: string) {
@@ -3171,7 +3176,7 @@ function ProjectDetails({
         </div>
       </div>
       <div className="project-detail__grid">
-        <section className="project-viz">
+        <section className="project-viz project-viz--daily">
           <div className="project-viz__head">
             <div>
               <span className="overline">DAILY SIGNAL</span>

@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { pathFilteredRows, projectTrendRowsInRange } from "./App";
+import {
+  pathFilteredRows,
+  periodTickLabel,
+  projectTrendRowsInRange,
+} from "./App";
 import type { MetricRow, ProjectTrendRow, Session } from "./types";
 
 function session(overrides: Partial<Session>): Session {
@@ -88,4 +92,10 @@ test("projectTrendRowsInRange uses the dashboard time window", () => {
     "2026-07-17",
     "2026-07-18",
   ]);
+});
+
+test("periodTickLabel prepends an unambiguous weekday code", () => {
+  expect(periodTickLabel("2026-07-20")).toBe("Mo Jul 20");
+  expect(periodTickLabel("2026-07-21")).toBe("Tu Jul 21");
+  expect(periodTickLabel("2026-07-26")).toBe("Su Jul 26");
 });
