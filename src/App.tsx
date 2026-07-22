@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { version as appVersion } from "../package.json";
 import {
   Activity,
   AlarmClock,
@@ -5049,17 +5050,8 @@ export function App() {
           <div>
             <b>AI Usage</b>
             <small>OBSERVATORY</small>
+            <em className="brand-version">v{appVersion}</em>
           </div>
-          <button
-            className="sidebar-toggle"
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            aria-label={
-              sidebarCollapsed ? "Expand navigation" : "Collapse navigation"
-            }
-            aria-expanded={!sidebarCollapsed}
-          >
-            {sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}
-          </button>
           <button
             className="sidebar-close"
             onClick={() => setSidebar(false)}
@@ -5068,6 +5060,16 @@ export function App() {
             <X />
           </button>
         </div>
+        <button
+          className="sidebar-toggle"
+          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          aria-label={
+            sidebarCollapsed ? "Expand navigation" : "Collapse navigation"
+          }
+          aria-expanded={!sidebarCollapsed}
+        >
+          {sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}
+        </button>
         <nav>
           {nav.map((item) => (
             <button
