@@ -13,22 +13,6 @@ Claude Code and Codex session files for project attribution, and an optional
 [`quota-service`](https://github.com/anobjectn/quota-service) instance for
 provider-reported allowance windows.
 
-## Screenshots
-
-![Overview dashboard with subscription windows and usage trajectory](docs/screenshots/1.dashboard.png)
-
-![Usage explorer with provider activity and model distribution](docs/screenshots/2.explorer.png)
-
-![Session ledger with transcript, tool, and patch details](docs/screenshots/3.sessions.png)
-
-![Project cartography with daily signal, model mix, and diff trail](docs/screenshots/4.projects.png)
-
-![Model mix and efficiency comparison](docs/screenshots/5.models.png)
-
-![Data provenance with source separation and data source health](docs/screenshots/6.data-provenance.png)
-
-![Appearance settings for signal colors, text size, and scene effects](docs/screenshots/7.appearance.png)
-
 ## Getting started
 
 Requires Bun 1.3 or newer.
@@ -48,6 +32,59 @@ bun run start
 ```
 
 Open `http://127.0.0.1:4318`.
+
+## Screenshots
+
+Click any image for full size. (these are 1.0.0 screens)
+
+<a href="docs/screenshots/1.dashboard.png">
+  <img src="docs/screenshots/1.dashboard.png" width="100%" alt="Overview dashboard with subscription windows and usage trajectory">
+</a>
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="docs/screenshots/2.explorer.png">
+        <img src="docs/screenshots/2.explorer.png" width="100%" alt="Usage explorer with provider activity and model distribution">
+      </a>
+      <sub>Explorer — provider activity and model distribution</sub>
+    </td>
+    <td width="50%">
+      <a href="docs/screenshots/3.sessions.png">
+        <img src="docs/screenshots/3.sessions.png" width="100%" alt="Session ledger with transcript, tool, and patch details">
+      </a>
+      <sub>Sessions — transcript, tool, and patch detail</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="docs/screenshots/4.projects.png">
+        <img src="docs/screenshots/4.projects.png" width="100%" alt="Project cartography with daily signal, model mix, and diff trail">
+      </a>
+      <sub>Projects — daily signal, model mix, and diff trail</sub>
+    </td>
+    <td width="50%">
+      <a href="docs/screenshots/5.models.png">
+        <img src="docs/screenshots/5.models.png" width="100%" alt="Model mix and efficiency comparison">
+      </a>
+      <sub>Models — mix and efficiency comparison</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="docs/screenshots/6.data-provenance.png">
+        <img src="docs/screenshots/6.data-provenance.png" width="100%" alt="Data provenance with source separation and data source health">
+      </a>
+      <sub>Sources — provenance and data source health</sub>
+    </td>
+    <td width="50%">
+      <a href="docs/screenshots/7.appearance.png">
+        <img src="docs/screenshots/7.appearance.png" width="100%" alt="Appearance settings for signal colors, text size, and scene effects">
+      </a>
+      <sub>Appearance — signal colors, text size, and scene effects</sub>
+    </td>
+  </tr>
+</table>
 
 ## What you get
 

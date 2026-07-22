@@ -4,3 +4,4 @@ dist/
 *.log
 .usage-observatory/
 usage-observatory-plan.md
+reports/ccusage-audits

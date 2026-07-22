@@ -3443,7 +3443,7 @@ function ProjectDetails({
               )}
               <span>
                 <i />
-                Records
+                Runs
               </span>
             </div>
           </div>
