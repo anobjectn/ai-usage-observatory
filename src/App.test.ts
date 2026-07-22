@@ -4,6 +4,7 @@ import {
   periodTickLabel,
   projectDayRows,
   projectTrendRowsInRange,
+  withoutCacheMetricRow,
 } from "./App";
 import type {
   MetricRow,
@@ -132,4 +133,22 @@ test("periodTickLabel prepends an unambiguous weekday code", () => {
   expect(periodTickLabel("2026-07-20")).toBe("Mo Jul 20");
   expect(periodTickLabel("2026-07-21")).toBe("Tu Jul 21");
   expect(periodTickLabel("2026-07-26")).toBe("Su Jul 26");
+});
+
+test("withoutCacheMetricRow removes cache from totals and model breakdowns", () => {
+  const row = withoutCacheMetricRow(session({}));
+
+  expect(row).toMatchObject({
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 20,
+    cacheCreationTokens: 0,
+    totalTokens: 15,
+  });
+  expect(row.modelBreakdowns[0]).toMatchObject({
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  });
 });

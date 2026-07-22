@@ -913,6 +913,104 @@ function sessionDate(session: Session) {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 }
 
+function withoutCacheBreakdown(model: ModelBreakdown): ModelBreakdown {
+  return { ...model, cacheReadTokens: 0, cacheCreationTokens: 0 };
+}
+
+export function withoutCacheMetricRow<T extends MetricRow>(row: T): T {
+  return {
+    ...row,
+    totalTokens: row.inputTokens + row.outputTokens,
+    modelBreakdowns: row.modelBreakdowns.map(withoutCacheBreakdown),
+    agents: row.agents?.map((agent) => withoutCacheMetricRow(agent)),
+  };
+}
+
+function withoutCacheProjectTrend(row: ProjectTrendRow): ProjectTrendRow {
+  return {
+    ...row,
+    totalTokens: row.inputTokens + row.outputTokens,
+    modelBreakdowns: row.modelBreakdowns.map(withoutCacheBreakdown),
+  };
+}
+
+function withoutCacheProjectActivity(
+  activity: ProjectActivity[],
+  sessions: Session[],
+) {
+  const totals = new Map<
+    string,
+    { tokens: number; models: Map<string, { tokens: number; cost: number }> }
+  >();
+  sessions.forEach((session) => {
+    const date = sessionDate(session);
+    const provider = providerKey(session.agent);
+    const projectId = session.cwd?.replace(/\/+$/, "");
+    if (
+      !date ||
+      !projectId ||
+      (provider !== "anthropic" && provider !== "codex")
+    )
+      return;
+    const key = `${date}\0${provider}\0${projectId}`;
+    const current = totals.get(key) ?? { tokens: 0, models: new Map() };
+    current.tokens += session.inputTokens + session.outputTokens;
+    session.modelBreakdowns.forEach((model) => {
+      const modelTotal = current.models.get(model.modelName) ?? {
+        tokens: 0,
+        cost: 0,
+      };
+      modelTotal.tokens += model.inputTokens + model.outputTokens;
+      modelTotal.cost += model.cost;
+      current.models.set(model.modelName, modelTotal);
+    });
+    totals.set(key, current);
+  });
+  return activity.map((item) => {
+    const total = totals.get(
+      `${item.date}\0${item.provider}\0${item.projectId}`,
+    );
+    return {
+      ...item,
+      tokens: total?.tokens ?? 0,
+      models: total
+        ? [...total.models.entries()]
+            .map(([model, values]) => ({ model, ...values }))
+            .sort((left, right) => right.tokens - left.tokens)
+        : [],
+    };
+  });
+}
+
+export function withoutCacheDashboardData(data: DashboardData): DashboardData {
+  const sessions = data.sessions.map(withoutCacheMetricRow);
+  const projects = data.projects.map((project) => {
+    const trend = project.trend.map(withoutCacheProjectTrend);
+    return {
+      ...project,
+      trend,
+      tokens: trend.reduce((sum, row) => sum + row.totalTokens, 0),
+    };
+  });
+  return {
+    ...data,
+    daily: data.daily.map(withoutCacheMetricRow),
+    weekly: data.weekly.map(withoutCacheMetricRow),
+    monthly: data.monthly.map(withoutCacheMetricRow),
+    totals: {
+      ...data.totals,
+      totalTokens: data.totals.inputTokens + data.totals.outputTokens,
+    },
+    sessions,
+    projectActivity: withoutCacheProjectActivity(data.projectActivity, sessions),
+    projects,
+    models: data.models.map((model) => ({
+      ...model,
+      tokens: model.inputTokens + model.outputTokens,
+    })),
+  };
+}
+
 function metricTotals(rows: MetricRow[]) {
   return rows.reduce(
     (sum, row) => ({
@@ -920,8 +1018,14 @@ function metricTotals(rows: MetricRow[]) {
       cost: sum.cost + row.totalCost,
       output: sum.output + row.outputTokens,
       cache: sum.cache + row.cacheReadTokens,
+      traffic:
+        sum.traffic +
+        row.inputTokens +
+        row.outputTokens +
+        row.cacheReadTokens +
+        row.cacheCreationTokens,
     }),
-    { tokens: 0, cost: 0, output: 0, cache: 0 },
+    { tokens: 0, cost: 0, output: 0, cache: 0, traffic: 0 },
   );
 }
 
@@ -2021,11 +2125,11 @@ function Overview({
   });
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
   const recent = sessions.slice(0, 5);
-  const cacheShare = totals.tokens
-    ? Math.round((totals.cache / totals.tokens) * 100)
+  const cacheShare = totals.traffic
+    ? Math.round((totals.cache / totals.traffic) * 100)
     : 0;
-  const previousCacheShare = previousTotals.tokens
-    ? Math.round((previousTotals.cache / previousTotals.tokens) * 100)
+  const previousCacheShare = previousTotals.traffic
+    ? Math.round((previousTotals.cache / previousTotals.traffic) * 100)
     : 0;
   const rangeLabel =
     metricRange === "1" ? "Latest day" : `Last ${metricRange} days`;
@@ -2117,7 +2221,7 @@ function Overview({
             value={`${cacheShare}%`}
             detail={`${formatCompact(totals.cache)} read tokens`}
             trend={
-              previousTotals.tokens
+              previousTotals.traffic
                 ? cacheShare - previousCacheShare
                 : undefined
             }
@@ -2422,7 +2526,7 @@ function Explorer({
         <article className="panel">
           <div className="panel-heading">
             <div>
-              <span className="overline">READ / CREATE / OUTPUT</span>
+              <span className="overline">INPUT / OUTPUT / CACHE</span>
               <h2>Token composition</h2>
             </div>
           </div>
@@ -2444,15 +2548,34 @@ function Composition({ rows }: { rows: MetricRow[] }) {
     { input: 0, output: 0, read: 0, create: 0 },
   );
   const all = totals.input + totals.output + totals.read + totals.create || 1;
-  const items = [
-    { label: "Cache read", value: totals.read, color: palette[0] },
-    { label: "Input", value: totals.input, color: palette[1] },
-    { label: "Cache creation", value: totals.create, color: palette[2] },
-    { label: "Output", value: totals.output, color: palette[3] },
+  const groups = [
+    {
+      label: "Input + output",
+      hint: "Direct tokens",
+      value: totals.input + totals.output,
+      items: [
+        { label: "Input", value: totals.input, color: palette[1] },
+        { label: "Output", value: totals.output, color: palette[3] },
+      ],
+    },
+    {
+      label: "Cache read + write",
+      hint: "Cache traffic",
+      value: totals.read + totals.create,
+      items: [
+        { label: "Cache read", value: totals.read, color: palette[0] },
+        { label: "Cache write", value: totals.create, color: palette[2] },
+      ],
+    },
   ];
+  const items = groups.flatMap((group) => group.items);
   return (
     <div className="composition">
-      <div className="composition-bar">
+      <div
+        className="composition-bar"
+        role="img"
+        aria-label={`Token composition: ${formatCompact(totals.input)} input, ${formatCompact(totals.output)} output, ${formatCompact(totals.read)} cache read, and ${formatCompact(totals.create)} cache write`}
+      >
         {items.map((item) => (
           <i
             key={item.label}
@@ -2463,14 +2586,30 @@ function Composition({ rows }: { rows: MetricRow[] }) {
           />
         ))}
       </div>
-      {items.map((item) => (
-        <div className="composition-row" key={item.label}>
-          <i style={{ background: item.color }} />
-          <span>{item.label}</span>
-          <b>{formatCompact(item.value)}</b>
-          <small>{Math.round((item.value / all) * 100)}%</small>
-        </div>
-      ))}
+      <div className="composition-groups">
+        {groups.map((group) => (
+          <section className="composition-group" key={group.label}>
+            <header>
+              <div>
+                <span>{group.hint}</span>
+                <b>{group.label}</b>
+              </div>
+              <div className="composition-subtotal">
+                <strong>{formatCompact(group.value)}</strong>
+                <small>{Math.round((group.value / all) * 100)}% of total</small>
+              </div>
+            </header>
+            {group.items.map((item) => (
+              <div className="composition-row" key={item.label}>
+                <i style={{ background: item.color }} />
+                <span>{item.label}</span>
+                <b>{formatCompact(item.value)}</b>
+                <small>{Math.round((item.value / all) * 100)}%</small>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
@@ -4685,7 +4824,15 @@ function RulesModal({
 }
 
 export function App() {
-  const { data, error, loading, load } = useDashboard();
+  const { data: collectedData, error, loading, load } = useDashboard();
+  const [showCache, setShowCache] = useState(true);
+  const data = useMemo(
+    () =>
+      collectedData && !showCache
+        ? withoutCacheDashboardData(collectedData)
+        : collectedData,
+    [collectedData, showCache],
+  );
   const [view, setView] = useState<View>(initialView);
   const [focusSessionId, setFocusSessionId] = useState<string | null>(
     initialSessionId,
@@ -4976,7 +5123,7 @@ export function App() {
             {view !== "models" && view !== "sources" && (
               <>
                 {view !== "projects" && (
-                  <label>
+                  <label className="global-filter global-filter--agent">
                     <span>Agent</span>
                     <select
                       value={agent}
@@ -4992,7 +5139,7 @@ export function App() {
                   </label>
                 )}
                 {view !== "projects" && (
-                  <label>
+                  <label className="global-filter global-filter--path">
                     <span>Path</span>
                     <select
                       value={pathTag}
@@ -5022,6 +5169,19 @@ export function App() {
                   />
                 )}
               </>
+            )}
+            {view !== "sources" && (
+              <label
+                className="cache-control"
+                data-tooltip="Includes cache read and creation tokens in usage graphs and session, project, and model totals. Cost estimates, cache metrics, and the recent five-hour block are unchanged."
+              >
+                <input
+                  type="checkbox"
+                  checked={showCache}
+                  onChange={(event) => setShowCache(event.target.checked)}
+                />
+                <span>Show cache</span>
+              </label>
             )}
             <button
               className="appearance-button"
