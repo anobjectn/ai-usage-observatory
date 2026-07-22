@@ -7,6 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-21
+
+### Added
+
+- Add a Show cache control to include or exclude cache reads and writes from
+  applicable usage totals, charts, and model breakdowns.
+
+### Changed
+
+- Group Explorer token composition into direct-token and cache-traffic sections.
+- Improve the README, including a linked screenshot gallery marked as v1.0.0
+  screens.
+- Rename the project-detail “Records” label to “Runs.”
+
 ## [1.1.0] - 2026-07-21
 
 ### Added
@@ -56,6 +70,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/anobjectn/ai-usage-observatory/releases/tag/v1.0.0
