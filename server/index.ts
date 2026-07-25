@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { getSnapshot, refresh } from "./collector";
+import { importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
 import { createRule, deleteRule, getSettings, listRules, setAnnotation, setSettings, updateRule } from "./store";
 
@@ -37,6 +38,20 @@ async function api(request: Request, url: URL) {
   const path = url.pathname;
   if (request.method === "GET" && path === "/api/dashboard") return dashboard(request, await getSnapshot());
   if (request.method === "POST" && path === "/api/refresh") return json(await refresh());
+  if (request.method === "POST" && path === "/api/quotas/anthropic-web-import") {
+    let payload: Record<string, unknown>;
+    try { payload = await body(request); }
+    catch { return errorResponse("Expected a JSON object body", 400); }
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return errorResponse("Expected a JSON object body", 400);
+    let result: Awaited<ReturnType<typeof importAnthropicWebCredits>>;
+    try { result = await importAnthropicWebCredits(payload); }
+    catch (error) { return errorResponse(error, 502); }
+    // Forward the producer's rejection verbatim; a failed import must leave the
+    // prior imported observation (and the whole dashboard) untouched.
+    if (result.status < 200 || result.status >= 300) return json(result.data ?? { error: "Import rejected" }, result.status);
+    const snapshot = await refresh();
+    return json({ ok: true, import: result.data, quotas: snapshot.quotas });
+  }
   if (request.method === "GET" && path === "/api/rules") return json(listRules());
   if (request.method === "POST" && path === "/api/rules") {
     const input = await body(request);

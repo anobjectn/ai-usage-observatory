@@ -90,6 +90,22 @@ function collectQuotaHistory() {
   }
 }
 
+/** Thin proxy to quota-service's user-imported Claude Web credit endpoint.
+ * Forwards the producer's status and parsed body verbatim; the producer owns
+ * all field validation and returns a field-specific 400 on bad input, so we do
+ * not re-validate here. Never accepts or forwards browser cookies. */
+export async function importAnthropicWebCredits(body: unknown): Promise<{ status: number; data: unknown }> {
+  const response = await fetch(`${baseUrl}/anthropic-web-import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+    signal: AbortSignal.timeout(4000),
+  });
+  let data: unknown = null;
+  try { data = await response.json(); } catch { /* producer may return a non-JSON error body */ }
+  return { status: response.status, data };
+}
+
 export async function collectQuota() {
   try {
     const [usage, resets, status] = await Promise.all(["/usage", "/resets", "/status"].map(async (path) => {

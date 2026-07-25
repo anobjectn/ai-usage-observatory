@@ -21,6 +21,7 @@ import {
   CircleDollarSign,
   Clock3,
   Database,
+  ExternalLink,
   FolderGit2,
   Copy,
   Gauge,
@@ -48,6 +49,12 @@ import {
 } from "./scene";
 import { providerHeadroom } from "./quota-headroom";
 import {
+  buildAnthropicCreditView,
+  formatCredit,
+  type AnthropicCreditView,
+  type CreditFreshness,
+} from "./quota-credits";
+import {
   Area,
   AreaChart,
   Bar,
@@ -71,6 +78,7 @@ import type {
   ProjectTrendRow,
   Session,
   SessionDetail,
+  AnthropicWebCredits,
 } from "./types";
 import {
   dailyQuotaMarkers,
@@ -1897,8 +1905,135 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
   ];
 }
 
-function QuotaDials({ quotas }: { quotas: DashboardData["quotas"] }) {
+const CLAUDE_USAGE_URL = "https://claude.ai/new#settings/usage";
+
+const freshnessLabel: Record<CreditFreshness, string> = {
+  fresh: "fresh",
+  aging: "aging",
+  stale: "stale",
+};
+
+function importedAgo(capturedAt: number): string {
+  const ms = Date.now() - capturedAt;
+  if (ms < 60_000) return "just now";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function AnthropicCredits({
+  view,
+  onUpdate,
+}: {
+  view: AnthropicCreditView;
+  onUpdate?: () => void;
+}) {
+  const { usageCredit, prepaid, fable, importedAt, importFreshness } = view;
+  if (!usageCredit && !prepaid && !fable) {
+    // Nothing to show, but still offer the import affordance so a first-time
+    // user can seed the Claude Web snapshot.
+    return onUpdate ? (
+      <div className="quota-credits quota-credits--empty">
+        <button type="button" className="ghost-button" onClick={onUpdate}>
+          <CircleDollarSign /> Add Claude Web credits
+        </button>
+      </div>
+    ) : null;
+  }
+  return (
+    <div className="quota-credits">
+      {usageCredit && (
+        <div className="credit-line">
+          <span className="credit-line__label">
+            <Zap /> Usage credit spend
+          </span>
+          <b>
+            {formatCredit(usageCredit.spent, usageCredit.currency)}
+            {usageCredit.limit !== null && (
+              <span className="credit-line__cap">
+                {" / "}
+                {formatCredit(usageCredit.limit, usageCredit.currency)}
+              </span>
+            )}
+          </b>
+          <small>
+            {usageCredit.percent !== null ? `${usageCredit.percent.toFixed(0)}% used · ` : ""}
+            {usageCredit.enabled ? "enabled" : "disabled"} · live OAuth
+          </small>
+        </div>
+      )}
+      {prepaid && (
+        <div className="credit-line">
+          <span className="credit-line__label">
+            <CircleDollarSign /> Prepaid balance
+          </span>
+          <b>{formatCredit(prepaid.balance, prepaid.currency)}</b>
+          <small>
+            imported {importedAgo(prepaid.capturedAt)}
+            {prepaid.freshness && prepaid.freshness !== "fresh"
+              ? ` · ${freshnessLabel[prepaid.freshness]}`
+              : ""}{" "}
+            · Claude Web import
+          </small>
+        </div>
+      )}
+      {fable && (
+        <div className={`fable-credit${fable.expired ? " fable-credit--expired" : ""}`}>
+          <div className="fable-credit__head">
+            <span>
+              <Sparkles /> Fable transition credit
+            </span>
+            {fable.expired && <i className="fable-credit__badge">expired</i>}
+          </div>
+          <strong>{formatCredit(fable.remaining, fable.currency)}</strong>
+          <div className="fable-credit__meta">
+            {fable.grant !== null && (
+              <span>of {formatCredit(fable.grant, fable.currency)} granted</span>
+            )}
+            {fable.expiresOn && (
+              <span>
+                {fable.expired ? "expired" : "expires"} {fable.expiresOn}
+              </span>
+            )}
+            {fable.campaignId && (
+              <span>
+                {fable.campaignId}
+                {fable.campaignGranted === false ? " · not granted" : ""}
+              </span>
+            )}
+            {importedAt !== null && (
+              <span>
+                imported {importedAgo(importedAt)}
+                {importFreshness && importFreshness !== "fresh"
+                  ? ` · ${freshnessLabel[importFreshness]}`
+                  : ""}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      {onUpdate && (
+        <button type="button" className="ghost-button credit-update" onClick={onUpdate}>
+          <RefreshCw /> Update Claude Web snapshot
+        </button>
+      )}
+    </div>
+  );
+}
+
+function QuotaDials({
+  quotas,
+  onUpdateWebCredits,
+}: {
+  quotas: DashboardData["quotas"];
+  onUpdateWebCredits?: () => void;
+}) {
   const cards = quotaCards(quotas);
+  const anthropicCredits = buildAnthropicCreditView(
+    quotas.usage?.providers.find((provider) => provider.provider === "anthropic"),
+  );
   const trackingSince = quotas.history?.trackingSince
     ? new Date(quotas.history.trackingSince).toLocaleDateString(undefined, {
         month: "short",
@@ -2011,6 +2146,12 @@ function QuotaDials({ quotas }: { quotas: DashboardData["quotas"] }) {
                   );
                 })}
               </div>
+              {card.provider === "anthropic" && (
+                <AnthropicCredits
+                  view={anthropicCredits}
+                  onUpdate={onUpdateWebCredits}
+                />
+              )}
               {card.provider === "codex" && (
                 <div className="banked-resets">
                   <div className="reset-summary">
@@ -2070,6 +2211,7 @@ function Overview({
   onMetricRangeChange,
   onOpenSession,
   onTagSession,
+  onUpdateWebCredits,
   accent,
   providerColors,
   sceneEffects,
@@ -2082,6 +2224,7 @@ function Overview({
   onMetricRangeChange: (range: MetricRange) => void;
   onOpenSession: (sessionId: string) => void;
   onTagSession: (session: Session) => void;
+  onUpdateWebCredits: () => void;
   accent: string;
   providerColors: ProviderColors;
   sceneEffects: SceneEffects;
@@ -2170,7 +2313,7 @@ function Overview({
           headroom={providerHeadroom(data.quotas)}
         />
       </section>
-      <QuotaDials quotas={data.quotas} />
+      <QuotaDials quotas={data.quotas} onUpdateWebCredits={onUpdateWebCredits} />
       <section
         className="metric-summary"
         aria-labelledby="metric-summary-title"
@@ -4108,12 +4251,240 @@ function Models({
   );
 }
 
+const ALLOWANCE_HELP_URL =
+  "https://support.claude.com/en/articles/11647753-understanding-usage-and-length-limits";
+const EXTRA_USAGE_HELP_URL =
+  "https://support.claude.com/en/articles/12429409-extra-usage-for-paid-claude-plans";
+
+function formatDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "unknown";
+  if (ms < 60_000) return `${Math.max(0, Math.round(ms / 1000))}s`;
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function QuotaProvenance({
+  data,
+  onUpdateWebCredits,
+}: {
+  data: DashboardData;
+  onUpdateWebCredits: () => void;
+}) {
+  const anthropic = data.quotas.usage?.providers.find(
+    (provider) => provider.provider === "anthropic",
+  );
+  const snapshot = anthropic?.snapshot?.kind === "window" ? anthropic.snapshot : null;
+  const credits = anthropic?.anthropicWebCredits ?? null;
+  const view = buildAnthropicCreditView(anthropic);
+  const history = data.quotas.history;
+  if (!data.quotas.available && !credits) return null;
+  return (
+    <section className="panel provenance">
+      <div className="panel-heading">
+        <div>
+          <span className="overline">QUOTA EVIDENCE</span>
+          <h2>Where each allowance value comes from</h2>
+        </div>
+        <a href={ALLOWANCE_HELP_URL} target="_blank" rel="noreferrer" className="text-link">
+          Usage &amp; length limits <ExternalLink />
+        </a>
+      </div>
+      <div className="evidence-groups">
+        <article className="evidence-group live">
+          <header>
+            <span className="source-symbol provider">
+              <Gauge />
+            </span>
+            <div>
+              <span className="overline">PROVIDER QUOTA API · LIVE</span>
+              <code>api.anthropic.com/api/oauth/usage</code>
+            </div>
+            <span className={`status-label ${anthropic?.status ?? "unknown"}`}>
+              {anthropic?.status ?? "unknown"}
+            </span>
+          </header>
+          <dl className="evidence-facts">
+            <div>
+              <dt>Captured</dt>
+              <dd>{anthropic?.capturedAt ? formatDate(new Date(anthropic.capturedAt).toISOString()) : "—"}</dd>
+            </div>
+            <div>
+              <dt>Data age</dt>
+              <dd>{formatDuration(anthropic?.dataAgeMs)}</dd>
+            </div>
+            {snapshot?.fiveHour && (
+              <div>
+                <dt>5-hour</dt>
+                <dd>{snapshot.fiveHour.usedPercent.toFixed(0)}% used</dd>
+              </div>
+            )}
+            {snapshot?.weekly && (
+              <div>
+                <dt>Weekly</dt>
+                <dd>{snapshot.weekly.usedPercent.toFixed(0)}% used</dd>
+              </div>
+            )}
+            {Object.entries(snapshot?.modelWindows ?? {}).map(([model, window]) => (
+              <div key={model}>
+                <dt>{model} window</dt>
+                <dd>{window.usedPercent.toFixed(0)}% used</dd>
+              </div>
+            ))}
+            {view.usageCredit && (
+              <div>
+                <dt>Monthly spend</dt>
+                <dd>
+                  {formatCredit(view.usageCredit.spent, view.usageCredit.currency)}
+                  {view.usageCredit.limit !== null
+                    ? ` / ${formatCredit(view.usageCredit.limit, view.usageCredit.currency)}`
+                    : ""}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <div className="evidence-actions">
+            <a href="/api/quotas" target="_blank" rel="noreferrer" className="text-link">
+              Raw normalized quota JSON <ExternalLink />
+            </a>
+          </div>
+          {Array.isArray(snapshot?.extra?.rawLimits) && snapshot!.extra!.rawLimits!.length > 0 && (
+            <details className="raw-evidence">
+              <summary>Raw provider limits</summary>
+              <pre>{JSON.stringify(snapshot!.extra!.rawLimits, null, 2)}</pre>
+            </details>
+          )}
+        </article>
+
+        <article className="evidence-group imported">
+          <header>
+            <span className="source-symbol budget">
+              <CircleDollarSign />
+            </span>
+            <div>
+              <span className="overline">CLAUDE WEB CREDITS · IMPORTED</span>
+              <code>claude.ai/api/organizations/…/prepaid/credits</code>
+            </div>
+            <span className="method-chip budget">
+              <i /> user imported
+            </span>
+          </header>
+          <p className="evidence-boundary">
+            Claude Code&apos;s OAuth token returns <code>403 account_session_invalid</code> for
+            these web-session endpoints, so these values are a timestamped manual
+            observation — never live provider data.
+          </p>
+          {credits ? (
+            <>
+              <dl className="evidence-facts">
+                <div>
+                  <dt>Observed</dt>
+                  <dd>{formatDate(new Date(credits.capturedAt).toISOString())}</dd>
+                </div>
+                <div>
+                  <dt>Stored</dt>
+                  <dd>{formatDate(new Date(credits.updatedAt).toISOString())}</dd>
+                </div>
+                {view.prepaid && (
+                  <div>
+                    <dt>Prepaid balance</dt>
+                    <dd>{formatCredit(view.prepaid.balance, view.prepaid.currency)}</dd>
+                  </div>
+                )}
+              </dl>
+              {view.fable && (
+                <div className={`fable-credit${view.fable.expired ? " fable-credit--expired" : ""}`}>
+                  <div className="fable-credit__head">
+                    <span>
+                      <Sparkles /> Fable transition credit
+                    </span>
+                    {view.fable.expired && <i className="fable-credit__badge">expired</i>}
+                  </div>
+                  <strong>{formatCredit(view.fable.remaining, view.fable.currency)}</strong>
+                  <div className="fable-credit__meta">
+                    {view.fable.grant !== null && (
+                      <span>of {formatCredit(view.fable.grant, view.fable.currency)} granted</span>
+                    )}
+                    {view.fable.expiresOn && (
+                      <span>
+                        {view.fable.expired ? "expired" : "expires"} {view.fable.expiresOn}
+                      </span>
+                    )}
+                    {view.fable.campaignId && <span>{view.fable.campaignId}</span>}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p>No Claude Web snapshot imported yet.</p>
+          )}
+          <div className="evidence-actions">
+            <button type="button" className="secondary-button" onClick={onUpdateWebCredits}>
+              <RefreshCw /> {credits ? "Update snapshot" : "Import snapshot"}
+            </button>
+            <a href={CLAUDE_USAGE_URL} target="_blank" rel="noreferrer" className="text-link">
+              Claude Settings → Usage <ExternalLink />
+            </a>
+            <a href={EXTRA_USAGE_HELP_URL} target="_blank" rel="noreferrer" className="text-link">
+              Extra usage policy <ExternalLink />
+            </a>
+          </div>
+        </article>
+
+        <article className="evidence-group local">
+          <header>
+            <span className="source-symbol local">
+              <Database />
+            </span>
+            <div>
+              <span className="overline">LOCAL QUOTA HISTORY</span>
+              <code>~/.quota-service/quota.db</code>
+            </div>
+            <span className="method-chip local">
+              <i /> locally counted
+            </span>
+          </header>
+          <p>
+            Locally observed quota reaches and reset-credit consumption over time.
+            This is AIUO&apos;s own record of what was seen, not a provider-authoritative
+            ledger — the provider reports only the current window state.
+          </p>
+          <dl className="evidence-facts">
+            <div>
+              <dt>Tracking since</dt>
+              <dd>
+                {history?.trackingSince
+                  ? formatDate(new Date(history.trackingSince).toISOString())
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Windows reached</dt>
+              <dd>
+                {history?.windows.reduce((sum, window) => sum + window.reachedCount, 0) ?? 0}× observed
+              </dd>
+            </div>
+            <div>
+              <dt>Resets consumed</dt>
+              <dd>{history?.codexBankedResets.usedCount ?? 0}</dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 function Sources({
   data,
   onRules,
+  onUpdateWebCredits,
 }: {
   data: DashboardData;
   onRules: () => void;
+  onUpdateWebCredits: () => void;
 }) {
   const budget = Number(data.settings.monthlyBudget ?? 250);
   const now = new Date();
@@ -4209,6 +4580,7 @@ function Sources({
           ))}
         </div>
       </section>
+      <QuotaProvenance data={data} onUpdateWebCredits={onUpdateWebCredits} />
     </div>
   );
 }
@@ -4774,6 +5146,242 @@ function AnnotationModal({
   );
 }
 
+function numField(value: number | null | undefined): string {
+  return value === null || value === undefined ? "" : String(value);
+}
+function dateField(ms: number | null | undefined): string {
+  return ms === null || ms === undefined ? "" : new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Compact form for the user-imported Claude Web credit snapshot. Prefills from
+ * the current observation, submits to AIUO's localhost proxy (never to Claude
+ * directly, never with cookies), and refreshes on success. A failed submit
+ * keeps the entered values and shows an inline error. */
+function AnthropicWebImportModal({
+  credits,
+  onClose,
+  onSaved,
+}: {
+  credits: AnthropicWebCredits | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const tranche = credits?.promotionalTranches?.[0] ?? null;
+  const [currentBalance, setCurrentBalance] = useState(numField(credits?.currentBalance));
+  const [promoRemaining, setPromoRemaining] = useState(numField(tranche?.remainingAmount));
+  const [promoGranted, setPromoGranted] = useState(
+    numField(tranche?.grantedAmount ?? credits?.campaign?.amount),
+  );
+  const [promoExpiresAt, setPromoExpiresAt] = useState(
+    tranche?.expiresOn ?? credits?.campaign?.expiresOn ?? credits?.nextExpiresOn ?? "",
+  );
+  const [capturedAt, setCapturedAt] = useState(
+    dateField(credits?.capturedAt) || new Date().toISOString().slice(0, 10),
+  );
+  const [campaignId, setCampaignId] = useState(credits?.campaign?.id ?? "fable_transition");
+  const [campaignGranted, setCampaignGranted] = useState(credits?.campaign?.granted ?? false);
+  const [autoReloadEnabled, setAutoReloadEnabled] = useState(credits?.autoReloadEnabled ?? false);
+  const [purchasedThisMonth, setPurchasedThisMonth] = useState(
+    numField(credits?.purchases?.purchasedThisMonthAmount),
+  );
+  const [monthlyCap, setMonthlyCap] = useState(numField(credits?.purchases?.monthlyCapAmount));
+  const [purchasesResetAt, setPurchasesResetAt] = useState(dateField(credits?.purchases?.resetsAt));
+  const [maxDiscount, setMaxDiscount] = useState(numField(credits?.purchases?.maxDiscountPercent));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const dialogRef = useModalFocusTrap(onClose);
+
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/quotas/anthropic-web-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          capturedAt: capturedAt || undefined,
+          currency: "USD",
+          currentBalance: currentBalance,
+          promoRemaining,
+          promoGranted,
+          promoExpiresAt,
+          campaignId: campaignId.trim() || null,
+          campaignGranted,
+          autoReloadEnabled,
+          purchasedThisMonthAmount: purchasedThisMonth,
+          monthlyCapAmount: monthlyCap,
+          purchasesResetAt,
+          maxDiscountPercent: maxDiscount,
+        }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? `Import failed (${response.status})`);
+      }
+      onSaved();
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        className="modal web-import-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="web-import-title"
+        tabIndex={-1}
+      >
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close credit import">
+          <X />
+        </button>
+        <span className="overline">CLAUDE WEB IMPORT</span>
+        <h2 id="web-import-title">Update Claude Web snapshot</h2>
+        <p>
+          Claude Code&apos;s login can&apos;t read prepaid balances. Copy the values from
+          Claude Settings → Usage. Nothing here touches your browser session.
+        </p>
+        <a
+          className="secondary-button web-import-open"
+          href={CLAUDE_USAGE_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <ExternalLink /> Open Claude Usage
+        </a>
+        <div className="web-import-grid">
+          <label>
+            Current balance
+            <input
+              autoFocus
+              data-autofocus
+              type="number"
+              step="0.01"
+              min="0"
+              value={currentBalance}
+              onChange={(e) => setCurrentBalance(e.target.value)}
+              placeholder="84.97"
+            />
+          </label>
+          <label>
+            Fable remaining
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={promoRemaining}
+              onChange={(e) => setPromoRemaining(e.target.value)}
+              placeholder="84.96"
+            />
+          </label>
+          <label>
+            Original Fable grant
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={promoGranted}
+              onChange={(e) => setPromoGranted(e.target.value)}
+              placeholder="100.00"
+            />
+          </label>
+          <label>
+            Fable expiry
+            <input
+              type="date"
+              value={promoExpiresAt}
+              onChange={(e) => setPromoExpiresAt(e.target.value)}
+            />
+          </label>
+        </div>
+        <details className="web-import-more">
+          <summary>More details</summary>
+          <div className="web-import-grid">
+            <label>
+              Observed on
+              <input type="date" value={capturedAt} onChange={(e) => setCapturedAt(e.target.value)} />
+            </label>
+            <label>
+              Campaign
+              <input value={campaignId} onChange={(e) => setCampaignId(e.target.value)} />
+            </label>
+            <label>
+              Purchased this month
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={purchasedThisMonth}
+                onChange={(e) => setPurchasedThisMonth(e.target.value)}
+              />
+            </label>
+            <label>
+              Monthly purchase cap
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={monthlyCap}
+                onChange={(e) => setMonthlyCap(e.target.value)}
+              />
+            </label>
+            <label>
+              Purchase cap resets
+              <input
+                type="date"
+                value={purchasesResetAt}
+                onChange={(e) => setPurchasesResetAt(e.target.value)}
+              />
+            </label>
+            <label>
+              Max bundle discount %
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={maxDiscount}
+                onChange={(e) => setMaxDiscount(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="web-import-toggles">
+            <label className="web-import-check">
+              <input
+                type="checkbox"
+                checked={campaignGranted}
+                onChange={(e) => setCampaignGranted(e.target.checked)}
+              />
+              Campaign granted
+            </label>
+            <label className="web-import-check">
+              <input
+                type="checkbox"
+                checked={autoReloadEnabled}
+                onChange={(e) => setAutoReloadEnabled(e.target.checked)}
+              />
+              Auto-reload on
+            </label>
+          </div>
+        </details>
+        {error && <p className="web-import-error" role="alert">{error}</p>}
+        <button className="primary-button" onClick={submit} disabled={saving}>
+          {saving ? <RefreshCw className="spin" /> : <Check />} Save snapshot
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RulesModal({
   data,
   onClose,
@@ -4900,6 +5508,7 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [rules, setRules] = useState(false);
   const [appearance, setAppearance] = useState(false);
+  const [webImport, setWebImport] = useState(false);
   const [accent, setAccent] = useState(savedAccent);
   const [providerColors, setProviderColors] =
     useState<ProviderColors>(savedProviderColors);
@@ -5285,6 +5894,7 @@ export function App() {
               onMetricRangeChange={setDays}
               onOpenSession={openSession}
               onTagSession={setSession}
+              onUpdateWebCredits={() => setWebImport(true)}
               accent={accent}
               providerColors={providerColors}
               sceneEffects={sceneEffects}
@@ -5320,7 +5930,11 @@ export function App() {
             <Models data={data} onOpenSession={openSession} />
           )}
           {view === "sources" && (
-            <Sources data={data} onRules={() => setRules(true)} />
+            <Sources
+              data={data}
+              onRules={() => setRules(true)}
+              onUpdateWebCredits={() => setWebImport(true)}
+            />
           )}
         </div>
         <InformationSources data={data} />
@@ -5336,6 +5950,17 @@ export function App() {
         <RulesModal
           data={data}
           onClose={() => setRules(false)}
+          onSaved={() => load(true)}
+        />
+      )}
+      {webImport && (
+        <AnthropicWebImportModal
+          credits={
+            data.quotas.usage?.providers.find(
+              (provider) => provider.provider === "anthropic",
+            )?.anthropicWebCredits ?? null
+          }
+          onClose={() => setWebImport(false)}
           onSaved={() => load(true)}
         />
       )}

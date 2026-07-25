@@ -41,12 +41,67 @@ export type BankedResetCredit = {
   status: string;
   expiresAt: string | null;
 };
+/** Spend-based "usage credits" allowance reported live over provider OAuth.
+ * All monetary amounts are major currency units (dollars) — never re-divide. */
+export type UsageCredits = {
+  enabled: boolean;
+  spentAmount: number;
+  limitAmount: number | null;
+  currency: string;
+  resetsAt: number | null;
+};
+/** Claude Web-only prepaid/promotion snapshot. Claude Code OAuth cannot read
+ * these endpoints, so this is a user-imported observation with its own
+ * timestamps and provenance — never presented as live provider data.
+ * All monetary amounts are major currency units (dollars). Date-only expiries
+ * ship a canonical `*ExpiresOn` (YYYY-MM-DD, UTC) string to render verbatim;
+ * the `*ExpiresAt` epoch companions are UTC-midnight and are for countdown math. */
+export type AnthropicWebCredits = {
+  source: "claude_web_manual";
+  capturedAt: number;
+  updatedAt: number;
+  currentBalance: number | null;
+  /** @deprecated No distinct source in Claude's current UI — read currentBalance.
+   * Retained for backward compatibility; do not drive display from it. */
+  balanceCredits: number | null;
+  currency: string;
+  autoReloadEnabled: boolean | null;
+  nextExpiresAt: number | null;
+  nextExpiresOn: string | null;
+  promotionalTranches: Array<{
+    remainingAmount: number;
+    grantedAmount: number | null;
+    expiresAt: number | null;
+    expiresOn: string | null;
+  }>;
+  campaign: {
+    id: string;
+    granted: boolean | null;
+    amount: number | null;
+    expiresAt: number | null;
+    expiresOn: string | null;
+  } | null;
+  purchases: {
+    purchasedThisMonthAmount: number | null;
+    monthlyCapAmount: number | null;
+    resetsAt: number | null;
+    maxDiscountPercent: number | null;
+  } | null;
+};
 export type WindowQuotaSnapshot = {
   kind: "window";
   fiveHour: QuotaWindow | null;
   weekly: QuotaWindow | null;
   modelWindows?: Record<string, QuotaWindow>;
-  extra?: { bankedResetCreditsAvailable?: number };
+  usageCredits?: UsageCredits | null;
+  extra?: { bankedResetCreditsAvailable?: number; rawLimits?: unknown[] | null };
+};
+export type QuotaManualEntry = {
+  provider: string;
+  field: string;
+  value: string;
+  note: string | null;
+  updatedAt: number;
 };
 export type PoolQuotaSnapshot = {
   kind: "pool";
@@ -58,6 +113,13 @@ export type QuotaProvider = {
   source: string | null;
   snapshot: WindowQuotaSnapshot | PoolQuotaSnapshot | null;
   error?: string;
+  /** How old the underlying provider data is (ms). Optional for tolerance of
+   * older quota-service builds that omit it. */
+  dataAgeMs?: number | null;
+  capturedAt?: number | null;
+  manualEntries?: QuotaManualEntry[];
+  /** Present only for Anthropic once a Claude Web credit snapshot is imported. */
+  anthropicWebCredits?: AnthropicWebCredits | null;
 };
 export type QuotaResets = {
   codexBankedResetCredits?: {
