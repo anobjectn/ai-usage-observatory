@@ -7,6 +7,33 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-25
+
+### Added
+
+- Add a Tesseract core scene effect (Appearance, on by default, toggleable)
+  that replaces the telescope icon with a 4D hypercube at the sphere's center,
+  contorting through its 4D rotations as the scene is dragged or auto-rotates.
+- Restyle the sidebar collapse toggle as a border tab and add a version label.
+
+### Fixed
+
+- Stop the navigation icon from flex-shrinking, which collapsed the active
+  item's icon to zero width in the collapsed sidebar (its dot indicator
+  consumed the remaining row space) and undersized the others.
+- Center the local-status dot and keep the Path rules icon full size and
+  centered in the collapsed sidebar instead of shrinking and left-biasing them.
+- Keep the active navigation item's icon and label legible with dark accent
+  colors by lifting the active color toward the foreground instead of using
+  the raw accent, which turned dark on the dark sidebar.
+- Use live ccusage pricing instead of the bundled offline table, and surface
+  unpriced models with a global banner, per-model indicators, and a degraded
+  source-health status so cost gaps are visible rather than silently zero. This
+  fixes the missing Opus 5 API-equivalent cost, which the offline table lacked
+  and previously counted as zero.
+- Separate latest-session row actions on the Overview.
+- Stop sidebar icons shifting on collapse by fading labels instead of snapping.
+
 ## [1.2.0] - 2026-07-21
 
 ### Added
@@ -70,7 +97,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/anobjectn/ai-usage-observatory/releases/tag/v1.0.0
