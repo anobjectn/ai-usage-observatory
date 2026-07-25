@@ -5,3 +5,4 @@ dist/
 .usage-observatory/
 usage-observatory-plan.md
 reports/ccusage-audits
+_temp/
