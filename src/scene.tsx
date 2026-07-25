@@ -1,8 +1,16 @@
 import { useEffect, useRef } from "react";
-import { Telescope } from "lucide-react";
 import type { ProviderHeadroom } from "./quota-headroom";
 
-export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; speed: number; starDensity: number };
+function TelescopeIcon() {
+  return <svg viewBox="0 0 512.001 512.001" fill="currentColor" aria-hidden="true">
+    <path d="M511.441,82.002c0-4.456-1.735-8.646-4.887-11.797L441.235,4.887C438.085,1.735,433.895,0,429.439,0 c-4.456,0-8.646,1.735-11.797,4.887L222.781,199.747l-23.944-23.944l46.875-46.875c3.153-3.153,3.153-8.264,0-11.416l-48.71-48.71 c-3.153-3.153-8.264-3.153-11.416,0l-46.875,46.875l-32.81-32.811c1.071-0.842,2.104-1.745,3.083-2.723 c3.153-3.153,3.153-8.264,0-11.416L72.452,32.195c-3.153-3.153-8.264-3.153-11.416,0c-13.22,13.22-13.22,34.729,0,47.948 c6.403,6.404,14.918,9.931,23.974,9.931c1.66,0,3.3-0.121,4.914-0.354l37.372,37.372L2.925,251.463 c-3.153,3.153-3.153,8.264,0,11.416l48.71,48.71c1.576,1.576,3.642,2.365,5.708,2.365s4.132-0.788,5.708-2.365l85.623-85.623 l15.334,15.334l-7.114,7.114c-0.002,0.002-0.003,0.003-0.005,0.005s-0.003,0.003-0.005,0.005L7.894,397.413 c-6.504,6.504-6.504,17.088,0,23.593l82.541,82.541c3.15,3.151,7.341,4.887,11.797,4.887s8.646-1.735,11.797-4.887 l156.112-156.112l16.453,16.453l-85.623,85.623c-3.153,3.153-3.153,8.264,0,11.416l48.71,48.71 c1.576,1.576,3.642,2.365,5.708,2.365c2.065,0,4.132-0.788,5.708-2.365l124.371-124.371l36.268,36.268 c-1.481,10.232,1.705,21.016,9.561,28.872c6.403,6.404,14.918,9.931,23.974,9.931c9.056,0,17.571-3.527,23.974-9.931 c3.153-3.153,3.153-8.264,0-11.416l-36.532-36.532c-3.153-3.153-8.264-3.153-11.416,0c-0.983,0.983-1.884,2.017-2.721,3.085 l-31.693-31.693l46.875-46.875c3.153-3.153,3.153-8.264,0-11.416l-48.71-48.71c-3.153-3.153-8.264-3.153-11.416,0l-46.875,46.875 l-25.064-25.064L506.556,93.8C509.707,90.648,511.441,86.458,511.441,82.002z M85.01,73.931 c-4.743-0.001-9.203-1.848-12.558-5.203c-3.354-3.355-5.202-7.814-5.202-12.558c0-1.89,0.293-3.736,0.859-5.484l22.386,22.386 C88.746,73.637,86.901,73.931,85.01,73.931z M438.37,420.947l22.386,22.385c-1.749,0.565-3.594,0.859-5.485,0.859 c-4.743,0-9.204-1.847-12.558-5.202c-3.354-3.355-5.202-7.814-5.202-12.558C437.511,424.541,437.804,422.695,438.37,420.947z M191.293,85.926l37.293,37.293l-41.166,41.166l-37.293-37.293L191.293,85.926z M57.342,294.465l-37.293-37.293L138.712,138.51 l37.293,37.293L57.342,294.465z M160.089,214.55l27.333-27.333l23.944,23.944l-9.942,9.942c-2.467-1.391-5.257-2.143-8.167-2.143 c-4.457,0-8.646,1.735-11.797,4.887l-6.036,6.036L160.089,214.55z M102.612,492.131c-0.21,0.209-0.551,0.209-0.761,0 l-82.541-82.54c-0.039-0.039-0.157-0.157-0.157-0.381s0.118-0.341,0.157-0.381l100.143-100.143l83.302,83.302L102.612,492.131z M214.171,380.572l-83.302-83.302l31.727-31.727l83.302,83.302L214.171,380.572z M276.177,318.564l-18.863,18.864l-83.302-83.302 l18.864-18.864c0.039-0.039,0.157-0.157,0.38-0.157c0.223,0,0.341,0.118,0.38,0.157l82.541,82.54 C276.387,318.012,276.387,318.355,276.177,318.564z M389.34,283.973l37.293,37.293l-41.166,41.166l-37.293-37.293L389.34,283.973z M374.051,373.85L255.389,492.512l-37.293-37.293l118.662-118.662L374.051,373.85z M325.341,325.139l-27.333,27.333 l-16.453-16.453l6.037-6.037c5.399-5.4,6.301-13.604,2.736-19.959l9.948-9.948L325.341,325.139z M294.856,282.664 c-0.1,0.09-0.205,0.175-0.301,0.272c-0.097,0.097-0.182,0.201-0.272,0.301l-14.919,14.92l-66.081-66.08l14.786-14.786 c0.15-0.129,0.3-0.257,0.442-0.4c0.142-0.142,0.271-0.293,0.4-0.442L403.606,41.753l66.081,66.081L294.856,282.664z M495.138,82.383l-14.035,14.035l-66.081-66.081l14.035-14.035c0.04-0.039,0.158-0.157,0.381-0.157 c0.223,0,0.341,0.118,0.381,0.157l65.32,65.32c0.039,0.039,0.157,0.157,0.157,0.381S495.177,82.343,495.138,82.383z" />
+    <path d="M301.681,244.203l-34.443-34.443c-3.153-3.153-8.264-3.153-11.416,0c-3.153,3.153-3.153,8.264,0,11.416l34.443,34.443 c1.576,1.576,3.642,2.365,5.708,2.365c2.065,0,4.132-0.788,5.708-2.365C304.834,252.467,304.834,247.356,301.681,244.203z" />
+    <path d="M133.772,188.234l-7.024-7.024c-3.153-3.153-8.264-3.153-11.416,0c-3.153,3.153-3.153,8.264,0,11.416l7.024,7.024 c1.576,1.576,3.642,2.365,5.708,2.365c2.065,0,4.132-0.788,5.708-2.365C136.925,196.498,136.925,191.386,133.772,188.234z" />
+    <path d="M331.639,386.101l-7.024-7.024c-3.153-3.153-8.264-3.153-11.416,0c-3.153,3.153-3.153,8.264,0,11.416l7.024,7.024 c1.576,1.576,3.642,2.365,5.708,2.365c2.065,0,4.132-0.788,5.708-2.365C334.792,394.365,334.792,389.253,331.639,386.101z" />
+  </svg>;
+}
+
+export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; tesseract: boolean; speed: number; starDensity: number };
 export type ProviderColors = { anthropic: string; openai: string; warp: string };
 
 const STAR_DENSITY_MULTIPLIERS = [0, 0.2, 0.42, 0.68, 1, 1.65, 4.95];
@@ -168,6 +176,16 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
 type Dot = { x: number; y: number; size: number; color: string; alpha: number; hollow?: boolean };
 type Seg = { ax: number; ay: number; bx: number; by: number; color: string; alpha: number };
 
+// 16 vertices of the unit tesseract; edges connect vertex pairs whose indices
+// differ in exactly one bit (one axis), giving the 32 hypercube edges.
+const TESSERACT_VERTS: number[][] = Array.from({ length: 16 }, (_, i) =>
+  [i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1, i & 8 ? 1 : -1]);
+const TESSERACT_EDGES: Array<[number, number]> = [];
+for (let a = 0; a < 16; a++) for (let b = a + 1; b < 16; b++) {
+  const diff = a ^ b;
+  if (!(diff & (diff - 1))) TESSERACT_EDGES.push([a, b]);
+}
+
 const RINGS = [
   { provider: "anthropic", r: 1.55, tiltX: 1.13, tiltZ: -0.31, speed: 0.5, dir: 1, phase: 1.2 },
   { provider: "openai", r: 1.82, tiltX: 1.36, tiltZ: 0.56, speed: 0.36, dir: -1, phase: 4.0 },
@@ -190,7 +208,7 @@ export function OrbitalScene({ accent, effects, providerColors, headroom }: { ac
     observer.observe(canvas);
 
     const draw = (animate: boolean) => {
-      const { accent, providerColors, headroom } = propsRef.current;
+      const { accent, effects, providerColors, headroom } = propsRef.current;
       ctx.clearRect(0, 0, w, h);
       const midX = w / 2, midY = h / 2;
       const D = 3.4, sphereR = Math.min(w, h) * 0.163;
@@ -309,6 +327,42 @@ export function OrbitalScene({ accent, effects, providerColors, headroom }: { ac
         ctx.stroke();
       }
 
+      // Optional tesseract core: dragging the camera rotates the hypercube
+      // through the xw/yw planes, so the same gesture that spins the sphere
+      // folds the inner cube through the outer one. The zw plane drifts on the
+      // shared clock for ambient contortion, and the projected 3D shape rides
+      // the scene camera via `project` so it stays seated in the sphere.
+      if (effects.tesseract) {
+        const scale = 0.3, wDist = 3;
+        const planes = [camera.yaw * 0.85, camera.pitch * 0.85, clock * 0.3].map(
+          angle => [Math.cos(angle), Math.sin(angle)]);
+        const points = TESSERACT_VERTS.map(([x, y, z, w]) => {
+          let vx = x, vy = y, vz = z, vw = w;
+          [vx, vw] = [vx * planes[0][0] + vw * planes[0][1], vw * planes[0][0] - vx * planes[0][1]];
+          [vy, vw] = [vy * planes[1][0] + vw * planes[1][1], vw * planes[1][0] - vy * planes[1][1]];
+          [vz, vw] = [vz * planes[2][0] + vw * planes[2][1], vw * planes[2][0] - vz * planes[2][1]];
+          const k = scale * wDist / (wDist - vw);
+          return { screen: project(vx * k, vy * k, vz * k), w: vw };
+        });
+        ctx.lineWidth = 1.2;
+        for (const [a, b] of TESSERACT_EDGES) {
+          const near = (points[a].w + points[b].w) / 2;
+          const front = (points[a].screen[2] + points[b].screen[2]) / 2 >= 0;
+          ctx.strokeStyle = rgba(mixHex(AQUA, accent, (near + 1) / 2),
+            (0.24 + 0.38 * (near + 1) / 2) * (front ? 1 : 0.5));
+          ctx.beginPath();
+          ctx.moveTo(points[a].screen[0], points[a].screen[1]);
+          ctx.lineTo(points[b].screen[0], points[b].screen[1]);
+          ctx.stroke();
+        }
+        for (const point of points) {
+          ctx.fillStyle = rgba(accent, 0.3 + 0.4 * (point.w + 1) / 2);
+          ctx.beginPath();
+          ctx.arc(point.screen[0], point.screen[1], 1.3 + 0.5 * (point.w + 1) / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
       drawSegs(frontSegs);
       drawDots(frontDots);
     };
@@ -367,7 +421,7 @@ export function OrbitalScene({ accent, effects, providerColors, headroom }: { ac
   }, []);
   return <div className="orbital-viz">
     <canvas ref={canvasRef} aria-hidden="true" />
-    <div className="scene-icon" aria-hidden="true"><Telescope /></div>
+    {!effects.tesseract && <div className="scene-icon" aria-hidden="true"><TelescopeIcon /></div>}
     <div className="orbit-legend" aria-label="Provider quota headroom">
       {headroom.map((signal) => {
         const label = signal.provider === "openai" ? "OpenAI" : signal.provider === "anthropic" ? "Anthropic" : "Warp";

@@ -292,6 +292,7 @@ const defaultSceneEffects: SceneEffects = {
   starfield: true,
   parallax: true,
   twinkle: false,
+  tesseract: true,
   speed: 0.3,
   starDensity: 3,
 };
@@ -307,6 +308,7 @@ function savedSceneEffects(): SceneEffects {
       starfield: value.starfield !== false,
       parallax: value.parallax !== false,
       twinkle: value.twinkle === true,
+      tesseract: value.tesseract === true,
       speed:
         Number.isFinite(speed) && speed >= 0.1 && speed <= 3
           ? speed
@@ -4212,7 +4214,7 @@ function Sources({
 }
 
 const sceneEffectOptions: {
-  key: "starfield" | "parallax" | "twinkle";
+  key: "starfield" | "parallax" | "twinkle" | "tesseract";
   label: string;
   detail: string;
 }[] = [
@@ -4230,6 +4232,12 @@ const sceneEffectOptions: {
     key: "twinkle",
     label: "Twinkle & tint",
     detail: "Star flicker with accent and aqua tinted highlights",
+  },
+  {
+    key: "tesseract",
+    label: "Tesseract core",
+    detail:
+      "Replace the telescope icon with a 4D hypercube that contorts as the scene rotates",
   },
 ];
 const starDensityLabels = [

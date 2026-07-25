@@ -59,8 +59,13 @@ aside { border-right:1px solid var(--line); background:rgba(7,16,15,.92); backdr
 .sidebar-toggle svg { width:15px;height:15px; }
 nav { display:flex;flex-direction:column;gap:5px; }
 nav button { height:43px;border:0;background:transparent;color:var(--muted);border-radius:10px;padding:0 12px;display:flex;align-items:center;gap:12px;position:relative;cursor:pointer;font-weight:600;font-size:15px;text-align:left; }
+/* Keep the icon at full size; without this the flex row shrinks it (to 0 for
+   the active item, whose dot indicator consumes the rest) when collapsed. */
+nav button svg { flex:0 0 auto; }
 nav button:hover { background:var(--surface-2);color:var(--text); }
-nav button.active { background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 12%,transparent),color-mix(in srgb,var(--accent) 3%,transparent));color:var(--accent); }
+/* Lift the active label/icon toward --text so a dark accent stays legible on
+   the dark sidebar; light accents shift only slightly and keep their hue. */
+nav button.active { background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 12%,transparent),color-mix(in srgb,var(--accent) 3%,transparent));color:color-mix(in srgb,var(--accent) 72%,var(--text)); }
 nav button.active::before { content:"";position:absolute;left:0;width:2px;height:22px;background:var(--accent);box-shadow:0 0 10px var(--accent); }
 nav button span { overflow:hidden;white-space:nowrap;max-width:140px;opacity:1;transition:max-width .22s ease,opacity .15s ease; }
 nav button i { margin-left:auto;width:4px;height:4px;background:var(--accent);border-radius:50%;flex:0 0 auto;opacity:1;transition:opacity .15s ease; }
@@ -73,6 +78,7 @@ nav button i { margin-left:auto;width:4px;height:4px;background:var(--accent);bo
 .status-dot.unavailable { background:var(--orange); }
 .status-dot.degraded { background:var(--orange);box-shadow:0 0 10px color-mix(in srgb,var(--orange) 55%,transparent); }
 .settings-link { margin-top:9px;background:none;border:0;color:var(--muted);display:flex;align-items:center;gap:9px;padding:10px;cursor:pointer;font-size:13px; }
+.settings-link svg { flex:0 0 auto; }
 .settings-link b { font-weight:inherit;display:inline-block;overflow:hidden;white-space:nowrap;max-width:140px;opacity:1;transition:max-width .22s ease,opacity .15s ease; }
 .settings-link:hover { color:var(--text); }
 .settings-link span { margin-left:auto;border:1px solid var(--line);border-radius:10px;padding:2px 6px;font:10px var(--font-label);overflow:hidden;white-space:nowrap;max-width:50px;opacity:1;transition:max-width .22s ease,opacity .15s ease,border-color .15s ease,padding .15s ease; }
@@ -105,7 +111,11 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
   .app-shell.sidebar-collapsed .side-status div,
   .app-shell.sidebar-collapsed .settings-link b { max-width:0;opacity:0; }
   .app-shell.sidebar-collapsed nav button i { opacity:0; }
-  .app-shell.sidebar-collapsed .settings-link span { max-width:0;opacity:0;padding:0;border-color:transparent; }
+  .app-shell.sidebar-collapsed .settings-link span { max-width:0;opacity:0;padding:0;border-color:transparent;margin-left:0; }
+  /* With labels hidden, center the lone dot/icon in the collapsed rail; drop
+     the gap so the zero-width hidden text doesn't bias them off-center. */
+  .app-shell.sidebar-collapsed .side-status,
+  .app-shell.sidebar-collapsed .settings-link { justify-content:center;gap:0; }
   .app-shell.sidebar-collapsed .privacy-note { max-height:0;opacity:0;margin:0; }
   .app-shell.sidebar-collapsed nav button[data-tooltip],
   .app-shell.sidebar-collapsed .side-status[data-tooltip],
