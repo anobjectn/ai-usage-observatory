@@ -4486,19 +4486,12 @@ function Sources({
   onRules: () => void;
   onUpdateWebCredits: () => void;
 }) {
-  const budget = Number(data.settings.monthlyBudget ?? 250);
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const month =
-    data.monthly.find((row) => row.period === monthKey)?.totalCost ?? 0;
-  const monthLabel = now.toLocaleDateString(undefined, { month: "long" });
-  const ratio = Math.min(100, (month / budget) * 100);
   return (
     <div className="view-stack page-enter">
       <PageTitle
         eyebrow="DATA PROVENANCE"
         title="Where numbers come from."
-        description="Provider quota, locally reconstructed activity, and personal budgets stay intentionally separate."
+        description="Provider quota and locally reconstructed activity stay intentionally separate."
         actions={
           <button className="secondary-button" onClick={onRules}>
             <Tag /> Path rules
@@ -4534,25 +4527,6 @@ function Sources({
           <p>Reconstructed by ccusage from local {data.blockScope} records.</p>
           <span className="method-chip local">
             <i /> locally calculated
-          </span>
-        </article>
-        <article className="panel distinction">
-          <span className="source-symbol budget">
-            <CircleDollarSign />
-          </span>
-          <span className="overline">PERSONAL BUDGET</span>
-          <h2>
-            {formatMoney(month)} / {formatMoney(budget)}
-          </h2>
-          <p>
-            {monthLabel} spend against your configurable target, not a provider
-            billing limit.
-          </p>
-          <div className="budget-bar">
-            <i style={{ width: `${ratio}%` }} />
-          </div>
-          <span className="method-chip budget">
-            <i /> user defined
           </span>
         </article>
       </section>
