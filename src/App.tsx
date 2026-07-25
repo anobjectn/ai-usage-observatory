@@ -2066,7 +2066,8 @@ function Overview({
   agent,
   metricRange,
   onMetricRangeChange,
-  onSession,
+  onOpenSession,
+  onTagSession,
   accent,
   providerColors,
   sceneEffects,
@@ -2077,7 +2078,8 @@ function Overview({
   agent: string;
   metricRange: MetricRange;
   onMetricRangeChange: (range: MetricRange) => void;
-  onSession: (session: Session) => void;
+  onOpenSession: (sessionId: string) => void;
+  onTagSession: (session: Session) => void;
   accent: string;
   providerColors: ProviderColors;
   sceneEffects: SceneEffects;
@@ -2365,30 +2367,65 @@ function Overview({
             <span>{data.sessions.length} indexed</span>
           </div>
           <div className="recent-list">
-            {recent.map((session) => (
-              <button
-                key={session.sessionId}
-                onClick={() => onSession(session)}
-              >
-                <span className={`agent-mark ${session.agent}`}>
-                  {session.agent.slice(0, 1).toUpperCase()}
-                </span>
-                <span className="session-main">
-                  <b>{session.modelsUsed.join(", ") || "Unknown model"}</b>
-                  <small>{session.cwd ?? session.period}</small>
-                </span>
-                <span className="path-tags">
-                  {session.pathTags.slice(0, 2).map((tag) => (
-                    <i key={tag}>{tag}</i>
-                  ))}
-                </span>
-                <span className="session-metric">
-                  <b>{formatCompact(session.totalTokens)}</b>
-                  <small>{formatMoney(session.totalCost)}</small>
-                </span>
-                <ChevronRight />
-              </button>
-            ))}
+            {recent.map((session, index) => {
+              const modelName =
+                session.modelsUsed.join(", ") || "Unknown model";
+              const tooltipId = `recent-session-tag-tooltip-${index}`;
+              return (
+                <div className="recent-session" key={session.sessionId}>
+                  <a
+                    className="recent-session__details"
+                    href={sessionHref(session.sessionId)}
+                    aria-label={`Open session details for ${modelName}`}
+                    onClick={(event) => {
+                      if (
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey
+                      )
+                        return;
+                      event.preventDefault();
+                      onOpenSession(session.sessionId);
+                    }}
+                  >
+                    <span className={`agent-mark ${session.agent}`}>
+                      {session.agent.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="session-main">
+                      <b>{modelName}</b>
+                      <small>{session.cwd ?? session.period}</small>
+                    </span>
+                    <span className="path-tags">
+                      {session.pathTags.slice(0, 2).map((tag) => (
+                        <i key={tag}>{tag}</i>
+                      ))}
+                    </span>
+                    <span className="session-metric">
+                      <b>{formatCompact(session.totalTokens)}</b>
+                      <small>{formatMoney(session.totalCost)}</small>
+                    </span>
+                    <ChevronRight aria-hidden="true" />
+                  </a>
+                  <button
+                    type="button"
+                    className="recent-session__tag"
+                    onClick={() => onTagSession(session)}
+                    aria-label={`Edit tags and notes for ${modelName}`}
+                    aria-describedby={tooltipId}
+                  >
+                    <Tag aria-hidden="true" />
+                    <span
+                      className="recent-session__tag-tooltip"
+                      id={tooltipId}
+                      role="tooltip"
+                    >
+                      Add or edit tags and notes for this session
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </article>
       </section>
@@ -5217,7 +5254,8 @@ export function App() {
               agent={agent}
               metricRange={days}
               onMetricRangeChange={setDays}
-              onSession={setSession}
+              onOpenSession={openSession}
+              onTagSession={setSession}
               accent={accent}
               providerColors={providerColors}
               sceneEffects={sceneEffects}
