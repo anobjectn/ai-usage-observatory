@@ -7,6 +7,30 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-25
+
+### Added
+
+- Surface Anthropic usage credits, prepaid balance, and credit provenance from
+  quota-service across the Overview and Sources views (usage-credit spend,
+  prepaid balance, and a grouped Fable transition credit; money formatted per
+  each object's currency).
+- Add a Claude Web credit import workflow: a localhost-proxied modal, launchable
+  from the Overview card and Sources, that updates the imported credit snapshot
+  and refreshes the dashboard on success. It never handles browser credentials,
+  and a rejected import leaves prior data intact.
+- Expand the Sources quota card into three evidence groups — live provider API,
+  imported Claude Web credits (with the 403 boundary and support links), and
+  local quota history — each with bounded, scrollable raw evidence.
+- Track imported-credit freshness (aging at 24h, stale at 7d) independently of
+  live provider freshness.
+
+### Removed
+
+- Remove the unused Personal Budget card and its month/target computations from
+  the Sources view. The stored monthlyBudget setting is retained so the panel
+  can be reinstated later without data loss.
+
 ## [1.3.0] - 2026-07-25
 
 ### Added
@@ -97,7 +121,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.0.0...v1.1.0
