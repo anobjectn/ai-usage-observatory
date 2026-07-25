@@ -91,7 +91,7 @@ export function InformationSources({ data }: { data: DashboardData }) {
           </a>
           <span>
             v{data.ccusageVersion} by ryoppippi · MIT · local usage analytics
-            and offline price estimates
+            and published-rate price estimates
           </span>
         </li>
         <li>

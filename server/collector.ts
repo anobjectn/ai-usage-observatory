@@ -22,7 +22,8 @@ function accumulateModel<T>(models: Map<string, T>, model: ModelUsage, create: (
   return current;
 }
 
-function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unified"]["daily"]) {
+function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unified"]["daily"], unpricedModels: string[] = []) {
+  const unpriced = new Set(unpricedModels);
   const models = new Map<string, {model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;agents:Set<string>}>();
   for (const row of rows) for (const agent of row.agents ?? []) for (const model of agent.modelBreakdowns) {
     const current = accumulateModel(models, model, () => ({ model: model.modelName, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, agents: new Set<string>() }), (current, entry) => {
@@ -35,7 +36,11 @@ function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unifi
     current.agents.add(agent.agent);
     models.set(model.modelName, current);
   }
-  return [...models.values()].map((model) => ({ ...model, agents: [...model.agents] })).sort((a, b) => b.cost - a.cost);
+  // Unpriced models carry cost 0, so a plain cost sort buries the very models whose cost is
+  // unknown at the bottom of the list, reading as "cheapest". Float them to the top instead.
+  return [...models.values()]
+    .map((model) => ({ ...model, agents: [...model.agents], priced: !unpriced.has(model.model) }))
+    .sort((a, b) => Number(a.priced) - Number(b.priced) || b.cost - a.cost || b.tokens - a.tokens);
 }
 
 type ProjectActivitySession = {
@@ -159,12 +164,20 @@ async function buildSnapshot() {
     projectActivity: aggregateProjectActivity(sessions),
     blocks: ccusage.blocks.blocks,
     projects: aggregateProjects(sessions),
-    models: aggregateModels(ccusage.unified.daily),
+    models: aggregateModels(ccusage.unified.daily, ccusage.unpricedModels),
+    unpricedModels: ccusage.unpricedModels,
     quotas: quota,
     rules: listRules(),
     settings: getSettings(),
     sources: [
-      { name: "ccusage", status: "healthy", detail: `Pinned v${ccusage.version} · offline pricing`, kind: "local analytics" },
+      {
+        name: "ccusage",
+        status: ccusage.unpricedModels.length ? "degraded" : "healthy",
+        detail: ccusage.unpricedModels.length
+          ? `Pinned v${ccusage.version} · no pricing for ${ccusage.unpricedModels.join(", ")} — cost totals exclude these models`
+          : `Pinned v${ccusage.version} · live pricing`,
+        kind: "local analytics",
+      },
       { name: "Path index", status: "healthy", detail: `${sessions.filter((session) => session.cwd).length} sessions joined · metadata only`, kind: "local metadata" },
       { name: "quota-service", status: quota.available ? "healthy" : "unavailable", detail: quota.available ? "Provider-reported limits connected" : quota.error, kind: "provider quota" },
     ],

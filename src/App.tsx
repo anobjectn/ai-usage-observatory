@@ -3970,15 +3970,23 @@ function Models({
                 </div>
               </div>
               <div className="model-cost">
-                <strong>{formatMoney(model.cost)}</strong>
-                <span>API-equivalent</span>
+                <strong className={model.priced ? undefined : "unpriced"}>
+                  {model.priced ? formatMoney(model.cost) : "Pricing unavailable"}
+                </strong>
+                <span>
+                  {model.priced ? "API-equivalent" : "no rate card in ccusage"}
+                </span>
               </div>
-              <div className="meter">
+              <div className={`meter${model.priced ? "" : " meter--unpriced"}`}>
                 <i
-                  style={{
-                    width: `${(model.cost / max) * 100}%`,
-                    background: palette[index % palette.length],
-                  }}
+                  style={
+                    model.priced
+                      ? {
+                          width: `${(model.cost / max) * 100}%`,
+                          background: palette[index % palette.length],
+                        }
+                      : { width: "100%" }
+                  }
                 />
               </div>
               <dl>
@@ -5072,6 +5080,10 @@ export function App() {
     );
   if (!data) return null;
   const current = nav.find((item) => item.id === view)!;
+  const pricingIncomplete = Boolean(data.unpricedModels?.length);
+  const sideStatusLabel = pricingIncomplete
+    ? "Cost data incomplete"
+    : "Local systems nominal";
   return (
     <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <aside className={sidebar ? "open" : ""}>
@@ -5124,13 +5136,15 @@ export function App() {
         </nav>
         <div
           className="side-status"
-          data-tooltip={`Local systems nominal — ccusage v${data.ccusageVersion}`}
-          aria-label={`Local systems nominal, ccusage version ${data.ccusageVersion}`}
+          data-tooltip={`${sideStatusLabel} — ccusage v${data.ccusageVersion}`}
+          aria-label={`${sideStatusLabel}, ccusage version ${data.ccusageVersion}`}
           tabIndex={sidebarCollapsed ? 0 : undefined}
         >
-          <span className="status-dot healthy" />
+          <span
+            className={`status-dot ${pricingIncomplete ? "degraded" : "healthy"}`}
+          />
           <div>
-            <b>Local systems nominal</b>
+            <b>{sideStatusLabel}</b>
             <small>ccusage v{data.ccusageVersion}</small>
           </div>
         </div>
@@ -5243,6 +5257,13 @@ export function App() {
         {data.refresh.stale && (
           <div className="stale-banner">
             Showing the last successful collection. {data.refresh.lastError}
+          </div>
+        )}
+        {Boolean(data.unpricedModels?.length) && (
+          <div className="stale-banner">
+            ccusage has no pricing for {data.unpricedModels.join(", ")}. Token
+            counts are complete, but every cost figure below excludes{" "}
+            {data.unpricedModels.length > 1 ? "these models" : "this model"}.
           </div>
         )}
         <div className="content">
