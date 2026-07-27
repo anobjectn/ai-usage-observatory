@@ -11,7 +11,7 @@ export function AllowanceProfiles({ profiles }: { profiles: ProfileCard[] }) {
           <span className="overline">SUBSCRIPTION ALLOWANCE</span>
           <h2>Did the included capacity get used?</h2>
         </div>
-        <p>
+        <p className="allowance-profiles__intro">
           Graded per provider from locally observed quota history, never blended. The session facets
           below do not change these scores — they read the quota meter, not your sessions.
         </p>
