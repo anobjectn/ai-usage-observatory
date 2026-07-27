@@ -87,9 +87,11 @@ changelogs retain their own archived copies.
   </tr>
 </table>
 
-<video src="docs/screenshots/AIUO-visual-status.mp4" controls muted loop width="100%"></video>
+<a href="docs/screenshots/AIUO-visual-status.mp4">
+  <img src="docs/screenshots/AIUO-visual-status.png" width="100%" alt="Usage headroom by provider at a glance">
+</a>
 
-<sub>Usage headroom by provider, at a glance</sub>
+<sub>Usage headroom by provider, at a glance — click to play the video</sub>
 
 To refresh this Data image without a personal Chrome profile or browser tabs,
 run `bun run screenshot:data`. It captures the Data view at a fixed 1558 × 1072
