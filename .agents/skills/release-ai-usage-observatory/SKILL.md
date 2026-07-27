@@ -12,6 +12,12 @@ Do not require the user to cite the runbook or repeat its instructions. Apply it
 preparation phase, review gate, execution procedure, routing rules, and stop
 conditions automatically.
 
+During preparation, inspect the README's project-at-a-glance badge group. Verify
+each badge against its local source of truth, including the target version. If
+the group is missing or inaccurate, include a proposed README update in the
+review bundle and release mutations. Do not create or edit badges until the user
+approves the complete bundle and exact version.
+
 Treat a new release request or version number as preparation, not approval.
 Execute only after the user explicitly approves the complete review bundle and
 exact version.

@@ -34,6 +34,11 @@ The review bundle must contain:
   are none;
 - the verification commands and release mutations that execution will perform.
 
+Also inspect the README project-at-a-glance badge group during preparation.
+Verify every badge against its local source of truth and the approved target
+version. If it is missing or inaccurate, include the exact proposed README
+update in the review bundle; apply it only after approval.
+
 Execution begins only after the user explicitly approves this complete bundle
 and its exact version. If any detail changes, the agent must present the revised
 bundle and obtain approval again.
@@ -140,11 +145,11 @@ git diff --check
 If any command fails, stop and report the failure. Do not tag or publish a
 partially verified release.
 
-Review the final release diff and confirm it contains only the intended version
-and changelog changes:
+Review the final release diff and confirm it contains only the intended version,
+changelog, and any approved README badge changes:
 
 ```bash
-git diff -- package.json CHANGELOG.md
+git diff -- package.json CHANGELOG.md README.md
 git status --short
 ```
 
