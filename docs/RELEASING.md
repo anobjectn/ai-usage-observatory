@@ -110,10 +110,12 @@ git diff --stat v<current>..HEAD
 ```
 
 Update `CHANGELOG.md` from both the Unreleased entries and the complete commit
-review. Add a dated `## [<target>] - YYYY-MM-DD` section, retain an empty
-`## [Unreleased]` section at the top, and update the comparison links at the
-bottom. Group entries under Added, Changed, Fixed, Removed, Deprecated, or
-Security as applicable, omitting empty groups.
+review. Add a dated `## [<target>] - YYYY-MM-DD` section and update the
+comparison links at the bottom. Retain `## [Unreleased]` at the top only when it
+has entries; omit the heading when there are no unreleased changes so it never
+runs directly into the latest release heading. Group entries under Added,
+Changed, Fixed, Removed, Deprecated, or Security as applicable, omitting empty
+groups.
 
 Use the approved changelog section as the basis for concise GitHub release notes
 with these headings when applicable:
