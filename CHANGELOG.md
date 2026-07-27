@@ -7,6 +7,32 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-26
+
+### Added
+
+- Rebuild the Sources view around provider-specific allowance intelligence,
+  including graded capture profiles, quota signals, efficiency measures, usage
+  outliers, and session facets.
+- Add a deterministic, tab-free Data screenshot capture and release archiving
+  command.
+
+### Changed
+
+- Refresh the README Data screenshot and preserve its reviewed v1.5.0 copy in
+  the changelog.
+
+### Fixed
+
+- Balance the subscription-allowance explanation text without changing other
+  section descriptions.
+
+### Screenshots
+
+<a href="docs/screenshots/releases/v1.5.0/6.data-intelligence.png">
+  <img src="docs/screenshots/releases/v1.5.0/6.data-intelligence.png" width="100%" alt="Data view with provider-specific allowance intelligence">
+</a>
+
 ## [1.4.0] - 2026-07-25
 
 ### Added
@@ -121,7 +147,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.1.0...v1.2.0
