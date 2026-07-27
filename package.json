@@ -7,6 +7,8 @@
     "dev": "bun run scripts/dev.ts",
     "dev:server": "bun --watch server/index.ts",
     "dev:client": "vite",
+    "screenshot:data": "bun run scripts/capture-data-screenshot.ts",
+    "screenshot:archive": "bun run scripts/capture-data-screenshot.ts",
     "build": "vite build",
     "start": "bun run server/index.ts",
     "test": "bun test",

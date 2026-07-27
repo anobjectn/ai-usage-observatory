@@ -35,7 +35,8 @@ Open `http://127.0.0.1:4318`.
 
 ## Screenshots
 
-Click any image for full size. (these are 1.0.0 screens)
+Click any image for full size. The README gallery uses current captures; release
+changelogs retain their own archived copies.
 
 <a href="docs/screenshots/1.dashboard.png">
   <img src="docs/screenshots/1.dashboard.png" width="100%" alt="Overview dashboard with subscription windows and usage trajectory">
@@ -72,10 +73,10 @@ Click any image for full size. (these are 1.0.0 screens)
   </tr>
   <tr>
     <td width="50%">
-      <a href="docs/screenshots/6.data-provenance.png">
-        <img src="docs/screenshots/6.data-provenance.png" width="100%" alt="Data provenance with source separation and data source health">
+      <a href="docs/screenshots/6.data-intelligence.png">
+        <img src="docs/screenshots/6.data-intelligence.png" width="100%" alt="Data view with provider-specific allowance intelligence">
       </a>
-      <sub>Sources — provenance and data source health</sub>
+      <sub>Data — provider-specific allowance intelligence</sub>
     </td>
     <td width="50%">
       <a href="docs/screenshots/7.appearance.png">
@@ -85,6 +86,12 @@ Click any image for full size. (these are 1.0.0 screens)
     </td>
   </tr>
 </table>
+
+To refresh this Data image without a personal Chrome profile or browser tabs,
+run `bun run screenshot:data`. It captures the Data view at a fixed 1558 × 1072
+CSS-pixel viewport. Before a release, preserve the reviewed image with
+`bun run screenshot:archive -- vX.Y.Z`; the changelog must use that archived
+copy instead of the rolling README image.
 
 ## What you get
 
