@@ -9,9 +9,12 @@ const defaultHistoryDbPath = join(homedir(), ".quota-service", "quota.db");
 type SnapshotHistoryRow = { provider: string; capturedAt: number; snapshotJson: string | null };
 type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
 type ResetCreditHistory = { id?: string; title?: string | null; status?: string | null; expiresAt?: string | null };
+export type QuotaSeriesPoint = { provider: "anthropic" | "codex"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
 
 export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetRows: ResetHistoryRow[]) {
   const reachedCycles = new Map<string, Map<string, number>>();
+  const series: QuotaSeriesPoint[] = [];
+  const seenBuckets = new Set<string>();
   let trackingSince: number | null = null;
   for (const row of snapshotRows) {
     trackingSince = trackingSince === null ? row.capturedAt : Math.min(trackingSince, row.capturedAt);
@@ -19,10 +22,18 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
     try {
       const snapshot = JSON.parse(row.snapshotJson) as { kind?: string; fiveHour?: {usedPercent?:number;resetsAt?:number|null}|null; weekly?: {usedPercent?:number;resetsAt?:number|null}|null };
       if (snapshot.kind !== "window") continue;
+      if (row.provider !== "anthropic" && row.provider !== "codex") continue;
       for (const [window, value] of [["fiveHour", snapshot.fiveHour], ["weekly", snapshot.weekly]] as const) {
-        if (!value || Number(value.usedPercent) < 100) continue;
+        if (!value || !Number.isFinite(Number(value.usedPercent))) continue;
+        const cycleId = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
+        const bucket = `${row.provider}:${window}:${Math.floor(row.capturedAt / 300_000)}`;
+        if (!seenBuckets.has(bucket)) {
+          seenBuckets.add(bucket);
+          series.push({ provider: row.provider, window, capturedAt: row.capturedAt, usedPercent: Number(value.usedPercent), resetsAt: value.resetsAt ?? null, cycleId });
+        }
+        if (Number(value.usedPercent) < 100) continue;
         const key = `${row.provider}:${window}`;
-        const cycle = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
+        const cycle = cycleId;
         const cycles = reachedCycles.get(key) ?? new Map<string, number>();
         const firstObservedAt = cycles.get(cycle);
         if (firstObservedAt === undefined || row.capturedAt < firstObservedAt) {
@@ -70,15 +81,15 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
     };
   }));
   const used = [...usedResets.values()].sort((left, right) => right.usedAt - left.usedAt);
-  return { available: snapshotRows.length > 0 || resetRows.length > 0, trackingSince, windows, codexBankedResets: { usedCount: used.length, used } };
+  return { available: snapshotRows.length > 0 || resetRows.length > 0, trackingSince, windows, series, codexBankedResets: { usedCount: used.length, used } };
 }
 
 function collectQuotaHistory() {
   try {
     const host = new URL(baseUrl).hostname;
-    if (!process.env.QUOTA_DB_PATH && host !== "127.0.0.1" && host !== "localhost") return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0, used: [] } };
+    if (!process.env.QUOTA_DB_PATH && host !== "127.0.0.1" && host !== "localhost") return { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } };
     const dbPath = process.env.QUOTA_DB_PATH ?? defaultHistoryDbPath;
-    if (!existsSync(dbPath)) return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0, used: [] } };
+    if (!existsSync(dbPath)) return { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } };
     const db = new Database(dbPath, { readonly: true });
     try {
       const snapshotRows = db.query("SELECT provider, captured_at AS capturedAt, snapshot_json AS snapshotJson FROM snapshots WHERE status IN ('ok', 'stale') ORDER BY captured_at").all() as SnapshotHistoryRow[];
@@ -86,7 +97,7 @@ function collectQuotaHistory() {
       return summarizeQuotaHistory(snapshotRows, resetRows);
     } finally { db.close(); }
   } catch {
-    return { available: false, trackingSince: null, windows: [], codexBankedResets: { usedCount: 0, used: [] } };
+    return { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } };
   }
 }
 

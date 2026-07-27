@@ -91,6 +91,8 @@ import {
   PageTitle,
   Segmented,
 } from "./views/chrome";
+import { UsageIntelligence } from "./views/data/intelligence";
+import type { DataFacets } from "./views/data/insights";
 
 type View =
   "overview" | "explorer" | "sessions" | "projects" | "models" | "sources";
@@ -104,7 +106,7 @@ const nav: Array<{ id: View; label: string; icon: typeof Orbit }> = [
   { id: "sessions", label: "Sessions", icon: Layers3 },
   { id: "projects", label: "Projects", icon: FolderGit2 },
   { id: "models", label: "Models", icon: Atom },
-  { id: "sources", label: "Sources", icon: Gauge },
+  { id: "sources", label: "Data", icon: Gauge },
 ];
 const palette = [
   "#b7f25c",
@@ -4147,6 +4149,10 @@ function Models({
                   <dt>Cache read</dt>
                   <dd>{formatCompact(model.cacheReadTokens)}</dd>
                 </div>
+                <div>
+                  <dt>Cache write</dt>
+                  <dd>{formatCompact(model.cacheCreationTokens)}</dd>
+                </div>
               </dl>
               <button
                 type="button"
@@ -4481,22 +4487,46 @@ function Sources({
   data,
   onRules,
   onUpdateWebCredits,
+  days,
+  provider,
+  pathTag,
+  showCache,
+  facets,
+  onFacets,
+  onOpenSession,
 }: {
   data: DashboardData;
   onRules: () => void;
   onUpdateWebCredits: () => void;
+  days: string;
+  provider: string;
+  pathTag: string;
+  showCache: boolean;
+  facets: DataFacets;
+  onFacets: (next: Partial<DataFacets>) => void;
+  onOpenSession: (sessionId: string) => void;
 }) {
   return (
     <div className="view-stack page-enter">
       <PageTitle
-        eyebrow="DATA PROVENANCE"
-        title="Where numbers come from."
-        description="Provider quota and locally reconstructed activity stay intentionally separate."
+        eyebrow="USAGE INTELLIGENCE & PROVENANCE"
+        title="Usage intelligence & provenance."
+        description="Local activity and provider allowances remain explicitly separate."
         actions={
           <button className="secondary-button" onClick={onRules}>
             <Tag /> Path rules
           </button>
         }
+      />
+      <UsageIntelligence
+        data={data}
+        days={days}
+        provider={provider}
+        pathTag={pathTag}
+        showCache={showCache}
+        facets={facets}
+        onFacets={onFacets}
+        onOpenSession={onOpenSession}
       />
       <section className="sources-grid">
         <article className="panel distinction">
@@ -5462,6 +5492,11 @@ function RulesModal({
 export function App() {
   const { data: collectedData, error, loading, load } = useDashboard();
   const [showCache, setShowCache] = useState(true);
+  const [dataFacets, setDataFacets] = useState<DataFacets>({
+    outliers: "all",
+    modelFamily: "all",
+    finding: "all",
+  });
   const data = useMemo(
     () =>
       collectedData && !showCache
@@ -5764,7 +5799,7 @@ export function App() {
             <b>{current.label}</b>
           </div>
           <div className="global-controls">
-            {view !== "models" && view !== "sources" && (
+            {view !== "models" && (
               <>
                 {view !== "projects" && (
                   <label className="global-filter global-filter--agent">
@@ -5814,7 +5849,7 @@ export function App() {
                 )}
               </>
             )}
-            {view !== "sources" && (
+            {view !== "overview" && (
               <label
                 className="cache-control"
                 data-tooltip="Includes cache read and creation tokens in usage graphs and session, project, and model totals. Cost estimates, cache metrics, and the recent five-hour block are unchanged."
@@ -5908,6 +5943,15 @@ export function App() {
               data={data}
               onRules={() => setRules(true)}
               onUpdateWebCredits={() => setWebImport(true)}
+              days={days}
+              provider={agent}
+              pathTag={pathTag}
+              showCache={showCache}
+              facets={dataFacets}
+              onFacets={(next) =>
+                setDataFacets((current) => ({ ...current, ...next }))
+              }
+              onOpenSession={openSession}
             />
           )}
         </div>

@@ -1,40 +1,13 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { runMigrations } from "./migrations";
 
 const dbPath = process.env.USAGE_OBSERVATORY_DB ?? join(process.cwd(), ".usage-observatory", "data.db");
 mkdirSync(dirname(dbPath), { recursive: true });
 export const db = new Database(dbPath, { create: true });
 db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS path_rules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pattern TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK(kind IN ('glob','regex')),
-    tag TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS session_paths (
-    session_id TEXT PRIMARY KEY,
-    agent TEXT NOT NULL,
-    native_session_key TEXT NOT NULL,
-    source_file TEXT NOT NULL,
-    cwd TEXT,
-    source_mtime REAL NOT NULL,
-    indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE INDEX IF NOT EXISTS session_paths_native ON session_paths(agent, native_session_key);
-  CREATE TABLE IF NOT EXISTS annotations (
-    session_id TEXT PRIMARY KEY,
-    tags TEXT NOT NULL DEFAULT '[]',
-    note TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-`);
+runMigrations(db);
 
 // Seed defaults only into a brand-new database; a user deleting a seeded rule must stick.
 const count = db.query("SELECT COUNT(*) AS count FROM path_rules").get() as { count: number };
@@ -86,4 +59,35 @@ export function getSettings() {
 export function setSettings(settings: Record<string, string | number | boolean>) {
   const query = db.query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
   db.transaction(() => Object.entries(settings).forEach(([key, value]) => query.run(key, String(value))))();
+}
+
+export type StoredAdvice = {
+  id: number; ruleId: string; dedupeKey: string; severity: "notice" | "opportunity" | "urgent";
+  scope: Record<string, string>; evidence: Record<string, number | string>;
+  detectedAt: string; lastSeenAt: string; state: "active" | "dismissed" | "snoozed" | "resolved" | "expired";
+  snoozedUntil: string | null; resolvedAt: string | null;
+};
+
+function adviceRow(row: Record<string, unknown>): StoredAdvice {
+  return { id: Number(row.id), ruleId: String(row.rule_id), dedupeKey: String(row.dedupe_key), severity: row.severity as StoredAdvice["severity"], scope: JSON.parse(String(row.scope_json)), evidence: JSON.parse(String(row.evidence_json)), detectedAt: String(row.detected_at), lastSeenAt: String(row.last_seen_at), state: row.state as StoredAdvice["state"], snoozedUntil: row.snoozed_until ? String(row.snoozed_until) : null, resolvedAt: row.resolved_at ? String(row.resolved_at) : null };
+}
+
+export function listAdvice(state?: string) {
+  const sql = state ? "SELECT * FROM usage_advice WHERE state = ? ORDER BY last_seen_at DESC" : "SELECT * FROM usage_advice ORDER BY last_seen_at DESC";
+  return (state ? db.query(sql).all(state) : db.query(sql).all()).map((row) => adviceRow(row as Record<string, unknown>));
+}
+
+export function upsertAdvice(input: Omit<StoredAdvice, "id" | "detectedAt" | "lastSeenAt" | "state" | "snoozedUntil" | "resolvedAt">) {
+  const now = new Date().toISOString();
+  db.query(`INSERT INTO usage_advice (rule_id, dedupe_key, severity, scope_json, evidence_json, detected_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(rule_id, dedupe_key) DO UPDATE SET severity=excluded.severity, scope_json=excluded.scope_json, evidence_json=excluded.evidence_json, last_seen_at=excluded.last_seen_at`).run(input.ruleId, input.dedupeKey, input.severity, JSON.stringify(input.scope), JSON.stringify(input.evidence), now, now);
+  return adviceRow(db.query("SELECT * FROM usage_advice WHERE rule_id = ? AND dedupe_key = ?").get(input.ruleId, input.dedupeKey) as Record<string, unknown>);
+}
+
+export function updateAdviceState(id: number, state: StoredAdvice["state"], snoozedUntil: string | null = null) {
+  const now = new Date().toISOString();
+  db.query("UPDATE usage_advice SET state = ?, snoozed_until = ?, resolved_at = ? WHERE id = ?").run(state, snoozedUntil, state === "resolved" ? now : null, id);
+  db.query("INSERT INTO usage_advice_events (advice_id, event, metadata_json) VALUES (?, ?, ?)").run(id, state, JSON.stringify(snoozedUntil ? { snoozedUntil } : {}));
+  const row = db.query("SELECT * FROM usage_advice WHERE id = ?").get(id);
+  return row ? adviceRow(row as Record<string, unknown>) : null;
 }

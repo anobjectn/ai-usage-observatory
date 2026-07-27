@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { getSnapshot, refresh } from "./collector";
+import { buildInsights, resolveScope } from "./insights";
 import { importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
-import { createRule, deleteRule, getSettings, listRules, setAnnotation, setSettings, updateRule } from "./store";
+import { createRule, deleteRule, getSettings, listAdvice, listRules, setAnnotation, setSettings, updateAdviceState, updateRule } from "./store";
 
 const port = Number(process.env.PORT ?? 4318);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -37,6 +38,24 @@ function isWithin(directory: string, target: string) {
 async function api(request: Request, url: URL) {
   const path = url.pathname;
   if (request.method === "GET" && path === "/api/dashboard") return dashboard(request, await getSnapshot());
+  if (request.method === "GET" && path === "/api/insights") {
+    const snapshot = await getSnapshot();
+    const scope = resolveScope(url.searchParams);
+    const key = `\"${snapshot.collectedAt}:${JSON.stringify(scope)}\"`;
+    if (request.headers.get("if-none-match") === key) return new Response(null, { status: 304, headers: { "Cache-Control": "private, no-cache", ETag: key } });
+    return Response.json(buildInsights(snapshot as unknown as import("../src/types").DashboardData, scope), { headers: { "Cache-Control": "private, no-cache", ETag: key } });
+  }
+  if (request.method === "GET" && path === "/api/advice") return json(listAdvice(url.searchParams.get("state") ?? "active"));
+  if (request.method === "GET" && path === "/api/advice/log") return json(listAdvice());
+  const adviceMatch = path.match(/^\/api\/advice\/(\d+)\/(dismiss|snooze|feedback)$/);
+  if (adviceMatch && request.method === "POST") {
+    const action = adviceMatch[2];
+    const input = await body(request);
+    if (action === "feedback") return json(updateAdviceState(Number(adviceMatch[1]), "dismissed"));
+    const until = action === "snooze" && input.snoozedUntil ? String(input.snoozedUntil) : null;
+    if (action === "snooze" && !until) return errorResponse("snoozedUntil is required", 400);
+    return json(updateAdviceState(Number(adviceMatch[1]), action === "snooze" ? "snoozed" : "dismissed", until));
+  }
   if (request.method === "POST" && path === "/api/refresh") return json(await refresh());
   if (request.method === "POST" && path === "/api/quotas/anthropic-web-import") {
     let payload: Record<string, unknown>;

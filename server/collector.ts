@@ -3,6 +3,8 @@ import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths } from "./path-indexer";
 import { getAnnotations, getSettings, listRules } from "./store";
+import { buildInsights, resolveScope } from "./insights";
+import { reconcileAdvice } from "./advice";
 
 type Snapshot = Awaited<ReturnType<typeof buildSnapshot>>;
 let snapshot: Snapshot | null = null;
@@ -22,16 +24,17 @@ function accumulateModel<T>(models: Map<string, T>, model: ModelUsage, create: (
   return current;
 }
 
-function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unified"]["daily"], unpricedModels: string[] = []) {
+export function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unified"]["daily"], unpricedModels: string[] = []) {
   const unpriced = new Set(unpricedModels);
-  const models = new Map<string, {model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;agents:Set<string>}>();
+  const models = new Map<string, {model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:Set<string>}>();
   for (const row of rows) for (const agent of row.agents ?? []) for (const model of agent.modelBreakdowns) {
-    const current = accumulateModel(models, model, () => ({ model: model.modelName, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, agents: new Set<string>() }), (current, entry) => {
+    const current = accumulateModel(models, model, () => ({ model: model.modelName, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, agents: new Set<string>() }), (current, entry) => {
       current.tokens += modelTokens(entry);
       current.cost += entry.cost;
       current.inputTokens += entry.inputTokens;
       current.outputTokens += entry.outputTokens;
       current.cacheReadTokens += entry.cacheReadTokens;
+      current.cacheCreationTokens += entry.cacheCreationTokens;
     });
     current.agents.add(agent.agent);
     models.set(model.modelName, current);
@@ -186,7 +189,15 @@ async function buildSnapshot() {
 
 export async function refresh() {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = buildSnapshot().then((next) => { snapshot = next; lastError = null; return next; }).catch((error) => {
+  refreshPromise = buildSnapshot().then((next) => { snapshot = next; lastError = null;
+    queueMicrotask(() => {
+      // Advice is evaluated against the default, unfaceted scope so it cannot depend on what a
+      // browser happens to be looking at.
+      try { reconcileAdvice(buildInsights(next as unknown as import("../src/types").DashboardData, resolveScope(new URLSearchParams()))); }
+      catch { /* Advice is best-effort; a failed rule must never invalidate a collection. */ }
+    });
+    return next;
+  }).catch((error) => {
     lastError = error instanceof Error ? error.message : String(error);
     if (snapshot) return snapshot;
     throw error;
