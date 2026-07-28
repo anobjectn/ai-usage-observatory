@@ -359,6 +359,17 @@ const formatDate = (value: string) =>
     hour: "numeric",
     minute: "2-digit",
   });
+const formatPromptTimestamp = (value: string | null) =>
+  value
+    ? new Date(value).toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+    : "Time unavailable";
 const friendlyProject = (value: string) =>
   value.startsWith("/")
     ? (value.split("/").filter(Boolean).at(-1) ?? value)
@@ -2821,6 +2832,9 @@ function SessionDetailPanel({
   detail?: SessionDetail;
   loading: boolean;
 }) {
+  const [promptOrder, setPromptOrder] = useState<"newest" | "oldest">(
+    "oldest",
+  );
   if (loading)
     return (
       <div className="session-detail session-detail--loading">
@@ -2843,6 +2857,8 @@ function SessionDetailPanel({
           model.cacheCreationTokens,
       }))
     : session.modelsUsed.map((modelName) => ({ modelName, tokens: null }));
+  const prompts =
+    promptOrder === "newest" ? [...detail.prompts].reverse() : detail.prompts;
   return (
     <div className="session-detail">
       <div className="session-detail__summary">
@@ -2869,20 +2885,38 @@ function SessionDetailPanel({
         </div>
       </div>
       <div className="session-detail__grid">
-        <section className="session-detail__section session-prompts">
+        <section className="session-detail__section session-detail__section--scroll session-prompts">
           <div className="session-detail__head">
             <span className="overline">PROMPTS</span>
-            <small>
-              {detail.prompts.length
-                ? "Most recent first"
-                : "No prompt events detected"}
-            </small>
+            {detail.prompts.length ? (
+              <button
+                type="button"
+                className="prompt-order"
+                onClick={() =>
+                  setPromptOrder((current) =>
+                    current === "newest" ? "oldest" : "newest",
+                  )
+                }
+                aria-label={`Show prompts ${promptOrder === "newest" ? "oldest" : "newest"} first`}
+              >
+                {promptOrder === "newest" ? "Newest first ↓" : "Oldest first ↑"}
+              </button>
+            ) : (
+              <small>No prompt events detected</small>
+            )}
           </div>
           {detail.prompts.length ? (
             <ol>
-              {detail.prompts.map((prompt, index) => (
-                <li key={`${index}-${prompt.slice(0, 24)}`}>
-                  <pre>{prompt}</pre>
+              {prompts.map((prompt, index) => (
+                <li key={`${index}-${prompt.text.slice(0, 24)}`}>
+                  <time
+                    className="session-prompt-time"
+                    dateTime={prompt.timestamp ?? undefined}
+                    title={prompt.timestamp ?? undefined}
+                  >
+                    {formatPromptTimestamp(prompt.timestamp)}
+                  </time>
+                  <pre>{prompt.text}</pre>
                 </li>
               ))}
             </ol>
@@ -2890,7 +2924,7 @@ function SessionDetailPanel({
             <p>Prompt text was not available in this session format.</p>
           )}
         </section>
-        <section className="session-detail__section">
+        <section className="session-detail__section session-detail__section--scroll">
           <div className="session-detail__head">
             <span className="overline">TOOLS</span>
             <small>
@@ -2936,7 +2970,7 @@ function SessionDetailPanel({
             <p>File changes are detected from structured patch calls only.</p>
           )}
         </section>
-        <section className="session-detail__section">
+        <section className="session-detail__section session-detail__section--scroll">
           <div className="session-detail__head">
             <span className="overline">MODEL MIX</span>
             <small>
@@ -5727,19 +5761,24 @@ export function App() {
     <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <aside className={sidebar ? "open" : ""}>
         <div className="brand">
-          <button
-            type="button"
-            className="brand-home"
-            onClick={() => navigateToView("overview")}
-            aria-label="Go to Overview"
+          <a
+            className={`brand-home${view === "overview" ? " active" : ""}`}
+            href={viewHref("overview")}
+            onClick={(event) => {
+              event.preventDefault();
+              navigateToView("overview");
+            }}
+            aria-current={view === "overview" ? "page" : undefined}
           >
-            <Orbit />
-          </button>
-          <div>
-            <b>AI Usage</b>
-            <small>OBSERVATORY</small>
-            <em className="brand-version">v{appVersion}</em>
-          </div>
+            <span className="brand-orbit">
+              <Orbit />
+            </span>
+            <span className="brand-label">
+              <b>AI Usage</b>
+              <small>OBSERVATORY</small>
+              <em className="brand-version">v{appVersion}</em>
+            </span>
+          </a>
           <button
             className="sidebar-close"
             onClick={() => setSidebar(false)}

@@ -4,10 +4,11 @@ import { stat } from "node:fs/promises";
 type JsonRecord = Record<string, unknown>;
 type ToolCall = { name: string; count: number };
 type FileChange = { path: string; status: "added" | "modified" | "deleted" };
+type Prompt = { text: string; timestamp: string | null };
 
 export type SessionDetail = {
   available: boolean;
-  prompts: string[];
+  prompts: Prompt[];
   tools: ToolCall[];
   files: FileChange[];
   additions: number;
@@ -57,6 +58,14 @@ function promptFrom(row: JsonRecord) {
   }
   prompt = prompt.trim();
   return syntheticPromptWrappers.some((wrapper) => wrapper.test(prompt)) ? "" : prompt;
+}
+
+function promptTimestamp(row: JsonRecord) {
+  const payload = record(row.payload) ? row.payload : null;
+  const timestamp = row.timestamp ?? payload?.timestamp;
+  return typeof timestamp === "string" && Number.isFinite(Date.parse(timestamp))
+    ? timestamp
+    : null;
 }
 
 function walk(value: unknown, visit: (item: JsonRecord) => void) {
@@ -154,7 +163,7 @@ async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   if (!source || !await Bun.file(source.sourceFile).exists()) return detailUnavailable;
 
   const raw = await Bun.file(source.sourceFile).slice(0, 12_000_000).text();
-  const prompts: string[] = [];
+  const prompts: Prompt[] = [];
   const seenPrompts = new Set<string>();
   const tools = new Map<string, number>();
   const files = new Map<string, FileChange>();
@@ -167,7 +176,10 @@ async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
       const row = JSON.parse(line) as JsonRecord;
       eventsRead++;
       const prompt = promptFrom(row);
-      if (prompt && !seenPrompts.has(prompt)) { seenPrompts.add(prompt); prompts.push(prompt.slice(0, 2_000)); }
+      if (prompt && !seenPrompts.has(prompt)) {
+        seenPrompts.add(prompt);
+        prompts.push({ text: prompt.slice(0, 2_000), timestamp: promptTimestamp(row) });
+      }
       walk(row, (item) => {
         const name = toolName(item);
         if (name) tools.set(name, (tools.get(name) ?? 0) + 1);
@@ -179,7 +191,7 @@ async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   }
   return {
     available: true,
-    prompts: prompts.slice(-8).reverse(),
+    prompts: prompts.slice(-8),
     tools: [...tools.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
     files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)),
     additions: counts.additions,
