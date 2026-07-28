@@ -2,7 +2,7 @@
 
 **Status:** Final — ready to implement
 **Date:** 2026-07-26
-**Supersedes:** `docs/data-sources-usage-introspection-PLAN.md` (draft)
+**Supersedes:** `data-sources-usage-introspection-PLAN.md` (draft)
 **Baseline:** v1.4.0
 **Scope:** Turn the Sources view into a local-first usage-introspection surface,
 with supporting additions to Models, delivered in four independently shippable
