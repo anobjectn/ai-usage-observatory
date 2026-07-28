@@ -5,6 +5,17 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add an All Time range to the dashboard filters and collect the full available
+  local ccusage history when refreshing data.
+
+### Changed
+
+- Refresh the public README's project badges and visual-status preview.
+
 ## [1.5.0] - 2026-07-26
 
 ### Added
