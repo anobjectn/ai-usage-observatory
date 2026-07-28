@@ -7,6 +7,9 @@ describe("insights scope", () => {
   test("clamps the analysis window and keeps unsupported filters harmless", () => {
     expect(resolveScope(new URLSearchParams("range=500&provider=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, provider: "all", pathTag: "all", cache: "include", outliers: "all", modelFamily: "all", finding: "all" });
   });
+  test("accepts all time as an unbounded analysis window", () => {
+    expect(resolveScope(new URLSearchParams("range=all"))).toMatchObject({ rangeDays: null });
+  });
   test("accepts the model-family and finding facets", () => {
     expect(resolveScope(new URLSearchParams("modelFamily=claude-opus-5&finding=missed-clear"))).toMatchObject({ modelFamily: "claude-opus-5", finding: "missed-clear" });
   });

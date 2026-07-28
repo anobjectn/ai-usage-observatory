@@ -97,7 +97,7 @@ import type { DataFacets } from "./views/data/insights";
 type View =
   "overview" | "explorer" | "sessions" | "projects" | "models" | "sources";
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
-type MetricRange = "1" | "7" | "14" | "30" | "120";
+type MetricRange = "1" | "7" | "14" | "30" | "120" | "all";
 type ProjectSummary = DashboardData["projects"][number];
 type ProjectSessionDetail = { session: Session; detail: SessionDetail };
 const nav: Array<{ id: View; label: string; icon: typeof Orbit }> = [
@@ -898,8 +898,9 @@ function metricRangeRows(
   periodOffset = 0,
 ) {
   if (!rows.length) return [];
-  const days = Number(range);
   const sorted = [...rows].sort((a, b) => a.period.localeCompare(b.period));
+  if (range === "all") return periodOffset === 0 ? sorted : [];
+  const days = Number(range);
   const latest = new Date(`${sorted.at(-1)!.period}T12:00:00`);
   const end = new Date(latest);
   end.setDate(end.getDate() - days * periodOffset);
@@ -2282,7 +2283,11 @@ function Overview({
     ? Math.round((previousTotals.cache / previousTotals.traffic) * 100)
     : 0;
   const rangeLabel =
-    metricRange === "1" ? "Latest day" : `Last ${metricRange} days`;
+    metricRange === "all"
+      ? "All time"
+      : metricRange === "1"
+        ? "Latest day"
+        : `Last ${metricRange} days`;
   const periodLabel =
     daily.length === 1
       ? new Date(`${daily[0].period}T12:00:00`).toLocaleDateString(undefined, {
@@ -2325,7 +2330,10 @@ function Overview({
             <span className="overline">SUMMARY & TRAJECTORY</span>
             <h2 id="metric-summary-title">{rangeLabel}</h2>
             <p>
-              {periodLabel} · card trends compare with the previous equal span
+              {periodLabel}
+              {metricRange === "all" && " · totals across all collected history"}
+              {metricRange !== "all" &&
+                " · card trends compare with the previous equal span"}
             </p>
           </div>
           <div className="metric-range">
@@ -2340,6 +2348,7 @@ function Overview({
                 { value: "14", label: "14 days" },
                 { value: "30", label: "30 days" },
                 { value: "120", label: "120 days" },
+                { value: "all", label: "All time" },
               ]}
             />
           </div>
@@ -2612,7 +2621,11 @@ function Explorer({
     );
   }, [data.projectActivity, pathTag, sessions]);
   const rangeLabel =
-    metricRange === "1" ? "LATEST DAY" : `${metricRange}-DAY FIELD`;
+    metricRange === "all"
+      ? "ALL-TIME FIELD"
+      : metricRange === "1"
+        ? "LATEST DAY"
+        : `${metricRange}-DAY FIELD`;
   return (
     <div className="view-stack page-enter">
       <PageTitle
@@ -5844,6 +5857,7 @@ export function App() {
                       { value: "14", label: "14d" },
                       { value: "30", label: "30d" },
                       { value: "120", label: "120d" },
+                      { value: "all", label: "All" },
                     ]}
                   />
                 )}

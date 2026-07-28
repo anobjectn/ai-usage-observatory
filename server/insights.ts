@@ -1,7 +1,7 @@
 import type { DashboardData, Session } from "../src/types";
 
 export type AnalysisScope = {
-  rangeDays: number;
+  rangeDays: number | null;
   provider: "all" | "anthropic" | "codex";
   pathTag: string;
   cache: "include" | "exclude";
@@ -125,12 +125,13 @@ function outlierFlags(rows: InsightSession[]) {
 }
 
 export function resolveScope(input: URLSearchParams): AnalysisScope {
-  const range = Number(input.get("range") ?? 30);
+  const requestedRange = input.get("range");
+  const range = Number(requestedRange ?? 30);
   const requestedProvider = input.get("provider");
   const requestedOutliers = input.get("outliers");
   const requestedFinding = input.get("finding");
   return {
-    rangeDays: Math.max(1, Math.min(120, Number.isFinite(range) ? Math.floor(range) : 30)),
+    rangeDays: requestedRange === "all" ? null : Math.max(1, Math.min(120, Number.isFinite(range) ? Math.floor(range) : 30)),
     provider: requestedProvider === "anthropic" || requestedProvider === "codex" ? requestedProvider : "all",
     pathTag: input.get("pathTag") || "all",
     cache: input.get("cache") === "exclude" ? "exclude" : "include",
@@ -305,12 +306,12 @@ function buildFindings(rows: InsightSession[], rates: Map<string, ModelRate>): E
 }
 
 export function buildInsights(data: DashboardData, scope: AnalysisScope) {
-  const cutoff = Date.now() - scope.rangeDays * 86_400_000;
+  const cutoff = scope.rangeDays === null ? null : Date.now() - scope.rangeDays * 86_400_000;
   const base: InsightSession[] = data.sessions
     .filter((row) => {
       const itemProvider = provider(row.agent);
       const timestamp = Date.parse(String(row.metadata?.lastActivity ?? ""));
-      return itemProvider && (scope.provider === "all" || itemProvider === scope.provider) && (!Number.isFinite(timestamp) || timestamp >= cutoff) && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
+      return itemProvider && (scope.provider === "all" || itemProvider === scope.provider) && (cutoff === null || !Number.isFinite(timestamp) || timestamp >= cutoff) && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
     })
     .map((row) => {
       const dominantModel = [...row.modelBreakdowns].sort((a, b) => modelTokens(b) - modelTokens(a))[0]?.modelName ?? "unknown";
