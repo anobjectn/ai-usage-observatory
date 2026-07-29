@@ -45,33 +45,79 @@ async function parseHead(file: string, agent: "claude" | "codex") {
   return { cwd, nativeKey };
 }
 
+/** One row per transcript that exists right now. The effort backlog is a left join of this
+ * catalog against parser state, so a first enable finds work even when no path changed. */
+export type SessionSource = {
+  sessionId: string;
+  agent: "claude" | "codex";
+  sourceFile: string;
+  mtimeMs: number;
+  size: number;
+  /** Device/inode where the platform exposes it; a change means the path was replaced, not
+   * appended to, and the session must be rebuilt from byte zero. */
+  sourceIdentity: string | null;
+};
+
+export type PathIndexResult = {
+  catalog: SessionSource[];
+  changed: SessionSource[];
+  removedSessionIds: string[];
+};
+
+const managedRoots = [".claude/projects/", ".codex/sessions/"];
+
 async function indexGlob(agent: "claude" | "codex", pattern: string) {
   const root = homedir();
   const glob = new Bun.Glob(pattern);
   const upsert = db.query(`INSERT INTO session_paths
-    (session_id, agent, native_session_key, source_file, cwd, source_mtime, indexed_at)
-    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd, source_mtime = excluded.source_mtime, indexed_at = CURRENT_TIMESTAMP`);
-  let indexed = 0;
+    (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size, indexed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd, source_mtime = excluded.source_mtime, source_size = excluded.source_size, indexed_at = CURRENT_TIMESTAMP`);
+  const existingQuery = db.query("SELECT session_id, source_mtime, source_size FROM session_paths WHERE source_file = ?");
+  const touchSize = db.query("UPDATE session_paths SET source_size = ? WHERE session_id = ?");
+  const catalog: SessionSource[] = [];
+  const changed: SessionSource[] = [];
   for await (const sourceRelativePath of glob.scan({ cwd: root, absolute: false, onlyFiles: true, dot: true })) {
     const sourceFile = `${root}/${sourceRelativePath}`;
     const info = await stat(sourceFile);
-    const existing = db.query("SELECT source_mtime FROM session_paths WHERE source_file = ?").get(sourceFile) as {source_mtime:number} | null;
-    if (existing?.source_mtime === info.mtimeMs) continue;
-    const { cwd, nativeKey } = await parseHead(sourceFile, agent);
-    const sessionId = stableSessionId(agent, sourceRelativePath, nativeKey);
-    upsert.run(sessionId, agent, nativeKey, sourceFile, cwd, info.mtimeMs);
-    indexed++;
+    const identity = Number.isFinite(info.dev) && Number.isFinite(info.ino) ? `${info.dev}:${info.ino}` : null;
+    const existing = existingQuery.get(sourceFile) as { session_id: string; source_mtime: number; source_size: number } | null;
+    let sessionId = existing?.session_id ?? "";
+    if (existing?.source_mtime === info.mtimeMs) {
+      // Backfills the size column for databases migrated from before it existed.
+      if (existing.source_size !== info.size) touchSize.run(info.size, existing.session_id);
+    } else {
+      const { cwd, nativeKey } = await parseHead(sourceFile, agent);
+      sessionId = stableSessionId(agent, sourceRelativePath, nativeKey);
+      upsert.run(sessionId, agent, nativeKey, sourceFile, cwd, info.mtimeMs, info.size);
+    }
+    const source: SessionSource = { sessionId, agent, sourceFile, mtimeMs: info.mtimeMs, size: info.size, sourceIdentity: identity };
+    catalog.push(source);
+    if (existing?.source_mtime !== info.mtimeMs) changed.push(source);
   }
-  return indexed;
+  return { catalog, changed };
 }
 
-export async function indexSessionPaths() {
+export async function indexSessionPaths(): Promise<PathIndexResult & { indexed: number }> {
+  // A partial or failed scan must never look like "these transcripts disappeared", so both globs
+  // are awaited to completion before anything is pruned.
   const [claude, codex] = await Promise.all([
     indexGlob("claude", ".claude/projects/**/*.jsonl"),
     indexGlob("codex", ".codex/sessions/**/*.jsonl"),
   ]);
-  return { indexed: claude + codex };
+  const catalog = [...claude.catalog, ...codex.catalog];
+  const changed = [...claude.changed, ...codex.changed];
+  const seen = new Set(catalog.map((source) => source.sessionId));
+  const root = homedir();
+  const rows = db.query("SELECT session_id, source_file FROM session_paths").all() as Array<{ session_id: string; source_file: string }>;
+  const removedSessionIds = rows
+    .filter((row) => managedRoots.some((managed) => row.source_file.startsWith(`${root}/${managed}`)) && !seen.has(row.session_id))
+    .map((row) => row.session_id);
+  if (removedSessionIds.length) {
+    const remove = db.query("DELETE FROM session_paths WHERE session_id = ?");
+    db.transaction(() => removedSessionIds.forEach((sessionId) => remove.run(sessionId)))();
+  }
+  return { catalog, changed, removedSessionIds, indexed: changed.length };
 }
 
 function globRegex(pattern: string) {

@@ -1,6 +1,7 @@
 import { SlidersHorizontal } from "lucide-react";
 import { Segmented } from "../chrome";
 import type { DataFacets, Insights } from "./insights";
+import { effortLabel } from "../../components/effort";
 
 export function FacetBar({
   facets,
@@ -19,7 +20,7 @@ export function FacetBar({
   pathTag: string;
   showCache: boolean;
 }) {
-  const { sessionsInScope, sessionsShown, modelFamilies, outlierCount } = insights.facets;
+  const { sessionsInScope, sessionsShown, modelFamilies, outlierCount, effortLevels } = insights.facets;
   const scopeParts = [
     `${days === "all" ? "all history" : `${days} days`}`,
     provider === "all" ? "both providers" : provider,
@@ -56,6 +57,17 @@ export function FacetBar({
             {modelFamilies.map((family) => (
               <option key={family} value={family}>{family}</option>
             ))}
+          </select>
+        </label>
+        <label>
+          <span>Effort</span>
+          <select value={facets.effort} onChange={(event) => onChange({ effort: event.target.value })}>
+            <option value="all">All effort</option>
+            {effortLevels.map((effort) => (
+              <option key={effort} value={`value:${effort}`}>{effortLabel(effort)}</option>
+            ))}
+            <option value="mixed">Mixed</option>
+            <option value="unknown">Unknown</option>
           </select>
         </label>
         <label>

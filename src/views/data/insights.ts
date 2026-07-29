@@ -42,13 +42,14 @@ export type Insights = {
   };
   outliers: { count: number; sessionShare: number; tokenShare: number; cohortsEvaluated: number; cohortsSkipped: number; sessions: OutlierRow[] };
   efficiency: { rules: RuleSummary[]; findings: FindingRow[]; truncated: number; totals: { findings: number; flaggedSessions: number; sessionShare: number | null; recoverable: number; recoverableShare: number | null } };
-  facets: { modelFamilies: string[]; sessionsInScope: number; sessionsShown: number; outlierCount: number };
+  facets: { modelFamilies: string[]; sessionsInScope: number; sessionsShown: number; outlierCount: number; effortLevels: string[] };
 };
 
 export type DataFacets = {
   outliers: "all" | "typical" | "only";
   modelFamily: string;
   finding: string;
+  effort: string;
 };
 
 export const compactTokens = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
@@ -73,8 +74,9 @@ export function useInsights(scope: { days: string; provider: string; pathTag: st
       outliers: facets.outliers,
       modelFamily: facets.modelFamily,
       finding: facets.finding,
+      effort: facets.effort,
     }).toString();
-  }, [scope.days, scope.provider, scope.pathTag, scope.showCache, facets.outliers, facets.modelFamily, facets.finding]);
+  }, [scope.days, scope.provider, scope.pathTag, scope.showCache, facets.outliers, facets.modelFamily, facets.finding, facets.effort]);
 
   useEffect(() => {
     let active = true;

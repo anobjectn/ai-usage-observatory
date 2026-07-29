@@ -6,6 +6,7 @@ import { type DataFacets, useInsights } from "./insights";
 import { OutlierSessions } from "./outliers";
 import { AllowanceProfiles } from "./profiles";
 import { CacheComposition, InferenceVolume, ModelBreakdown } from "./signals";
+import { ReasoningEffortAnalysis } from "./effort";
 
 export function UsageIntelligence({
   data,
@@ -59,6 +60,14 @@ export function UsageIntelligence({
       </section>
       <AllowanceProfiles profiles={insights.profiles} />
       <FacetBar facets={facets} onChange={onFacets} insights={insights} provider={provider} days={days} pathTag={pathTag} showCache={showCache} />
+      <ReasoningEffortAnalysis
+        data={data}
+        days={days}
+        provider={provider}
+        pathTag={pathTag}
+        facets={facets}
+        onOpenSession={onOpenSession}
+      />
       <EfficiencyFindings insights={insights} facets={facets} onChange={onFacets} onOpenSession={onOpenSession} />
       <section className="measure-grid">
         <InferenceVolume insights={insights} />

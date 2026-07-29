@@ -11,10 +11,23 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Add an All Time range to the dashboard filters and collect the full available
   local ccusage history when refreshing data.
+- Add opt-in provider-recorded reasoning-effort information to Dashboard,
+  Explorer, Sessions, Projects, Models, and Data, including Unknown/Mixed
+  states, scoped coverage, raw breakdowns, and local privacy controls.
+- Add an incremental, resumable transcript-derived effort index with bounded
+  parsing, source reconciliation, parser quality counters, and derived-data
+  deletion.
 
 ### Changed
 
 - Refresh the public README's project badges and visual-status preview.
+- Use one provider mapper across collection, insights, and effort analysis,
+  including `openai`-flavoured Codex agent labels.
+
+### Fixed
+
+- Exclude replayed fork history and repeated Codex token events from effort
+  attribution so derived totals reconcile with pinned ccusage session totals.
 
 ## [1.5.0] - 2026-07-26
 

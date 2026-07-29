@@ -33,6 +33,73 @@ export type SessionDetail = {
   additions: number;
   deletions: number;
   eventsRead: number;
+  /** Null when transcript-derived indexing is disabled or this session has no derived rows. */
+  effort?: EffortSummary | null;
+};
+/** Orthogonal status fields. One enum must not try to represent combinations such as
+ * "indexing with partial coverage and stale rows". */
+export type EffortIndexStatus = {
+  enabled: boolean;
+  phase: "disabled" | "indexing" | "ready" | "error";
+  quality: "ok" | "stale" | "degraded";
+  parserVersion: number;
+  indexVersion: number;
+  indexedAt: string | null;
+  error: string | null;
+  progress: {
+    indexedSessions: number;
+    pendingSessions: number;
+    indexedBytes: number;
+    pendingBytes: number;
+  } | null;
+  parseErrors: number;
+  contextGaps: number;
+  skippedBytes: number;
+};
+
+export type EffortLevelBucket = {
+  effort: string;
+  observations: number;
+  tokens: number;
+};
+
+/** One scope's provider-recorded reasoning-effort picture. `eligibleTokens` always comes from
+ * the matching normalized ccusage scope so the app's existing token totals stay authoritative. */
+export type EffortSummary = {
+  coverageState: "unavailable" | "partial" | "complete";
+  quality: "ok" | "stale" | "degraded";
+  dominant: string | null;
+  dominantBasis: "tokens" | "observations" | null;
+  mixed: boolean;
+  levels: Array<EffortLevelBucket & { tokenShare: number | null }>;
+  observedObservations: number;
+  unknownObservations: number;
+  observationCoverage: number | null;
+  eligibleTokens: number;
+  attributedTokens: number;
+  unknownTokens: number | null;
+  tokenCoverage: number | null;
+  reconciliationDeltaTokens: number;
+};
+
+export type EffortGroup = "total" | "day" | "project" | "model" | "provider";
+
+export type EffortGroupRow = { key: string; label: string; summary: EffortSummary };
+
+export type EffortAggregate = {
+  group: EffortGroup;
+  rows: EffortGroupRow[];
+  total: EffortSummary;
+  status: EffortIndexStatus;
+};
+
+/** High-cardinality digest: one row per dashboard session.
+ * Tuple order is (sessionId, dominant level index or -1, bit flags, token coverage per mille,
+ * hexadecimal known-level bitmask).
+ * Bit flags: 1 = mixed, 2 = has unknown activity, 4 = unjoinable to any transcript. */
+export type EffortSessionDigest = {
+  levels: string[];
+  rows: Array<[string, number, number, number, string]>;
 };
 export type QuotaWindow = { usedPercent: number; resetsAt: number | null };
 export type BankedResetCredit = {

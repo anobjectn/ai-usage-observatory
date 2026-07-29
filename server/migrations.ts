@@ -47,11 +47,76 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 3,
+    up(db) {
+      // The existing stat sweep already knows every transcript's size; persisting it here lets the
+      // effort backlog be computed from the catalog instead of a second glob pass.
+      const columns = db.query("PRAGMA table_info(session_paths)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "source_size")) {
+        db.exec("ALTER TABLE session_paths ADD COLUMN source_size INTEGER NOT NULL DEFAULT 0");
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS effort_index_meta (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+          index_version INTEGER NOT NULL DEFAULT 0,
+          indexed_at TEXT,
+          last_error TEXT
+        );
+        INSERT OR IGNORE INTO effort_index_meta(id) VALUES (1);
+        CREATE TABLE IF NOT EXISTS session_effort_state (
+          session_id TEXT PRIMARY KEY
+            REFERENCES session_paths(session_id) ON DELETE CASCADE,
+          parser_version INTEGER NOT NULL,
+          source_size INTEGER NOT NULL,
+          source_mtime REAL NOT NULL,
+          source_identity TEXT,
+          last_offset INTEGER NOT NULL,
+          resume_hash TEXT NOT NULL,
+          current_effort TEXT,
+          current_model TEXT,
+          last_usage_key TEXT,
+          codex_session_key TEXT,
+          codex_replaying INTEGER NOT NULL DEFAULT 0 CHECK (codex_replaying IN (0, 1)),
+          observations INTEGER NOT NULL DEFAULT 0,
+          unknown_observations INTEGER NOT NULL DEFAULT 0,
+          observed_usage_tokens INTEGER NOT NULL DEFAULT 0,
+          attributed_tokens INTEGER NOT NULL DEFAULT 0,
+          parse_errors INTEGER NOT NULL DEFAULT 0,
+          context_gaps INTEGER NOT NULL DEFAULT 0,
+          skipped_bytes INTEGER NOT NULL DEFAULT 0,
+          coverage_state TEXT NOT NULL,
+          last_indexed_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS session_effort_usage (
+          session_id TEXT NOT NULL
+            REFERENCES session_effort_state(session_id) ON DELETE CASCADE,
+          occurred_on TEXT NOT NULL,
+          model TEXT NOT NULL,
+          effort TEXT NOT NULL,
+          observations INTEGER NOT NULL DEFAULT 0,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+          cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+          reasoning_reported_events INTEGER NOT NULL DEFAULT 0,
+          total_tokens INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (session_id, occurred_on, model, effort)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS session_effort_usage_day
+          ON session_effort_usage(occurred_on, effort);
+        CREATE INDEX IF NOT EXISTS session_effort_usage_model
+          ON session_effort_usage(model, effort);
+      `);
+    },
+  },
 ];
 
-export function runMigrations(db: Database) {
+export function runMigrations(db: Database, applied: Migration[] = migrations) {
   const current = Number((db.query("PRAGMA user_version").get() as { user_version?: number } | null)?.user_version ?? 0);
-  for (const migration of migrations) {
+  for (const migration of applied) {
     if (migration.id <= current) continue;
     db.transaction(() => {
       migration.up(db);

@@ -1,0 +1,5 @@
+[test]
+# Every test file shares one process, so any test that imports `server/store.ts` would otherwise
+# open the developer's real `.usage-observatory/data.db` — whichever file happened to import it
+# first wins. Preloading pins the database to a throwaway path before any test module is evaluated.
+preload = ["./server/test-setup.ts"]

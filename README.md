@@ -16,7 +16,8 @@ Three sources feed it: pinned [`ccusage`](https://github.com/ccusage/ccusage)
 analytics for tokens and API-equivalent cost, metadata-only indexing of local
 Claude Code and Codex session files for project attribution, and an optional
 [`quota-service`](https://github.com/anobjectn/quota-service) instance for
-provider-reported allowance windows.
+provider-reported allowance windows. An opt-in derived index can also read
+provider-recorded reasoning-effort labels from those local session files.
 
 ## Getting started
 
@@ -111,6 +112,8 @@ copy instead of the rolling README image.
 - Usage rolled up daily, weekly, monthly, per session, per project instance, and
   per five-hour block, ingested from pinned `ccusage@20.0.17`.
 - Token composition alongside `ccusage`-derived API-equivalent cost.
+- Provider-recorded reasoning effort, where present, across Dashboard, Explorer,
+  Sessions, Projects, Models, and Data, with explicit Unknown and coverage.
 - Cross-provider project attribution built from session working directories,
   broken out by model.
 - Glob and regex path rules that apply retroactively to everything already indexed.
@@ -130,6 +133,15 @@ offline-pricing mode.
 Indexing is metadata-only: the path indexer reads just the opening bytes of each
 session file, enough to recover the native session ID and working directory.
 
+Reasoning-effort indexing is separate, opt-in, and off by default. Enable it in
+Data to scan transcripts incrementally. The derived database rows contain only
+session/date/provider/model/effort categories, token buckets, observation counts,
+parser offsets and hashes, and quality counters. Prompts, responses, reasoning
+text, commands, tool arguments/results, file contents, and transcript fragments
+are never stored by this index. Disabling stops new indexing and excludes retained
+rows from analysis; Data can delete all derived effort observations without
+touching transcripts, annotations, or ccusage snapshots.
+
 Session detail is the one place your own prompts appear. When you open a session,
 the server reads that file on demand and returns the most recent user prompts so
 you can tell one session from another. Nothing from that read is written to the
@@ -146,7 +158,7 @@ point at a different [`quota-service`](https://github.com/anobjectn/quota-servic
   the usage analytics and offline API-equivalent price estimates.
 - Local Claude Code and Codex session files supply session identifiers and
   working-directory metadata during indexing, plus recent prompts read on demand
-  when you open a single session.
+  when you open a single session and opt-in categorical effort metadata.
 - [`quota-service`](https://github.com/anobjectn/quota-service) optionally supplies
   provider-reported allowance windows, resets, and status. It is a separate
   localhost service, not a bundled dependency.
@@ -159,6 +171,10 @@ point at a different [`quota-service`](https://github.com/anobjectn/quota-servic
   the UI as provider-reported.
 - Five-hour blocks are reconstructed locally by `ccusage` and currently cover
   Claude Code only.
+- Effort labels are shown exactly as recorded after trimming and lowercasing.
+  They are not inferred from model names or reasoning tokens, and they are not a
+  quality score or recommendation. One observation means one Claude assistant
+  usage event or one Codex turn context.
 - A personal budget is a number you set for yourself. It is not a billing limit and
   does not stop anything.
 

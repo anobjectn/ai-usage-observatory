@@ -9,6 +9,36 @@ import {
 } from "react";
 import { version as appVersion } from "../package.json";
 import {
+  buildEffortDaySeries,
+  compareEffort,
+  effortRank,
+  type EffortDayPoint,
+} from "./effort-model";
+import {
+  EffortBadge,
+  EffortCoverage,
+  EffortStack,
+  EffortState,
+  EFFORT_HELP,
+  effortColor,
+  effortLabel,
+  sharePercent,
+} from "./components/effort";
+import { providerFromAgent } from "./provider";
+import {
+  decodeEffortDigest,
+  effortSearchText,
+  effortSummaryLabel,
+  matchesSessionEffortFilter,
+  sessionEffortSortValue,
+  useEffortAggregate,
+  useEffortRefreshOnIndexChange,
+  useEffortSessions,
+  useEffortStatus,
+  type DecodedSessionEffort,
+  type EffortScopeInput,
+} from "./hooks/use-effort";
+import {
   Activity,
   AlarmClock,
   ArrowDownRight,
@@ -72,6 +102,7 @@ import {
 } from "recharts";
 import type {
   DashboardData,
+  EffortIndexStatus,
   MetricRow,
   ModelBreakdown,
   ProjectActivity,
@@ -519,6 +550,20 @@ function useDashboard() {
     return () => clearInterval(timer);
   }, []);
   return { data, error, loading, load };
+}
+
+/** Maps the global Agent / range / path-tag controls onto an effort scope. Dashboard and
+ * Explorer read calendar activity, so both use the timeline basis. */
+function globalEffortScope(agent: string, range: MetricRange, pathTag: string) {
+  return {
+    basis: "timeline" as const,
+    rangeDays: range === "all" ? null : Number(range),
+    provider: (agent === "all" ? "all" : providerFromAgent(agent) ?? "all") as
+      | "all"
+      | "anthropic"
+      | "codex",
+    pathTag,
+  };
 }
 
 function selectAgent(row: MetricRow, agent: string): MetricRow | null {
@@ -2221,6 +2266,7 @@ function Overview({
   daily,
   sessions,
   agent,
+  pathTag,
   metricRange,
   onMetricRangeChange,
   onOpenSession,
@@ -2234,6 +2280,7 @@ function Overview({
   daily: MetricRow[];
   sessions: Session[];
   agent: string;
+  pathTag: string;
   metricRange: MetricRange;
   onMetricRangeChange: (range: MetricRange) => void;
   onOpenSession: (sessionId: string) => void;
@@ -2243,6 +2290,24 @@ function Overview({
   providerColors: ProviderColors;
   sceneEffects: SceneEffects;
 }) {
+  // Effort follows the same global range, provider, and path-tag controls as everything else on
+  // this page; the headline token and cost cards are untouched.
+  const effortRequest = useEffortAggregate(
+    "total",
+    globalEffortScope(agent, metricRange, pathTag),
+  );
+  const digestRequest = useEffortSessions({});
+  const statusRequest = useEffortStatus();
+  const effort = effortRequest.data;
+  const effortDigest = digestRequest.data;
+  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [
+    effortRequest.load,
+    digestRequest.load,
+  ]);
+  const effortBySession = useMemo(
+    () => decodeEffortDigest(effortDigest),
+    [effortDigest],
+  );
   const totals = metricTotals(daily);
   const previousDaily = metricRangeRows(data.daily, metricRange, 1)
     .map((row) => selectAgent(row, agent))
@@ -2525,6 +2590,27 @@ function Overview({
             </div>
           </div>
         </article>
+        <article className="panel effort-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="overline">REASONING SIGNAL</span>
+              <h2>Effort mix</h2>
+            </div>
+            <Gauge aria-hidden="true" />
+          </div>
+          <EffortState status={effort?.status ?? null} summary={effort?.total}>
+            {effort?.total && (
+              <>
+                <EffortStack summary={effort.total} height={12} />
+                <EffortCoverage
+                  summary={effort.total}
+                  indexing={effort.status.phase === "indexing"}
+                />
+              </>
+            )}
+          </EffortState>
+          <p className="effort-help">{EFFORT_HELP}</p>
+        </article>
         <article className="panel panel-wide recent-panel">
           <div className="panel-heading">
             <div>
@@ -2568,6 +2654,12 @@ function Overview({
                         <i key={tag}>{tag}</i>
                       ))}
                     </span>
+                    <span className="session-effort">
+                      <SessionEffortCell
+                        decoded={effortBySession.get(session.sessionId)}
+                        enabled={Boolean(effort?.status.enabled)}
+                      />
+                    </span>
                     <span className="session-metric">
                       <b>{formatCompact(session.totalTokens)}</b>
                       <small>{formatMoney(session.totalCost)}</small>
@@ -2596,6 +2688,181 @@ function Overview({
           </div>
         </article>
       </section>
+    </div>
+  );
+}
+
+const effortBasisLabel = { tokens: "tokens", observations: "observations" } as const;
+
+/** Daily stacked distribution of provider-recorded effort. Tokens is the primary comparison;
+ * Observations is available because one Claude assistant response and one Codex turn context are
+ * counted alike, and the two bases can disagree. */
+function EffortByDay({
+  scope,
+  providerLabel,
+}: {
+  scope: EffortScopeInput;
+  providerLabel: string;
+}) {
+  const [basis, setBasis] = useState<"tokens" | "observations">("tokens");
+  const aggregateRequest = useEffortAggregate("day", scope);
+  const statusRequest = useEffortStatus();
+  const aggregate = aggregateRequest.data;
+  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [aggregateRequest.load]);
+  const series = useMemo(
+    () => buildEffortDaySeries(aggregate?.rows ?? [], basis),
+    [aggregate, basis],
+  );
+  const chartData = series.points.map((point) => ({
+    date: point.date,
+    ...point.values,
+    __point: point,
+  }));
+  const drawable = series.points.some((point) => point.total > 0);
+
+  return (
+    <section className="panel effort-day-panel">
+      <div className="panel-heading">
+        <div>
+          <span className="overline">REASONING SIGNAL</span>
+          <h2>Effort by day</h2>
+        </div>
+        <Segmented
+          value={basis}
+          onChange={(value) => setBasis(value as "tokens" | "observations")}
+          options={[
+            { value: "tokens", label: "Tokens" },
+            { value: "observations", label: "Observations" },
+          ]}
+        />
+      </div>
+      <EffortState status={aggregate?.status ?? null} summary={aggregate?.total}>
+        {drawable ? (
+          <>
+            <div className="bar-chart effort-day-chart" style={{ height: 280 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ left: 10, right: 16 }}>
+                  <CartesianGrid stroke="#26312e" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "#a8b5b0", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value: string) => periodTickLabel(value)}
+                  />
+                  <YAxis
+                    tick={{ fill: "#a8b5b0", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value: number) => formatCompact(value)}
+                  />
+                  <Tooltip
+                    content={
+                      <EffortDayTooltip basis={basis} providerLabel={providerLabel} />
+                    }
+                    cursor={{ fill: "#15211d" }}
+                    isAnimationActive={false}
+                    wrapperStyle={{ transition: "none" }}
+                  />
+                  {series.keys.map((key) => (
+                    <Bar
+                      key={key}
+                      dataKey={key}
+                      stackId="effort"
+                      name={effortLabel(key)}
+                      fill={effortColor(key)}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="sr-only">
+              {`Effort by ${effortBasisLabel[basis]} per day for ${providerLabel}. `}
+              {series.points
+                .filter((point) => point.total > 0)
+                .map(
+                  (point) =>
+                    `${point.date}: ` +
+                    series.keys
+                      .filter((key) => point.values[key] > 0)
+                      .map(
+                        (key) =>
+                          `${effortLabel(key)} ${sharePercent(point.values[key], point.total)}`,
+                      )
+                      .join(", "),
+                )
+                .join("; ")}
+            </p>
+            {aggregate?.total && (
+              <EffortCoverage
+                summary={aggregate.total}
+                indexing={aggregate.status.phase === "indexing"}
+              />
+            )}
+            {series.suppressedDays > 0 && (
+              <p className="effort-coverage">
+                {series.suppressedDays} day
+                {series.suppressedDays === 1 ? "" : "s"} drew no stack because derived tokens
+                exceeded the day total.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="effort-empty">
+            No attributable effort activity in this range.
+          </p>
+        )}
+      </EffortState>
+    </section>
+  );
+}
+
+function EffortDayTooltip({
+  active,
+  payload,
+  label,
+  coordinate,
+  basis,
+  providerLabel,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: { __point: EffortDayPoint } }>;
+  label?: string;
+  coordinate?: { x?: number };
+  basis: "tokens" | "observations";
+  providerLabel: string;
+}) {
+  const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
+  const point = payload?.[0]?.payload.__point;
+  if (!active || !point) return null;
+  const entries = Object.entries(point.values).filter(([, amount]) => amount > 0);
+  const coverage =
+    point.summary.tokenCoverage === null
+      ? "coverage unavailable"
+      : `${Math.round(point.summary.tokenCoverage * 100)}% of tokens attributed`;
+  return (
+    <div
+      className="chart-tooltip provider-tooltip effort-day-tooltip"
+      key={label}
+      ref={tooltipRef}
+    >
+      <div className="tooltip-effort-head">
+        <b>{label}</b>
+        <small>
+          {providerLabel} · {coverage}
+        </small>
+      </div>
+      {entries.map(([key, amount]) => (
+        <div key={key} className="tooltip-effort-row">
+          <i style={{ background: effortColor(key) }} aria-hidden="true" />
+          <span>{effortLabel(key)}</span>
+          <b>
+            {formatCompact(amount)} {effortBasisLabel[basis]}
+          </b>
+          <em>{sharePercent(amount, point.total)}</em>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2673,6 +2940,16 @@ function Explorer({
           />
         )}
       </section>
+      <EffortByDay
+        scope={globalEffortScope(agent, metricRange, pathTag)}
+        providerLabel={
+          agent === "all"
+            ? "All providers"
+            : providerFromAgent(agent) === "anthropic"
+              ? "Claude Code"
+              : "Codex"
+        }
+      />
       <section className="split-grid">
         <article className="panel">
           <div className="panel-heading">
@@ -2827,10 +3104,12 @@ function SessionDetailPanel({
   session,
   detail,
   loading,
+  effortStatus,
 }: {
   session: Session;
   detail?: SessionDetail;
   loading: boolean;
+  effortStatus: EffortIndexStatus | null;
 }) {
   const [promptOrder, setPromptOrder] = useState<"newest" | "oldest">(
     "oldest",
@@ -2988,8 +3267,123 @@ function SessionDetailPanel({
             ))}
           </ul>
         </section>
+        <SessionEffortSection detail={detail} status={effortStatus} />
       </div>
     </div>
+  );
+}
+
+/** Every known value stays visible for a mixed session; Unknown activity and coverage are never
+ * hidden, and provenance says where the numbers came from. */
+function SessionEffortSection({
+  detail,
+  status,
+}: {
+  detail: SessionDetail;
+  status: EffortIndexStatus | null;
+}) {
+  const summary = detail.effort ?? null;
+  return (
+    <section className="session-detail__section session-detail__section--scroll">
+      <div className="session-detail__head">
+        <span className="overline" title={EFFORT_HELP}>
+          EFFORT
+        </span>
+        {summary && summary.coverageState !== "unavailable" && (
+          <small>
+            {summary.mixed
+              ? `mixed · ${summary.levels.length} values`
+              : `dominant by ${summary.dominantBasis ?? "observations"}`}
+          </small>
+        )}
+      </div>
+      <EffortState status={status} summary={summary}>
+        {summary && (
+          <>
+            <EffortStack summary={summary} showLegend={false} />
+            <ul className="model-list">
+              {summary.levels.map((level) => (
+                <li key={level.effort}>
+                  <span>{effortLabel(level.effort)}</span>
+                  <b>
+                    {formatCompact(level.tokens)} ·{" "}
+                    {formatCompact(level.observations)} obs
+                  </b>
+                </li>
+              ))}
+              {(summary.unknownTokens ?? 0) > 0 ||
+              summary.unknownObservations > 0 ? (
+                <li>
+                  <span>Unknown</span>
+                  <b>
+                    {summary.unknownTokens === null
+                      ? "—"
+                      : formatCompact(summary.unknownTokens)}{" "}
+                    · {formatCompact(summary.unknownObservations)} obs
+                  </b>
+                </li>
+              ) : null}
+            </ul>
+            <EffortCoverage
+              summary={summary}
+              indexing={status?.phase === "indexing"}
+            />
+            <p className="effort-coverage">
+              Read from this session's own transcript · parser v
+              {status?.parserVersion ?? "—"}
+            </p>
+          </>
+        )}
+      </EffortState>
+    </section>
+  );
+}
+
+function SessionEffortCell({
+  decoded,
+  enabled,
+}: {
+  decoded: DecodedSessionEffort | undefined;
+  enabled: boolean;
+}) {
+  if (!enabled)
+    return (
+      <span className="effort-badge effort-badge-unknown" title={EFFORT_HELP}>
+        Off
+      </span>
+    );
+  if (!decoded || decoded.dominant === null)
+    return (
+      <span
+        className="effort-badge effort-badge-unknown"
+        title={
+          decoded?.unjoinable
+            ? "This session has no transcript match, so no effort could be read."
+            : EFFORT_HELP
+        }
+      >
+        Unknown
+      </span>
+    );
+  const coverage =
+    decoded.tokenCoverage === null
+      ? "coverage unavailable"
+      : `${Math.round(decoded.tokenCoverage * 100)}% of tokens attributed`;
+  return (
+    <span
+      className={`effort-badge${decoded.mixed ? " effort-badge-mixed" : ""}`}
+      style={
+        decoded.mixed
+          ? undefined
+          : {
+              borderColor: effortColor(decoded.dominant),
+              color: effortColor(decoded.dominant),
+            }
+      }
+      title={`${effortSummaryLabel(decoded)} · ${coverage}`}
+    >
+      {decoded.mixed ? "Mixed" : effortLabel(decoded.dominant)}
+    </span>
   );
 }
 
@@ -3002,8 +3396,16 @@ function Sessions({
   onEdit: (session: Session) => void;
   focusSessionId?: string | null;
 }) {
-  type SortKey = "activity" | "session" | "agent" | "cwd" | "tokens" | "cost";
+  type SortKey =
+    | "activity"
+    | "session"
+    | "agent"
+    | "cwd"
+    | "tokens"
+    | "cost"
+    | "effort";
   const [query, setQuery] = useState("");
+  const [effortFilter, setEffortFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SessionDetail>>({});
@@ -3013,14 +3415,37 @@ function Sessions({
   );
   const pageSize = 15;
   const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
+  // The digest is requested unscoped: it describes every dashboard session, and this view already
+  // receives the range/provider/path-filtered subset it should render.
+  const digestRequest = useEffortSessions({});
+  const statusRequest = useEffortStatus();
+  const digest = digestRequest.data;
+  const effortStatus = statusRequest.data;
+  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [digestRequest.load]);
+  const effortBySession = useMemo(() => decodeEffortDigest(digest), [digest]);
+  const observedEffortValues = useMemo(
+    () => [...(digest?.levels ?? [])].sort(compareEffort),
+    [digest],
+  );
+  const effortText = useCallback(
+    (session: Session) => effortSearchText(effortBySession.get(session.sessionId)),
+    [effortBySession],
+  );
+  const matchesEffortFilter = useCallback(
+    (session: Session) =>
+      matchesSessionEffortFilter(effortBySession.get(session.sessionId), effortFilter),
+    [effortBySession, effortFilter],
+  );
   const filtered = useMemo(() => {
     const normalizedQuery = query.toLowerCase();
-    return sessions.filter((s) =>
-      `${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd ?? ""} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")}`
-        .toLowerCase()
-        .includes(normalizedQuery),
+    return sessions.filter(
+      (s) =>
+        matchesEffortFilter(s) &&
+        `${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd ?? ""} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")} ${effortText(s)}`
+          .toLowerCase()
+          .includes(normalizedQuery),
     );
-  }, [query, sessions]);
+  }, [query, sessions, effortText, matchesEffortFilter]);
   const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const value = (session: Session): string | number => {
       if (sort.key === "activity")
@@ -3029,6 +3454,11 @@ function Sessions({
       if (sort.key === "agent") return session.agent;
       if (sort.key === "cwd") return session.cwd ?? "";
       if (sort.key === "tokens") return session.totalTokens;
+      if (sort.key === "effort")
+        return sessionEffortSortValue(
+          effortBySession.get(session.sessionId),
+          effortRank,
+        );
       return session.totalCost;
     };
     const a = value(left),
@@ -3038,10 +3468,10 @@ function Sessions({
         ? a - b
         : String(a).localeCompare(String(b));
     return sort.direction === "asc" ? comparison : -comparison;
-  }), [filtered, sort]);
+  }), [filtered, sort, effortBySession]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => setPage(1), [query]);
+  useEffect(() => setPage(1), [query, effortFilter]);
   useEffect(() => setPage((current) => Math.min(current, pages)), [pages]);
   const sortBy = (key: SortKey) => {
     setSort((current) =>
@@ -3128,24 +3558,45 @@ function Sessions({
         title="Trace sessions"
         description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine."
         actions={
-          <label className="search">
-            <Search />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search sessions…"
-            />
-            {query && (
-              <button
-                type="button"
-                className="search-clear"
-                onClick={() => setQuery("")}
-                aria-label="Clear session search"
+          <div className="project-controls">
+            <label className="search">
+              <Search />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search sessions…"
+              />
+              {query && (
+                <button
+                  type="button"
+                  className="search-clear"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear session search"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+            <div className="project-sort">
+              <span id="session-effort-filter-label">EFFORT</span>
+              <select
+                aria-labelledby="session-effort-filter-label"
+                value={effortFilter}
+                onChange={(event) => setEffortFilter(event.target.value)}
+                disabled={!effortStatus?.enabled}
+                title={EFFORT_HELP}
               >
-                Clear
-              </button>
-            )}
-          </label>
+                <option value="all">All</option>
+                {observedEffortValues.map((value) => (
+                  <option key={value} value={value}>
+                    {effortLabel(value)}
+                  </option>
+                ))}
+                <option value="mixed">Mixed</option>
+                <option value="unknown">Unknown</option>
+              </select>
+            </div>
+          </div>
         }
       />
       <section className="panel table-panel">
@@ -3159,6 +3610,7 @@ function Sessions({
                 {header("cwd", "Working directory")}
                 {header("tokens", "Tokens")}
                 {header("cost", "Cost")}
+                {header("effort", "Effort")}
                 <th></th>
                 <th></th>
               </tr>
@@ -3175,7 +3627,7 @@ function Sessions({
                     className={`session-row ${expanded === session.sessionId ? "session-row-open" : ""}`}
                     tabIndex={0}
                     aria-expanded={expanded === session.sessionId}
-                    aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}`}
+                    aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}, effort ${effortSummaryLabel(effortBySession.get(session.sessionId))}`}
                     onClick={() => void toggle(session)}
                     onKeyDown={(event) => {
                       if (
@@ -3230,6 +3682,12 @@ function Sessions({
                       <b>{formatMoney(session.totalCost)}</b>
                       <small>ccusage</small>
                     </td>
+                    <td className="session-row__effort">
+                      <SessionEffortCell
+                        decoded={effortBySession.get(session.sessionId)}
+                        enabled={Boolean(effortStatus?.enabled)}
+                      />
+                    </td>
                     <td
                       className="session-row__actions"
                       onClick={(event) => event.stopPropagation()}
@@ -3263,11 +3721,12 @@ function Sessions({
                   </tr>
                   {expanded === session.sessionId && (
                     <tr className="session-detail-row">
-                      <td colSpan={8}>
+                      <td colSpan={9}>
                         <SessionDetailPanel
                           session={session}
                           detail={details[session.sessionId]}
                           loading={loadingDetail === session.sessionId}
+                          effortStatus={effortStatus}
                         />
                       </td>
                     </tr>
@@ -3277,7 +3736,15 @@ function Sessions({
             </tbody>
           </table>
         </div>
-        {!pageRows.length && <Empty text="No sessions match those filters." />}
+        {!pageRows.length && (
+          <Empty
+            text={
+              effortFilter === "all"
+                ? "No sessions match those filters."
+                : `No sessions match those filters with ${effortSummaryLabel({ dominant: effortFilter === "mixed" || effortFilter === "unknown" ? null : effortFilter, mixed: effortFilter === "mixed" } as DecodedSessionEffort)} effort.`
+            }
+          />
+        )}
         <div className="pagination">
           <span>{filtered.length} sessions</span>
           <div>
@@ -3475,6 +3942,7 @@ function ProjectDetails({
   sessions,
   daily,
   quotaHistory,
+  effortRangeDays,
   onOpenSession,
 }: {
   project: ProjectSummary;
@@ -3482,6 +3950,7 @@ function ProjectDetails({
   sessions: Session[];
   daily: MetricRow[];
   quotaHistory: DashboardData["quotas"]["history"];
+  effortRangeDays: number | null;
   onOpenSession: (sessionId: string) => void;
 }) {
   type ModelSortKey = "name" | "tokens" | "cost";
@@ -3842,6 +4311,16 @@ function ProjectDetails({
           </div>
         </section>
       </div>
+      <EffortByDay
+        scope={{
+          basis: "timeline",
+          rangeDays: effortRangeDays,
+          provider: "all",
+          pathTag: "all",
+          project: project.name,
+        }}
+        providerLabel="All providers"
+      />
       <section
         className="project-sessions"
         aria-label={`Sessions for ${friendlyProject(project.name)}`}
@@ -3906,6 +4385,7 @@ function ProjectDetails({
                   <i>+{detail.additions}</i>
                   <em>−{detail.deletions}</em>
                 </div>
+                <EffortBadge summary={detail.effort ?? null} />
                 <a
                   href={sessionHref(session.sessionId)}
                   onClick={(event) => {
@@ -3942,15 +4422,29 @@ function ProjectDetails({
 function Projects({
   data,
   daily,
+  metricRange,
   onOpenSession,
 }: {
   data: DashboardData;
   daily: MetricRow[];
+  metricRange: MetricRange;
   onOpenSession: (sessionId: string) => void;
 }) {
   const [openProject, setOpenProject] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("tokens-desc");
+  const effortRequest = useEffortAggregate("project", {
+    basis: "sessions",
+    rangeDays: null,
+    provider: "all",
+    pathTag: "all",
+  });
+  const statusRequest = useEffortStatus();
+  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [effortRequest.load]);
+  const effortByProject = useMemo(
+    () => new Map((effortRequest.data?.rows ?? []).map((row) => [row.key, row.summary])),
+    [effortRequest.data],
+  );
   const visibleProjects = useMemo(() => {
     const [key, direction] = sort.split("-") as [
       "name" | "tokens" | "cost" | "sessions",
@@ -4022,6 +4516,7 @@ function Projects({
       <section className="card-list project-list">
         {visibleProjects.map((project, index) => {
           const open = openProject === project.name;
+          const effortSummary = effortByProject.get(project.name) ?? null;
           const maxTokens = Math.max(
             ...project.trend.map((point) => point.totalTokens),
             1,
@@ -4067,6 +4562,16 @@ function Projects({
                   <span>Active days</span>
                   <b>{projectDayRows(project.trend).length}</b>
                 </div>
+                <div className="project-row__effort">
+                  <EffortState status={statusRequest.data} summary={effortSummary}>
+                    {effortSummary && (
+                      <>
+                        <EffortStack summary={effortSummary} height={6} showLegend={false} />
+                        <EffortCoverage summary={effortSummary} />
+                      </>
+                    )}
+                  </EffortState>
+                </div>
                 <Plus className="project-row__toggle" aria-hidden="true" />
               </button>
               {open && (
@@ -4083,6 +4588,7 @@ function Projects({
                         project.name,
                     )}
                     quotaHistory={data.quotas.history}
+                    effortRangeDays={metricRange === "all" ? null : Number(metricRange)}
                     onOpenSession={onOpenSession}
                   />
                 </div>
@@ -4111,6 +4617,26 @@ function Models({
 }) {
   const [openModels, setOpenModels] = useState<Set<string>>(() => new Set());
   const [pages, setPages] = useState<Record<string, number>>({});
+  const effortRequest = useEffortAggregate("model", {
+    basis: "sessions",
+    rangeDays: null,
+    provider: "all",
+    pathTag: "all",
+  });
+  const digestRequest = useEffortSessions({});
+  const statusRequest = useEffortStatus();
+  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [
+    effortRequest.load,
+    digestRequest.load,
+  ]);
+  const effortByModel = useMemo(
+    () => new Map((effortRequest.data?.rows ?? []).map((row) => [row.key, row.summary])),
+    [effortRequest.data],
+  );
+  const effortBySession = useMemo(
+    () => decodeEffortDigest(digestRequest.data),
+    [digestRequest.data],
+  );
   const max = Math.max(...data.models.map((model) => model.cost), 1);
   const pageSize = 5;
   const toggleModel = (model: string) =>
@@ -4149,6 +4675,7 @@ function Models({
             page * pageSize,
           );
           const panelId = `model-sessions-${index}`;
+          const effortSummary = effortByModel.get(model.model) ?? null;
           return (
             <article
               className={`model-card${open ? " model-card--open" : ""}`}
@@ -4162,6 +4689,20 @@ function Models({
                   <h3>{model.model}</h3>
                   <p>{model.agents.join(" · ")}</p>
                 </div>
+              </div>
+              <div className="model-effort-summary">
+                <span>Effort</span>
+                <EffortState status={statusRequest.data} summary={effortSummary}>
+                  {effortSummary && (
+                    <>
+                      <div>
+                        <EffortBadge summary={effortSummary} />
+                        <EffortCoverage summary={effortSummary} />
+                      </div>
+                      <EffortStack summary={effortSummary} height={6} showLegend={false} />
+                    </>
+                  )}
+                </EffortState>
               </div>
               <div className="model-cost">
                 <strong className={model.priced ? undefined : "unpriced"}>
@@ -4216,6 +4757,18 @@ function Models({
               </button>
               {open && (
                 <div className="model-sessions" id={panelId}>
+                  {effortSummary && (
+                    <section className="model-effort-detail">
+                      <div>
+                        <span className="overline">TOKEN DISTRIBUTION</span>
+                        <EffortStack summary={effortSummary} basis="tokens" height={8} />
+                      </div>
+                      <div>
+                        <span className="overline">OBSERVATION DISTRIBUTION</span>
+                        <EffortStack summary={effortSummary} basis="observations" height={8} />
+                      </div>
+                    </section>
+                  )}
                   {pageSessions.length ? (
                     <ol>
                       {pageSessions.map((session) => (
@@ -4250,6 +4803,10 @@ function Models({
                               <b>{formatCompact(session.totalTokens)}</b>
                               <small>{formatMoney(session.totalCost)}</small>
                             </span>
+                            <SessionEffortCell
+                              decoded={effortBySession.get(session.sessionId)}
+                              enabled={Boolean(statusRequest.data?.enabled)}
+                            />
                             <ArrowUpRight aria-hidden="true" />
                           </a>
                         </li>
@@ -5543,6 +6100,7 @@ export function App() {
     outliers: "all",
     modelFamily: "all",
     finding: "all",
+    effort: "all",
   });
   const data = useMemo(
     () =>
@@ -5952,6 +6510,7 @@ export function App() {
               daily={daily}
               sessions={sessions}
               agent={agent}
+              pathTag={pathTag}
               metricRange={days}
               onMetricRangeChange={setDays}
               onOpenSession={openSession}
@@ -5985,6 +6544,7 @@ export function App() {
             <Projects
               data={data}
               daily={metricRangeRows(data.daily, days)}
+              metricRange={days}
               onOpenSession={openSession}
             />
           )}

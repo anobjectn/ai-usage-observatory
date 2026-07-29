@@ -1,7 +1,10 @@
 import { basename } from "node:path";
+import { localDate } from "../src/effort-model";
+import { providerFromAgent } from "../src/provider";
 import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths } from "./path-indexer";
+import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
 import { getAnnotations, getSettings, listRules } from "./store";
 import { buildInsights, resolveScope } from "./insights";
 import { reconcileAdvice } from "./advice";
@@ -103,20 +106,12 @@ export function aggregateProjects(sessions: ProjectActivitySession[]) {
   })).sort((a, b) => b.cost - a.cost);
 }
 
-function localDate(value: unknown) {
-  if (typeof value !== "string") return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-US", {year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(date);
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
+// Effort, projects, and project activity all bucket days through the one shared helper in
+// src/effort-model.ts; a private copy here would let one view's days drift from another's.
+// The provider mapper is likewise shared: this now also recognises "openai"-flavoured agent
+// labels as Codex, matching what Insights already did.
 function activityProvider(agent: string) {
-  const normalized = agent.toLowerCase();
-  if (normalized.includes("claude") || normalized.includes("anthropic")) return "anthropic" as const;
-  if (normalized.includes("codex")) return "codex" as const;
-  return null;
+  return providerFromAgent(agent);
 }
 
 export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
@@ -146,7 +141,8 @@ export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
 }
 
 async function buildSnapshot() {
-  const [, ccusage, quota] = await Promise.all([indexSessionPaths(), collectCcusage(), collectQuota()]);
+  const [paths, ccusage, quota] = await Promise.all([indexSessionPaths(), collectCcusage(), collectQuota()]);
+  setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
   const annotations = getAnnotations();
   const sessions = ccusage.unified.session.map((row) => {
@@ -190,6 +186,9 @@ async function buildSnapshot() {
 export async function refresh() {
   if (refreshPromise) return refreshPromise;
   refreshPromise = buildSnapshot().then((next) => { snapshot = next; lastError = null;
+    // Transcript indexing is scheduled only after the snapshot and path catalog succeeded, and
+    // is never awaited by a request handler.
+    queueMicrotask(() => { try { scheduleEffortIndexing(); } catch { /* indexing must never break collection */ } });
     queueMicrotask(() => {
       // Advice is evaluated against the default, unfaceted scope so it cannot depend on what a
       // browser happens to be looking at.

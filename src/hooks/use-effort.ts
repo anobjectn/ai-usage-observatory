@@ -1,0 +1,169 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { EffortAggregate, EffortGroup, EffortIndexStatus, EffortSessionDigest } from "../types";
+
+export type EffortScopeInput = {
+  basis?: "timeline" | "sessions";
+  rangeDays?: number | null;
+  provider?: "all" | "anthropic" | "codex";
+  pathTag?: string;
+  project?: string | null;
+  model?: string | null;
+  effort?: string;
+};
+
+export function effortScopeParams(scope: EffortScopeInput) {
+  const params = new URLSearchParams();
+  if (scope.basis) params.set("basis", scope.basis);
+  if (scope.rangeDays) params.set("rangeDays", String(scope.rangeDays));
+  if (scope.provider && scope.provider !== "all") params.set("provider", scope.provider);
+  if (scope.pathTag && scope.pathTag !== "all") params.set("pathTag", scope.pathTag);
+  if (scope.project) params.set("project", scope.project);
+  if (scope.model) params.set("model", scope.model);
+  if (scope.effort && scope.effort !== "all") params.set("effort", scope.effort);
+  return params;
+}
+
+/** Conditional GET that keeps the previous body on 304 and reports failures without throwing.
+ * Every effort request is isolated: a failure here must not disturb the dashboard. */
+function useConditional<T>(url: string | null) {
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const etag = useRef<string | null>(null);
+  const lastUrl = useRef<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!url) return;
+    // A different scope is a different resource; its ETag must not be sent.
+    if (lastUrl.current !== url) { etag.current = null; lastUrl.current = url; }
+    try {
+      const response = await fetch(url, { headers: etag.current ? { "If-None-Match": etag.current } : undefined });
+      if (response.status === 304) { setError(null); return; }
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      etag.current = response.headers.get("ETag");
+      setData(await response.json() as T);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }, [url]);
+
+  return { data, error, load };
+}
+
+const STATUS_POLL_MS = 5_000;
+const IDLE_POLL_MS = 60_000;
+
+/** Status freshness is independent of `/api/dashboard`: it polls quickly while a backfill runs
+ * and falls back to the dashboard's own 60-second cadence once the index is idle. */
+export function useEffortStatus() {
+  const status = useConditional<EffortIndexStatus>("/api/effort/status");
+  const { load } = status;
+  const indexing = status.data?.phase === "indexing";
+  useEffect(() => {
+    void load();
+    const timer = setInterval(() => void load(), indexing ? STATUS_POLL_MS : IDLE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [load, indexing]);
+  return status;
+}
+
+export function useEffortAggregate(group: EffortGroup, scope: EffortScopeInput, enabled = true) {
+  const params = effortScopeParams(scope);
+  params.set("group", group);
+  const url = enabled ? `/api/effort?${params.toString()}` : null;
+  const aggregate = useConditional<EffortAggregate>(url);
+  const { load } = aggregate;
+  const indexVersion = aggregate.data?.status.indexVersion ?? null;
+  useEffect(() => { void load(); }, [load]);
+  return { ...aggregate, indexVersion };
+}
+
+export function useEffortSessions(scope: EffortScopeInput, enabled = true) {
+  const url = enabled ? `/api/effort/sessions?${effortScopeParams(scope).toString()}` : null;
+  const digest = useConditional<EffortSessionDigest>(url);
+  const { load } = digest;
+  useEffect(() => { void load(); }, [load]);
+  return digest;
+}
+
+/** Views never index tuple positions directly; this is the one decoder. */
+export type DecodedSessionEffort = {
+  sessionId: string;
+  dominant: string | null;
+  mixed: boolean;
+  hasUnknown: boolean;
+  unjoinable: boolean;
+  tokenCoverage: number | null;
+  levels: Set<string>;
+};
+
+export function decodeEffortDigest(digest: EffortSessionDigest | null): Map<string, DecodedSessionEffort> {
+  const decoded = new Map<string, DecodedSessionEffort>();
+  for (const [sessionId, level, flags, coveragePerMille, maskHex] of digest?.rows ?? []) {
+    const mask = BigInt(`0x${maskHex || "0"}`);
+    decoded.set(sessionId, {
+      sessionId,
+      dominant: level >= 0 ? digest!.levels[level] ?? null : null,
+      mixed: (flags & 1) !== 0,
+      hasUnknown: (flags & 2) !== 0,
+      unjoinable: (flags & 4) !== 0,
+      tokenCoverage: level >= 0 || coveragePerMille > 0 ? coveragePerMille / 1000 : null,
+      levels: new Set(digest!.levels.filter((_, index) => (mask & (1n << BigInt(index))) !== 0n)),
+    });
+  }
+  return decoded;
+}
+
+/** Text form of a session's effort. Keyboard labels, search text, and empty states all use it, so
+ * the value is never carried by colour alone. */
+export function effortSummaryLabel(decoded: DecodedSessionEffort | undefined) {
+  if (!decoded || decoded.dominant === null) return "unknown";
+  return decoded.mixed ? `mixed, mostly ${decoded.dominant}` : decoded.dominant;
+}
+
+/** Free-text haystack for the Sessions search box: Mixed and Unknown must be findable as words. */
+export function effortSearchText(decoded: DecodedSessionEffort | undefined) {
+  if (!decoded || decoded.dominant === null) return "unknown";
+  return [[...decoded.levels].join(" "), decoded.mixed ? "mixed" : "", decoded.hasUnknown ? "unknown" : ""].filter(Boolean).join(" ");
+}
+
+/** `filter` is "all", "mixed", "unknown", or an observed value. */
+export function matchesSessionEffortFilter(decoded: DecodedSessionEffort | undefined, filter: string) {
+  if (filter === "all") return true;
+  if (filter === "unknown") return !decoded || decoded.dominant === null;
+  if (filter === "mixed") return Boolean(decoded?.mixed);
+  return Boolean(decoded?.levels.has(filter));
+}
+
+/** Canonical numeric order for the sortable Effort column; Unknown always sorts last. */
+export function sessionEffortSortValue(decoded: DecodedSessionEffort | undefined, rankOf: (effort: string) => number) {
+  return !decoded || decoded.dominant === null ? Number.MAX_SAFE_INTEGER : rankOf(decoded.dominant);
+}
+
+/** Re-fetches the visible group and digest when the private index version advances, so a
+ * completed backfill appears without touching `/api/dashboard`. */
+export function useEffortRefreshOnIndexChange(indexVersion: number | null | undefined, reloaders: Array<() => void | Promise<void>>) {
+  const previous = useRef<number | null>(null);
+  const stable = useMemo(() => reloaders, reloaders);
+  useEffect(() => {
+    if (indexVersion === null || indexVersion === undefined) return;
+    if (previous.current !== null && previous.current !== indexVersion) stable.forEach((reload) => void reload());
+    previous.current = indexVersion;
+  }, [indexVersion, stable]);
+}
+
+export async function setEffortIndexing(enabled: boolean) {
+  const response = await fetch("/api/effort/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) throw new Error(`Server returned ${response.status}`);
+  return await response.json() as EffortIndexStatus;
+}
+
+export async function deleteEffortDerivedObservations() {
+  const response = await fetch("/api/effort/derived", { method: "DELETE" });
+  if (!response.ok) throw new Error(`Server returned ${response.status}`);
+  return await response.json() as EffortIndexStatus;
+}

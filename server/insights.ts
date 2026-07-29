@@ -1,4 +1,6 @@
 import type { DashboardData, Session } from "../src/types";
+import { providerFromAgent } from "../src/provider";
+import { buildEffortSessionDigest, resolveEffortFacet, sessionsMatchingEffortFacet } from "./effort-api";
 
 export type AnalysisScope = {
   rangeDays: number | null;
@@ -10,6 +12,8 @@ export type AnalysisScope = {
   modelFamily: string;
   /** Efficiency rule id, or "all". Filters the findings list without changing any measurement. */
   finding: string;
+  /** Data-only session facet. Once selected, downstream metrics retain each full session. */
+  effort: string;
 };
 type Provider = "anthropic" | "codex";
 type InsightSession = Session & {
@@ -56,12 +60,8 @@ export const efficiencyRules = [
   { id: "cold-cache", label: "Cache never amortised", severity: "notice" as const, question: "Which sessions paid to write a cache they then barely read?", basis: "Cache-creation tokens at or above cache-read tokens within the same session." },
 ];
 
-function provider(agent: string): Provider | null {
-  const value = agent.toLowerCase();
-  if (value.includes("claude") || value.includes("anthropic")) return "anthropic";
-  if (value.includes("codex") || value.includes("openai")) return "codex";
-  return null;
-}
+// Exactly one provider mapper exists; see src/provider.ts.
+const provider = providerFromAgent;
 function modelTokens(model: Session["modelBreakdowns"][number]) {
   return model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
 }
@@ -138,6 +138,7 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
     outliers: requestedOutliers === "typical" || requestedOutliers === "only" ? requestedOutliers : "all",
     modelFamily: input.get("modelFamily") || "all",
     finding: efficiencyRules.some((rule) => rule.id === requestedFinding) ? String(requestedFinding) : "all",
+    effort: resolveEffortFacet(input.get("effort")),
   };
 }
 
@@ -307,11 +308,16 @@ function buildFindings(rows: InsightSession[], rates: Map<string, ModelRate>): E
 
 export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   const cutoff = scope.rangeDays === null ? null : Date.now() - scope.rangeDays * 86_400_000;
+  const effortSessions = sessionsMatchingEffortFacet(data, scope);
   const base: InsightSession[] = data.sessions
     .filter((row) => {
       const itemProvider = provider(row.agent);
       const timestamp = Date.parse(String(row.metadata?.lastActivity ?? ""));
-      return itemProvider && (scope.provider === "all" || itemProvider === scope.provider) && (cutoff === null || !Number.isFinite(timestamp) || timestamp >= cutoff) && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
+      return itemProvider
+        && (effortSessions === null || effortSessions.has(row.sessionId))
+        && (scope.provider === "all" || itemProvider === scope.provider)
+        && (cutoff === null || !Number.isFinite(timestamp) || timestamp >= cutoff)
+        && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
     })
     .map((row) => {
       const dominantModel = [...row.modelBreakdowns].sort((a, b) => modelTokens(b) - modelTokens(a))[0]?.modelName ?? "unknown";
@@ -382,6 +388,15 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   const perSession = new Map<string, number>();
   for (const finding of findings) perSession.set(finding.sessionId, Math.max(perSession.get(finding.sessionId) ?? 0, finding.recoverable ?? 0));
   const recoverable = [...perSession.values()].reduce((sum, value) => sum + value, 0);
+  const effortLevels = buildEffortSessionDigest(data, {
+    basis: "sessions",
+    rangeDays: scope.rangeDays,
+    provider: scope.provider,
+    pathTag: scope.pathTag,
+    project: null,
+    model: null,
+    effort: "all",
+  }).levels;
 
   return {
     scope,
@@ -430,6 +445,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
       sessionsInScope: marked.length,
       sessionsShown: sessions.length,
       outlierCount: outliers.length,
+      effortLevels,
     },
   };
 }

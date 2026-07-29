@@ -5,7 +5,7 @@ import { summarizeQuotaHistory } from "./quota";
 
 describe("insights scope", () => {
   test("clamps the analysis window and keeps unsupported filters harmless", () => {
-    expect(resolveScope(new URLSearchParams("range=500&provider=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, provider: "all", pathTag: "all", cache: "include", outliers: "all", modelFamily: "all", finding: "all" });
+    expect(resolveScope(new URLSearchParams("range=500&provider=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, provider: "all", pathTag: "all", cache: "include", outliers: "all", modelFamily: "all", finding: "all", effort: "all" });
   });
   test("accepts all time as an unbounded analysis window", () => {
     expect(resolveScope(new URLSearchParams("range=all"))).toMatchObject({ rangeDays: null });
