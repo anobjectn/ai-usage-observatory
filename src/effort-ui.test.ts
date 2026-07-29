@@ -7,15 +7,19 @@ import {
   matchesSessionEffortFilter,
   sessionEffortSortValue,
 } from "./hooks/use-effort";
-import { effortColor, effortLabel, sharePercent } from "./components/effort";
+import { effortColor, effortLabel, familyColor, familyLabel, sharePercent } from "./components/effort";
 import { effortRank } from "./effort-model";
 import type { EffortSessionDigest } from "./types";
 
 describe("effort scope params", () => {
   test("omits defaults and preserves the facet", () => {
-    expect(effortScopeParams({ provider: "all", pathTag: "all", effort: "all" }).toString()).toBe("");
-    expect(effortScopeParams({ basis: "sessions", rangeDays: 30, provider: "codex", pathTag: "work", project: "/a/b", model: "gpt-5.4", effort: "value:xhigh" }).toString())
-      .toBe("basis=sessions&rangeDays=30&provider=codex&pathTag=work&project=%2Fa%2Fb&model=gpt-5.4&effort=value%3Axhigh");
+    expect(effortScopeParams({ providers: [], modelFamilies: [], pathTag: "all", effort: "all" }).toString()).toBe("");
+    expect(effortScopeParams({ basis: "sessions", rangeDays: 30, providers: ["codex"], pathTag: "work", project: "/a/b", model: "gpt-5.4", effort: "value:xhigh" }).toString())
+      .toBe("basis=sessions&rangeDays=30&providers=codex&pathTag=work&project=%2Fa%2Fb&model=gpt-5.4&effort=value%3Axhigh");
+  });
+  test("sends both Agent-filter grains as lists", () => {
+    expect(effortScopeParams({ providers: ["anthropic"], modelFamilies: ["gpt-5.6-sol", "claude-opus-5"] }).toString())
+      .toBe("providers=anthropic&modelFamilies=gpt-5.6-sol%2Cclaude-opus-5");
   });
 });
 
@@ -61,6 +65,14 @@ describe("effort presentation", () => {
     expect(effortLabel("xhigh")).toBe("X-high");
     expect(effortLabel("medium")).toBe("Medium");
     expect(effortLabel("turbo")).toBe("Turbo");
+  });
+
+  test("model families have compact labels and stable colours of their own", () => {
+    expect(familyLabel("claude-fable-5")).toBe("Fable 5");
+    expect(familyLabel("claude-haiku-4-5")).toBe("Haiku 4.5");
+    expect(familyLabel("gpt-5.6-sol")).toBe("GPT 5.6 Sol");
+    expect(familyColor("claude-fable-5")).toBe(familyColor("claude-fable-5"));
+    expect(familyColor("claude-fable-5")).not.toBe(familyColor("claude-opus-5"));
   });
 });
 

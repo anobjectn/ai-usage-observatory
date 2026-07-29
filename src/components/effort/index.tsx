@@ -15,15 +15,19 @@ const fixedColors: Record<string, string> = {
 const fallbackPalette = ["#7fb3a5", "#b39ddb", "#e6b86a", "#8fa9d9", "#cf8fb1", "#86c58a"];
 const neutral = "var(--line-bright)";
 
+function stablePaletteColor(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index++) hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  return fallbackPalette[hash % fallbackPalette.length];
+}
+
 /** Values the providers add later still get a stable, repeatable colour rather than a random one
  * or a silent drop. Colour is never the only label. */
 export function effortColor(effort: string) {
   if (effort === "unknown" || effort === "other" || effort === "") return neutral;
   const fixed = fixedColors[effort];
   if (fixed) return fixed;
-  let hash = 0;
-  for (let index = 0; index < effort.length; index++) hash = (hash * 31 + effort.charCodeAt(index)) >>> 0;
-  return fallbackPalette[hash % fallbackPalette.length];
+  return stablePaletteColor(effort);
 }
 
 export function effortLabel(effort: string | null) {
@@ -31,6 +35,55 @@ export function effortLabel(effort: string | null) {
   if (effort === "xhigh") return "X-high";
   if (effort === "other") return "Other";
   return effort.charAt(0).toUpperCase() + effort.slice(1);
+}
+
+const fixedFamilyColors: Record<string, string> = {
+  "claude-fable-5": "var(--violet)",
+  "claude-opus-5": "var(--orange)",
+  "claude-sonnet-5": "var(--accent)",
+  "claude-haiku-4-5": "var(--aqua)",
+  "gpt-5.6-sol": "#8fa9d9",
+};
+
+/** Model families need their own colours: provider colours would make every Claude or Codex
+ * family indistinguishable. Unknown future families still get a stable palette entry. */
+export function familyColor(family: string) {
+  if (!family || family === "unknown") return neutral;
+  return fixedFamilyColors[family.toLowerCase()] ?? stablePaletteColor(`family:${family.toLowerCase()}`);
+}
+
+/** Compact family label for pills and legends, without discarding the release family. */
+export function familyLabel(family: string) {
+  if (!family || family === "unknown") return "Unknown model";
+  const withoutProvider = family
+    .replace(/^claude[-_ ]/i, "")
+    .replace(/^gpt[-_ ]/i, "GPT ");
+  const words = withoutProvider
+    .replace(/[-_]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase() === "gpt"
+      ? "GPT"
+      : word.charAt(0).toUpperCase() + word.slice(1));
+  return words.join(" ").replace(/(\d) (\d)(?=$| )/g, "$1.$2");
+}
+
+export function SplitPill({
+  left,
+  right,
+  trailing,
+}: {
+  left: { label: string; color: string };
+  right: { label: string; color: string };
+  trailing?: string;
+}) {
+  return (
+    <span className="split-pill">
+      <span style={{ ["--split-pill-color" as string]: left.color }}>{left.label}</span>
+      <span style={{ ["--split-pill-color" as string]: right.color }}>{right.label}</span>
+      {trailing && <b>{trailing}</b>}
+    </span>
+  );
 }
 
 const percent = (value: number | null) => (value === null ? "—" : `${Math.round(value * 100)}%`);

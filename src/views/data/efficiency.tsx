@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { ArrowUpRight, Lightbulb } from "lucide-react";
+import { familyColor, familyLabel, effortColor, effortLabel, SplitPill } from "../../components/effort";
+import { effortSummaryLabel, type DecodedSessionEffort } from "../../hooks/use-effort";
+import { familyOf } from "../../model-family";
 import { compactTokens, type DataFacets, type Insights, percent, providerColor, providerLabel, sessionHref, shortDate } from "./insights";
 
 const pageSize = 12;
@@ -9,11 +12,17 @@ export function EfficiencyFindings({
   facets,
   onChange,
   onOpenSession,
+  effortBySession,
+  aside,
 }: {
   insights: Insights;
   facets: DataFacets;
   onChange: (next: Partial<DataFacets>) => void;
   onOpenSession: (sessionId: string) => void;
+  effortBySession: Map<string, DecodedSessionEffort>;
+  /** Rendered beside the findings list. Both read the same facets, so they belong to one section
+   * rather than two stacked ones. */
+  aside?: React.ReactNode;
 }) {
   const [limit, setLimit] = useState(pageSize);
   const { rules, findings, truncated, totals } = insights.efficiency;
@@ -76,6 +85,8 @@ export function EfficiencyFindings({
         </div>
       )}
 
+      <div className={aside ? "findings-split" : undefined}>
+        <div className="findings-split__list">
       {visible.length === 0 ? (
         <p className="data-empty">
           No session in the current scope trips {active ? `the ${active.label.toLowerCase()} rule` : "any rule"}. Widen
@@ -87,9 +98,26 @@ export function EfficiencyFindings({
             <li key={`${finding.ruleId}-${finding.sessionId}`} className={`finding severity-${finding.severity}`}>
               <div className="finding__top">
                 <span className="finding__rule">{rules.find((rule) => rule.id === finding.ruleId)?.label ?? finding.ruleId}</span>
+                {(() => {
+                  const family = familyOf(finding.model);
+                  const decoded = effortBySession.get(finding.sessionId);
+                  const effort = effortSummaryLabel(decoded);
+                  const labelledEffort = decoded?.dominant
+                    ? effort.replace(decoded.dominant, effortLabel(decoded.dominant))
+                    : effort;
+                  return (
+                    <SplitPill
+                      left={{ label: familyLabel(family), color: familyColor(family) }}
+                      right={{
+                        label: labelledEffort.charAt(0).toUpperCase() + labelledEffort.slice(1),
+                        color: effortColor(decoded?.dominant ?? ""),
+                      }}
+                    />
+                  );
+                })()}
                 <span className="finding__meta">
                   <i style={{ background: providerColor(finding.provider) }} />
-                  {providerLabel(finding.provider)} · {finding.model} · {finding.project} · {shortDate(finding.date)}
+                  {providerLabel(finding.provider)} · {finding.project} · {shortDate(finding.date)}
                 </span>
                 <a
                   className="finding__open"
@@ -129,6 +157,9 @@ export function EfficiencyFindings({
           {truncated > 0 && <small>{truncated} further findings are outside the served window — narrow the range or pick a single rule.</small>}
         </div>
       )}
+        </div>
+        {aside && <div className="findings-split__aside">{aside}</div>}
+      </div>
     </section>
   );
 }

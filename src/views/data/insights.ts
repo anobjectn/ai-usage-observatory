@@ -45,9 +45,10 @@ export type Insights = {
   facets: { modelFamilies: string[]; sessionsInScope: number; sessionsShown: number; outlierCount: number; effortLevels: string[] };
 };
 
+/** Model family is deliberately absent: it moved into the global Agent filter, so there is one
+ * control for "which agent or model" rather than two that could disagree. */
 export type DataFacets = {
   outliers: "all" | "typical" | "only";
-  modelFamily: string;
   finding: string;
   effort: string;
 };
@@ -61,22 +62,26 @@ export const shortDate = (value: string | null) =>
 /** Deep link to the Sessions view with the row expanded, matching `sessionHref` in App.tsx. */
 export const sessionHref = (sessionId: string) => `?view=sessions&session=${encodeURIComponent(sessionId)}`;
 
-export function useInsights(scope: { days: string; provider: string; pathTag: string; showCache: boolean; collectedAt: string }, facets: DataFacets) {
+export function useInsights(
+  scope: { days: string; providers: string[]; modelFamilies: string[]; pathTag: string; showCache: boolean; collectedAt: string },
+  facets: DataFacets,
+) {
   const [insights, setInsights] = useState<Insights | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const providerKey = scope.providers.join(",");
+  const familyKey = scope.modelFamilies.join(",");
   const query = useMemo(() => {
-    const providerScope = /claude|anthropic/i.test(scope.provider) ? "anthropic" : /codex|openai/i.test(scope.provider) ? "codex" : "all";
     return new URLSearchParams({
       range: scope.days,
-      provider: providerScope,
+      providers: providerKey,
+      modelFamilies: familyKey,
       pathTag: scope.pathTag,
       cache: scope.showCache ? "include" : "exclude",
       outliers: facets.outliers,
-      modelFamily: facets.modelFamily,
       finding: facets.finding,
       effort: facets.effort,
     }).toString();
-  }, [scope.days, scope.provider, scope.pathTag, scope.showCache, facets.outliers, facets.modelFamily, facets.finding, facets.effort]);
+  }, [scope.days, providerKey, familyKey, scope.pathTag, scope.showCache, facets.outliers, facets.finding, facets.effort]);
 
   useEffect(() => {
     let active = true;

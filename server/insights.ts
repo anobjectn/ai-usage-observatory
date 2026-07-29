@@ -1,15 +1,23 @@
 import type { DashboardData, Session } from "../src/types";
 import { providerFromAgent } from "../src/provider";
-import { buildEffortSessionDigest, resolveEffortFacet, sessionsMatchingEffortFacet } from "./effort-api";
+import { familyOf } from "../src/model-family";
+import {
+  buildEffortSessionDigest,
+  resolveEffortFacet,
+  resolveModelFamilies,
+  resolveProviders,
+  sessionsMatchingEffortFacet,
+} from "./effort-api";
 
 export type AnalysisScope = {
   rangeDays: number | null;
-  provider: "all" | "anthropic" | "codex";
+  /** Selected providers, unioned with `modelFamilies`. Empty means every provider. */
+  providers: Provider[];
+  /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
+  modelFamilies: string[];
   pathTag: string;
   cache: "include" | "exclude";
   outliers: "all" | "typical" | "only";
-  /** Dominant-model family. Derivable today from `modelBreakdowns`; "all" disables the facet. */
-  modelFamily: string;
   /** Efficiency rule id, or "all". Filters the findings list without changing any measurement. */
   finding: string;
   /** Data-only session facet. Once selected, downstream metrics retain each full session. */
@@ -81,12 +89,6 @@ function median(values: number[]) {
 function ratio(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator : null;
 }
-/** Release-stripped model name, e.g. `claude-opus-4-8` from `claude-opus-4-8-20260114`. Only a
- * trailing datestamp or `latest` is removed — a codename such as `gpt-5.6-sol` is part of the
- * family, since collapsing every `gpt-*` into one cohort would compare unlike models. */
-function familyOf(model: string) {
-  return model.replace(/[-_ ](latest|\d{8})$/i, "") || "unknown";
-}
 function projectOf(row: Session) {
   if (row.cwd) return row.cwd.split("/").filter(Boolean).at(-1) ?? row.cwd;
   return row.pathTags[0] ?? "unknown";
@@ -97,9 +99,11 @@ function compactTokens(value: number) {
   return String(value);
 }
 
-function outlierFlags(rows: InsightSession[]) {
+export type OutlierRowInput = { sessionId: string; provider: string; family: string; cacheReadTokens: number; processed: number; outputTokens: number };
+
+export function outlierFlags<T extends OutlierRowInput>(rows: T[]) {
   const flagged = new Map<string, string[]>();
-  const cohorts = new Map<string, InsightSession[]>();
+  const cohorts = new Map<string, T[]>();
   for (const row of rows) {
     const key = `${row.provider}\0${row.family}\0${row.cacheReadTokens > 0 ? "cache" : "direct"}`;
     cohorts.set(key, [...(cohorts.get(key) ?? []), row]);
@@ -127,22 +131,21 @@ function outlierFlags(rows: InsightSession[]) {
 export function resolveScope(input: URLSearchParams): AnalysisScope {
   const requestedRange = input.get("range");
   const range = Number(requestedRange ?? 30);
-  const requestedProvider = input.get("provider");
   const requestedOutliers = input.get("outliers");
   const requestedFinding = input.get("finding");
   return {
     rangeDays: requestedRange === "all" ? null : Math.max(1, Math.min(120, Number.isFinite(range) ? Math.floor(range) : 30)),
-    provider: requestedProvider === "anthropic" || requestedProvider === "codex" ? requestedProvider : "all",
+    providers: resolveProviders(input.get("providers")),
+    modelFamilies: resolveModelFamilies(input.get("modelFamilies")),
     pathTag: input.get("pathTag") || "all",
     cache: input.get("cache") === "exclude" ? "exclude" : "include",
     outliers: requestedOutliers === "typical" || requestedOutliers === "only" ? requestedOutliers : "all",
-    modelFamily: input.get("modelFamily") || "all",
     finding: efficiencyRules.some((rule) => rule.id === requestedFinding) ? String(requestedFinding) : "all",
     effort: resolveEffortFacet(input.get("effort")),
   };
 }
 
-function allowance(data: DashboardData, providerId: Provider, sessions: InsightSession[]): Profile {
+function allowance(data: DashboardData, providerId: Provider, sessionCount: number): Profile {
   const series = (data.quotas.history?.series ?? []).filter((point) => point.provider === providerId);
   const weekly = series.filter((point) => point.window === "weekly");
   const fiveHour = series.filter((point) => point.window === "fiveHour");
@@ -156,7 +159,7 @@ function allowance(data: DashboardData, providerId: Provider, sessions: InsightS
     { id:"weekly-utilization", label:"Weekly allowance utilization", weight:40, value:recentWeekly, normalized:utilization, evidence:{points:weekly.length, usedPercent:recentWeekly ?? "N/A"}, unavailableReason: weekly.length ? undefined : "No weekly quota series" },
     { id:"hard-stops", label:"Absence of five-hour hard stops", weight:25, value:reaches, normalized:noStops, evidence:{reaches}, unavailableReason: weekly.length ? undefined : "No quota series" },
     { id:"pacing", label:"Pacing across five-hour windows", weight:20, value:fiveHour.length ? Math.max(...fiveHour.map((point) => point.usedPercent)) : null, normalized:pace, evidence:{points:fiveHour.length}, unavailableReason: fiveHour.length < 2 ? "Insufficient five-hour observations" : undefined },
-    { id:"headroom", label:"Usable allowance before reset", weight:15, value:recentWeekly === null ? null : 100 - recentWeekly, normalized:recentWeekly === null ? null : recentWeekly <= 95 ? 100 : 0, evidence:{sessions:sessions.length}, unavailableReason: recentWeekly === null ? "No weekly quota series" : undefined },
+    { id:"headroom", label:"Usable allowance before reset", weight:15, value:recentWeekly === null ? null : 100 - recentWeekly, normalized:recentWeekly === null ? null : recentWeekly <= 95 ? 100 : 0, evidence:{sessions:sessionCount}, unavailableReason: recentWeekly === null ? "No weekly quota series" : undefined },
   ];
   const available = components.filter((component) => component.normalized !== null);
   const score = confidence === "insufficient" ? null : Math.round(available.reduce((sum, component) => sum + component.weight * (component.normalized ?? 0), 0) / available.reduce((sum, component) => sum + component.weight, 0));
@@ -306,7 +309,30 @@ function buildFindings(rows: InsightSession[], rates: Map<string, ModelRate>): E
   return findings.sort((a, b) => weight[a.severity] - weight[b.severity] || (b.recoverable ?? 0) - (a.recoverable ?? 0) || b.processed - a.processed);
 }
 
+/** The Agent filter's provider and model grains are unioned; see `matchesAgentScope`. */
+function matchesAgentScope(row: Session, itemProvider: Provider, scope: AnalysisScope) {
+  if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return true;
+  if (scope.providers.includes(itemProvider)) return true;
+  return row.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyOf(model.modelName)));
+}
+
 export function buildInsights(data: DashboardData, scope: AnalysisScope) {
+  // Allowance cards are a whole-corpus overview. Session, Agent, path, cache, finding, effort,
+  // outlier, and time controls scope the analysis below this row, but never its membership or
+  // evidence counts.
+  const overviewSessionCounts = new Map<Provider, number>();
+  for (const row of data.sessions) {
+    const itemProvider = provider(row.agent);
+    if (itemProvider) overviewSessionCounts.set(itemProvider, (overviewSessionCounts.get(itemProvider) ?? 0) + 1);
+  }
+  const overviewProviderIds = new Set<Provider>(overviewSessionCounts.keys());
+  for (const quotaProvider of data.quotas.usage?.providers ?? []) {
+    if (quotaProvider.provider === "anthropic" || quotaProvider.provider === "codex") overviewProviderIds.add(quotaProvider.provider);
+  }
+  for (const point of data.quotas.history?.series ?? []) overviewProviderIds.add(point.provider);
+  for (const window of data.quotas.history?.windows ?? []) overviewProviderIds.add(window.provider);
+  const overviewProviders = (["anthropic", "codex"] as Provider[]).filter((id) => overviewProviderIds.has(id));
+
   const cutoff = scope.rangeDays === null ? null : Date.now() - scope.rangeDays * 86_400_000;
   const effortSessions = sessionsMatchingEffortFacet(data, scope);
   const base: InsightSession[] = data.sessions
@@ -315,7 +341,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
       const timestamp = Date.parse(String(row.metadata?.lastActivity ?? ""));
       return itemProvider
         && (effortSessions === null || effortSessions.has(row.sessionId))
-        && (scope.provider === "all" || itemProvider === scope.provider)
+        && matchesAgentScope(row, itemProvider, scope)
         && (cutoff === null || !Number.isFinite(timestamp) || timestamp >= cutoff)
         && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
     })
@@ -338,9 +364,12 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
 
   const { flagged, evaluated, skipped } = outlierFlags(base);
   const marked = base.map((row) => ({ ...row, outlier: flagged.has(row.sessionId), outlierReasons: flagged.get(row.sessionId) ?? [] }));
-  // Detection runs on the whole provider cohort; the facets only choose what is displayed.
-  const sessions = marked.filter((row) => (scope.outliers === "all" || (scope.outliers === "only" ? row.outlier : !row.outlier)) && (scope.modelFamily === "all" || row.family === scope.modelFamily));
-  const providers = (["anthropic", "codex"] as Provider[]).filter((id) => scope.provider === "all" || scope.provider === id);
+  // Detection runs on the whole provider cohort; the facet only chooses what is displayed.
+  const sessions = marked.filter((row) => scope.outliers === "all" || (scope.outliers === "only" ? row.outlier : !row.outlier));
+  // Provider rows follow what actually survived the Agent filter, so a model-only selection still
+  // reports the provider that model belongs to rather than both.
+  const present = new Set(sessions.map((row) => row.provider));
+  const providers = (["anthropic", "codex"] as Provider[]).filter((id) => present.has(id));
   const rates = modelRates(sessions);
 
   const overall = summarizeGroup(sessions);
@@ -391,16 +420,18 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   const effortLevels = buildEffortSessionDigest(data, {
     basis: "sessions",
     rangeDays: scope.rangeDays,
-    provider: scope.provider,
+    providers: scope.providers,
+    modelFamilies: scope.modelFamilies,
     pathTag: scope.pathTag,
     project: null,
     model: null,
     effort: "all",
+    outliers: "all",
   }).levels;
 
   return {
     scope,
-    profiles: providers.map((id) => allowance(data, id, sessions.filter((row) => row.provider === id))),
+    profiles: overviewProviders.map((id) => allowance(data, id, overviewSessionCounts.get(id) ?? 0)),
     volume: {
       ...overall,
       cacheCreationAvailable: data.models.some((model) => model.cacheCreationTokens > 0),

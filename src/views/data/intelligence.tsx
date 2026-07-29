@@ -1,17 +1,25 @@
 import { Activity, AlertTriangle } from "lucide-react";
+import { useMemo } from "react";
 import type { DashboardData } from "../../types";
+import { agentSelectionParams, type AgentSelection } from "../../agent-filter";
+import { useEffortAggregate, useEffortRefreshOnIndexChange } from "../../hooks/use-effort";
 import { EfficiencyFindings } from "./efficiency";
 import { FacetBar } from "./facets";
 import { type DataFacets, useInsights } from "./insights";
 import { OutlierSessions } from "./outliers";
 import { AllowanceProfiles } from "./profiles";
 import { CacheComposition, InferenceVolume, ModelBreakdown } from "./signals";
-import { ReasoningEffortAnalysis } from "./effort";
+import { EffortProvenance, ReasoningEffortAnalysis, useReasoningEffort } from "./effort";
+
+function agentSummary(providers: string[], modelFamilies: string[]) {
+  if (providers.length === 0 && modelFamilies.length === 0) return "all agents";
+  return [...providers, ...modelFamilies].join(" + ");
+}
 
 export function UsageIntelligence({
   data,
   days,
-  provider,
+  agent,
   pathTag,
   showCache,
   facets,
@@ -20,14 +28,21 @@ export function UsageIntelligence({
 }: {
   data: DashboardData;
   days: string;
-  provider: string;
+  agent: AgentSelection;
   pathTag: string;
   showCache: boolean;
   facets: DataFacets;
   onFacets: (next: Partial<DataFacets>) => void;
   onOpenSession: (sessionId: string) => void;
 }) {
-  const { insights, error } = useInsights({ days, provider, pathTag, showCache, collectedAt: data.collectedAt }, facets);
+  const { providers, modelFamilies } = useMemo(() => agentSelectionParams(agent), [agent]);
+  const { insights, error } = useInsights(
+    { days, providers, modelFamilies, pathTag, showCache, collectedAt: data.collectedAt },
+    facets,
+  );
+  const effort = useReasoningEffort({ days, providers, modelFamilies, pathTag, facets });
+  const modelEffort = useEffortAggregate("model", {});
+  useEffortRefreshOnIndexChange(effort.status?.indexVersion, [modelEffort.load]);
 
   if (error) {
     return (
@@ -58,23 +73,31 @@ export function UsageIntelligence({
           states the evidence it used and what it could not see.
         </p>
       </section>
-      <AllowanceProfiles profiles={insights.profiles} />
-      <FacetBar facets={facets} onChange={onFacets} insights={insights} provider={provider} days={days} pathTag={pathTag} showCache={showCache} />
-      <ReasoningEffortAnalysis
-        data={data}
-        days={days}
-        provider={provider}
-        pathTag={pathTag}
+      <AllowanceProfiles profiles={insights.profiles} modelEffort={modelEffort.data} />
+      <FacetBar
         facets={facets}
-        onOpenSession={onOpenSession}
+        onChange={onFacets}
+        insights={insights}
+        agentSummary={agentSummary(providers, modelFamilies)}
+        days={days}
+        pathTag={pathTag}
+        showCache={showCache}
       />
-      <EfficiencyFindings insights={insights} facets={facets} onChange={onFacets} onOpenSession={onOpenSession} />
+      <EfficiencyFindings
+        insights={insights}
+        facets={facets}
+        onChange={onFacets}
+        onOpenSession={onOpenSession}
+        effortBySession={effort.decoded}
+        aside={<ReasoningEffortAnalysis effort={effort} />}
+      />
       <section className="measure-grid">
         <InferenceVolume insights={insights} />
         <CacheComposition insights={insights} />
         <ModelBreakdown insights={insights} />
       </section>
       <OutlierSessions insights={insights} onOpenSession={onOpenSession} />
+      <EffortProvenance effort={effort} />
     </>
   );
 }

@@ -60,8 +60,8 @@ beforeEach(() => {
 
 describe("scope validation", () => {
   test("rejects unsupported values instead of trusting the query string", () => {
-    const scope = api.resolveEffortScope(params("basis=nonsense&rangeDays=-4&provider=hacked&effort=drop%20table"));
-    expect(scope).toMatchObject({ basis: "timeline", rangeDays: null, provider: "all", effort: "all" });
+    const scope = api.resolveEffortScope(params("basis=nonsense&rangeDays=-4&providers=hacked&effort=drop%20table"));
+    expect(scope).toMatchObject({ basis: "timeline", rangeDays: null, providers: [], modelFamilies: [], effort: "all" });
     expect(api.resolveEffortGroup("nonsense")).toBe("total");
     expect(api.resolveEffortGroup("project")).toBe("project");
   });
@@ -127,10 +127,39 @@ describe("scoped denominators", () => {
     ]);
     seed("s1", "claude", "/fixture/alpha", [{ day: today, model: "m", effort: "high", observations: 1, tokens: 400 }]);
     seed("s2", "codex", "/fixture/alpha", [{ day: today, model: "m", effort: "low", observations: 1, tokens: 900 }]);
-    const codex = api.buildEffortAggregate(snapshot, api.resolveEffortScope(params("provider=codex")), "total").total;
+    const codex = api.buildEffortAggregate(snapshot, api.resolveEffortScope(params("providers=codex")), "total").total;
     expect(codex.eligibleTokens).toBe(3_000);
     expect(codex.attributedTokens).toBe(900);
     expect(codex.levels.map((level) => level.effort)).toEqual(["low"]);
+  });
+
+  test("a model-family scope keeps only sessions that used that family", () => {
+    const snapshot = snapshotOf([
+      session({ sessionId: "s1", modelsUsed: ["claude-opus-5"], modelBreakdowns: [{ modelName: "claude-opus-5", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }] }),
+      session({ sessionId: "s2", modelsUsed: ["claude-sonnet-5"], modelBreakdowns: [{ modelName: "claude-sonnet-5-20260114", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }], totalTokens: 2_000 }),
+    ]);
+    seed("s1", "claude", "/fixture/alpha", [{ day: today, model: "m", effort: "high", observations: 1, tokens: 400 }]);
+    seed("s2", "claude", "/fixture/alpha", [{ day: today, model: "m", effort: "low", observations: 1, tokens: 900 }]);
+    const scope = api.resolveEffortScope(params("modelFamilies=claude-sonnet-5"));
+    expect(scope.modelFamilies).toEqual(["claude-sonnet-5"]);
+    const filtered = api.scopedSessions(snapshot, scope);
+    expect(filtered.map((session) => session.sessionId)).toEqual(["s2"]);
+    const summary = api.buildEffortAggregate(snapshot, scope, "total").total;
+    expect(summary.eligibleTokens).toBe(2_000);
+    expect(summary.attributedTokens).toBe(900);
+  });
+
+  test("a provider and a model from another provider are unioned, not intersected", () => {
+    const snapshot = snapshotOf([
+      session({ sessionId: "s1", modelsUsed: ["claude-opus-5"], modelBreakdowns: [{ modelName: "claude-opus-5", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }] }),
+      session({ sessionId: "s2", agent: "codex", modelsUsed: ["gpt-5.6-sol"], modelBreakdowns: [{ modelName: "gpt-5.6-sol", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }] }),
+      session({ sessionId: "s3", agent: "codex", modelsUsed: ["gpt-5.5"], modelBreakdowns: [{ modelName: "gpt-5.5", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }] }),
+    ]);
+    const scope = api.resolveEffortScope(params("providers=anthropic&modelFamilies=gpt-5.6-sol"));
+    // The Claude session plus the one named Codex model — never the empty intersection of the two.
+    expect(api.scopedSessions(snapshot, scope).map((session) => session.sessionId)).toEqual(["s1", "s2"]);
+    expect(api.scopedSessions(snapshot, api.resolveEffortScope(params(""))).map((session) => session.sessionId))
+      .toEqual(["s1", "s2", "s3"]);
   });
 
   test("attributed tokens above the denominator degrade instead of rendering a share", () => {
@@ -302,7 +331,7 @@ describe("caching", () => {
   });
 
   test("scope keys never leak raw JSON into the header input", () => {
-    expect(api.scopeKey(api.resolveEffortScope(params("basis=sessions&rangeDays=30&provider=codex")))).toBe("sessions|30|codex|all|||all");
+    expect(api.scopeKey(api.resolveEffortScope(params("basis=sessions&rangeDays=30&providers=codex")))).toBe("sessions|30|codex||all|||all|all");
   });
 
   test("memoization is bounded and reuses bodies", () => {

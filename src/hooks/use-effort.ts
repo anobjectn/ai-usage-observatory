@@ -4,22 +4,28 @@ import type { EffortAggregate, EffortGroup, EffortIndexStatus, EffortSessionDige
 export type EffortScopeInput = {
   basis?: "timeline" | "sessions";
   rangeDays?: number | null;
-  provider?: "all" | "anthropic" | "codex";
+  /** Unioned with `modelFamilies`; empty means every provider. */
+  providers?: string[];
+  /** Unioned with `providers`; empty means every model. */
+  modelFamilies?: string[];
   pathTag?: string;
   project?: string | null;
   model?: string | null;
   effort?: string;
+  outliers?: "all" | "typical" | "only";
 };
 
 export function effortScopeParams(scope: EffortScopeInput) {
   const params = new URLSearchParams();
   if (scope.basis) params.set("basis", scope.basis);
   if (scope.rangeDays) params.set("rangeDays", String(scope.rangeDays));
-  if (scope.provider && scope.provider !== "all") params.set("provider", scope.provider);
+  if (scope.providers?.length) params.set("providers", scope.providers.join(","));
+  if (scope.modelFamilies?.length) params.set("modelFamilies", scope.modelFamilies.join(","));
   if (scope.pathTag && scope.pathTag !== "all") params.set("pathTag", scope.pathTag);
   if (scope.project) params.set("project", scope.project);
   if (scope.model) params.set("model", scope.model);
   if (scope.effort && scope.effort !== "all") params.set("effort", scope.effort);
+  if (scope.outliers && scope.outliers !== "all") params.set("outliers", scope.outliers);
   return params;
 }
 

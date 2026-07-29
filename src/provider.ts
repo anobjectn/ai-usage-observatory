@@ -10,3 +10,15 @@ export function providerFromAgent(agent: string): ActivityProvider | null {
   if (normalized.includes("codex") || normalized.includes("openai")) return "codex";
   return null;
 }
+
+/** Provider for a model name, for the places that hold a model rather than an agent — the Agent
+ * filter's model entries most of all. Agent labels are tried first because some of them ("codex")
+ * also appear in model names; only then do the model prefixes apply. Returns null for a model
+ * whose vendor cannot be read off its name, which callers treat as "unknown", never as a guess. */
+export function providerFromModel(model: string): ActivityProvider | null {
+  const fromAgent = providerFromAgent(model);
+  if (fromAgent) return fromAgent;
+  const normalized = model.toLowerCase();
+  if (/^(gpt|o\d|text-|davinci)/.test(normalized)) return "codex";
+  return null;
+}

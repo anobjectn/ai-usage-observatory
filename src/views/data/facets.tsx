@@ -7,7 +7,7 @@ export function FacetBar({
   facets,
   onChange,
   insights,
-  provider,
+  agentSummary,
   days,
   pathTag,
   showCache,
@@ -15,15 +15,17 @@ export function FacetBar({
   facets: DataFacets;
   onChange: (next: Partial<DataFacets>) => void;
   insights: Insights;
-  provider: string;
+  /** Read-only echo of the global Agent filter, so this row still states its full scope without
+   * offering a second control that could disagree with the one in the topbar. */
+  agentSummary: string;
   days: string;
   pathTag: string;
   showCache: boolean;
 }) {
-  const { sessionsInScope, sessionsShown, modelFamilies, outlierCount, effortLevels } = insights.facets;
+  const { sessionsInScope, sessionsShown, outlierCount, effortLevels } = insights.facets;
   const scopeParts = [
     `${days === "all" ? "all history" : `${days} days`}`,
-    provider === "all" ? "both providers" : provider,
+    agentSummary,
     pathTag === "all" ? "all path tags" : pathTag,
     showCache ? "cache included" : "cache excluded",
   ];
@@ -51,15 +53,6 @@ export function FacetBar({
           />
         </label>
         <label>
-          <span>Model family</span>
-          <select value={facets.modelFamily} onChange={(event) => onChange({ modelFamily: event.target.value })}>
-            <option value="all">All families</option>
-            {modelFamilies.map((family) => (
-              <option key={family} value={family}>{family}</option>
-            ))}
-          </select>
-        </label>
-        <label>
           <span>Effort</span>
           <select value={facets.effort} onChange={(event) => onChange({ effort: event.target.value })}>
             <option value="all">All effort</option>
@@ -68,17 +61,6 @@ export function FacetBar({
             ))}
             <option value="mixed">Mixed</option>
             <option value="unknown">Unknown</option>
-          </select>
-        </label>
-        <label>
-          <span>Finding</span>
-          <select value={facets.finding} onChange={(event) => onChange({ finding: event.target.value })}>
-            <option value="all">All findings</option>
-            {insights.efficiency.rules.map((rule) => (
-              <option key={rule.id} value={rule.id} disabled={rule.count === 0}>
-                {rule.label} ({rule.count})
-              </option>
-            ))}
           </select>
         </label>
       </div>

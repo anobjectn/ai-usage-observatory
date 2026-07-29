@@ -1,6 +1,7 @@
-import { Orbit } from "lucide-react";
-import type { ReactNode } from "react";
+import { Check, ChevronDown, Minus, Orbit } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DashboardData } from "../types";
+import type { AgentEntry, AgentSelection, BranchState } from "../agent-filter";
 
 export function PageTitle({
   eyebrow,
@@ -49,6 +50,149 @@ export function Segmented({
           {option.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** A parent agent row and the model families nested beneath it. `parent` is absent for the
+ * trailing group of families whose vendor could not be read from the name. */
+export type AgentFilterGroup = {
+  label: string;
+  parent?: { label: string; state: BranchState; onToggle: () => void };
+  options: Array<{ value: AgentEntry; label: string; checked: boolean; onToggle: () => void }>;
+};
+
+/** A checkbox that can also render the "some, but not all" state. `indeterminate` is a DOM
+ * property with no HTML attribute, so it has to be assigned through a ref. */
+function TriCheckbox({
+  state,
+  onToggle,
+  label,
+}: {
+  state: BranchState;
+  onToggle: () => void;
+  label: string;
+}) {
+  const input = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (input.current) input.current.indeterminate = state === "indeterminate";
+  }, [state]);
+  return (
+    <>
+      <input
+        ref={input}
+        type="checkbox"
+        checked={state === "checked"}
+        aria-checked={state === "indeterminate" ? "mixed" : state === "checked"}
+        onChange={onToggle}
+      />
+      <i aria-hidden="true">
+        {state === "checked" ? <Check /> : state === "indeterminate" ? <Minus /> : null}
+      </i>
+      <span>{label}</span>
+    </>
+  );
+}
+
+/** The one Agent control. Coarse agents and model families are checkable in the same popover
+ * because they answer the same question at two grains; keeping them in separate selects made the
+ * two look like independent filters that could disagree.
+ *
+ * Checking an agent means every model under it. Unchecking one of those children leaves the rest
+ * checked and drops the agent to the mixed state, so "all of Claude except Fable" is expressible
+ * without a second control. */
+export function AgentFilter({
+  selection,
+  onChange,
+  groups,
+}: {
+  selection: AgentSelection;
+  onChange: (next: AgentSelection) => void;
+  groups: AgentFilterGroup[];
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // An empty selection is "All agents" rather than "nothing", so the summary never reads as a
+  // filter that hides everything. A single entry names itself; anything else is counted, because
+  // a checked agent and a lone model both occupy one slot but read very differently.
+  const labelFor = (entry: AgentEntry) => {
+    for (const group of groups) {
+      const option = group.options.find((candidate) => candidate.value === entry);
+      if (option) return option.label;
+      if (group.parent && entry === `agent:${group.label}`) return group.parent.label;
+    }
+    return null;
+  };
+  const summary = selection.length === 0
+    ? "All agents"
+    : selection.length === 1
+      ? labelFor(selection[0]) ?? "1 selected"
+      : `${selection.length} selected`;
+
+  return (
+    <div className="agent-filter" ref={root}>
+      <button
+        type="button"
+        className="agent-filter__button"
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen(!open)}
+      >
+        <span>{summary}</span>
+        <ChevronDown />
+      </button>
+      {open && (
+        <div className="agent-filter__menu" role="group" aria-label="Agent and model filter">
+          <div className="agent-filter__menu-head">
+            <span>{selection.length === 0 ? "No filter — showing all" : summary}</span>
+            <button type="button" onClick={() => onChange([])} disabled={selection.length === 0}>
+              Clear
+            </button>
+          </div>
+          <div className="agent-filter__list">
+            {groups.map((group) => (
+              <div className="agent-filter__group" key={group.label}>
+                {group.parent ? (
+                  <label className="agent-filter__parent">
+                    <TriCheckbox
+                      state={group.parent.state}
+                      onToggle={group.parent.onToggle}
+                      label={group.parent.label}
+                    />
+                  </label>
+                ) : (
+                  <span className="overline">{group.label}</span>
+                )}
+                {group.options.map((option) => (
+                  <label key={option.value} className={group.parent ? "agent-filter__child" : undefined}>
+                    <TriCheckbox
+                      state={option.checked ? "checked" : "unchecked"}
+                      onToggle={option.onToggle}
+                      label={option.label}
+                    />
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

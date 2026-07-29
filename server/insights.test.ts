@@ -5,13 +5,14 @@ import { summarizeQuotaHistory } from "./quota";
 
 describe("insights scope", () => {
   test("clamps the analysis window and keeps unsupported filters harmless", () => {
-    expect(resolveScope(new URLSearchParams("range=500&provider=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, provider: "all", pathTag: "all", cache: "include", outliers: "all", modelFamily: "all", finding: "all", effort: "all" });
+    expect(resolveScope(new URLSearchParams("range=500&providers=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all" });
   });
   test("accepts all time as an unbounded analysis window", () => {
     expect(resolveScope(new URLSearchParams("range=all"))).toMatchObject({ rangeDays: null });
   });
-  test("accepts the model-family and finding facets", () => {
-    expect(resolveScope(new URLSearchParams("modelFamily=claude-opus-5&finding=missed-clear"))).toMatchObject({ modelFamily: "claude-opus-5", finding: "missed-clear" });
+  test("accepts both Agent-filter grains and the finding facet", () => {
+    expect(resolveScope(new URLSearchParams("providers=anthropic&modelFamilies=claude-opus-5,gpt-5.6-sol&finding=missed-clear")))
+      .toMatchObject({ providers: ["anthropic"], modelFamilies: ["claude-opus-5", "gpt-5.6-sol"], finding: "missed-clear" });
   });
 });
 
@@ -37,6 +38,28 @@ function session(id: string, agent: string, model: string, buckets: Partial<Sess
   };
 }
 const dashboard = (sessions: Session[]): DashboardData => ({ ...({} as DashboardData), sessions, models: [], unpricedModels: [], quotas: { available: false, collectedAt: "" } });
+
+describe("allowance profiles", () => {
+  test("keeps allowance profiles on the whole corpus when the time range narrows", () => {
+    const recentClaude = session("recent-claude", "claude", "claude-opus-5", {});
+    const historicalCodex = {
+      ...session("historical-codex", "codex", "gpt-5.6-sol", { cacheCreationTokens: 0 }),
+      metadata: { lastActivity: "2025-01-01T00:00:00.000Z" },
+    };
+    const all = buildInsights(dashboard([recentClaude, historicalCodex]), resolveScope(new URLSearchParams("range=all")));
+    const recent = buildInsights(dashboard([recentClaude, historicalCodex]), resolveScope(new URLSearchParams("range=1")));
+
+    expect(recent.profiles).toEqual(all.profiles);
+    expect(recent.profiles.map((profile) => profile.id)).toEqual([
+      "allowance-capture-anthropic",
+      "allowance-capture-codex",
+    ]);
+    expect(
+      recent.profiles.map((profile) => profile.components.find((component) => component.id === "headroom")?.evidence.sessions),
+    ).toEqual([1, 1]);
+    expect(recent.volume.providers.map((entry) => entry.provider)).toEqual(["anthropic"]);
+  });
+});
 
 describe("efficiency findings", () => {
   const baseline = Array.from({ length: 8 }, (_, index) => session(`typical-${index}`, "claude", "claude-opus-5", {}));
@@ -76,12 +99,31 @@ describe("efficiency findings", () => {
     expect(filtered.volume.processed).toBe(all.volume.processed);
   });
 
-  test("the model-family facet keeps outlier cohorts intact", () => {
+  // The model grain now scopes like the provider grain does — it narrows before outlier detection
+  // rather than after. Cohorts are keyed by family already, so the selected family's cohort is
+  // still evaluated whole and its z-scores are unchanged; only unrelated cohorts disappear.
+  test("the model-family grain of the Agent filter leaves that family's cohort whole", () => {
     const rows = [...baseline, ...Array.from({ length: 8 }, (_, index) => session(`haiku-${index}`, "claude", "claude-haiku-4-5", {}))];
-    const insights = buildInsights(dashboard(rows), resolveScope(new URLSearchParams("modelFamily=claude-haiku-4-5")));
-    expect(insights.facets.sessionsInScope).toBe(16);
-    expect(insights.facets.sessionsShown).toBe(8);
-    expect(insights.volume.models.map((model) => model.model)).toEqual(["claude-haiku-4-5"]);
+    const scoped = buildInsights(dashboard(rows), resolveScope(new URLSearchParams("modelFamilies=claude-haiku-4-5")));
+    expect(scoped.facets.sessionsInScope).toBe(8);
+    expect(scoped.facets.sessionsShown).toBe(8);
+    expect(scoped.volume.models.map((model) => model.model)).toEqual(["claude-haiku-4-5"]);
+    // Eight is exactly the cohort minimum, so the family is tested rather than skipped as too small.
+    expect(scoped.outliers.cohortsEvaluated).toBe(1);
+    expect(scoped.outliers.cohortsSkipped).toBe(0);
+  });
+
+  test("both Agent-filter grains are unioned rather than intersected", () => {
+    const rows = [
+      ...baseline,
+      ...Array.from({ length: 3 }, (_, index) => session(`codex-${index}`, "codex", "gpt-5.6-sol", { cacheCreationTokens: 0 })),
+      ...Array.from({ length: 2 }, (_, index) => session(`terra-${index}`, "codex", "gpt-5.6-terra", { cacheCreationTokens: 0 })),
+    ];
+    // "Everything Claude, plus gpt-5.6-sol" — not the empty set of Claude sessions running a Codex model.
+    const scope = resolveScope(new URLSearchParams("providers=anthropic&modelFamilies=gpt-5.6-sol"));
+    const insights = buildInsights(dashboard(rows), scope);
+    expect(insights.facets.sessionsInScope).toBe(11);
+    expect(insights.volume.models.map((model) => model.model).sort()).toEqual(["claude-opus-5", "gpt-5.6-sol"]);
   });
 });
 

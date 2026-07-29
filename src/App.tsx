@@ -117,11 +117,28 @@ import {
   type QuotaMarker,
 } from "./quota-markers";
 import {
+  AgentFilter,
   Empty,
   InformationSources,
   PageTitle,
   Segmented,
+  type AgentFilterGroup,
 } from "./views/chrome";
+import {
+  agentEntry,
+  agentSelectionParams,
+  branchState,
+  buildAgentTree,
+  matchesEntry,
+  matchesAgentSelection,
+  modelEntry,
+  selectAgentRow,
+  selectionProvider,
+  toggleBranch,
+  toggleModel,
+  type AgentSelection,
+} from "./agent-filter";
+import { familyOf } from "./model-family";
 import { UsageIntelligence } from "./views/data/intelligence";
 import type { DataFacets } from "./views/data/insights";
 
@@ -554,22 +571,19 @@ function useDashboard() {
 
 /** Maps the global Agent / range / path-tag controls onto an effort scope. Dashboard and
  * Explorer read calendar activity, so both use the timeline basis. */
-function globalEffortScope(agent: string, range: MetricRange, pathTag: string) {
+function globalEffortScope(
+  agent: AgentSelection,
+  range: MetricRange,
+  pathTag: string,
+) {
+  const { providers, modelFamilies } = agentSelectionParams(agent);
   return {
     basis: "timeline" as const,
     rangeDays: range === "all" ? null : Number(range),
-    provider: (agent === "all" ? "all" : providerFromAgent(agent) ?? "all") as
-      | "all"
-      | "anthropic"
-      | "codex",
+    providers,
+    modelFamilies,
     pathTag,
   };
-}
-
-function selectAgent(row: MetricRow, agent: string): MetricRow | null {
-  if (agent === "all") return row;
-  const selected = row.agents?.find((item) => item.agent === agent);
-  return selected ? { ...selected, period: row.period } : null;
 }
 
 function MetricCard({
@@ -2279,7 +2293,7 @@ function Overview({
   data: DashboardData;
   daily: MetricRow[];
   sessions: Session[];
-  agent: string;
+  agent: AgentSelection;
   pathTag: string;
   metricRange: MetricRange;
   onMetricRangeChange: (range: MetricRange) => void;
@@ -2293,7 +2307,7 @@ function Overview({
   // Effort follows the same global range, provider, and path-tag controls as everything else on
   // this page; the headline token and cost cards are untouched.
   const effortRequest = useEffortAggregate(
-    "total",
+    "provider",
     globalEffortScope(agent, metricRange, pathTag),
   );
   const digestRequest = useEffortSessions({});
@@ -2310,7 +2324,7 @@ function Overview({
   );
   const totals = metricTotals(daily);
   const previousDaily = metricRangeRows(data.daily, metricRange, 1)
-    .map((row) => selectAgent(row, agent))
+    .map((row) => selectAgentRow(row, agent))
     .filter(Boolean) as MetricRow[];
   const previousTotals = metricTotals(previousDaily);
   const activeBlock =
@@ -2482,13 +2496,13 @@ function Overview({
               date={daily[0].period}
               sessions={sessions}
               quotaHistory={data.quotas.history}
-              activeProvider={agent === "all" ? null : providerKey(agent)}
+              activeProvider={selectionProvider(agent)}
             />
           ) : (
             <ProviderTimeline
               rows={daily}
               projectActivity={data.projectActivity}
-              activeProvider={agent === "all" ? null : providerKey(agent)}
+              activeProvider={selectionProvider(agent)}
               quotaHistory={data.quotas.history}
             />
           )}
@@ -2600,13 +2614,35 @@ function Overview({
           </div>
           <EffortState status={effort?.status ?? null} summary={effort?.total}>
             {effort?.total && (
-              <>
-                <EffortStack summary={effort.total} height={12} />
-                <EffortCoverage
-                  summary={effort.total}
-                  indexing={effort.status.phase === "indexing"}
-                />
-              </>
+              <div className="effort-provider-bars">
+                {/* Combined first, then one bar per provider, so a mix that reads as balanced
+                 * overall can still be seen to come from two different distributions. */}
+                <div className="effort-provider-bar">
+                  <div>
+                    <h3>All providers</h3>
+                    <EffortBadge summary={effort.total} />
+                  </div>
+                  <EffortStack summary={effort.total} height={12} />
+                  <EffortCoverage
+                    summary={effort.total}
+                    indexing={effort.status.phase === "indexing"}
+                  />
+                </div>
+                {effort.rows.map((row) => (
+                  <div className="effort-provider-bar" key={row.key}>
+                    <div>
+                      <h3>{row.label}</h3>
+                      <EffortBadge summary={row.summary} />
+                    </div>
+                    <EffortStack
+                      summary={row.summary}
+                      height={10}
+                      showLegend={false}
+                    />
+                    <EffortCoverage summary={row.summary} />
+                  </div>
+                ))}
+              </div>
             )}
           </EffortState>
           <p className="effort-help">{EFFORT_HELP}</p>
@@ -2880,7 +2916,7 @@ function Explorer({
   data: DashboardData;
   rows: MetricRow[];
   sessions: Session[];
-  agent: string;
+  agent: AgentSelection;
   pathTag: string;
   metricRange: MetricRange;
   metric: Metric;
@@ -2929,13 +2965,13 @@ function Explorer({
             date={rows[0].period}
             sessions={sessions}
             quotaHistory={data.quotas.history}
-            activeProvider={agent === "all" ? null : providerKey(agent)}
+            activeProvider={selectionProvider(agent)}
           />
         ) : (
           <ProviderTimeline
             rows={rows}
             projectActivity={projectActivity}
-            activeProvider={agent === "all" ? null : providerKey(agent)}
+            activeProvider={selectionProvider(agent)}
             quotaHistory={data.quotas.history}
           />
         )}
@@ -2943,11 +2979,11 @@ function Explorer({
       <EffortByDay
         scope={globalEffortScope(agent, metricRange, pathTag)}
         providerLabel={
-          agent === "all"
-            ? "All providers"
-            : providerFromAgent(agent) === "anthropic"
-              ? "Claude Code"
-              : "Codex"
+          selectionProvider(agent) === "anthropic"
+            ? "Claude Code"
+            : selectionProvider(agent) === "codex"
+              ? "Codex"
+              : "All providers"
         }
       />
       <section className="split-grid">
@@ -4315,7 +4351,7 @@ function ProjectDetails({
         scope={{
           basis: "timeline",
           rangeDays: effortRangeDays,
-          provider: "all",
+
           pathTag: "all",
           project: project.name,
         }}
@@ -4436,7 +4472,7 @@ function Projects({
   const effortRequest = useEffortAggregate("project", {
     basis: "sessions",
     rangeDays: null,
-    provider: "all",
+
     pathTag: "all",
   });
   const statusRequest = useEffortStatus();
@@ -4620,7 +4656,7 @@ function Models({
   const effortRequest = useEffortAggregate("model", {
     basis: "sessions",
     rangeDays: null,
-    provider: "all",
+
     pathTag: "all",
   });
   const digestRequest = useEffortSessions({});
@@ -5092,7 +5128,7 @@ function Sources({
   onRules,
   onUpdateWebCredits,
   days,
-  provider,
+  agent,
   pathTag,
   showCache,
   facets,
@@ -5103,7 +5139,7 @@ function Sources({
   onRules: () => void;
   onUpdateWebCredits: () => void;
   days: string;
-  provider: string;
+  agent: AgentSelection;
   pathTag: string;
   showCache: boolean;
   facets: DataFacets;
@@ -5125,7 +5161,7 @@ function Sources({
       <UsageIntelligence
         data={data}
         days={days}
-        provider={provider}
+        agent={agent}
         pathTag={pathTag}
         showCache={showCache}
         facets={facets}
@@ -6098,7 +6134,6 @@ export function App() {
   const [showCache, setShowCache] = useState(true);
   const [dataFacets, setDataFacets] = useState<DataFacets>({
     outliers: "all",
-    modelFamily: "all",
     finding: "all",
     effort: "all",
   });
@@ -6113,7 +6148,7 @@ export function App() {
   const [focusSessionId, setFocusSessionId] = useState<string | null>(
     initialSessionId,
   );
-  const [agent, setAgent] = useState("all");
+  const [agent, setAgent] = useState<AgentSelection>([]);
   const [days, setDays] = useState<MetricRange>("30");
   const [pathTag, setPathTag] = useState("all");
   const [metric, setMetric] = useState<Metric>("totalTokens");
@@ -6224,6 +6259,50 @@ export function App() {
         : [],
     [data],
   );
+  // Both grains of the Agent filter come from the same snapshot, so a model can never be offered
+  // for a provider that has no activity in the loaded data.
+  const agentTree = useMemo(() => {
+    const families = data
+      ? [
+          ...new Set(
+            data.sessions.flatMap((session) =>
+              session.modelBreakdowns.map((model) => familyOf(model.modelName)),
+            ),
+          ),
+        ].sort((left, right) => left.localeCompare(right))
+      : [];
+    return buildAgentTree(agents, families);
+  }, [agents, data]);
+  const agentFilterGroups = useMemo<AgentFilterGroup[]>(() => {
+    const groups: AgentFilterGroup[] = agentTree.branches
+      .filter((branch) => branch.models.length > 0)
+      .map((branch) => ({
+        label: branch.agent,
+        parent: {
+          label: branch.agent,
+          state: branchState(agent, branch),
+          onToggle: () => setAgent(toggleBranch(agent, branch, agentTree)),
+        },
+        options: branch.models.map((family) => ({
+          value: modelEntry(family),
+          label: family,
+          checked: matchesEntry(agent, branch, family),
+          onToggle: () => setAgent(toggleModel(agent, family, agentTree)),
+        })),
+      }));
+    if (agentTree.unparented.length > 0) {
+      groups.push({
+        label: "Other models",
+        options: agentTree.unparented.map((family) => ({
+          value: modelEntry(family),
+          label: family,
+          checked: agent.includes(modelEntry(family)),
+          onToggle: () => setAgent(toggleModel(agent, family, agentTree)),
+        })),
+      });
+    }
+    return groups;
+  }, [agent, agentTree]);
   const pathTags = useMemo(
     () => (data ? [...new Set(data.sessions.flatMap((s) => s.pathTags))] : []),
     [data],
@@ -6232,7 +6311,7 @@ export function App() {
     () =>
       data?.sessions.filter(
         (s) =>
-          (agent === "all" || s.agent === agent) &&
+          matchesAgentSelection(s, agent) &&
           (pathTag === "all" || s.pathTags.includes(pathTag)),
       ) ?? [],
     [data, agent, pathTag],
@@ -6242,7 +6321,7 @@ export function App() {
     const range = metricRangeRows(data.daily, days);
     if (pathTag === "all")
       return range
-        .map((row) => selectAgent(row, agent))
+        .map((row) => selectAgentRow(row, agent))
         .filter(Boolean) as MetricRow[];
     return pathFilteredRows(sessions, new Set(range.map((row) => row.period)));
   }, [data, agent, days, pathTag, sessions]);
@@ -6411,21 +6490,17 @@ export function App() {
           <div className="global-controls">
             {view !== "models" && (
               <>
+                {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
+                    label would forward stray clicks into the first of them. */}
                 {view !== "projects" && (
-                  <label className="global-filter global-filter--agent">
+                  <div className="global-filter global-filter--agent">
                     <span>Agent</span>
-                    <select
-                      value={agent}
-                      onChange={(e) => setAgent(e.target.value)}
-                    >
-                      <option value="all">All agents</option>
-                      {agents.map((a) => (
-                        <option value={a} key={a}>
-                          {a}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    <AgentFilter
+                      selection={agent}
+                      onChange={setAgent}
+                      groups={agentFilterGroups}
+                    />
+                  </div>
                 )}
                 {view !== "projects" && (
                   <label className="global-filter global-filter--path">
@@ -6557,7 +6632,7 @@ export function App() {
               onRules={() => setRules(true)}
               onUpdateWebCredits={() => setWebImport(true)}
               days={days}
-              provider={agent}
+              agent={agent}
               pathTag={pathTag}
               showCache={showCache}
               facets={dataFacets}
