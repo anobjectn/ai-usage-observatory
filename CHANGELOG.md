@@ -5,29 +5,54 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.0] - 2026-07-29
 
 ### Added
 
 - Add an All Time range to the dashboard filters and collect the full available
   local ccusage history when refreshing data.
+- Add timestamps to recent user prompts in session detail and allow switching
+  between oldest-first and newest-first ordering.
 - Add opt-in provider-recorded reasoning-effort information to Dashboard,
   Explorer, Sessions, Projects, Models, and Data, including Unknown/Mixed
   states, scoped coverage, raw breakdowns, and local privacy controls.
 - Add an incremental, resumable transcript-derived effort index with bounded
   parsing, source reconciliation, parser quality counters, and derived-data
   deletion.
+- Add a cascading Agent filter for selecting complete providers or individual
+  model families consistently across the workspace.
+- Add per-provider effort distributions and top model-by-effort combinations to
+  the Data allowance profiles.
 
 ### Changed
 
-- Refresh the public README's project badges and visual-status preview.
+- Refresh the public README badges, visual-status preview, and current Explorer
+  and Data screenshots.
 - Use one provider mapper across collection, insights, and effort analysis,
   including `openai`-flavoured Codex agent labels.
+- Refine the Data findings interface with model-and-effort badges, bounded
+  model/project breakdowns, and removal of the redundant supporting-sessions
+  card.
+- Keep the usage-intelligence interface explicitly experimental and likely to
+  change. Comments and suggestions are welcome: open an Issue or just comment
+  on the release.
 
 ### Fixed
 
-- Exclude replayed fork history and repeated Codex token events from effort
-  attribution so derived totals reconcile with pinned ccusage session totals.
+- Correct overcounting discovered in transcript-derived reasoning-effort totals
+  by excluding replayed fork history and repeated Codex token events, so
+  derived totals reconcile with pinned ccusage session totals.
+- Correct the Data facet-row alignment and preserve usable scrolling for long
+  effort breakdowns.
+
+### Screenshots
+
+<a href="docs/screenshots/releases/v1.6.0/2.explorer.png">
+  <img src="docs/screenshots/releases/v1.6.0/2.explorer.png" width="49%" alt="Explorer view with provider activity and reasoning effort">
+</a>
+<a href="docs/screenshots/releases/v1.6.0/6.data-intelligence.png">
+  <img src="docs/screenshots/releases/v1.6.0/6.data-intelligence.png" width="49%" alt="Data view with allowance intelligence and effort distributions">
+</a>
 
 ## [1.5.0] - 2026-07-26
 
@@ -169,7 +194,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.2.0...v1.3.0
