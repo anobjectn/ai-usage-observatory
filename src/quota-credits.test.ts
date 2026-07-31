@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildAnthropicCreditView,
+  buildCodexCreditView,
   creditFreshness,
   CREDIT_AGING_MS,
   CREDIT_STALE_MS,
@@ -134,6 +135,33 @@ describe("buildAnthropicCreditView", () => {
     const view = buildAnthropicCreditView(undefined, NOW);
     expect(view.usageCredit).toBeNull();
     expect(view.fable).toBeNull();
+  });
+});
+
+describe("buildCodexCreditView", () => {
+  test("preserves provider-defined Codex credit units", () => {
+    const view = buildCodexCreditView({
+      provider: "codex",
+      status: "ok",
+      source: "codex_api",
+      snapshot: {
+        kind: "window",
+        fiveHour: null,
+        weekly: null,
+        codexCredits: { hasCredits: true, unlimited: false, balance: 1000 },
+      },
+    });
+    expect(view).toEqual({ hasCredits: true, unlimited: false, balance: 1000 });
+  });
+
+  test("tolerates older quota-service responses", () => {
+    expect(buildCodexCreditView(undefined)).toBeNull();
+    expect(buildCodexCreditView({
+      provider: "codex",
+      status: "ok",
+      source: "codex_api",
+      snapshot: { kind: "window", fiveHour: null, weekly: null },
+    })).toBeNull();
   });
 });
 

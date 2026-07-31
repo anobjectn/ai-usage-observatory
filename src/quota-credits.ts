@@ -1,4 +1,4 @@
-import type { AnthropicWebCredits, QuotaProvider } from "./types";
+import type { AnthropicWebCredits, CodexCredits, QuotaProvider } from "./types";
 
 // Imported Claude Web observations never expire on their own, but their
 // usefulness decays: an import from last week may no longer reflect the real
@@ -63,6 +63,13 @@ export type AnthropicCreditView = {
   importedAt: number | null;
   importFreshness: CreditFreshness | null;
 };
+
+export type CodexCreditView = CodexCredits | null;
+
+export function buildCodexCreditView(report: QuotaProvider | undefined): CodexCreditView {
+  const snapshot = report?.snapshot?.kind === "window" ? report.snapshot : null;
+  return snapshot?.codexCredits ?? null;
+}
 
 function usageCreditView(report: QuotaProvider | undefined): UsageCreditView | null {
   const snapshot = report?.snapshot?.kind === "window" ? report.snapshot : null;

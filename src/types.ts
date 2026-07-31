@@ -117,6 +117,12 @@ export type UsageCredits = {
   currency: string;
   resetsAt: number | null;
 };
+/** OpenAI/Codex account credits. These are provider-defined units, not money. */
+export type CodexCredits = {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance: number | null;
+};
 /** Claude Web-only prepaid/promotion snapshot. Claude Code OAuth cannot read
  * these endpoints, so this is a user-imported observation with its own
  * timestamps and provenance — never presented as live provider data.
@@ -161,6 +167,7 @@ export type WindowQuotaSnapshot = {
   weekly: QuotaWindow | null;
   modelWindows?: Record<string, QuotaWindow>;
   usageCredits?: UsageCredits | null;
+  codexCredits?: CodexCredits | null;
   extra?: { bankedResetCreditsAvailable?: number; rawLimits?: unknown[] | null };
 };
 export type QuotaManualEntry = {

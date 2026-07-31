@@ -80,8 +80,10 @@ import {
 import { providerHeadroom } from "./quota-headroom";
 import {
   buildAnthropicCreditView,
+  buildCodexCreditView,
   formatCredit,
   type AnthropicCreditView,
+  type CodexCreditView,
   type CreditFreshness,
 } from "./quota-credits";
 import {
@@ -2096,6 +2098,21 @@ function AnthropicCredits({
   );
 }
 
+function CodexCredits({ view }: { view: CodexCreditView }) {
+  if (!view) return null;
+  return (
+    <div className="quota-credits">
+      <div className="credit-line">
+        <span className="credit-line__label">
+          <Sparkles /> Codex credits
+        </span>
+        <b>{view.unlimited ? "Unlimited" : view.balance === null ? "—" : view.balance.toLocaleString()}</b>
+        <small>{view.hasCredits ? "available · OpenAI account balance" : "not currently available · OpenAI account balance"}</small>
+      </div>
+    </div>
+  );
+}
+
 function QuotaDials({
   quotas,
   onUpdateWebCredits,
@@ -2106,6 +2123,9 @@ function QuotaDials({
   const cards = quotaCards(quotas);
   const anthropicCredits = buildAnthropicCreditView(
     quotas.usage?.providers.find((provider) => provider.provider === "anthropic"),
+  );
+  const codexCredits = buildCodexCreditView(
+    quotas.usage?.providers.find((provider) => provider.provider === "codex"),
   );
   const trackingSince = quotas.history?.trackingSince
     ? new Date(quotas.history.trackingSince).toLocaleDateString(undefined, {
@@ -2225,6 +2245,7 @@ function QuotaDials({
                   onUpdate={onUpdateWebCredits}
                 />
               )}
+              {card.provider === "codex" && <CodexCredits view={codexCredits} />}
               {card.provider === "codex" && (
                 <div className="banked-resets">
                   <div className="reset-summary">

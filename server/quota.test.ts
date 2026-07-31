@@ -13,7 +13,7 @@ function stubFetch(handler: (url: string, init?: RequestInit) => { status?: numb
 }
 
 describe("collectQuota field preservation", () => {
-  test("passes usageCredits, anthropicWebCredits, timestamps, and rawLimits through untouched", async () => {
+  test("passes usageCredits, codexCredits, anthropicWebCredits, timestamps, and rawLimits through untouched", async () => {
     const usage = {
       generatedAt: 1000,
       providers: [
@@ -28,6 +28,7 @@ describe("collectQuota field preservation", () => {
             fiveHour: { usedPercent: 10, resetsAt: null },
             weekly: null,
             usageCredits: { enabled: true, spentAmount: 3.5, limitAmount: 50, currency: "USD", resetsAt: null },
+            codexCredits: { hasCredits: true, unlimited: false, balance: 1000 },
             extra: { rawLimits: [{ kind: "weekly", percent: 10 }] },
           },
           manualEntries: [],
@@ -45,6 +46,7 @@ describe("collectQuota field preservation", () => {
     expect(provider.dataAgeMs).toBe(42);
     expect(provider.capturedAt).toBe(999);
     expect(provider.snapshot.usageCredits).toEqual(usage.providers[0].snapshot.usageCredits);
+    expect(provider.snapshot.codexCredits).toEqual(usage.providers[0].snapshot.codexCredits);
     expect(provider.snapshot.extra.rawLimits).toEqual([{ kind: "weekly", percent: 10 }]);
     expect(provider.anthropicWebCredits.nextExpiresOn).toBe("2026-09-19");
   });
