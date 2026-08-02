@@ -86,7 +86,7 @@ function TriCheckbox({
         aria-checked={state === "indeterminate" ? "mixed" : state === "checked"}
         onChange={onToggle}
       />
-      <i aria-hidden="true">
+      <i aria-hidden="true" data-state={state}>
         {state === "checked" ? <Check /> : state === "indeterminate" ? <Minus /> : null}
       </i>
       <span>{label}</span>
