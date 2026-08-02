@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { version as appVersion } from "../package.json";
 import {
   buildEffortDaySeries,
@@ -298,6 +299,8 @@ function useModalFocusTrap(onEscape: () => void) {
     const dialog = dialogRef.current;
     if (!dialog) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const focusableSelector =
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     const focusInitial = window.requestAnimationFrame(() => {
@@ -340,6 +343,7 @@ function useModalFocusTrap(onEscape: () => void) {
     return () => {
       window.cancelAnimationFrame(focusInitial);
       document.removeEventListener("keydown", onKeyDown, true);
+      document.body.style.overflow = previousBodyOverflow;
       previouslyFocused?.focus();
     };
   }, []);
@@ -2325,6 +2329,7 @@ function Overview({
   providerColors: ProviderColors;
   sceneEffects: SceneEffects;
 }) {
+  const [benchmarkModal, setBenchmarkModal] = useState(false);
   // Effort follows the same global range, provider, and path-tag controls as everything else on
   // this page; the headline token and cost cards are untouched.
   const effortRequest = useEffortAggregate(
@@ -2584,8 +2589,20 @@ function Overview({
               <h2>Who used the context?</h2>
               <p>{rangeLabel} · follows the active filters</p>
             </div>
-            <Bot />
+            <div className="panel-heading-actions">
+              <button
+                type="button"
+                className="accent-icon-button benchmark-trigger"
+                onClick={() => setBenchmarkModal(true)}
+                aria-label="Compare model cost and efficiency benchmarks"
+                title="Compare model cost and efficiency benchmarks"
+              >
+                <BenchmarkTriggerIcons />
+              </button>
+              <Bot />
+            </div>
           </div>
+          {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
           <div className="agent-mix">
             <div className="donut-wrap">
               <ResponsiveContainer width="100%" height="100%">
@@ -4674,6 +4691,7 @@ function Models({
 }) {
   const [openModels, setOpenModels] = useState<Set<string>>(() => new Set());
   const [pages, setPages] = useState<Record<string, number>>({});
+  const [benchmarkModal, setBenchmarkModal] = useState(false);
   const effortRequest = useEffortAggregate("model", {
     basis: "sessions",
     rangeDays: null,
@@ -4709,7 +4727,13 @@ function Models({
         eyebrow="MODEL SPECTROGRAPH"
         title="Model mix and efficiency"
         description="Compare API-equivalent cost, output volume, and cache behavior using ccusage as the sole analytical cost source."
+        actions={
+          <button type="button" className="secondary-button benchmark-trigger" onClick={() => setBenchmarkModal(true)}>
+            <BenchmarkTriggerIcons /> Compare benchmarks
+          </button>
+        }
       />
+      {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
       <section className="model-grid">
         {data.models.map((model, index) => {
           const sessions = data.sessions
@@ -6044,6 +6068,87 @@ function AnthropicWebImportModal({
         </button>
       </div>
     </div>
+  );
+}
+
+const BENCHMARK_SITES = [
+  {
+    id: "deepswe",
+    label: "DeepSWE",
+    url: "https://deepswe.datacurve.ai/#leaderboard",
+    favicon: "https://deepswe.datacurve.ai/favicon.ico",
+    description: "Cost-vs-performance leaderboard across coding agents — the primary reference for this comparison.",
+  },
+  {
+    id: "artificialanalysis",
+    label: "Artificial Analysis",
+    url: "https://artificialanalysis.ai/",
+    favicon: "https://artificialanalysis.ai/favicon.ico",
+    description: "Broader model metrics: quality, speed, latency, and price across providers.",
+  },
+] as const;
+
+function BenchmarkTriggerIcons({ className }: { className?: string }) {
+  return (
+    <span className={className ? `benchmark-trigger-icons ${className}` : "benchmark-trigger-icons"}>
+      {BENCHMARK_SITES.map((entry) => (
+        <img key={entry.id} src={entry.favicon} alt="" loading="lazy" />
+      ))}
+    </span>
+  );
+}
+
+function BenchmarkModal({ onClose }: { onClose: () => void }) {
+  const dialogRef = useModalFocusTrap(onClose);
+  const [siteId, setSiteId] = useState<(typeof BENCHMARK_SITES)[number]["id"]>("deepswe");
+  const site = BENCHMARK_SITES.find((entry) => entry.id === siteId) ?? BENCHMARK_SITES[0];
+  return createPortal(
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        className="modal benchmark-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="benchmark-title"
+        tabIndex={-1}
+      >
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close benchmark comparison">
+          <X />
+        </button>
+        <span className="overline">EXTERNAL BENCHMARKS</span>
+        <h2 id="benchmark-title">Compare cost and efficiency</h2>
+        <div className="benchmark-tabs" role="tablist">
+          {BENCHMARK_SITES.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={entry.id === siteId}
+              className={entry.id === siteId ? "active" : ""}
+              onClick={() => setSiteId(entry.id)}
+            >
+              <img src={entry.favicon} alt="" loading="lazy" />
+              {entry.label}
+            </button>
+          ))}
+        </div>
+        <div className="benchmark-toolbar">
+          <p>{site.description}</p>
+          <a className="secondary-button" href={site.url} target="_blank" rel="noreferrer">
+            <ExternalLink /> Open in new tab
+          </a>
+        </div>
+        <div className="benchmark-frame">
+          <iframe key={site.id} src={site.url} title={site.label} loading="lazy" />
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

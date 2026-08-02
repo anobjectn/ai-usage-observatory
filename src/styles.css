@@ -518,6 +518,21 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .effort-index-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
 .effort-index-actions p{flex:1 1 280px;margin:0}
 .secondary-button.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,var(--line))}
+.panel-heading-actions{display:flex;align-items:center;gap:10px}
+.benchmark-trigger-icons{display:inline-flex;align-items:center;gap:4px}
+.benchmark-trigger-icons img{width:14px;height:14px;border-radius:4px;object-fit:cover;background:#fff;flex:0 0 auto}
+.accent-icon-button.benchmark-trigger{width:auto;min-width:0;padding:0 9px}
+.benchmark-modal{width:min(920px,100%)}
+.benchmark-tabs{display:flex;gap:8px;margin-top:18px}
+.benchmark-tabs button{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--muted);padding:8px 14px;font:11px var(--font-label);cursor:pointer}
+.benchmark-tabs button img{width:16px;height:16px;border-radius:4px;object-fit:cover;background:#fff}
+.benchmark-tabs button:hover{border-color:var(--line-bright);color:var(--text)}
+.benchmark-tabs button.active{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface-2))}
+.benchmark-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px}
+.benchmark-toolbar p{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+.benchmark-toolbar .secondary-button{flex:0 0 auto;white-space:nowrap}
+.benchmark-frame{margin-top:16px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#0a1311;height:min(60vh,640px)}
+.benchmark-frame iframe{width:100%;height:100%;border:0;display:block}
 .effort-action-error{color:var(--red);font:var(--data-text-secondary) var(--font-label)}
 @media (max-width:1100px){.effort-analysis-grid{grid-template-columns:1fr 1fr}}
 @media (max-width:720px){
