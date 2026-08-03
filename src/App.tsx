@@ -6339,7 +6339,13 @@ function BenchmarkTriggerIcons({ className }: { className?: string }) {
   return (
     <span className={className ? `benchmark-trigger-icons ${className}` : "benchmark-trigger-icons"}>
       {BENCHMARK_SITES.map((entry) => (
-        <img key={entry.id} src={entry.favicon} alt="" loading="lazy" />
+        <img
+          key={entry.id}
+          className={`benchmark-favicon benchmark-favicon--${entry.id}`}
+          src={entry.favicon}
+          alt=""
+          loading="lazy"
+        />
       ))}
     </span>
   );
@@ -6356,7 +6362,7 @@ function BenchmarkSplitLauncher({ onOpen }: { onOpen: (siteId: BenchmarkSiteId) 
           aria-label={`Open ${entry.label} benchmark`}
           title={entry.label}
         >
-          <img src={entry.favicon} alt="" loading="lazy" />
+          <img className={`benchmark-favicon benchmark-favicon--${entry.id}`} src={entry.favicon} alt="" loading="lazy" />
         </button>
       ))}
     </div>
@@ -6397,7 +6403,7 @@ function BenchmarkModal({ onClose, initialSiteId }: { onClose: () => void; initi
               className={entry.id === siteId ? "active" : ""}
               onClick={() => setSiteId(entry.id)}
             >
-              <img src={entry.favicon} alt="" loading="lazy" />
+              <img className={`benchmark-favicon benchmark-favicon--${entry.id}`} src={entry.favicon} alt="" loading="lazy" />
               {entry.label}
             </button>
           ))}
