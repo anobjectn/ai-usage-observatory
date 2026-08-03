@@ -13,6 +13,7 @@ import {
   buildEffortDaySeries,
   compareEffort,
   effortRank,
+  utcDate,
   type EffortDayPoint,
 } from "./effort-model";
 import {
@@ -73,7 +74,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  OrbitalScene,
+  HeadroomOrrery,
   Starfield,
   type ProviderColors,
   type SceneEffects,
@@ -106,6 +107,7 @@ import {
 import type {
   DashboardData,
   EffortIndexStatus,
+  EffortSummary,
   MetricRow,
   ModelBreakdown,
   ProjectActivity,
@@ -142,13 +144,13 @@ import {
   type AgentSelection,
 } from "./agent-filter";
 import { familyOf } from "./model-family";
+import { filterEmptyMessage, type MetricRange } from "./filter-summary";
 import { UsageIntelligence } from "./views/data/intelligence";
 import type { DataFacets } from "./views/data/insights";
 
 type View =
   "overview" | "explorer" | "sessions" | "projects" | "models" | "sources";
 type Metric = "totalTokens" | "totalCost" | "outputTokens";
-type MetricRange = "1" | "7" | "14" | "30" | "120" | "all";
 type ProjectSummary = DashboardData["projects"][number];
 type ProjectSessionDetail = { session: Session; detail: SessionDetail };
 const nav: Array<{ id: View; label: string; icon: typeof Orbit }> = [
@@ -668,6 +670,58 @@ function ChartTooltip({
   );
 }
 
+type ModelSignalRow = ReturnType<typeof modelDistribution>[number] & {
+  effort: EffortSummary | null;
+};
+
+function ModelSignalTooltip({
+  active,
+  payload,
+  coordinate,
+  metric,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: ModelSignalRow; color?: string; value?: number }>;
+  coordinate?: { x?: number };
+  metric: Metric;
+}) {
+  const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
+  const row = payload?.[0]?.payload;
+  if (!active || !row) return null;
+  const summary = row.effort;
+  return (
+    <div className="chart-tooltip model-signal-tooltip" ref={tooltipRef}>
+      <span>{row.rawName}</span>
+      <div>
+        <i style={{ background: row.color }} aria-hidden="true" />
+        Usage:{" "}
+        <b>
+          {metric === "totalCost"
+            ? formatMoney(row.value)
+            : formatCompact(row.value)}
+        </b>
+      </div>
+      {summary?.dominant && (
+        <div className="model-signal-tooltip__effort">
+          <strong>Dominant effort: {effortLabel(summary.dominant)}</strong>
+          <small>
+            {summary.tokenCoverage === null
+              ? "Token coverage unavailable"
+              : `${Math.round(summary.tokenCoverage * 100)}% token coverage`}
+          </small>
+          {summary.levels
+            .filter((level) => level.tokens > 0)
+            .map((level) => (
+              <span key={level.effort}>
+                {effortLabel(level.effort)} {sharePercent(level.tokens, summary.attributedTokens)}
+              </span>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useClampedTooltip(active: boolean, coordinate?: { x?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -1162,6 +1216,7 @@ function modelDistribution(rows: MetricRow[], metric: Metric) {
         : "tokens";
   return [...models.values()]
     .map((values) => ({
+      rawName: values.name,
       name: values.name.replace(/^claude-|^gpt-/, ""),
       value: values[key],
       provider: values.provider,
@@ -1170,6 +1225,16 @@ function modelDistribution(rows: MetricRow[], metric: Metric) {
         "var(--aqua)",
     }))
     .sort((a, b) => b.value - a.value);
+}
+
+function modelSignalColor(baseColor: string, dominant: string | null) {
+  if (dominant === "low")
+    return `color-mix(in oklch, ${baseColor} 82%, white)`;
+  if (dominant === "high")
+    return `color-mix(in oklch, ${baseColor} 82%, black)`;
+  if (dominant === "xhigh")
+    return `color-mix(in oklch, ${baseColor} 66%, black)`;
+  return baseColor;
 }
 
 function combineMetricRows(
@@ -1333,11 +1398,13 @@ function ProviderTimeline({
   projectActivity,
   activeProvider,
   quotaHistory,
+  emptyText,
 }: {
   rows: MetricRow[];
   projectActivity: ProjectActivity[];
   activeProvider: (typeof providerSeries)[number]["key"] | null;
   quotaHistory: DashboardData["quotas"]["history"];
+  emptyText: string;
 }) {
   const projectsByDay = new Map<string, Record<string, ProjectActivity[]>>();
   projectActivity.forEach((project) => {
@@ -1421,15 +1488,18 @@ function ProviderTimeline({
     ...provider,
     value: data.reduce((sum, row) => sum + row[provider.key], 0),
   }));
+  const visibleProviders = totals.filter((provider) => provider.value > 0);
+  const visibleStackedProviders = [...visibleProviders].reverse();
   const quotaMarkers = dailyQuotaMarkers(
     quotaHistory,
     rows.map((row) => row.period),
     activeProvider,
   );
+  if (visibleProviders.length === 0) return <Empty text={emptyText} />;
   return (
     <>
       <div className="provider-legend" aria-label="Activity providers">
-        {totals.map((provider) => (
+        {visibleProviders.map((provider) => (
           <div key={provider.key}>
             <i style={{ background: provider.color }} />
             <span>{provider.label}</span>
@@ -1449,7 +1519,7 @@ function ProviderTimeline({
             margin={{ top: 10, right: 8, left: -18, bottom: 0 }}
           >
             <defs>
-              {providerSeries.map((provider) => (
+              {visibleProviders.map((provider) => (
                 <linearGradient
                   key={provider.key}
                   id={`${provider.key}Area`}
@@ -1485,7 +1555,7 @@ function ProviderTimeline({
                 return (
                   <ActivityAxisTick
                     {...props}
-                    tokens={providerSeries.map((provider) => ({
+                    tokens={visibleProviders.map((provider) => ({
                       color: provider.color,
                       value: row?.[provider.key] ?? 0,
                     }))}
@@ -1511,7 +1581,7 @@ function ProviderTimeline({
               wrapperStyle={{ transition: "none" }}
             />
             <QuotaReferenceLines markers={quotaMarkers} />
-            {stackedProviderSeries.map((provider) => (
+            {visibleStackedProviders.map((provider) => (
               <Area
                 key={provider.key}
                 type="monotone"
@@ -1536,12 +1606,6 @@ function ProviderTimeline({
   );
 }
 
-function localPeriod(value: string) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
 export function periodTickLabel(value: string) {
   const date = new Date(`${value}T12:00:00`);
   const weekday = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][
@@ -1555,7 +1619,7 @@ export function periodTickLabel(value: string) {
 }
 
 function hourTickLabel(value: string) {
-  return new Date(2000, 0, 1, Number(value)).toLocaleTimeString(undefined, {
+  return new Date(Date.UTC(2000, 0, 1, Number(value))).toLocaleTimeString(undefined, {
     hour: "numeric",
   });
 }
@@ -1565,11 +1629,13 @@ function HourlyProviderTimeline({
   sessions,
   quotaHistory,
   activeProvider,
+  emptyText,
 }: {
   date: string;
   sessions: Session[];
   quotaHistory: DashboardData["quotas"]["history"];
   activeProvider: (typeof providerSeries)[number]["key"] | null;
+  emptyText: string;
 }) {
   const data = Array.from({ length: 24 }, (_, hour) => ({
     anthropic: 0,
@@ -1612,17 +1678,17 @@ function HourlyProviderTimeline({
       >(),
     },
     hour: String(hour),
-    label: new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, {
+    label: new Date(Date.UTC(2000, 0, 1, hour)).toLocaleTimeString(undefined, {
       hour: "numeric",
     }),
   }));
   sessions.forEach((session) => {
     const activity = session.metadata?.lastActivity;
-    if (typeof activity !== "string" || localPeriod(activity) !== date) return;
+    if (typeof activity !== "string" || utcDate(activity) !== date) return;
     const timestamp = new Date(activity);
     const provider = providerKey(session.agent);
     if (!provider) return;
-    const bucket = data[timestamp.getHours()];
+    const bucket = data[timestamp.getUTCHours()];
     bucket[provider] += session.totalTokens;
     bucket.costs[provider] += session.totalCost;
     session.modelBreakdowns.forEach((model) => {
@@ -1698,11 +1764,14 @@ function HourlyProviderTimeline({
     ...provider,
     value: data.reduce((sum, bucket) => sum + bucket[provider.key], 0),
   }));
+  const visibleProviders = totals.filter((provider) => provider.value > 0);
+  const visibleStackedProviders = [...visibleProviders].reverse();
   const quotaMarkers = hourlyQuotaMarkers(quotaHistory, date, activeProvider);
+  if (visibleProviders.length === 0) return <Empty text={emptyText} />;
   return (
     <>
       <div className="provider-legend" aria-label="Activity providers">
-        {totals.map((provider) => (
+        {visibleProviders.map((provider) => (
           <div key={provider.key}>
             <i style={{ background: provider.color }} />
             <span>{provider.label}</span>
@@ -1748,7 +1817,7 @@ function HourlyProviderTimeline({
               wrapperStyle={{ transition: "none" }}
             />
             <QuotaReferenceLines markers={quotaMarkers} />
-            {stackedProviderSeries.map((provider) => (
+            {visibleStackedProviders.map((provider) => (
               <Bar
                 key={provider.key}
                 dataKey={provider.key}
@@ -2429,7 +2498,7 @@ function Overview({
             API-equivalent cost are going.
           </p>
         </div>
-        <OrbitalScene
+        <HeadroomOrrery
           accent={accent}
           effects={sceneEffects}
           providerColors={providerColors}
@@ -2523,6 +2592,7 @@ function Overview({
               sessions={sessions}
               quotaHistory={data.quotas.history}
               activeProvider={selectionProvider(agent)}
+              emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
             />
           ) : (
             <ProviderTimeline
@@ -2530,6 +2600,7 @@ function Overview({
               projectActivity={data.projectActivity}
               activeProvider={selectionProvider(agent)}
               quotaHistory={data.quotas.history}
+              emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
             />
           )}
         </article>
@@ -2767,6 +2838,11 @@ function Overview({
 }
 
 const effortBasisLabel = { tokens: "tokens", observations: "observations" } as const;
+type EffortDayContext = {
+  providers: Array<{ key: string; label: string; color: string; tokens: number }>;
+  models: Array<{ name: string; tokens: number }>;
+  moreModels: number;
+};
 
 /** Daily stacked distribution of provider-recorded effort. Tokens is the primary comparison;
  * Observations is available because one Claude assistant response and one Codex turn context are
@@ -2774,9 +2850,13 @@ const effortBasisLabel = { tokens: "tokens", observations: "observations" } as c
 function EffortByDay({
   scope,
   providerLabel,
+  rows,
+  emptyText,
 }: {
   scope: EffortScopeInput;
   providerLabel: string;
+  rows: MetricRow[];
+  emptyText: string;
 }) {
   const [basis, setBasis] = useState<"tokens" | "observations">("tokens");
   const aggregateRequest = useEffortAggregate("day", scope);
@@ -2793,6 +2873,68 @@ function EffortByDay({
     __point: point,
   }));
   const drawable = series.points.some((point) => point.total > 0);
+  const usageByDay = useMemo(() => {
+    const totalsByDay = new Map<
+      string,
+      { providers: Map<string, number>; models: Map<string, number> }
+    >();
+    rows.forEach((row) => {
+      const date = utcDate(row.metadata?.lastActivity) ?? row.period;
+      const totals = totalsByDay.get(date) ?? {
+        providers: new Map<string, number>(),
+        models: new Map<string, number>(),
+      };
+      const sources = row.agents?.length ? row.agents : [row];
+      sources.forEach((source) => {
+        const provider = providerKey(source.agent);
+        if (provider) {
+          totals.providers.set(
+            provider,
+            (totals.providers.get(provider) ?? 0) + source.totalTokens,
+          );
+        }
+        source.modelBreakdowns.forEach((model) => {
+          const tokens =
+            model.inputTokens +
+            model.outputTokens +
+            model.cacheReadTokens +
+            model.cacheCreationTokens;
+          totals.models.set(
+            model.modelName,
+            (totals.models.get(model.modelName) ?? 0) + tokens,
+          );
+        });
+      });
+      totalsByDay.set(date, totals);
+    });
+    return new Map(
+      [...totalsByDay.entries()].map(([date, totals]) => {
+        const models = [...totals.models.entries()]
+        .map(([name, tokens]) => ({ name, tokens }))
+        .sort((left, right) => right.tokens - left.tokens);
+        return [
+          date,
+          {
+            providers: providerSeries
+              .filter(
+                (provider) => (totals.providers.get(provider.key) ?? 0) > 0,
+              )
+              .map((provider) => ({
+                ...provider,
+                tokens: totals.providers.get(provider.key) ?? 0,
+              })),
+            models: models.slice(0, 3),
+            moreModels: Math.max(0, models.length - 3),
+          },
+        ];
+      }),
+    );
+  }, [rows]);
+  const showFilterEmpty =
+    rows.length === 0 &&
+    Boolean(aggregate?.status.enabled) &&
+    aggregate?.status.phase !== "indexing" &&
+    aggregate?.status.phase !== "error";
 
   return (
     <section className="panel effort-day-panel">
@@ -2810,7 +2952,10 @@ function EffortByDay({
           ]}
         />
       </div>
-      <EffortState status={aggregate?.status ?? null} summary={aggregate?.total}>
+      {showFilterEmpty ? (
+        <Empty text={emptyText} />
+      ) : (
+        <EffortState status={aggregate?.status ?? null} summary={aggregate?.total}>
         {drawable ? (
           <>
             <div className="bar-chart effort-day-chart" style={{ height: 280 }}>
@@ -2832,7 +2977,11 @@ function EffortByDay({
                   />
                   <Tooltip
                     content={
-                      <EffortDayTooltip basis={basis} providerLabel={providerLabel} />
+                      <EffortDayTooltip
+                        basis={basis}
+                        providerLabel={providerLabel}
+                        usageByDay={usageByDay}
+                      />
                     }
                     cursor={{ fill: "#15211d" }}
                     isAnimationActive={false}
@@ -2883,11 +3032,10 @@ function EffortByDay({
             )}
           </>
         ) : (
-          <p className="effort-empty">
-            No attributable effort activity in this range.
-          </p>
+          <Empty text={emptyText} />
         )}
-      </EffortState>
+        </EffortState>
+      )}
     </section>
   );
 }
@@ -2899,6 +3047,7 @@ function EffortDayTooltip({
   coordinate,
   basis,
   providerLabel,
+  usageByDay,
 }: {
   active?: boolean;
   payload?: Array<{ payload: { __point: EffortDayPoint } }>;
@@ -2906,11 +3055,13 @@ function EffortDayTooltip({
   coordinate?: { x?: number };
   basis: "tokens" | "observations";
   providerLabel: string;
+  usageByDay: Map<string, EffortDayContext>;
 }) {
   const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
   const point = payload?.[0]?.payload.__point;
   if (!active || !point) return null;
   const entries = Object.entries(point.values).filter(([, amount]) => amount > 0);
+  const usage = usageByDay.get(point.date);
   const coverage =
     point.summary.tokenCoverage === null
       ? "coverage unavailable"
@@ -2937,6 +3088,26 @@ function EffortDayTooltip({
           <em>{sharePercent(amount, point.total)}</em>
         </div>
       ))}
+      {usage && (usage.providers.length > 0 || usage.models.length > 0) && (
+        <div className="tooltip-day-context">
+          {usage.providers.map((provider) => (
+            <div key={provider.key}>
+              <i style={{ background: provider.color }} aria-hidden="true" />
+              <span>{provider.label}</span>
+              <b>{formatCompact(provider.tokens)} tokens</b>
+            </div>
+          ))}
+          {usage.models.map((model) => (
+            <div className="tooltip-day-model" key={model.name}>
+              <span>{model.name}</span>
+              <b>{formatCompact(model.tokens)}</b>
+            </div>
+          ))}
+          {usage.moreModels > 0 && (
+            <small>{usage.moreModels} more model{usage.moreModels === 1 ? "" : "s"}</small>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2960,7 +3131,32 @@ function Explorer({
   metric: Metric;
   setMetric: (metric: Metric) => void;
 }) {
-  const modelData = modelDistribution(rows, metric);
+  const modelEffortRequest = useEffortAggregate(
+    "model",
+    globalEffortScope(agent, metricRange, pathTag),
+  );
+  const modelEffortStatus = useEffortStatus();
+  useEffortRefreshOnIndexChange(modelEffortStatus.data?.indexVersion, [
+    modelEffortRequest.load,
+  ]);
+  const modelEffortByName = useMemo(
+    () =>
+      new Map(
+        (modelEffortRequest.data?.rows ?? []).map((row) => [
+          row.key,
+          row.summary,
+        ]),
+      ),
+    [modelEffortRequest.data],
+  );
+  const modelData = modelDistribution(rows, metric).map((row) => {
+    const effort = modelEffortByName.get(row.rawName) ?? null;
+    return {
+      ...row,
+      effort,
+      color: modelSignalColor(row.color, effort?.dominant ?? null),
+    };
+  });
   const projectActivity = useMemo(() => {
     if (pathTag === "all") return data.projectActivity;
     const projectIds = new Set(
@@ -3004,6 +3200,7 @@ function Explorer({
             sessions={sessions}
             quotaHistory={data.quotas.history}
             activeProvider={selectionProvider(agent)}
+            emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
           />
         ) : (
           <ProviderTimeline
@@ -3011,11 +3208,14 @@ function Explorer({
             projectActivity={projectActivity}
             activeProvider={selectionProvider(agent)}
             quotaHistory={data.quotas.history}
+            emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
           />
         )}
       </section>
       <EffortByDay
         scope={globalEffortScope(agent, metricRange, pathTag)}
+        rows={rows}
+        emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
         providerLabel={
           selectionProvider(agent) === "anthropic"
             ? "Claude Code"
@@ -3041,11 +3241,14 @@ function Explorer({
               ]}
             />
           </div>
-          <div
-            className="bar-chart"
-            style={{ height: Math.max(290, modelData.length * 34 + 28) }}
-          >
-            <ResponsiveContainer width="100%" height="100%">
+          {modelData.length === 0 ? (
+            <Empty text={filterEmptyMessage(agent, metricRange, pathTag)} />
+          ) : (
+            <div
+              className="bar-chart"
+              style={{ height: Math.max(290, modelData.length * 34 + 28) }}
+            >
+              <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={modelData}
                 layout="vertical"
@@ -3062,7 +3265,7 @@ function Explorer({
                   tickLine={false}
                 />
                 <Tooltip
-                  content={<ChartTooltip metric={metric} />}
+                  content={<ModelSignalTooltip metric={metric} />}
                   cursor={{ fill: "#15211d" }}
                   isAnimationActive={false}
                   wrapperStyle={{ transition: "none" }}
@@ -3080,8 +3283,9 @@ function Explorer({
                   ))}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+              </ResponsiveContainer>
+            </div>
+          )}
         </article>
         <article className="panel">
           <div className="panel-heading">
@@ -4282,7 +4486,7 @@ function ProjectDetails({
                   wrapperStyle={{ transition: "none" }}
                 />
                 <QuotaReferenceLines markers={quotaMarkers} yAxisId="tokens" />
-                {stackedProviderSeries.map((provider) => (
+                {[...projectProviderSeries].reverse().map((provider) => (
                   <Bar
                     key={provider.key}
                     yAxisId="tokens"
@@ -4393,6 +4597,14 @@ function ProjectDetails({
           pathTag: "all",
           project: project.name,
         }}
+        rows={sessions}
+        emptyText={filterEmptyMessage(
+          [],
+          effortRangeDays === null
+            ? "all"
+            : (String(effortRangeDays) as MetricRange),
+          "all",
+        )}
         providerLabel="All providers"
       />
       <section
@@ -5409,6 +5621,36 @@ function AppearanceModal({
     dataTextScale,
     sceneEffects: { ...sceneEffects },
   });
+  const starting = initial.current;
+  const changeCount =
+    Number(accent !== starting.accent) +
+    Number(providerColors.anthropic !== starting.providerColors.anthropic) +
+    Number(providerColors.openai !== starting.providerColors.openai) +
+    Number(providerColors.warp !== starting.providerColors.warp) +
+    Number(
+      favoriteAccents.length !== starting.favoriteAccents.length ||
+        favoriteAccents.some(
+          (color, index) => color !== starting.favoriteAccents[index],
+        ),
+    ) +
+    Number(dataTextScale !== starting.dataTextScale) +
+    Object.keys(starting.sceneEffects).reduce(
+      (count, key) =>
+        count +
+        Number(
+          sceneEffects[key as keyof SceneEffects] !==
+            starting.sceneEffects[key as keyof SceneEffects],
+        ),
+      0,
+    );
+  const revertChanges = () => {
+    onChange(starting.accent);
+    onProviderColorsChange({ ...starting.providerColors });
+    onFavoriteAccentsChange([...starting.favoriteAccents]);
+    onDataTextScaleChange(starting.dataTextScale);
+    onSceneEffectsChange({ ...starting.sceneEffects });
+    setEditingFavorites(false);
+  };
   const replaceFavorite = (index: number) => {
     onFavoriteAccentsChange(
       favoriteAccents.map((color, colorIndex) =>
@@ -5419,17 +5661,6 @@ function AppearanceModal({
   };
   const dismiss = useCallback(() => {
     if (dismissal) return;
-    const starting = initial.current;
-    const sceneChanged =
-      JSON.stringify(sceneEffects) !== JSON.stringify(starting.sceneEffects);
-    const changed =
-      accent !== starting.accent ||
-      JSON.stringify(providerColors) !==
-        JSON.stringify(starting.providerColors) ||
-      JSON.stringify(favoriteAccents) !==
-        JSON.stringify(starting.favoriteAccents) ||
-      dataTextScale !== starting.dataTextScale ||
-      sceneChanged;
     const setToMax =
       (sceneEffects.speed !== starting.sceneEffects.speed &&
         sceneEffects.speed === 3) ||
@@ -5440,7 +5671,7 @@ function AppearanceModal({
         sceneEffects.speed === 0.1) ||
       (sceneEffects.starDensity !== starting.sceneEffects.starDensity &&
         sceneEffects.starDensity === 1);
-    const options = !changed
+    const options = changeCount === 0
       ? unchangedDismissals
       : setToMax
         ? maxDismissals
@@ -5451,6 +5682,7 @@ function AppearanceModal({
     closeTimer.current = window.setTimeout(onClose, 2050);
   }, [
     accent,
+    changeCount,
     dataTextScale,
     dismissal,
     favoriteAccents,
@@ -5604,9 +5836,9 @@ function AppearanceModal({
               <button
                 type="button"
                 onClick={() =>
-                  onDataTextScaleChange(Math.min(150, dataTextScale + 10))
+                  onDataTextScaleChange(Math.min(250, dataTextScale + 10))
                 }
-                disabled={dataTextScale >= 150}
+                disabled={dataTextScale >= 250}
                 aria-label="Increase data text size"
               >
                 +
@@ -5707,6 +5939,20 @@ function AppearanceModal({
               Motion effects pause automatically when your system prefers
               reduced motion.
             </small>
+          </div>
+          <div className="appearance-change-trail" aria-live="polite">
+            <span>
+              {changeCount === 0
+                ? "No changes yet"
+                : changeCount === 1
+                  ? "1 change will apply when you close this"
+                  : `${changeCount} changes will apply when you close this`}
+            </span>
+            {changeCount > 0 && (
+              <button type="button" onClick={revertChanges}>
+                Revert changes
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -6087,6 +6333,7 @@ const BENCHMARK_SITES = [
     description: "Broader model metrics: quality, speed, latency, and price across providers.",
   },
 ] as const;
+type BenchmarkSiteId = (typeof BENCHMARK_SITES)[number]["id"];
 
 function BenchmarkTriggerIcons({ className }: { className?: string }) {
   return (
@@ -6098,9 +6345,27 @@ function BenchmarkTriggerIcons({ className }: { className?: string }) {
   );
 }
 
-function BenchmarkModal({ onClose }: { onClose: () => void }) {
+function BenchmarkSplitLauncher({ onOpen }: { onOpen: (siteId: BenchmarkSiteId) => void }) {
+  return (
+    <div className="benchmark-split-pill" aria-label="Open benchmark comparison">
+      {BENCHMARK_SITES.map((entry) => (
+        <button
+          key={entry.id}
+          type="button"
+          onClick={() => onOpen(entry.id)}
+          aria-label={`Open ${entry.label} benchmark`}
+          title={entry.label}
+        >
+          <img src={entry.favicon} alt="" loading="lazy" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BenchmarkModal({ onClose, initialSiteId }: { onClose: () => void; initialSiteId?: BenchmarkSiteId }) {
   const dialogRef = useModalFocusTrap(onClose);
-  const [siteId, setSiteId] = useState<(typeof BENCHMARK_SITES)[number]["id"]>("deepswe");
+  const [siteId, setSiteId] = useState<BenchmarkSiteId>(initialSiteId ?? "deepswe");
   const site = BENCHMARK_SITES.find((entry) => entry.id === siteId) ?? BENCHMARK_SITES[0];
   return createPortal(
     <div
@@ -6284,6 +6549,7 @@ export function App() {
   const [rules, setRules] = useState(false);
   const [appearance, setAppearance] = useState(false);
   const [webImport, setWebImport] = useState(false);
+  const [benchmarkSite, setBenchmarkSite] = useState<BenchmarkSiteId | null>(null);
   const [accent, setAccent] = useState(savedAccent);
   const [providerColors, setProviderColors] =
     useState<ProviderColors>(savedProviderColors);
@@ -6404,6 +6670,9 @@ export function App() {
       .filter((branch) => branch.models.length > 0)
       .map((branch) => ({
         label: branch.agent,
+        summaryColor: providerSeries.find(
+          (provider) => provider.key === providerFromAgent(branch.agent),
+        )?.color,
         parent: {
           label: branch.agent,
           state: branchState(agent, branch),
@@ -6418,7 +6687,8 @@ export function App() {
       }));
     if (agentTree.unparented.length > 0) {
       groups.push({
-        label: "Other models",
+        label: `Other models (${agentTree.unparented.length})`,
+        note: "Provider not recognized; model remains filterable.",
         options: agentTree.unparented.map((family) => ({
           value: modelEntry(family),
           label: family,
@@ -6614,6 +6884,7 @@ export function App() {
             <b>{current.label}</b>
           </div>
           <div className="global-controls">
+            <BenchmarkSplitLauncher onOpen={setBenchmarkSite} />
             {view !== "models" && (
               <>
                 {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
@@ -6811,6 +7082,12 @@ export function App() {
           reducedMotion={reducedMotion}
           onReset={resetAppearance}
           onClose={() => setAppearance(false)}
+        />
+      )}
+      {benchmarkSite && (
+        <BenchmarkModal
+          initialSiteId={benchmarkSite}
+          onClose={() => setBenchmarkSite(null)}
         />
       )}
       {sidebar && <div className="scrim" onClick={() => setSidebar(false)} />}

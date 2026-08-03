@@ -187,12 +187,23 @@ for (let a = 0; a < 16; a++) for (let b = a + 1; b < 16; b++) {
 }
 
 const RINGS = [
-  { provider: "anthropic", r: 1.55, tiltX: 1.13, tiltZ: -0.31, speed: 0.5, dir: 1, phase: 1.2 },
-  { provider: "openai", r: 1.82, tiltX: 1.36, tiltZ: 0.56, speed: 0.36, dir: -1, phase: 4.0 },
-  { provider: "warp", r: 2.08, tiltX: 0.83, tiltZ: 0.92, speed: 0.29, dir: 1, phase: 5.45 },
+  { provider: "anthropic", r: 1.55, tiltX: 1.13, tiltZ: -0.31, dir: 1, phase: 1.2 },
+  { provider: "openai", r: 1.82, tiltX: 1.36, tiltZ: 0.56, dir: -1, phase: 4.0 },
+  { provider: "warp", r: 2.08, tiltX: 0.83, tiltZ: 0.92, dir: 1, phase: 5.45 },
 ] as const;
 
-export function OrbitalScene({ accent, effects, providerColors, headroom }: { accent: string; effects: SceneEffects; providerColors: ProviderColors; headroom: ProviderHeadroom[] }) {
+const MIN_ORBIT_RATE = 0.22;
+const MAX_ORBIT_RATE = 0.62;
+const UNKNOWN_ORBIT_RATE = 0.36;
+
+export function headroomOrbitRate(percent: number | null): number {
+  if (percent === null || !Number.isFinite(percent)) return UNKNOWN_ORBIT_RATE;
+  const normalized = Math.max(0, Math.min(1, percent / 100));
+  const eased = normalized * normalized * (3 - 2 * normalized);
+  return MIN_ORBIT_RATE + (MAX_ORBIT_RATE - MIN_ORBIT_RATE) * eased;
+}
+
+export function HeadroomOrrery({ accent, effects, providerColors, headroom }: { accent: string; effects: SceneEffects; providerColors: ProviderColors; headroom: ProviderHeadroom[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const propsRef = useRef({ accent, effects, providerColors, headroom });
   const dirtyRef = useRef(true);
@@ -202,6 +213,12 @@ export function OrbitalScene({ accent, effects, providerColors, headroom }: { ac
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
     let w = 0, h = 0, raf = 0, drawnVersion = -1;
+    const orbitAngles: Record<(typeof RINGS)[number]["provider"], number> = {
+      anthropic: RINGS[0].phase,
+      openai: RINGS[1].phase,
+      warp: RINGS[2].phase,
+    };
+    let lastOrbitClock = clock;
     const resize = () => { ({ w, h } = fitCanvas(canvas, ctx)); dirtyRef.current = true; };
     resize();
     const observer = new ResizeObserver(resize);
@@ -247,7 +264,7 @@ export function OrbitalScene({ accent, effects, providerColors, headroom }: { ac
           else { seg.alpha = (known ? 0.18 + normalized * 0.14 : 0.14) * staleMultiplier; frontSegs.push(seg); }
           prev = point;
         }
-        const angle = ring.phase + clock * ring.speed * ring.dir;
+        const angle = orbitAngles[ring.provider];
         const pulse = animate && known && normalized > 0 ? 1 + 0.2 * Math.sin(clock * 1.26 + ring.phase) : 1;
         const trailCount = known ? Math.round(18 * normalized) : 0;
         for (let k = trailCount; k >= 0; k--) {
@@ -371,6 +388,17 @@ export function OrbitalScene({ accent, effects, providerColors, headroom }: { ac
       raf = requestAnimationFrame(frame);
       const animate = !reduced.current;
       stepScene(now, animate, propsRef.current.effects.speed);
+      const orbitDelta = Math.max(0, clock - lastOrbitClock);
+      lastOrbitClock = clock;
+      if (orbitDelta > 0) {
+        for (const ring of RINGS) {
+          const signal = propsRef.current.headroom.find(
+            (item) => item.provider === ring.provider,
+          );
+          orbitAngles[ring.provider] +=
+            orbitDelta * headroomOrbitRate(signal?.percent ?? null) * ring.dir;
+        }
+      }
       if (!animate && !dirtyRef.current && camera.version === drawnVersion) return;
       drawnVersion = camera.version;
       dirtyRef.current = false;
@@ -419,10 +447,10 @@ export function OrbitalScene({ accent, effects, providerColors, headroom }: { ac
       window.removeEventListener("pointercancel", up);
     };
   }, []);
-  return <div className="orbital-viz">
+  return <div className="headroom-orrery">
     <canvas ref={canvasRef} aria-hidden="true" />
     {!effects.tesseract && <div className="scene-icon" aria-hidden="true"><TelescopeIcon /></div>}
-    <div className="orbit-legend" aria-label="Provider quota headroom">
+    <div className="headroom-orrery__legend" aria-label="Provider quota headroom">
       {headroom.map((signal) => {
         const label = signal.provider === "openai" ? "OpenAI" : signal.provider === "anthropic" ? "Anthropic" : "Warp";
         const value = signal.percent === null ? "Unknown" : `${Math.round(signal.percent)}%`;

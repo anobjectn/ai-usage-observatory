@@ -48,7 +48,7 @@ export function findUnpricedModels(unified: UnifiedReport) {
 
 export async function collectCcusage() {
   const [unified, blocks, version] = await Promise.all([
-    invoke(["daily", "--sections", "daily,weekly,monthly,session", "--by-agent", "--json"]).then((value) => unifiedReportSchema.parse(value)),
+    invoke(["daily", "--sections", "daily,weekly,monthly,session", "--by-agent", "--timezone", "UTC", "--json"]).then((value) => unifiedReportSchema.parse(value)),
     invoke(["blocks", "--recent", "--json"]).then((value) => blocksReportSchema.parse(value)),
     ccusageVersion(),
   ]);

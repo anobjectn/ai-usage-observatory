@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { db } from "./store";
 import * as api from "./effort-api";
 import { setEffortEnabled } from "./effort-store";
@@ -7,6 +7,9 @@ import type { DashboardData, Session } from "../src/types";
 const today = "2026-07-27";
 const yesterday = "2026-07-26";
 const old = "2026-01-01";
+
+beforeAll(() => setSystemTime(new Date("2026-07-27T18:00:00.000Z")));
+afterAll(() => setSystemTime());
 
 function session(overrides: Partial<Session> & { sessionId: string }): Session {
   return {

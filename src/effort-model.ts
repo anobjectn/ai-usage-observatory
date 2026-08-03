@@ -162,13 +162,11 @@ export function buildEffortDaySeries(
 export const emptyEffortSummary = (quality: EffortSummary["quality"] = "ok"): EffortSummary =>
   foldEffort([], { eligibleTokens: 0, unknownObservations: 0, quality });
 
-/** The one local-date helper. Every transcript timestamp and every ccusage activity timestamp
+/** The one UTC-date helper. Every transcript timestamp and every ccusage activity timestamp
  * must convert through this, or a day bucket in one view will not line up with another. */
-export function localDate(value: unknown): string | null {
+export function utcDate(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
-  return `${part("year")}-${part("month")}-${part("day")}`;
+  return date.toISOString().slice(0, 10);
 }

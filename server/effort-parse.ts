@@ -1,4 +1,4 @@
-import { localDate, normalizeEffort } from "../src/effort-model";
+import { normalizeEffort, utcDate } from "../src/effort-model";
 
 /** Bumping this rebuilds every session from byte zero. The constant lives in code, never in the
  * database, so a checkout can never disagree with the rows it is reading. */
@@ -159,7 +159,7 @@ function claudeLine(row: Record<string, unknown>, accumulator: EffortAccumulator
   if (usageKey !== "" && usageKey === state.lastUsageKey) return true;
   state.lastUsageKey = usageKey === "" ? null : usageKey;
 
-  const occurredOn = localDate(row.timestamp) ?? "";
+  const occurredOn = utcDate(row.timestamp) ?? "";
   const model = typeof row.message.model === "string" ? row.message.model : "";
   const target = bucket(accumulator, occurredOn, model, normalizeEffort(row.effort));
   addObservation(accumulator, target);
@@ -176,7 +176,7 @@ function codexTurnContext(row: Record<string, unknown>, payload: Record<string, 
   state.effort = normalizeEffort(payload.effort);
   state.model = typeof payload.model === "string" ? payload.model : "";
   state.active = true;
-  const occurredOn = localDate(row.timestamp) ?? localDate(payload.timestamp) ?? "";
+  const occurredOn = utcDate(row.timestamp) ?? utcDate(payload.timestamp) ?? "";
   addObservation(accumulator, bucket(accumulator, occurredOn, state.model, state.effort));
 }
 
@@ -226,7 +226,7 @@ function codexTokenCount(row: Record<string, unknown>, payload: Record<string, u
   state.lastUsageKey = usageKey;
 
   if (!state.active) accumulator.contextGaps++;
-  const occurredOn = localDate(row.timestamp) ?? localDate(payload.timestamp) ?? "";
+  const occurredOn = utcDate(row.timestamp) ?? utcDate(payload.timestamp) ?? "";
   const target = bucket(accumulator, occurredOn, state.active ? state.model ?? "" : "", state.active ? state.effort ?? "" : "");
   addTokens(accumulator, target, {
     inputTokens, cacheReadTokens, cacheCreationTokens, outputTokens, reasoningOutputTokens,

@@ -58,6 +58,8 @@ export function Segmented({
  * trailing group of families whose vendor could not be read from the name. */
 export type AgentFilterGroup = {
   label: string;
+  summaryColor?: string;
+  note?: string;
   parent?: { label: string; state: BranchState; onToggle: () => void };
   options: Array<{ value: AgentEntry; label: string; checked: boolean; onToggle: () => void }>;
 };
@@ -139,11 +141,28 @@ export function AgentFilter({
     }
     return null;
   };
+  const modelCount = groups.reduce(
+    (sum, group) =>
+      sum + group.options.filter((option) => option.checked).length,
+    0,
+  );
   const summary = selection.length === 0
     ? "All agents"
     : selection.length === 1
       ? labelFor(selection[0]) ?? "1 selected"
-      : `${selection.length} selected`;
+      : `${modelCount} selected`;
+  const summaryColors = [
+    ...new Set(
+      groups
+        .filter(
+          (group) =>
+            group.summaryColor &&
+            (selection.length === 0 ||
+              group.options.some((option) => option.checked)),
+        )
+        .map((group) => group.summaryColor!),
+    ),
+  ];
 
   return (
     <div className="agent-filter" ref={root}>
@@ -154,6 +173,13 @@ export function AgentFilter({
         aria-haspopup="true"
         onClick={() => setOpen(!open)}
       >
+        {summaryColors.length > 0 && (
+          <span className="agent-filter__provider-marks" aria-hidden="true">
+            {summaryColors.map((color) => (
+              <i key={color} style={{ background: color }} />
+            ))}
+          </span>
+        )}
         <span>{summary}</span>
         <ChevronDown />
       </button>
@@ -177,7 +203,14 @@ export function AgentFilter({
                     />
                   </label>
                 ) : (
-                  <span className="overline">{group.label}</span>
+                  <>
+                    <span className="overline">{group.label}</span>
+                    {group.note && (
+                      <small className="agent-filter__group-note">
+                        {group.note}
+                      </small>
+                    )}
+                  </>
                 )}
                 {group.options.map((option) => (
                   <label key={option.value} className={group.parent ? "agent-filter__child" : undefined}>

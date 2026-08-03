@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { localDate } from "../src/effort-model";
+import { utcDate } from "../src/effort-model";
 import { providerFromAgent } from "../src/provider";
 import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
@@ -64,7 +64,7 @@ type ProjectModelTotals = {inputTokens:number;outputTokens:number;cacheReadToken
 export function aggregateProjects(sessions: ProjectActivitySession[]) {
   const projects = new Map<string, {name:string;tokens:number;cost:number;sessions:number;models:Map<string,number>;days:Map<string,{date:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number;models:Map<string,ProjectModelTotals>}>}>();
   for (const session of sessions) {
-    const date = localDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    const date = utcDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
     if (!activityProvider(session.agent) || !date || !session.cwd) continue;
     const projectId = session.cwd.replace(/\/+$/, "");
     const project = projects.get(projectId) ?? {name:projectId,tokens:0,cost:0,sessions:0,models:new Map(),days:new Map()};
@@ -118,7 +118,7 @@ export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
   const activity = new Map<string, {date:string;provider:"anthropic"|"codex";projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>();
   for (const session of sessions) {
     const provider = activityProvider(session.agent);
-    const date = localDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    const date = utcDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
     if (!provider || !date || !session.cwd) continue;
     const projectId = session.cwd.replace(/\/+$/, "");
     const key = `${date}\0${provider}\0${projectId}`;

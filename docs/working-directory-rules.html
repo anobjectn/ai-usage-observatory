@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Working-directory rules — how it works and whether it's a worktree feature</title>
+<style>
+  :root {
+    --bg: #07100f;
+    --surface: #0d1715;
+    --surface-2: #111d1a;
+    --surface-3: #17231f;
+    --line: #24322e;
+    --line-bright: #35463f;
+    --text: #ecf2ef;
+    --muted: #91a19b;
+    --dim: #65736e;
+    --accent: #78a8ff;
+    --anthropic-color: #d97757;
+    --openai-color: #eaeaea;
+    --warp-color: #d7b3ff;
+    --aqua: #58d9cf;
+    --orange: #ff9e64;
+    --violet: #d7b3ff;
+    --red: #ff786f;
+    --radius: 16px;
+    --sans-font: "Avenir Next", Avenir, -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono-font: "IBM Plex Mono", Menlo, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans-font);
+    line-height: 1.6;
+    padding: 48px 24px 96px;
+  }
+  main {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  .kicker {
+    font-family: var(--mono-font);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 30px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    letter-spacing: -.01em;
+  }
+  .subhead {
+    color: var(--muted);
+    font-size: 16px;
+    margin: 0 0 32px;
+    max-width: 62ch;
+  }
+  .verdict {
+    background: var(--surface);
+    border: 1px solid var(--line-bright);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin: 0 0 40px;
+  }
+  .verdict p { margin: 0; }
+  .verdict .label {
+    font-family: var(--mono-font);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--aqua);
+    margin: 0 0 8px;
+    display: block;
+  }
+  h2 {
+    font-size: 19px;
+    margin: 48px 0 14px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+  }
+  h2:first-of-type { border-top: none; padding-top: 0; }
+  h3 {
+    font-size: 15px;
+    margin: 24px 0 10px;
+    color: var(--text);
+  }
+  p { margin: 0 0 14px; color: var(--text); }
+  p.muted, li.muted { color: var(--muted); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--mono-font);
+    font-size: .9em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--aqua);
+  }
+  pre {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--mono-font);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    margin: 0 0 16px;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+  ul, ol { margin: 0 0 16px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 20px;
+    font-size: 13.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--dim);
+    font-weight: 500;
+  }
+  td code { white-space: nowrap; }
+  .pill {
+    display: inline-block;
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--line-bright);
+    color: var(--muted);
+  }
+  .pill.yes { border-color: var(--aqua); color: var(--aqua); }
+  .pill.no { border-color: var(--red); color: var(--red); }
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 0 0 24px;
+  }
+  .flow-step {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .flow-step .n {
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    color: var(--dim);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .flow-step .t { font-size: 13.5px; }
+  .card-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 0 0 20px;
+  }
+  @media (max-width: 640px) {
+    .card-row { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .card h3 { margin-top: 0; }
+  .card.good { border-color: rgba(88,217,207,.35); }
+  .card.gap { border-color: rgba(255,158,100,.35); }
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--dim);
+    font-size: 12px;
+    font-family: var(--mono-font);
+  }
+  .file-ref { color: var(--dim); font-family: var(--mono-font); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">AI Usage Observatory — feature report</p>
+  <h1>Working-directory rules: what it is, and is it for worktrees?</h1>
+  <p class="subhead">
+    A look at the "Working-directory rules" modal in the app, prompted by the question of
+    whether it's a worktree-specific mechanism or something general enough to group an umbrella
+    project (like <em>Transit Earth</em>) together with its individual prototype sub-projects —
+    and whether it's ready to lean on if you start using <code>git worktree</code> for concurrent
+    sessions.
+  </p>
+
+  <div class="verdict">
+    <span class="label">Short answer</span>
+    <p>
+      It's a general-purpose, path-pattern tagging layer, not a worktree feature. It tags every
+      indexed session by the literal working directory the agent CLI was launched from, using
+      glob or regex rules you define. It will happily group Transit Earth with its prototypes
+      today, and it will work fine with worktrees once you start using them — but it has no
+      built-in concept of "these five directories are the same git repo." You get that by writing
+      a rule, not by the tool inferring it.
+    </p>
+  </div>
+
+  <h2>How it actually works</h2>
+  <p>
+    The mechanism is small and entirely path-string based — nothing about it inspects
+    <code>.git</code>, branches, or worktree metadata.
+  </p>
+
+  <div class="flow">
+    <div class="flow-step">
+      <span class="n">1 · Capture</span>
+      <span class="t">Indexer reads each transcript's <code>cwd</code> — the directory the agent
+      was launched from — straight from the session file the agent already wrote.</span>
+    </div>
+    <div class="flow-step">
+      <span class="n">2 · Store</span>
+      <span class="t">Every indexed session gets a row with its <code>cwd</code> alongside the
+      session id and agent.</span>
+    </div>
+    <div class="flow-step">
+      <span class="n">3 · Match</span>
+      <span class="t">Every defined rule (glob or regex) is tested against every session's
+      <code>cwd</code>, case-insensitively.</span>
+    </div>
+    <div class="flow-step">
+      <span class="n">4 · Tag</span>
+      <span class="t">A session can match more than one rule — tags accumulate, they don't
+      replace each other.</span>
+    </div>
+    <div class="flow-step">
+      <span class="n">5 · Filter</span>
+      <span class="t">The dashboard's path-tag dropdown filters sessions/charts by any one
+      accumulated tag.</span>
+    </div>
+  </div>
+
+  <h3>Where this lives in the code</h3>
+  <table>
+    <thead><tr><th>Piece</th><th>Location</th></tr></thead>
+    <tbody>
+      <tr><td>Rule + session-path tables</td><td class="file-ref">server/migrations.ts:10&ndash;19 &nbsp;(<code>path_rules</code>, <code>session_paths</code>)</td></tr>
+      <tr><td><code>cwd</code> capture from transcripts</td><td class="file-ref">server/path-indexer.ts:25&ndash;46</td></tr>
+      <tr><td>Glob/regex matching against every rule</td><td class="file-ref">server/path-indexer.ts:123&ndash;142</td></tr>
+      <tr><td>Rule CRUD API</td><td class="file-ref">server/index.ts:125&ndash;136, server/store.ts:25&ndash;40</td></tr>
+      <tr><td>"Working-directory rules" modal UI</td><td class="file-ref">src/App.tsx:6050&ndash;6151 (<code>RulesModal</code>)</td></tr>
+      <tr><td>Path-tag filter dropdown</td><td class="file-ref">src/App.tsx:6174, 6327&ndash;6348, 6530&ndash;6534</td></tr>
+      <tr><td>Per-session tag list</td><td class="file-ref">src/types.ts:27 (<code>pathTags: string[]</code>)</td></tr>
+    </tbody>
+  </table>
+
+  <p>The two rules the app ships with out of the box confirm this is generic project-folder
+  matching, not anything worktree-aware:</p>
+  <pre><code>**/quota-service*          → quota-service
+**/ai-usage-observatory*   → ai-usage-observatory</code></pre>
+
+  <h2>Is it tied to git worktrees?</h2>
+  <p>
+    No — and the project's own README says so explicitly. Under "Not here yet," it lists
+    <strong>"git-aware worktree canonicalization"</strong> as deliberately out of scope for now
+    (README.md:275&ndash;280). Nothing in the matching code reads git state; a worktree checked
+    out to its own folder is, as far as this feature is concerned, just another directory that
+    needs its own rule if you want it grouped with the main checkout.
+  </p>
+
+  <div class="card-row">
+    <div class="card good">
+      <h3>What it gives you for free</h3>
+      <ul>
+        <li>Any directory, or family of directories, can be tagged with one glob/regex rule.</li>
+        <li>Tags accumulate — a session can belong to a broad group <em>and</em> a narrow one at
+        the same time (e.g. the umbrella project and one specific sub-project).</li>
+        <li>Filtering by tag works the same regardless of why the directories are related — same
+        repo, same client, same worktree convention, whatever.</li>
+      </ul>
+    </div>
+    <div class="card gap">
+      <h3>What it doesn't do automatically</h3>
+      <ul>
+        <li>No detection that two working directories share a <code>.git</code> history.</li>
+        <li>No auto-tagging when you create a new worktree — you add the rule yourself.</li>
+        <li>No per-branch distinction inside a tag — a rule tags by path, not by what's checked
+        out there.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Grouping an umbrella project with its prototypes</h2>
+  <p>
+    This is exactly what the glob matching is built for. <code>Transit Earth</code> exists on
+    disk as a real sibling project, with prototype sub-projects nested underneath it
+    (<code>prototypes/01-shell/</code>, <code>prototypes/02-ring/</code>, etc., each with its own
+    <code>AGENTS.md</code>/<code>README.md</code>). Because <code>**</code> in a glob matches
+    arbitrarily deep subdirectories, one rule tags the umbrella project and every prototype
+    together, and an additional narrower rule can also tag one prototype individually — both tags
+    land on the same session at once:
+  </p>
+  <pre><code>**/Transit Earth/**                          → transit-earth
+**/Transit Earth/prototypes/01-shell*        → te-shell</code></pre>
+  <p class="muted">
+    A session run from inside <code>prototypes/01-shell</code> would carry both
+    <code>transit-earth</code> and <code>te-shell</code> — filter by the broad tag to see
+    everything under the umbrella, or the narrow one to isolate that prototype.
+  </p>
+
+  <h2>Using it once you adopt worktrees</h2>
+  <p>
+    Nothing about worktrees breaks this — a worktree is just a directory with its own
+    <code>cwd</code>, so sessions run there get indexed exactly like any other. The only thing to
+    plan for is your own naming convention, so one rule can catch every worktree without needing a
+    new rule per branch. For example, if worktrees for this project are always created as siblings
+    named with a shared prefix:
+  </p>
+  <pre><code>~/htdocs/ai-usage-observatory/                 (main checkout)
+~/htdocs/ai-usage-observatory-wt-feature-x/     (worktree)
+~/htdocs/ai-usage-observatory-wt-bugfix-y/      (worktree)</code></pre>
+  <p>a single rule groups all of them with the main checkout under one tag:</p>
+  <pre><code>**/ai-usage-observatory*   → ai-usage-observatory</code></pre>
+  <p class="muted">
+    This is in fact already the seeded default rule for this project (see the table above) — it
+    already happens to cover a worktree naming convention like the one above, without any change.
+    If concurrent-task worktrees should be visible separately in the dashboard rather than folded
+    into one tag, add one narrower rule per active worktree (or per naming pattern, e.g.
+    <code>**/ai-usage-observatory-wt-*</code> → <code>wt</code>) alongside the broad one — tags
+    accumulate, so you don't lose the broad grouping by adding the narrow one.
+  </p>
+
+  <h2>Bottom line</h2>
+  <p>
+    Working-directory rules is a flexible, general path-tagging layer keyed purely on session
+    <code>cwd</code> strings — it groups by directory, for any reason you give it a pattern for.
+    It isn't worktree-aware today (confirmed by the README's own "not here yet" list), but it
+    doesn't need to be: worktrees are still just directories, and one glob per naming convention
+    covers them. It's the same mechanism you'd use to fold Transit Earth's prototypes into one
+    view. If you start experimenting with worktrees, the practical move is to pick a consistent
+    naming convention for the worktree directories up front — that's what makes one rule cover
+    all of them instead of needing to hand-add a rule every time you create one.
+  </p>
+
+  <footer>
+    Generated 2026-07-31 · sources: server/migrations.ts, server/path-indexer.ts, server/store.ts,
+    server/index.ts, src/App.tsx, src/types.ts, README.md
+  </footer>
+</main>
+</body>
+</html>

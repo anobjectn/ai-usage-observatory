@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildEffortDaySeries, localDate, capEffortLevels, foldEffort, normalizeEffort, sortEffortBuckets } from "../src/effort-model";
+import { buildEffortDaySeries, capEffortLevels, foldEffort, normalizeEffort, sortEffortBuckets, utcDate } from "../src/effort-model";
 import { providerFromAgent } from "../src/provider";
 import {
   SENSITIVE_SENTINEL,
@@ -20,7 +20,7 @@ import {
   type EffortAccumulator,
 } from "./effort-parse";
 
-const day = localDate("2026-07-01T15:00:00.000Z")!;
+const day = utcDate("2026-07-01T15:00:00.000Z")!;
 
 function run(lines: string[], agent: Agent, prefilter = true) {
   const accumulator = createAccumulator();
@@ -32,15 +32,15 @@ function run(lines: string[], agent: Agent, prefilter = true) {
 const rowFor = (accumulator: EffortAccumulator, effort: string) =>
   [...accumulator.rows.values()].filter((row) => row.effort === effort);
 
-describe("shared local-date helper", () => {
-  test("agrees with an independent local formatter", () => {
-    const reference = new Date("2026-07-01T15:00:00.000Z").toLocaleDateString("en-CA");
-    expect(localDate("2026-07-01T15:00:00.000Z")).toBe(reference);
+describe("shared UTC-date helper", () => {
+  test("uses the UTC calendar day regardless of timestamp offset", () => {
+    expect(utcDate("2026-07-01T23:30:00.000-04:00")).toBe("2026-07-02");
+    expect(utcDate("2026-07-02T00:30:00.000+09:00")).toBe("2026-07-01");
   });
 
   test("rejects unusable timestamps rather than guessing a day", () => {
-    expect(localDate(undefined)).toBeNull();
-    expect(localDate("not-a-date")).toBeNull();
+    expect(utcDate(undefined)).toBeNull();
+    expect(utcDate("not-a-date")).toBeNull();
   });
 });
 

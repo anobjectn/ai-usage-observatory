@@ -1,5 +1,5 @@
 import type { DashboardData, EffortAggregate, EffortGroup, EffortIndexStatus, EffortSessionDigest, EffortSummary, MetricRow, Session } from "../src/types";
-import { foldEffort, localDate, sortEffortBuckets } from "../src/effort-model";
+import { foldEffort, sortEffortBuckets, utcDate } from "../src/effort-model";
 import { providerFromAgent } from "../src/provider";
 import { PARSER_VERSION } from "./effort-parse";
 import { effortProgress, isEffortIndexing } from "./effort-index";
@@ -71,14 +71,14 @@ export function resolveEffortFacet(effort: string | null | undefined) {
 }
 
 function sessionDate(session: Session) {
-  return localDate(session.metadata?.lastActivity)
+  return utcDate(session.metadata?.lastActivity)
     ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-")
     ?? null;
 }
 
 function rangeStart(rangeDays: number | null) {
   if (rangeDays === null) return null;
-  return localDate(new Date(Date.now() - (rangeDays - 1) * 86_400_000).toISOString());
+  return utcDate(new Date(Date.now() - (rangeDays - 1) * 86_400_000).toISOString());
 }
 
 function sessionTokens(session: Session) {

@@ -19,6 +19,11 @@ Claude Code and Codex session files for project attribution, and an optional
 provider-reported allowance windows. An opt-in derived index can also read
 provider-recorded reasoning-effort labels from those local session files.
 
+The tool currently assumes one signed-in Claude Code account and one signed-in
+Codex account on this machine. That covers most setups, but not everyone's —
+see [What the numbers mean](#what-the-numbers-mean) for what it means if you
+switch between multiple accounts on the same provider.
+
 ## Getting started
 
 Requires Bun 1.3 or newer.
@@ -165,6 +170,13 @@ point at a different [`quota-service`](https://github.com/anobjectn/quota-servic
 
 ## What the numbers mean
 
+- Every figure assumes a single account per provider. Session indexing reads one
+  local Claude Code session tree and one local Codex session tree per machine;
+  [`quota-service`](https://github.com/anobjectn/quota-service) reads one
+  signed-in credential per provider — the macOS Keychain item Claude Code
+  writes, and `~/.codex/auth.json`. If you use more than one account on the
+  same provider, their activity comes from the same local files and is shown
+  as one combined stream, not split out per account.
 - Historical cost comes from `ccusage` and nowhere else.
 - Allowance figures come from the optional
   [`quota-service`](https://github.com/anobjectn/quota-service) and are labeled in
@@ -264,4 +276,5 @@ The optional local history summary (observed quota reaches and consumed reset cr
 
 Deliberately out of scope for now: additional theme packs, wallpaper engines,
 git-aware worktree canonicalization, touched-file indexing, task classification,
-filesystem watching, a desktop wrapper, and native provider collectors.
+filesystem watching, a desktop wrapper, native provider collectors, and
+multi-account support per provider.
