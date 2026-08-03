@@ -5,6 +5,35 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-08-03
+
+### Added
+
+- Add Codex account credits to usage headroom surfaces.
+- Add external benchmark comparison to Models.
+- Add filter-aware empty states and contextual provider, model, and effort
+  details across the workspace.
+
+### Changed
+
+- Normalize usage, project, and effort date grouping to UTC.
+- Refine Agent filter summaries, headroom visualization, chart rendering,
+  project details, and appearance change feedback.
+- Refresh the README screenshot gallery, including an expanded
+  `ai-usage-observatory` Projects capture.
+- Document the single-account-per-provider assumption.
+
+### Fixed
+
+- Stabilize the Agent selector popover.
+- Prevent filtered views from presenting misleading empty totals or charts.
+
+### Screenshots
+
+<a href="docs/screenshots/releases/v1.7.0/6.data-intelligence.png">
+  <img src="docs/screenshots/releases/v1.7.0/6.data-intelligence.png" width="100%" alt="Data view with provider-specific allowance intelligence">
+</a>
+
 ## [1.6.0] - 2026-07-29
 
 ### Added
@@ -194,7 +223,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.3.0...v1.4.0
