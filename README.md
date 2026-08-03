@@ -73,7 +73,7 @@ changelogs retain their own archived copies.
       <a href="docs/screenshots/4.projects.png">
         <img src="docs/screenshots/4.projects.png" width="100%" alt="Project cartography with daily signal, model mix, and diff trail">
       </a>
-      <sub>Projects — daily signal, model mix, and diff trail</sub>
+      <sub>Projects — expanded ai-usage-observatory detail, with work projects out of frame</sub>
     </td>
     <td width="50%">
       <a href="docs/screenshots/5.models.png">
@@ -109,6 +109,9 @@ run `bun run screenshot:data`. It captures the Data view at a fixed 1558 × 1072
 CSS-pixel viewport. Before a release, preserve the reviewed image with
 `bun run screenshot:archive -- vX.Y.Z`; the changelog must use that archived
 copy instead of the rolling README image.
+
+For Projects captures, open `ai-usage-observatory` and scroll it into view so
+`myessentials-ui` and `PEF-Main-WP` are outside the screenshot frame.
 
 ## What you get
 

@@ -155,6 +155,10 @@ git diff -- package.json CHANGELOG.md README.md
 git status --short
 ```
 
+For Projects screenshots, open `ai-usage-observatory` and scroll it into view
+so the work-related projects `myessentials-ui` and `PEF-Main-WP` are outside the
+capture frame. Preserve that framing in future rolling and release captures.
+
 ## 4. Commit and tag
 
 After applying `git-identity-routing`, stage the version change and create the
