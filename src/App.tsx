@@ -3688,6 +3688,7 @@ function Sessions({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SessionDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
+  const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>(
     { key: "activity", direction: "desc" },
   );
@@ -3793,6 +3794,14 @@ function Sessions({
     } finally {
       setLoadingDetail(null);
     }
+  };
+  const copySessionLink = async (sessionId: string) => {
+    try {
+      const link = new URL(sessionHref(sessionId), window.location.href).href;
+      await navigator.clipboard.writeText(link);
+      setCopiedSessionId(sessionId);
+      window.setTimeout(() => setCopiedSessionId(null), 1600);
+    } catch {}
   };
   useEffect(() => {
     if (!focusSessionId) return;
@@ -3971,11 +3980,30 @@ function Sessions({
                       onClick={(event) => event.stopPropagation()}
                     >
                       <button
+                        type="button"
                         className="icon-button"
                         onClick={() => onEdit(session)}
                         aria-label="Edit annotation"
+                        title="Edit annotation"
                       >
                         <PencilLine />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => void copySessionLink(session.sessionId)}
+                        aria-label={
+                          copiedSessionId === session.sessionId
+                            ? "Session link copied"
+                            : "Copy direct session link"
+                        }
+                        title={
+                          copiedSessionId === session.sessionId
+                            ? "Copied"
+                            : "Copy direct session link"
+                        }
+                      >
+                        {copiedSessionId === session.sessionId ? <Check /> : <Copy />}
                       </button>
                     </td>
                     <td

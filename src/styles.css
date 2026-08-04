@@ -555,3 +555,8 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 @media (max-width:720px){
   .effort-analysis-grid,.effort-privacy-grid{grid-template-columns:1fr}
 }
+
+.session-row__actions{width:82px;white-space:nowrap}
+.session-row__actions .icon-button{display:inline-grid;vertical-align:middle}
+.session-row__actions .icon-button + .icon-button{margin-left:6px}
+.table-panel th:nth-child(8){width:82px}
