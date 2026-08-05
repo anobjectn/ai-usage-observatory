@@ -5,6 +5,16 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add a direct-link copy action to sessions.
+
+### Fixed
+
+- Match Artificial Analysis button backgrounds to the favicon.
+
 ## [1.7.0] - 2026-08-03
 
 ### Added
