@@ -1489,7 +1489,6 @@ function ProviderTimeline({
     value: data.reduce((sum, row) => sum + row[provider.key], 0),
   }));
   const visibleProviders = totals.filter((provider) => provider.value > 0);
-  const visibleStackedProviders = [...visibleProviders].reverse();
   const quotaMarkers = dailyQuotaMarkers(
     quotaHistory,
     rows.map((row) => row.period),
@@ -1568,6 +1567,7 @@ function ProviderTimeline({
               height={64}
             />
             <YAxis
+              domain={[0, "auto"]}
               tickFormatter={formatCompact}
               tick={{ fill: "#71807b", fontSize: 12 }}
               tickLine={false}
@@ -1581,13 +1581,12 @@ function ProviderTimeline({
               wrapperStyle={{ transition: "none" }}
             />
             <QuotaReferenceLines markers={quotaMarkers} />
-            {visibleStackedProviders.map((provider) => (
+            {visibleProviders.map((provider) => (
               <Area
                 key={provider.key}
                 type="monotone"
                 dataKey={provider.key}
                 name={provider.label}
-                stackId="providers"
                 stroke={provider.color}
                 strokeWidth={1.8}
                 fill={`url(#${provider.key}Area)`}
