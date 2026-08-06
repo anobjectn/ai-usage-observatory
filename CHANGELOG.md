@@ -5,15 +5,21 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] - 2026-08-05
 
 ### Added
 
-- Add a direct-link copy action to sessions.
+- Add a direct-link copy action to session rows with copied feedback.
+
+### Changed
+
+- Match Artificial Analysis benchmark controls to their favicon backgrounds.
+- Clarify README and release-capture guidance for framing Projects screenshots.
 
 ### Fixed
 
-- Match Artificial Analysis button backgrounds to the favicon.
+- Render provider activity series independently from a shared zero baseline so a
+  zero-valued provider cannot trace another provider's activity.
 
 ## [1.7.0] - 2026-08-03
 
@@ -233,7 +239,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
-[Unreleased]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.7.0...HEAD
+[1.8.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.4.0...v1.5.0
