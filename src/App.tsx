@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { version as appVersion } from "../package.json";
 import {
   buildEffortDaySeries,
@@ -50,6 +50,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleDollarSign,
   Clock3,
   Database,
@@ -4930,6 +4931,8 @@ function Models({
 }) {
   const [openModels, setOpenModels] = useState<Set<string>>(() => new Set());
   const [pages, setPages] = useState<Record<string, number>>({});
+  const [query, setQuery] = useState("");
+  const [usageOrder, setUsageOrder] = useState<"most" | "least">("most");
   const [benchmarkModal, setBenchmarkModal] = useState(false);
   const effortRequest = useEffortAggregate("model", {
     basis: "sessions",
@@ -4952,14 +4955,38 @@ function Models({
     [digestRequest.data],
   );
   const max = Math.max(...data.models.map((model) => model.cost), 1);
-  const pageSize = 5;
-  const toggleModel = (model: string) =>
-    setOpenModels((current) => {
-      const next = new Set(current);
-      if (next.has(model)) next.delete(model);
-      else next.add(model);
-      return next;
+  const visibleModels = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const matches = data.models
+      .map((model, index) => ({ model, index }))
+      .filter(({ model }) =>
+        `${model.model} ${model.agents.join(" ")}`
+          .toLowerCase()
+          .includes(normalizedQuery),
+      );
+    return matches.sort((left, right) => {
+      const comparison = left.model.tokens - right.model.tokens;
+      return usageOrder === "most" ? -comparison : comparison;
     });
+  }, [data.models, query, usageOrder]);
+  const pageSize = 5;
+  const toggleModel = (model: string) => {
+    const update = () =>
+      setOpenModels((current) => {
+        const next = new Set(current);
+        if (next.has(model)) next.delete(model);
+        else next.add(model);
+        return next;
+      });
+    const transitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => unknown;
+    };
+    if (typeof transitionDocument.startViewTransition === "function") {
+      transitionDocument.startViewTransition(() => flushSync(update));
+    } else {
+      update();
+    }
+  };
   return (
     <div className="view-stack page-enter">
       <PageTitle
@@ -4967,14 +4994,53 @@ function Models({
         title="Model mix and efficiency"
         description="Compare API-equivalent cost, output volume, and cache behavior using ccusage as the sole analytical cost source."
         actions={
-          <button type="button" className="secondary-button benchmark-trigger" onClick={() => setBenchmarkModal(true)}>
-            <BenchmarkTriggerIcons /> Compare benchmarks
-          </button>
+          <div className="model-controls">
+            <label className="search model-search">
+              <Search aria-hidden="true" />
+              <span className="sr-only">Filter models</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Filter models…"
+              />
+              {query && (
+                <button
+                  type="button"
+                  className="search-clear"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear model filter"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+            <div className="model-quick-links" aria-label="Model usage order">
+              <button
+                type="button"
+                className={usageOrder === "most" ? "active" : undefined}
+                aria-pressed={usageOrder === "most"}
+                onClick={() => setUsageOrder("most")}
+              >
+                <ArrowUpRight aria-hidden="true" /> Most used
+              </button>
+              <button
+                type="button"
+                className={usageOrder === "least" ? "active" : undefined}
+                aria-pressed={usageOrder === "least"}
+                onClick={() => setUsageOrder("least")}
+              >
+                <ArrowDownRight aria-hidden="true" /> Least used
+              </button>
+            </div>
+            <button type="button" className="secondary-button benchmark-trigger" onClick={() => setBenchmarkModal(true)}>
+              <BenchmarkTriggerIcons /> Compare benchmarks
+            </button>
+          </div>
         }
       />
       {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
       <section className="model-grid">
-        {data.models.map((model, index) => {
+        {visibleModels.map(({ model, index }) => {
           const sessions = data.sessions
             .filter((session) => session.modelsUsed.includes(model.model))
             .sort((left, right) =>
@@ -5135,48 +5201,64 @@ function Models({
                   ) : (
                     <p>No indexed sessions use this model.</p>
                   )}
-                  {sessions.length > pageSize && (
-                    <div
-                      className="model-session-pagination"
-                      aria-label={`Session pages for ${model.model}`}
+                  <div className="model-sessions-footer">
+                    {sessions.length > pageSize && (
+                      <div
+                        className="model-session-pagination"
+                        aria-label={`Session pages for ${model.model}`}
+                      >
+                        <button
+                          type="button"
+                          disabled={page === 1}
+                          aria-label="Previous session page"
+                          onClick={() =>
+                            setPages((current) => ({
+                              ...current,
+                              [model.model]: page - 1,
+                            }))
+                          }
+                        >
+                          <ChevronLeft />
+                        </button>
+                        <span>
+                          {page} / {pageCount}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={page === pageCount}
+                          aria-label="Next session page"
+                          onClick={() =>
+                            setPages((current) => ({
+                              ...current,
+                              [model.model]: page + 1,
+                            }))
+                          }
+                        >
+                          <ChevronRight />
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="model-collapse"
+                      aria-controls={panelId}
+                      onClick={() => toggleModel(model.model)}
                     >
-                      <button
-                        type="button"
-                        disabled={page === 1}
-                        aria-label="Previous session page"
-                        onClick={() =>
-                          setPages((current) => ({
-                            ...current,
-                            [model.model]: page - 1,
-                          }))
-                        }
-                      >
-                        <ChevronLeft />
-                      </button>
-                      <span>
-                        {page} / {pageCount}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={page === pageCount}
-                        aria-label="Next session page"
-                        onClick={() =>
-                          setPages((current) => ({
-                            ...current,
-                            [model.model]: page + 1,
-                          }))
-                        }
-                      >
-                        <ChevronRight />
-                      </button>
-                    </div>
-                  )}
+                      <span>Collapse</span>
+                      <ChevronUp aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               )}
             </article>
           );
         })}
       </section>
+      {!data.models.length ? (
+        <Empty text="No model usage found in this period." />
+      ) : (
+        !visibleModels.length && <Empty text="No models match that filter." />
+      )}
     </div>
   );
 }

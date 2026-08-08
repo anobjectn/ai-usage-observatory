@@ -5,6 +5,14 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add model and agent text filtering plus most- and least-used token ordering to Models.
+- Add full-width expanded model cards with eased transitions, bottom-right collapse
+  controls, and centered session pagination.
+
 ## [1.8.0] - 2026-08-05
 
 ### Added
