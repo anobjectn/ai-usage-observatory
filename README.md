@@ -150,12 +150,13 @@ are never stored by this index. Disabling stops new indexing and excludes retain
 rows from analysis; Data can delete all derived effort observations without
 touching transcripts, annotations, or ccusage snapshots.
 
-Session detail is the one place your own prompts appear. When you open a session,
-the server reads that file on demand and returns the most recent user prompts so
-you can tell one session from another. Nothing from that read is written to the
-database or sent anywhere — it goes to your browser on localhost and is gone on the
-next request. Application state lives in `.usage-observatory/data.db`, which Git
-ignores.
+Session detail is the one place your own prompts and sampled assistant output
+appear. When you open a session, the server reads that file on demand and returns
+the most recent user prompts plus bounded assistant-visible text samples so you
+can tell one session from another. Reasoning, tool arguments, and tool results are
+excluded. Nothing from that read is written to the database or sent anywhere — it
+goes to your browser on localhost and is gone on the next request. Application
+state lives in `.usage-observatory/data.db`, which Git ignores.
 
 Set `USAGE_OBSERVATORY_DB` to relocate the database, or `QUOTA_SERVICE_URL` to
 point at a different [`quota-service`](https://github.com/anobjectn/quota-service).
@@ -165,8 +166,9 @@ point at a different [`quota-service`](https://github.com/anobjectn/quota-servic
 - [ccusage](https://github.com/ccusage/ccusage) v20.0.17 by ryoppippi (MIT) supplies
   the usage analytics and offline API-equivalent price estimates.
 - Local Claude Code and Codex session files supply session identifiers and
-  working-directory metadata during indexing, plus recent prompts read on demand
-  when you open a single session and opt-in categorical effort metadata.
+  working-directory metadata during indexing, plus recent prompts and bounded
+  assistant-output samples read on demand when you open a single session, and
+  opt-in categorical effort metadata.
 - [`quota-service`](https://github.com/anobjectn/quota-service) optionally supplies
   provider-reported allowance windows, resets, and status. It is a separate
   localhost service, not a bundled dependency.

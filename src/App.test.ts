@@ -1,9 +1,13 @@
 import { expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
+  SessionDetailPanel,
   pathFilteredRows,
   periodTickLabel,
   projectDayRows,
   projectTrendRowsInRange,
+  sessionModelNames,
   withoutCacheMetricRow,
 } from "./App";
 import type {
@@ -151,4 +155,59 @@ test("withoutCacheMetricRow removes cache from totals and model breakdowns", () 
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
   });
+});
+
+test("session detail columns render in the requested order and default state", () => {
+  const mixedSession = session({
+    modelsUsed: ["gpt-test", "gpt-second"],
+    modelBreakdowns: [
+      ...session({}).modelBreakdowns,
+      {
+        modelName: "gpt-second",
+        inputTokens: 2,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        cost: 0.01,
+      },
+    ],
+  });
+  const html = renderToStaticMarkup(
+    createElement(SessionDetailPanel, {
+      session: mixedSession,
+      loading: false,
+      effortStatus: null,
+      detail: {
+        available: true,
+        prompts: [{ text: "Build it", timestamp: null }],
+        outputs: [{ text: "Built", timestamp: null, truncated: false }],
+        tools: [{ name: "apply_patch", count: 1 }],
+        files: [
+          {
+            path: "src/App.tsx",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+          },
+        ],
+        additions: 1,
+        deletions: 0,
+        eventsRead: 4,
+      },
+    }),
+  );
+
+  const columns = ["prompt", "output", "files", "tools", "models", "effort"];
+  expect(columns.map((column) => html.indexOf(`data-detail-column="${column}"`)))
+    .toEqual([...columns.keys()].map((index) => html.indexOf(`data-detail-column="${columns[index]}"`)).sort((a, b) => a - b));
+  for (const column of ["prompt", "output", "files"]) {
+    expect(html).toContain(`data-detail-column="${column}" data-state="expanded"`);
+  }
+  for (const column of ["tools", "models", "effort"]) {
+    expect(html).toContain(`data-detail-column="${column}" data-state="collapsed"`);
+  }
+  expect(html).toContain("Expand Model Mix, Mixed, 2 models");
+  expect(html).toContain("file-diff");
+  expect(html).toContain("1 addition and 0 deletions");
+  expect(sessionModelNames(mixedSession)).toEqual(["gpt-test", "gpt-second"]);
 });

@@ -28,8 +28,14 @@ export type Session = MetricRow & { sessionId: string; cwd: string | null; pathT
 export type SessionDetail = {
   available: boolean;
   prompts: Array<{ text: string; timestamp: string | null }>;
+  outputs: Array<{ text: string; timestamp: string | null; truncated: boolean }>;
   tools: Array<{ name: string; count: number }>;
-  files: Array<{ path: string; status: "added" | "modified" | "deleted" }>;
+  files: Array<{
+    path: string;
+    status: "added" | "modified" | "deleted";
+    additions: number | null;
+    deletions: number | null;
+  }>;
   additions: number;
   deletions: number;
   eventsRead: number;

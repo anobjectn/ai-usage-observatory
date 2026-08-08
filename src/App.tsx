@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { version as appVersion } from "../package.json";
@@ -3447,7 +3448,127 @@ function Composition({ rows }: { rows: MetricRow[] }) {
   );
 }
 
-function SessionDetailPanel({
+type SessionDetailColumnKey =
+  | "prompt"
+  | "output"
+  | "files"
+  | "tools"
+  | "models"
+  | "effort";
+
+const initiallyCollapsedSessionColumns: SessionDetailColumnKey[] = [
+  "tools",
+  "models",
+  "effort",
+];
+
+export function sessionModelNames(session: Session) {
+  return [
+    ...new Set([
+      ...session.modelsUsed,
+      ...session.modelBreakdowns.map((model) => model.modelName),
+    ]),
+  ].filter(Boolean);
+}
+
+type SessionDetailSpineStat = {
+  value: string;
+  label?: string;
+  tone?: "accent" | "positive" | "negative" | "warning";
+};
+
+function SessionDetailSpineSummary({
+  stats,
+}: {
+  stats: SessionDetailSpineStat[];
+}) {
+  return (
+    <span className="session-detail__rail-summary" aria-hidden="true">
+      {stats.map((stat, index) => (
+        <span
+          className={stat.tone ? `is-${stat.tone}` : undefined}
+          key={`${stat.value}-${stat.label ?? index}`}
+        >
+          <b>{stat.value}</b>
+          {stat.label && <i>{stat.label}</i>}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function SessionDetailColumn({
+  column,
+  label,
+  aside,
+  collapsedMeta,
+  collapsedStats,
+  collapsed,
+  wide = false,
+  className = "",
+  title,
+  onToggle,
+  children,
+}: {
+  column: SessionDetailColumnKey;
+  label: string;
+  aside?: ReactNode;
+  collapsedMeta?: string;
+  collapsedStats?: SessionDetailSpineStat[];
+  collapsed: boolean;
+  wide?: boolean;
+  className?: string;
+  title?: string;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={`session-detail__section ${wide ? "session-detail__section--wide" : ""} ${collapsed ? "session-detail__section--collapsed" : ""} ${className}`}
+      data-detail-column={column}
+      data-state={collapsed ? "collapsed" : "expanded"}
+    >
+      {collapsed ? (
+        <button
+          type="button"
+          className="session-detail__rail"
+          onClick={onToggle}
+          aria-expanded="false"
+          aria-label={`Expand ${label}${collapsedMeta ? `, ${collapsedMeta}` : ""}`}
+          title={`Expand ${label}`}
+        >
+          <ChevronRight aria-hidden="true" />
+          <span className="session-detail__rail-label">{label}</span>
+          {collapsedStats?.length ? (
+            <SessionDetailSpineSummary stats={collapsedStats} />
+          ) : (
+            collapsedMeta && <small>{collapsedMeta}</small>
+          )}
+        </button>
+      ) : (
+        <>
+          <div className="session-detail__head">
+            <button
+              type="button"
+              className="session-detail__column-toggle"
+              onClick={onToggle}
+              aria-expanded="true"
+              aria-label={`Collapse ${label}`}
+              title={title ?? `Collapse ${label}`}
+            >
+              <ChevronLeft aria-hidden="true" />
+              <span className="overline">{label}</span>
+            </button>
+            {aside && <div className="session-detail__head-aside">{aside}</div>}
+          </div>
+          <div className="session-detail__body">{children}</div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function SessionDetailPanel({
   session,
   detail,
   loading,
@@ -3461,6 +3582,17 @@ function SessionDetailPanel({
   const [promptOrder, setPromptOrder] = useState<"newest" | "oldest">(
     "oldest",
   );
+  const [collapsedColumns, setCollapsedColumns] = useState(
+    () => new Set<SessionDetailColumnKey>(initiallyCollapsedSessionColumns),
+  );
+  const toggleColumn = (column: SessionDetailColumnKey) => {
+    setCollapsedColumns((current) => {
+      const next = new Set(current);
+      if (next.has(column)) next.delete(column);
+      else next.add(column);
+      return next;
+    });
+  };
   if (loading)
     return (
       <div className="session-detail session-detail--loading">
@@ -3485,6 +3617,10 @@ function SessionDetailPanel({
     : session.modelsUsed.map((modelName) => ({ modelName, tokens: null }));
   const prompts =
     promptOrder === "newest" ? [...detail.prompts].reverse() : detail.prompts;
+  const outputs = detail.outputs ?? [];
+  const clippedOutputs = outputs.filter((output) => output.truncated).length;
+  const toolCalls = detail.tools.reduce((total, tool) => total + tool.count, 0);
+  const mixedModels = models.length > 1;
   return (
     <div className="session-detail">
       <div className="session-detail__summary">
@@ -3494,9 +3630,7 @@ function SessionDetailPanel({
         </div>
         <div>
           <span>TOOL CALLS</span>
-          <strong>
-            {detail.tools.reduce((total, tool) => total + tool.count, 0)}
-          </strong>
+          <strong>{toolCalls}</strong>
         </div>
         <div>
           <span>FILES TOUCHED</span>
@@ -3510,11 +3644,23 @@ function SessionDetailPanel({
           </strong>
         </div>
       </div>
-      <div className="session-detail__grid">
-        <section className="session-detail__section session-detail__section--scroll session-prompts">
-          <div className="session-detail__head">
-            <span className="overline">PROMPTS</span>
-            {detail.prompts.length ? (
+      <div className="session-detail__columns">
+        <SessionDetailColumn
+          column="prompt"
+          label="Prompt"
+          collapsed={collapsedColumns.has("prompt")}
+          collapsedMeta={`${detail.prompts.length} prompt${detail.prompts.length === 1 ? "" : "s"}`}
+          collapsedStats={[
+            {
+              value: formatCompact(detail.prompts.length),
+              label: "prompts",
+            },
+          ]}
+          wide
+          className="session-prompts"
+          onToggle={() => toggleColumn("prompt")}
+          aside={
+            detail.prompts.length ? (
               <button
                 type="button"
                 className="prompt-order"
@@ -3529,10 +3675,11 @@ function SessionDetailPanel({
               </button>
             ) : (
               <small>No prompt events detected</small>
-            )}
-          </div>
+            )
+          }
+        >
           {detail.prompts.length ? (
-            <ol>
+            <ol className="session-transcript-list">
               {prompts.map((prompt, index) => (
                 <li key={`${index}-${prompt.text.slice(0, 24)}`}>
                   <time
@@ -3549,16 +3696,127 @@ function SessionDetailPanel({
           ) : (
             <p>Prompt text was not available in this session format.</p>
           )}
-        </section>
-        <section className="session-detail__section session-detail__section--scroll">
-          <div className="session-detail__head">
-            <span className="overline">TOOLS</span>
+        </SessionDetailColumn>
+        <SessionDetailColumn
+          column="output"
+          label="Output"
+          collapsed={collapsedColumns.has("output")}
+          collapsedMeta={`${outputs.length} sample${outputs.length === 1 ? "" : "s"}`}
+          collapsedStats={[
+            { value: formatCompact(outputs.length), label: "samples" },
+            ...(clippedOutputs
+              ? [
+                  {
+                    value: formatCompact(clippedOutputs),
+                    label: "clipped",
+                    tone: "warning" as const,
+                  },
+                ]
+              : []),
+          ]}
+          wide
+          className="session-outputs"
+          onToggle={() => toggleColumn("output")}
+          aside={
+            <small>
+              {outputs.length
+                ? `${outputs.length} recent sample${outputs.length === 1 ? "" : "s"}${outputs.some((output) => output.truncated) ? " · clipped" : ""}`
+                : "No assistant text detected"}
+            </small>
+          }
+        >
+          {outputs.length ? (
+            <ol className="session-transcript-list">
+              {outputs.map((output, index) => (
+                <li key={`${index}-${output.text.slice(0, 24)}`}>
+                  <time
+                    className="session-prompt-time"
+                    dateTime={output.timestamp ?? undefined}
+                    title={output.timestamp ?? undefined}
+                  >
+                    {formatPromptTimestamp(output.timestamp)}
+                  </time>
+                  <pre>{output.text}</pre>
+                  {output.truncated && (
+                    <small className="session-output-clipped">
+                      Sample clipped after 4,000 characters
+                    </small>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>Assistant-visible output text was not available in this session format.</p>
+          )}
+        </SessionDetailColumn>
+        <SessionDetailColumn
+          column="files"
+          label="Files & Patches"
+          collapsed={collapsedColumns.has("files")}
+          collapsedMeta={`${detail.files.length} file${detail.files.length === 1 ? "" : "s"}, ${detail.additions} additions, ${detail.deletions} deletions`}
+          collapsedStats={[
+            { value: formatCompact(detail.files.length), label: "files" },
+            { value: `+${formatCompact(detail.additions)}`, tone: "positive" },
+            { value: `−${formatCompact(detail.deletions)}`, tone: "negative" },
+          ]}
+          onToggle={() => toggleColumn("files")}
+          aside={
+            <small>
+              {detail.files.length
+                ? `${detail.files.length} files · +${detail.additions} −${detail.deletions}`
+                : "No patch payload found"}
+            </small>
+          }
+        >
+          {detail.files.length ? (
+            <ul className="file-list">
+              {detail.files.map((file) => (
+                <li key={file.path}>
+                  <span className={`file-status ${file.status}`}>
+                    {file.status[0]}
+                  </span>
+                  <code title={file.path}>{file.path}</code>
+                  <span
+                    className={`file-diff ${file.additions === null || file.deletions === null ? "is-unavailable" : ""}`}
+                    aria-label={
+                      file.additions === null || file.deletions === null
+                        ? "Line counts unavailable for this file"
+                        : `${file.additions} ${file.additions === 1 ? "addition" : "additions"} and ${file.deletions} ${file.deletions === 1 ? "deletion" : "deletions"}`
+                    }
+                    title={
+                      file.additions === null || file.deletions === null
+                        ? "Line counts unavailable for this transcript record"
+                        : undefined
+                    }
+                  >
+                    <i>+{file.additions?.toLocaleString() ?? "—"}</i>
+                    <em>−{file.deletions?.toLocaleString() ?? "—"}</em>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>File changes are detected from structured patch calls only.</p>
+          )}
+        </SessionDetailColumn>
+        <SessionDetailColumn
+          column="tools"
+          label="Tools"
+          collapsed={collapsedColumns.has("tools")}
+          collapsedMeta={`${toolCalls} call${toolCalls === 1 ? "" : "s"} across ${detail.tools.length} tool type${detail.tools.length === 1 ? "" : "s"}`}
+          collapsedStats={[
+            { value: formatCompact(toolCalls), label: "calls" },
+            { value: formatCompact(detail.tools.length), label: "types" },
+          ]}
+          onToggle={() => toggleColumn("tools")}
+          aside={
             <small>
               {detail.tools.length
                 ? "Observed calls"
                 : "No tool calls detected"}
             </small>
-          </div>
+          }
+        >
           {detail.tools.length ? (
             <ul className="tool-list">
               {detail.tools.map((tool) => (
@@ -3571,38 +3829,25 @@ function SessionDetailPanel({
           ) : (
             <p>No structured tool calls were found.</p>
           )}
-        </section>
-        <section className="session-detail__section">
-          <div className="session-detail__head">
-            <span className="overline">FILES & PATCHES</span>
+        </SessionDetailColumn>
+        <SessionDetailColumn
+          column="models"
+          label="Model Mix"
+          collapsed={collapsedColumns.has("models")}
+          collapsedMeta={mixedModels ? `Mixed, ${models.length} models` : `${models.length} model`}
+          collapsedStats={[
+            { value: formatCompact(models.length), label: "models" },
+            ...(mixedModels
+              ? [{ value: "mixed", tone: "accent" as const }]
+              : []),
+          ]}
+          onToggle={() => toggleColumn("models")}
+          aside={
             <small>
-              {detail.files.length
-                ? `${detail.files.length} files`
-                : "No patch payload found"}
+              {mixedModels ? `Mixed · ${models.length} models` : `${models.length} model`}
             </small>
-          </div>
-          {detail.files.length ? (
-            <ul className="file-list">
-              {detail.files.map((file) => (
-                <li key={file.path}>
-                  <span className={`file-status ${file.status}`}>
-                    {file.status[0]}
-                  </span>
-                  <code title={file.path}>{file.path}</code>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>File changes are detected from structured patch calls only.</p>
-          )}
-        </section>
-        <section className="session-detail__section session-detail__section--scroll">
-          <div className="session-detail__head">
-            <span className="overline">MODEL MIX</span>
-            <small>
-              {models.length} model{models.length === 1 ? "" : "s"}
-            </small>
-          </div>
+          }
+        >
           <ul className="model-list">
             {models.map((model) => (
               <li key={model.modelName}>
@@ -3613,8 +3858,13 @@ function SessionDetailPanel({
               </li>
             ))}
           </ul>
-        </section>
-        <SessionEffortSection detail={detail} status={effortStatus} />
+        </SessionDetailColumn>
+        <SessionEffortSection
+          detail={detail}
+          status={effortStatus}
+          collapsed={collapsedColumns.has("effort")}
+          onToggle={() => toggleColumn("effort")}
+        />
       </div>
     </div>
   );
@@ -3625,25 +3875,49 @@ function SessionDetailPanel({
 function SessionEffortSection({
   detail,
   status,
+  collapsed,
+  onToggle,
 }: {
   detail: SessionDetail;
   status: EffortIndexStatus | null;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   const summary = detail.effort ?? null;
+  const summaryAvailable = summary && summary.coverageState !== "unavailable";
+  const collapsedStats: SessionDetailSpineStat[] = summaryAvailable
+    ? summary.mixed
+      ? [
+          { value: formatCompact(summary.levels.length), label: "values" },
+          { value: "mixed", tone: "accent" },
+        ]
+      : [{ value: effortLabel(summary.dominant), label: "dominant" }]
+    : [{ value: "—", label: "effort" }];
   return (
-    <section className="session-detail__section session-detail__section--scroll">
-      <div className="session-detail__head">
-        <span className="overline" title={EFFORT_HELP}>
-          EFFORT
-        </span>
-        {summary && summary.coverageState !== "unavailable" && (
+    <SessionDetailColumn
+      column="effort"
+      label="Effort"
+      collapsed={collapsed}
+      collapsedMeta={
+        summaryAvailable
+          ? summary.mixed
+            ? `Mixed, ${summary.levels.length} values`
+            : effortLabel(summary.dominant)
+          : "Unknown"
+      }
+      collapsedStats={collapsedStats}
+      onToggle={onToggle}
+      title={EFFORT_HELP}
+      aside={
+        summaryAvailable && (
           <small>
             {summary.mixed
               ? `mixed · ${summary.levels.length} values`
               : `dominant by ${summary.dominantBasis ?? "observations"}`}
           </small>
-        )}
-      </div>
+        )
+      }
+    >
       <EffortState status={status} summary={summary}>
         {summary && (
           <>
@@ -3682,7 +3956,7 @@ function SessionEffortSection({
           </>
         )}
       </EffortState>
-    </section>
+    </SessionDetailColumn>
   );
 }
 
@@ -3854,6 +4128,7 @@ function Sessions({
         [session.sessionId]: {
           available: false,
           prompts: [],
+          outputs: [],
           tools: [],
           files: [],
           additions: 0,
@@ -3932,7 +4207,7 @@ function Sessions({
       <PageTitle
         eyebrow="SESSION LEDGER"
         title="Trace sessions"
-        description="Expand a session to inspect its locally stored prompts, tool activity, and structured patch summary. Nothing leaves this machine."
+        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Nothing leaves this machine."
         actions={
           <div className="project-controls">
             <label className="search">
@@ -4024,7 +4299,17 @@ function Sessions({
                     </td>
                     <td>
                       <span>
-                        <b>{session.modelsUsed[0] ?? "Unknown"}</b>
+                        <span className="session-row__model-title">
+                          <b>{session.modelsUsed[0] ?? "Unknown"}</b>
+                          {sessionModelNames(session).length > 1 && (
+                            <i
+                              className="model-mix-marker"
+                              title={`${sessionModelNames(session).length} models used in this session`}
+                            >
+                              Mixed · {sessionModelNames(session).length}
+                            </i>
+                          )}
+                        </span>
                         <small>{session.period.slice(0, 18)}</small>
                       </span>
                     </td>
@@ -4379,6 +4664,7 @@ function ProjectDetails({
             detail: {
               available: false,
               prompts: [],
+              outputs: [],
               tools: [],
               files: [],
               additions: 0,
