@@ -5450,6 +5450,8 @@ function Projects({
   const [openProject, setOpenProject] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("tokens-desc");
+  const openProjectRef = useRef<HTMLElement | null>(null);
+  const lastUserScrollAt = useUserScrollIntent();
   const effortRequest = useEffortAggregate("project", {
     basis: "sessions",
     rangeDays: null,
@@ -5484,6 +5486,29 @@ function Projects({
       return direction === "asc" ? comparison : -comparison;
     });
   }, [data.projects, query, sort]);
+  useEffect(() => {
+    if (!openProject) return;
+    const timeout = window.setTimeout(() => {
+      if (performance.now() - lastUserScrollAt.current < userScrollCancelWindowMs)
+        return;
+      const card = openProjectRef.current;
+      if (!card) return;
+      const topbarHeight =
+        document.querySelector<HTMLElement>(".topbar")?.getBoundingClientRect().height ?? 72;
+      const target = Math.max(
+        0,
+        window.scrollY + card.getBoundingClientRect().top - topbarHeight - 18,
+      );
+      if (Math.abs(target - window.scrollY) < 12) return;
+      window.scrollTo({
+        top: target,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    }, autoScrollDelayMs);
+    return () => window.clearTimeout(timeout);
+  }, [openProject]);
   return (
     <div className="view-stack page-enter">
       <PageTitle
@@ -5541,6 +5566,7 @@ function Projects({
           return (
             <article
               className={`project-card${open ? " open" : ""}`}
+              ref={open ? openProjectRef : undefined}
               key={project.name}
             >
               <button
