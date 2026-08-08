@@ -231,79 +231,150 @@ different quota-service base URL.
 
 ## Provider allowance data
 
-### Recommended companion service
+The Observatory is useful with or without live quota data. Most installations
+use one of these two modes.
 
-For provider-reported allowance windows, clone and run
-[`quota-service`](https://github.com/anobjectn/quota-service) alongside the
-Observatory. The default endpoint is `http://127.0.0.1:8787`. Routine collection
-is read-only. The one write path is an explicit Claude Web credit import started
-by the user; it forwards no browser credentials, and a failed import leaves the
-previous snapshot unchanged.
+### Run without a quota service
 
-The core analysis does not depend on this service. Without it, tokens, costs,
-sessions, projects, models, and locally reconstructed activity blocks remain
-available. Live provider allowance data is unavailable; existing local quota
-history may remain readable through `QUOTA_DB_PATH`. The Observatory does not
-bundle a provider collector.
+No additional setup is required. Tokens, API-equivalent cost, sessions,
+projects, models, reasoning-effort analysis, and locally reconstructed Claude
+Code activity blocks remain available. The Observatory does not invent an
+allowance estimate when no provider source is connected, so live headroom and
+current reset or credit details remain unavailable. Quota-event markers and
+history-dependent allowance analysis also require a previously collected,
+compatible quota-history database.
 
-### Use another implementation
+### Use the provided `quota-service`
 
-Set `QUOTA_SERVICE_URL` to the base URL of a compatible service. The Observatory
-makes three concurrent `GET` requests to `/usage`, `/resets`, and `/status`, each
-with a four-second timeout. All three endpoints must return successful JSON for
-the quota source to be considered available. `/status` is used for source-health
-reporting and may return any JSON value.
+The supported companion is
+[`quota-service`](https://github.com/anobjectn/quota-service), a separate
+local-first service for provider-reported allowance data. It currently targets
+macOS, reads existing local provider credentials and preferences, enables Codex
+and Anthropic by default, and can include Warp when configured.
 
-`/usage` must return an object with a numeric `generatedAt` and a `providers`
-array. Each provider has a `provider` value of `anthropic`, `codex`, or `warp`; a
-`status` of `ok`, `stale`, `unavailable`, or `unknown`; a nullable `source`; and a
-nullable `snapshot`. `error` is optional. A window snapshot supports Anthropic
-and Codex allowance windows; a pool snapshot supports Warp-style request pools:
+```bash
+git clone https://github.com/anobjectn/quota-service.git
+cd quota-service
+bun install
+cp .env.example .env
+bun run serve
+```
+
+With the service running at its default `http://127.0.0.1:8787` address, the
+Observatory connects automatically. Set `QUOTA_SERVICE_URL` only when the
+service uses another base URL.
+
+The provided service supplies provider-reported allowance windows and reset
+times, from which the Observatory derives current headroom. It also supplies
+Anthropic usage-credit spend; Codex account and banked-reset credits; optional
+Warp request-pool status; source freshness; and locally observed quota history.
+Claude Web prepaid and promotional credits can be added as an explicitly
+user-entered snapshot because Claude Code credentials cannot read those
+browser-session endpoints.
+
+Provider collection is read-only: it does not consume credits, purchase
+anything, or modify provider accounts. The service does write observations to
+its local SQLite database. The Claude Web import writes only the values entered
+by the user to that local database; it receives no browser cookies or account
+credentials and does not contact Claude Web on the user's behalf.
+
+The Observatory reads `~/.quota-service/quota.db` directly and read-only for
+historical quota percentages, observed reaches, and inferred reset-credit use.
+The provided service retains 90 days of history by default while always keeping
+the latest row for each provider. Changing its `QUOTA_RETENTION_DAYS` setting
+changes how much historical analysis is available.
+
+<details>
+<summary><strong>BYOQS — Bring Your Own Quota Service</strong> (advanced compatibility contract)</summary>
+
+If you are building or adapting a different collector, set `QUOTA_SERVICE_URL`
+to its base URL. Custom quota data remains optional and never replaces locally
+derived usage totals.
+
+**Connection requirements**
+
+The Observatory requests `/usage`, `/resets`, and `/status` concurrently with a
+four-second timeout per request. Each endpoint must return a successful response
+containing valid JSON; otherwise the live quota source is marked unavailable.
+`/status` participates in that connection-health check and may return any JSON
+value.
+
+**`GET /usage`**
+
+Return a numeric `generatedAt` and a `providers` array. A provider entry requires:
+
+- `provider`: `anthropic`, `codex`, or `warp`.
+- `status`: `ok`, `stale`, `unavailable`, or `unknown`.
+- `source`: a string or `null` identifying the collection method.
+- `snapshot`: a window snapshot, pool snapshot, or `null`.
+- `error`: an optional status explanation.
+
+`dataAgeMs` is an optional age duration in milliseconds; `capturedAt` is an
+optional Unix-millisecond timestamp for the collection. `manualEntries` and
+`anthropicWebCredits` are also optional. A service that does not provide an
+optional field can omit it.
+
+A window snapshot supports Anthropic and Codex. Percentages use a 0–100 scale,
+not a 0–1 fraction; all timestamps are Unix milliseconds:
 
 ```json
 {
-  "generatedAt": 1763894400000,
-  "providers": [
-    {
-      "provider": "anthropic",
-      "status": "ok",
-      "source": "my-collector",
-      "snapshot": {
-        "kind": "window",
-        "fiveHour": { "usedPercent": 36, "resetsAt": 1763912400000 },
-        "weekly": { "usedPercent": 12, "resetsAt": 1764499200000 },
-        "modelWindows": {
-          "example-model": { "usedPercent": 18, "resetsAt": 1763912400000 }
-        }
-      }
-    },
-    {
-      "provider": "warp",
-      "status": "ok",
-      "source": "my-collector",
-      "snapshot": {
-        "kind": "pool",
-        "pool": {
-          "used": 42,
-          "limit": 100,
-          "usedPercent": 42,
-          "refreshesAt": 1767225600000,
-          "cadence": "Monthly"
-        }
-      }
-    }
-  ]
+  "kind": "window",
+  "fiveHour": { "usedPercent": 36, "resetsAt": 1763912400000 },
+  "weekly": { "usedPercent": 12, "resetsAt": 1764499200000 },
+  "modelWindows": {
+    "example-model": { "usedPercent": 18, "resetsAt": null }
+  },
+  "usageCredits": {
+    "enabled": true,
+    "spentAmount": 8.5,
+    "limitAmount": 40,
+    "currency": "USD",
+    "resetsAt": 1767225600000
+  },
+  "codexCredits": {
+    "hasCredits": true,
+    "unlimited": false,
+    "balance": 1000
+  }
 }
 ```
 
-`fiveHour` and `weekly` may be `null`; `modelWindows` is optional. Every window
-uses a numeric `usedPercent` and a Unix-millisecond `resetsAt`, which may be
-`null`. A pool uses numeric `used`, `limit`, and `usedPercent`, a
-Unix-millisecond `refreshesAt`, which may be `null`, and an optional `cadence`
-label.
+`fiveHour` and `weekly` are required but may be `null`. `modelWindows`,
+`usageCredits`, and `codexCredits` are optional and may be omitted; the two
+credit objects are normally relevant only to their corresponding provider.
+For `usageCredits`, `spentAmount` is numeric, `limitAmount` and `resetsAt` may be
+`null`, and monetary values use major currency units. For `codexCredits`,
+`hasCredits` and `unlimited` are booleans and `balance` may be `null`; balances
+are provider-defined credits, not money. A snapshot may also expose an array at
+`extra.rawLimits` for the Data provenance view.
 
-`/resets` may return an empty object when no banked Codex reset credits are
-available. When provided, use this shape:
+A pool snapshot supports a Warp-style request allotment:
+
+```json
+{
+  "kind": "pool",
+  "pool": {
+    "used": 42,
+    "limit": 100,
+    "usedPercent": 42,
+    "refreshesAt": 1767225600000,
+    "cadence": "Monthly"
+  }
+}
+```
+
+`used`, `limit`, and `usedPercent` are numeric. `refreshesAt` may be `null`, and
+`cadence` is optional.
+
+The complete optional Claude Web credit structure is defined by
+[`AnthropicWebCredits`](src/types.ts). Supplying it is not required for live
+allowance integration.
+
+**`GET /resets`**
+
+Return `{}` or `{ "codexBankedResetCredits": null }` when no banked-reset report
+is available. Otherwise, use this shape:
 
 ```json
 {
@@ -323,16 +394,49 @@ available. When provided, use this shape:
 }
 ```
 
-The dashboard uses `available` credits for the visible banked-reset list. It does
-not require a particular `status` string for individual credits, and `expiresAt`
-may be `null`.
+The counts may be numeric or `null`. Credit `expiresAt` may be `null`. Only
+credits whose individual `status` is exactly `available` appear in the current
+banked-reset list; `id`, `title`, and `expiresAt` supply the displayed details.
+The provided service also returns top-level `generatedAt`, `windows`, and
+`pools` fields; the current Observatory does not read them. Additional
+top-level and per-credit reset fields are ignored safely.
 
-The optional local history summary — observed quota reaches and consumed reset
-credits — is specific to `quota-service`'s SQLite database. For each five-hour
-and weekly allowance, it retains the first local observation at 100% for every
-quota cycle that reached its limit, then lists those times alongside the total.
-This history is not part of the HTTP compatibility contract. Another service
-must provide a compatible database through `QUOTA_DB_PATH` to make it available.
+**Optional Claude Web import**
+
+To support the Observatory's manual Claude Web credit workflow, implement
+`POST /anthropic-web-import`. The request contains `capturedAt`, `currency`,
+`currentBalance`, `promoRemaining`, `promoGranted`, `promoExpiresAt`,
+`campaignId`, `campaignGranted`, `autoReloadEnabled`,
+`purchasedThisMonthAmount`, `monthlyCapAmount`, `purchasesResetAt`, and
+`maxDiscountPercent`. Numeric form values may arrive as numeric strings, and
+blank optional fields may arrive as empty strings.
+
+Return JSON with a 2xx status after storing a valid snapshot; return a non-2xx
+JSON error without changing the previous snapshot when validation fails. On the
+next `/usage` response, expose the normalized snapshot as the Anthropic
+provider's `anthropicWebCredits` value. The Observatory forwards the import
+result and refreshes quota data after success. This endpoint is not required for
+the three-GET live quota connection; without it, only the manual Claude Web
+credit workflow is unavailable.
+
+**Optional local history**
+
+History is not fetched through the HTTP contract. The Observatory opens a
+compatible SQLite database at `QUOTA_DB_PATH`; when the quota URL hostname is
+`127.0.0.1` or `localhost` and that variable is unset, it uses
+`~/.quota-service/quota.db`. For any other hostname, history stays disabled
+unless `QUOTA_DB_PATH` is set explicitly.
+
+Compatibility requires the `snapshots` table fields `provider`, `status`,
+`captured_at`, and `snapshot_json`, plus the `reset_credits` fields `status`,
+`captured_at`, and `credits_json`. `snapshot_json` must contain the window shape
+described above, and `credits_json` must contain an array of reset-credit
+objects. Only `ok` and `stale` rows are analyzed. A quota reach is counted once
+per reset cycle at the first observation of `usedPercent >= 100`. Reset-credit
+use is inferred when a credit is reported as `used`, `consumed`, or `redeemed`,
+or when an available credit disappears without evidence that it expired.
+
+</details>
 
 ## Sources and acknowledgments
 
