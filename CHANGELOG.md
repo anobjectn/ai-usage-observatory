@@ -19,6 +19,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
+- Refresh the Overview, Sessions, and Projects README captures for v1.9.0, with
+  the latest `gpt-5.6-sol` `ai-usage-observatory` session expanded and the
+  `ai-usage-observatory` project focused.
 - Require the recorded Codex and Claude release skills to update the README
   badges and changelog for every release.
 
