@@ -17,6 +17,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add scroll-to-card focus when opening Projects that yields to active user
   scrolling.
 
+### Changed
+
+- Require the recorded Codex and Claude release skills to update the README
+  badges and changelog for every release.
+
 ## [1.8.0] - 2026-08-05
 
 ### Added

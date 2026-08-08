@@ -29,15 +29,17 @@ The review bundle must contain:
 - the recommended or requested version and its rationale;
 - the included commit range and categorized change summary;
 - the exact proposed changelog section;
+- the exact proposed README project-at-a-glance badge group;
 - the exact proposed GitHub Release notes;
 - breaking changes, migrations, and upgrade notes, explicitly saying when there
   are none;
 - the verification commands and release mutations that execution will perform.
 
-Also inspect the README project-at-a-glance badge group during preparation.
-Verify every badge against its local source of truth and the approved target
-version. If it is missing or inaccurate, include the exact proposed README
-update in the review bundle; apply it only after approval.
+Every release must update `CHANGELOG.md` and the README project-at-a-glance
+badge group. During preparation, set the Version badge to the approved target,
+verify every other badge against its local source of truth, and include both
+exact changes in the review bundle. Do not omit either file, even when the
+non-version badges remain accurate; apply them only after approval.
 
 Execution begins only after the user explicitly approves this complete bundle
 and its exact version. If any detail changes, the agent must present the revised
@@ -131,9 +133,10 @@ pushing, or publishing.
 
 ## 3. Prepare and verify
 
-Change the `version` field in `package.json` to the approved target and finalize
-the approved `CHANGELOG.md` entry. `bun.lock` does not currently store the root
-package version, so do not modify it solely for a release.
+Change the `version` field in `package.json` to the approved target, finalize
+the approved `CHANGELOG.md` entry, and update the README Version badge to the
+same target while verifying the remaining badges. `bun.lock` does not currently
+store the root package version, so do not modify it solely for a release.
 
 Run the complete verification suite:
 
@@ -165,7 +168,7 @@ After applying `git-identity-routing`, stage the version change and create the
 release commit using Conventional Commit format:
 
 ```bash
-git add package.json CHANGELOG.md
+git add package.json CHANGELOG.md README.md
 git commit -m "chore(release): prepare v<target>"
 ```
 
