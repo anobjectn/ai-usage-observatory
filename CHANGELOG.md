@@ -12,6 +12,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add model and agent text filtering plus most- and least-used token ordering to Models.
 - Add full-width expanded model cards with eased transitions, bottom-right collapse
   controls, and centered session pagination.
+- Add history-aware model session deep links with scroll-to-card focus that yields to
+  active user scrolling.
 
 ## [1.8.0] - 2026-08-05
 

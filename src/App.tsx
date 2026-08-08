@@ -293,6 +293,35 @@ function viewHref(view: View) {
   return `${url.pathname}${url.search}`;
 }
 
+function modelIdsFromUrl() {
+  return [
+    ...new Set(
+      new URLSearchParams(window.location.search)
+        .getAll("model")
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function modelsHref(models: Iterable<string>) {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("view", "models");
+  for (const model of models) url.searchParams.append("model", model);
+  return `${url.pathname}${url.search}`;
+}
+
+function transitionModelGrid(update: () => void) {
+  const transitionDocument = document as Document & {
+    startViewTransition?: (callback: () => void) => unknown;
+  };
+  if (typeof transitionDocument.startViewTransition === "function") {
+    transitionDocument.startViewTransition(() => flushSync(update));
+  } else {
+    update();
+  }
+}
+
 function useModalFocusTrap(onEscape: () => void) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onEscapeRef = useRef(onEscape);
@@ -4929,11 +4958,16 @@ function Models({
   data: DashboardData;
   onOpenSession: (sessionId: string) => void;
 }) {
-  const [openModels, setOpenModels] = useState<Set<string>>(() => new Set());
+  const [openModels, setOpenModels] = useState<Set<string>>(
+    () => new Set(modelIdsFromUrl()),
+  );
   const [pages, setPages] = useState<Record<string, number>>({});
   const [query, setQuery] = useState("");
   const [usageOrder, setUsageOrder] = useState<"most" | "least">("most");
   const [benchmarkModal, setBenchmarkModal] = useState(false);
+  const modelGridRef = useRef<HTMLElement | null>(null);
+  const pendingScrollModel = useRef<string | null>(modelIdsFromUrl().at(-1) ?? null);
+  const lastUserScrollAt = useRef(0);
   const effortRequest = useEffortAggregate("model", {
     basis: "sessions",
     rangeDays: null,
@@ -4946,6 +4980,46 @@ function Models({
     effortRequest.load,
     digestRequest.load,
   ]);
+  useEffect(() => {
+    const syncOpenModels = () => {
+      if (initialView() !== "models") return;
+      const models = modelIdsFromUrl();
+      pendingScrollModel.current = models.at(-1) ?? null;
+      transitionModelGrid(() => setOpenModels(new Set(models)));
+    };
+    window.addEventListener("popstate", syncOpenModels);
+    return () => window.removeEventListener("popstate", syncOpenModels);
+  }, []);
+  useEffect(() => {
+    const markUserScrollIntent = () => {
+      lastUserScrollAt.current = performance.now();
+    };
+
+    const markKeyboardScrollIntent = (event: KeyboardEvent) => {
+      if (
+        [
+          "ArrowDown",
+          "ArrowUp",
+          "PageDown",
+          "PageUp",
+          "Home",
+          "End",
+        ].includes(event.key)
+      ) {
+        markUserScrollIntent();
+      }
+    };
+
+    const options: AddEventListenerOptions = { passive: true };
+    window.addEventListener("wheel", markUserScrollIntent, options);
+    window.addEventListener("touchmove", markUserScrollIntent, options);
+    window.addEventListener("keydown", markKeyboardScrollIntent);
+    return () => {
+      window.removeEventListener("wheel", markUserScrollIntent, options);
+      window.removeEventListener("touchmove", markUserScrollIntent, options);
+      window.removeEventListener("keydown", markKeyboardScrollIntent);
+    };
+  }, []);
   const effortByModel = useMemo(
     () => new Map((effortRequest.data?.rows ?? []).map((row) => [row.key, row.summary])),
     [effortRequest.data],
@@ -4969,23 +5043,45 @@ function Models({
       return usageOrder === "most" ? -comparison : comparison;
     });
   }, [data.models, query, usageOrder]);
+  useEffect(() => {
+    const model = pendingScrollModel.current;
+    if (!model) return;
+    pendingScrollModel.current = null;
+    const timeout = window.setTimeout(() => {
+      if (performance.now() - lastUserScrollAt.current < 260) return;
+      const card = [
+        ...(modelGridRef.current?.querySelectorAll<HTMLElement>(".model-card") ?? []),
+      ].find((candidate) => candidate.dataset.modelKey === model);
+      if (!card) return;
+      const topbarHeight =
+        document.querySelector<HTMLElement>(".topbar")?.getBoundingClientRect().height ?? 72;
+      const target = Math.max(
+        0,
+        window.scrollY + card.getBoundingClientRect().top - topbarHeight - 18,
+      );
+      if (Math.abs(target - window.scrollY) < 12) return;
+      window.scrollTo({
+        top: target,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [openModels]);
   const pageSize = 5;
   const toggleModel = (model: string) => {
-    const update = () =>
-      setOpenModels((current) => {
-        const next = new Set(current);
-        if (next.has(model)) next.delete(model);
-        else next.add(model);
-        return next;
-      });
-    const transitionDocument = document as Document & {
-      startViewTransition?: (callback: () => void) => unknown;
-    };
-    if (typeof transitionDocument.startViewTransition === "function") {
-      transitionDocument.startViewTransition(() => flushSync(update));
-    } else {
-      update();
-    }
+    const next = new Set(openModels);
+    const opening = !next.has(model);
+    if (opening) next.add(model);
+    else next.delete(model);
+    pendingScrollModel.current = opening ? model : null;
+    window.history.pushState(
+      { ...window.history.state, view: "models", models: [...next] },
+      "",
+      modelsHref(next),
+    );
+    transitionModelGrid(() => setOpenModels(next));
   };
   return (
     <div className="view-stack page-enter">
@@ -5039,7 +5135,7 @@ function Models({
         }
       />
       {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
-      <section className="model-grid">
+      <section className="model-grid" ref={modelGridRef}>
         {visibleModels.map(({ model, index }) => {
           const sessions = data.sessions
             .filter((session) => session.modelsUsed.includes(model.model))
@@ -5065,6 +5161,7 @@ function Models({
           return (
             <article
               className={`model-card${open ? " model-card--open" : ""}`}
+              data-model-key={model.model}
               key={model.model}
             >
               <div className="model-card__head">
