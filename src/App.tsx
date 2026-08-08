@@ -322,6 +322,46 @@ function transitionModelGrid(update: () => void) {
   }
 }
 
+const autoScrollDelayMs = 200;
+const userScrollCancelWindowMs = 260;
+
+function useUserScrollIntent() {
+  const lastUserScrollAt = useRef(0);
+
+  useEffect(() => {
+    const markUserScrollIntent = () => {
+      lastUserScrollAt.current = performance.now();
+    };
+
+    const markKeyboardScrollIntent = (event: KeyboardEvent) => {
+      if (
+        [
+          "ArrowDown",
+          "ArrowUp",
+          "PageDown",
+          "PageUp",
+          "Home",
+          "End",
+        ].includes(event.key)
+      ) {
+        markUserScrollIntent();
+      }
+    };
+
+    const options: AddEventListenerOptions = { passive: true };
+    window.addEventListener("wheel", markUserScrollIntent, options);
+    window.addEventListener("touchmove", markUserScrollIntent, options);
+    window.addEventListener("keydown", markKeyboardScrollIntent);
+    return () => {
+      window.removeEventListener("wheel", markUserScrollIntent, options);
+      window.removeEventListener("touchmove", markUserScrollIntent, options);
+      window.removeEventListener("keydown", markKeyboardScrollIntent);
+    };
+  }, []);
+
+  return lastUserScrollAt;
+}
+
 function useModalFocusTrap(onEscape: () => void) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onEscapeRef = useRef(onEscape);
@@ -3723,6 +3763,7 @@ function Sessions({
   );
   const pageSize = 15;
   const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
+  const lastUserScrollAt = useUserScrollIntent();
   // The digest is requested unscoped: it describes every dashboard session, and this view already
   // receives the range/provider/path-filtered subset it should render.
   const digestRequest = useEffortSessions({});
@@ -3841,9 +3882,28 @@ function Sessions({
     setPage(Math.floor(index / pageSize) + 1);
     if (expanded !== focusSessionId) void toggle(sorted[index]);
   }, [focusSessionId]);
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!focusSessionId || expanded !== focusSessionId) return;
-    focusedRowRef.current?.scrollIntoView({ block: "start" });
+    const timeout = window.setTimeout(() => {
+      if (performance.now() - lastUserScrollAt.current < userScrollCancelWindowMs)
+        return;
+      const row = focusedRowRef.current;
+      if (!row) return;
+      const topbarHeight =
+        document.querySelector<HTMLElement>(".topbar")?.getBoundingClientRect().height ?? 72;
+      const target = Math.max(
+        0,
+        window.scrollY + row.getBoundingClientRect().top - topbarHeight - 18,
+      );
+      if (Math.abs(target - window.scrollY) < 12) return;
+      window.scrollTo({
+        top: target,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    }, autoScrollDelayMs);
+    return () => window.clearTimeout(timeout);
   }, [focusSessionId, page, expanded]);
   const header = (key: SortKey, label: string) => (
     <th
@@ -4967,7 +5027,7 @@ function Models({
   const [benchmarkModal, setBenchmarkModal] = useState(false);
   const modelGridRef = useRef<HTMLElement | null>(null);
   const pendingScrollModel = useRef<string | null>(modelIdsFromUrl().at(-1) ?? null);
-  const lastUserScrollAt = useRef(0);
+  const lastUserScrollAt = useUserScrollIntent();
   const effortRequest = useEffortAggregate("model", {
     basis: "sessions",
     rangeDays: null,
@@ -4989,36 +5049,6 @@ function Models({
     };
     window.addEventListener("popstate", syncOpenModels);
     return () => window.removeEventListener("popstate", syncOpenModels);
-  }, []);
-  useEffect(() => {
-    const markUserScrollIntent = () => {
-      lastUserScrollAt.current = performance.now();
-    };
-
-    const markKeyboardScrollIntent = (event: KeyboardEvent) => {
-      if (
-        [
-          "ArrowDown",
-          "ArrowUp",
-          "PageDown",
-          "PageUp",
-          "Home",
-          "End",
-        ].includes(event.key)
-      ) {
-        markUserScrollIntent();
-      }
-    };
-
-    const options: AddEventListenerOptions = { passive: true };
-    window.addEventListener("wheel", markUserScrollIntent, options);
-    window.addEventListener("touchmove", markUserScrollIntent, options);
-    window.addEventListener("keydown", markKeyboardScrollIntent);
-    return () => {
-      window.removeEventListener("wheel", markUserScrollIntent, options);
-      window.removeEventListener("touchmove", markUserScrollIntent, options);
-      window.removeEventListener("keydown", markKeyboardScrollIntent);
-    };
   }, []);
   const effortByModel = useMemo(
     () => new Map((effortRequest.data?.rows ?? []).map((row) => [row.key, row.summary])),
@@ -5048,7 +5078,8 @@ function Models({
     if (!model) return;
     pendingScrollModel.current = null;
     const timeout = window.setTimeout(() => {
-      if (performance.now() - lastUserScrollAt.current < 260) return;
+      if (performance.now() - lastUserScrollAt.current < userScrollCancelWindowMs)
+        return;
       const card = [
         ...(modelGridRef.current?.querySelectorAll<HTMLElement>(".model-card") ?? []),
       ].find((candidate) => candidate.dataset.modelKey === model);
@@ -5066,7 +5097,7 @@ function Models({
           ? "auto"
           : "smooth",
       });
-    }, 0);
+    }, autoScrollDelayMs);
     return () => window.clearTimeout(timeout);
   }, [openModels]);
   const pageSize = 5;
