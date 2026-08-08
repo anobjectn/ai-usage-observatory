@@ -5,17 +5,19 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.0] - 2026-08-08
 
 ### Added
 
-- Add model and agent text filtering plus most- and least-used token ordering to Models.
-- Add full-width expanded model cards with eased transitions, bottom-right collapse
-  controls, and centered session pagination.
-- Add history-aware model session deep links with scroll-to-card focus that yields to
-  active user scrolling.
-- Add scroll-to-card focus when opening Projects that yields to active user
-  scrolling.
+- Add model and agent text filtering, most- and least-used token ordering,
+  full-width expanded model cards, dedicated collapse controls, and centered
+  session pagination to Models.
+- Add history-aware model session deep links and focused Models, Sessions, and
+  Projects cards that yield to active user scrolling.
+- Enrich expandable session details with bounded assistant-output samples,
+  collapsible detail columns, mixed-model state, and per-file patch counts.
+- Add compact local action menus for indexed session transcripts and changed
+  files, with Finder, Visual Studio Code, and default text-editor targets.
 
 ### Changed
 
@@ -24,6 +26,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `ai-usage-observatory` project focused.
 - Require the recorded Codex and Claude release skills to update the README
   badges and changelog for every release.
+
+### Fixed
+
+- Keep automatic model, session, and project focus from overriding active user
+  scrolling.
 
 ## [1.8.0] - 2026-08-05
 
@@ -259,6 +266,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.9.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.5.0...v1.6.0
