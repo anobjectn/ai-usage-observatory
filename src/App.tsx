@@ -55,8 +55,11 @@ import {
   CircleDollarSign,
   Clock3,
   Database,
+  EllipsisVertical,
   ExternalLink,
+  FileText,
   FolderGit2,
+  FolderOpen,
   Copy,
   Gauge,
   Layers3,
@@ -3477,6 +3480,177 @@ type SessionDetailSpineStat = {
   tone?: "accent" | "positive" | "negative" | "warning";
 };
 
+type SessionExternalOpenAction = "reveal" | "vscode" | "default-editor";
+type SessionExternalTarget =
+  | { target: "transcript" }
+  | { target: "file"; path: string };
+type CompactActionMenuItem = {
+  id: string;
+  label: string;
+  icon: ReactNode;
+  disabled?: boolean;
+  hint?: string;
+  onSelect: () => void | Promise<void>;
+};
+
+function CompactActionMenu({
+  label,
+  title,
+  note,
+  items,
+  className = "",
+}: {
+  label: string;
+  title: string;
+  note: string;
+  items: CompactActionMenuItem[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const placeMenu = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = 224;
+    const height = menuRef.current?.offsetHeight ?? 154;
+    const below = rect.bottom + 6;
+    setPosition({
+      left: Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width)),
+      top:
+        below + height <= window.innerHeight - 8
+          ? below
+          : Math.max(8, rect.top - height - 6),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(placeMenu);
+    const close = () => setOpen(false);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open, placeMenu]);
+
+  useEffect(() => {
+    if (!open) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      placeMenu();
+      menuRef.current
+        ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+        ?.focus();
+    });
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        triggerRef.current?.contains(target) ||
+        menuRef.current?.contains(target)
+      )
+        return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      window.requestAnimationFrame(() => triggerRef.current?.focus());
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, placeMenu]);
+
+  const moveMenuFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
+      return;
+    const buttons = [
+      ...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
+        "button:not(:disabled)",
+      ) ?? []),
+    ];
+    if (!buttons.length) return;
+    event.preventDefault();
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? buttons.length - 1
+          : event.key === "ArrowUp"
+            ? (current - 1 + buttons.length) % buttons.length
+            : (current + 1) % buttons.length;
+    buttons[next]?.focus();
+  };
+
+  return (
+    <span className={`compact-action-menu ${className}`} data-open={open}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="compact-action-menu__trigger"
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={label}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown") return;
+          event.preventDefault();
+          setOpen(true);
+        }}
+      >
+        <EllipsisVertical aria-hidden="true" />
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="compact-action-popover"
+            role="menu"
+            aria-label={label}
+            style={position}
+            onKeyDown={moveMenuFocus}
+          >
+            <div className="compact-action-popover__head">
+              <b>{title}</b>
+              <small>{note}</small>
+            </div>
+            {items.map((item) => (
+              <button
+                type="button"
+                role="menuitem"
+                key={item.id}
+                disabled={item.disabled}
+                title={item.hint}
+                onClick={() => {
+                  setOpen(false);
+                  window.requestAnimationFrame(() => triggerRef.current?.focus());
+                  void item.onSelect();
+                }}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </span>
+  );
+}
+
 function SessionDetailSpineSummary({
   stats,
 }: {
@@ -3585,6 +3759,83 @@ export function SessionDetailPanel({
   const [collapsedColumns, setCollapsedColumns] = useState(
     () => new Set<SessionDetailColumnKey>(initiallyCollapsedSessionColumns),
   );
+  const [externalStatus, setExternalStatus] = useState<{
+    kind: "pending" | "success" | "error";
+    message: string;
+  } | null>(null);
+  const externalStatusTimer = useRef<number | null>(null);
+  const showExternalStatus = useCallback(
+    (
+      kind: "pending" | "success" | "error",
+      message: string,
+      duration = kind === "error" ? 5_000 : 2_600,
+    ) => {
+      if (externalStatusTimer.current !== null)
+        window.clearTimeout(externalStatusTimer.current);
+      setExternalStatus({ kind, message });
+      externalStatusTimer.current =
+        kind === "pending"
+          ? null
+          : window.setTimeout(() => setExternalStatus(null), duration);
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (externalStatusTimer.current !== null)
+        window.clearTimeout(externalStatusTimer.current);
+    },
+    [],
+  );
+  const openExternalTarget = useCallback(
+    async (
+      action: SessionExternalOpenAction,
+      target: SessionExternalTarget,
+      label: string,
+    ) => {
+      const actionLabel =
+        action === "reveal"
+          ? "Opening Finder"
+          : action === "vscode"
+            ? "Opening Visual Studio Code"
+            : "Opening the default text editor";
+      showExternalStatus("pending", `${actionLabel} for ${label}…`);
+      try {
+        const response = await fetch(
+          `/api/sessions/${encodeURIComponent(session.sessionId)}/external-open`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, ...target }),
+          },
+        );
+        const result = (await response.json().catch(() => null)) as {
+          error?: unknown;
+          message?: unknown;
+        } | null;
+        if (!response.ok)
+          throw new Error(
+            typeof result?.error === "string"
+              ? result.error
+              : "The local application could not open that path.",
+          );
+        showExternalStatus(
+          "success",
+          typeof result?.message === "string"
+            ? result.message
+            : `${label} opened.`,
+        );
+      } catch (error) {
+        showExternalStatus(
+          "error",
+          error instanceof Error
+            ? error.message
+            : "The local application could not open that path.",
+        );
+      }
+    },
+    [session.sessionId, showExternalStatus],
+  );
   const toggleColumn = (column: SessionDetailColumnKey) => {
     setCollapsedColumns((current) => {
       const next = new Set(current);
@@ -3621,6 +3872,34 @@ export function SessionDetailPanel({
   const clippedOutputs = outputs.filter((output) => output.truncated).length;
   const toolCalls = detail.tools.reduce((total, tool) => total + tool.count, 0);
   const mixedModels = models.length > 1;
+  const externalItems = (
+    target: SessionExternalTarget,
+    label: string,
+    deleted = false,
+  ): CompactActionMenuItem[] => [
+    {
+      id: "reveal",
+      label: deleted ? "Reveal containing folder" : "Reveal in Finder",
+      icon: <FolderOpen aria-hidden="true" />,
+      onSelect: () => openExternalTarget("reveal", target, label),
+    },
+    {
+      id: "vscode",
+      label: "Open in VS Code",
+      icon: <ExternalLink aria-hidden="true" />,
+      disabled: deleted,
+      hint: deleted ? "This session deleted the file." : undefined,
+      onSelect: () => openExternalTarget("vscode", target, label),
+    },
+    {
+      id: "default-editor",
+      label: "Open in default text editor",
+      icon: <FileText aria-hidden="true" />,
+      disabled: deleted,
+      hint: deleted ? "This session deleted the file." : undefined,
+      onSelect: () => openExternalTarget("default-editor", target, label),
+    },
+  ];
   return (
     <div className="session-detail">
       <div className="session-detail__summary">
@@ -3660,22 +3939,33 @@ export function SessionDetailPanel({
           className="session-prompts"
           onToggle={() => toggleColumn("prompt")}
           aside={
-            detail.prompts.length ? (
-              <button
-                type="button"
-                className="prompt-order"
-                onClick={() =>
-                  setPromptOrder((current) =>
-                    current === "newest" ? "oldest" : "newest",
-                  )
-                }
-                aria-label={`Show prompts ${promptOrder === "newest" ? "oldest" : "newest"} first`}
-              >
-                {promptOrder === "newest" ? "Newest first ↓" : "Oldest first ↑"}
-              </button>
-            ) : (
-              <small>No prompt events detected</small>
-            )
+            <div className="session-detail__head-actions">
+              {detail.prompts.length ? (
+                <button
+                  type="button"
+                  className="prompt-order"
+                  onClick={() =>
+                    setPromptOrder((current) =>
+                      current === "newest" ? "oldest" : "newest",
+                    )
+                  }
+                  aria-label={`Show prompts ${promptOrder === "newest" ? "oldest" : "newest"} first`}
+                >
+                  {promptOrder === "newest" ? "Newest first ↓" : "Oldest first ↑"}
+                </button>
+              ) : (
+                <small>No prompt events detected</small>
+              )}
+              <CompactActionMenu
+                label="Open Prompt source actions"
+                title="Prompt source"
+                note="Shared session JSONL"
+                items={externalItems(
+                  { target: "transcript" },
+                  "the session transcript",
+                )}
+              />
+            </div>
           }
         >
           {detail.prompts.length ? (
@@ -3718,11 +4008,22 @@ export function SessionDetailPanel({
           className="session-outputs"
           onToggle={() => toggleColumn("output")}
           aside={
-            <small>
-              {outputs.length
-                ? `${outputs.length} recent sample${outputs.length === 1 ? "" : "s"}${outputs.some((output) => output.truncated) ? " · clipped" : ""}`
-                : "No assistant text detected"}
-            </small>
+            <div className="session-detail__head-actions">
+              <small>
+                {outputs.length
+                  ? `${outputs.length} recent sample${outputs.length === 1 ? "" : "s"}${outputs.some((output) => output.truncated) ? " · clipped" : ""}`
+                  : "No assistant text detected"}
+              </small>
+              <CompactActionMenu
+                label="Open Output source actions"
+                title="Output source"
+                note="Shared session JSONL"
+                items={externalItems(
+                  { target: "transcript" },
+                  "the session transcript",
+                )}
+              />
+            </div>
           }
         >
           {outputs.length ? (
@@ -3775,7 +4076,9 @@ export function SessionDetailPanel({
                   <span className={`file-status ${file.status}`}>
                     {file.status[0]}
                   </span>
-                  <code title={file.path}>{file.path}</code>
+                  <code className="file-path-tail" title={file.path}>
+                    <span dir="ltr">{file.path}</span>
+                  </code>
                   <span
                     className={`file-diff ${file.additions === null || file.deletions === null ? "is-unavailable" : ""}`}
                     aria-label={
@@ -3792,6 +4095,17 @@ export function SessionDetailPanel({
                     <i>+{file.additions?.toLocaleString() ?? "—"}</i>
                     <em>−{file.deletions?.toLocaleString() ?? "—"}</em>
                   </span>
+                  <CompactActionMenu
+                    className="file-action-menu"
+                    label={`Open actions for ${file.path}`}
+                    title={file.path.split(/[\\/]/).at(-1) ?? file.path}
+                    note={file.status === "deleted" ? "Deleted path" : "Local file"}
+                    items={externalItems(
+                      { target: "file", path: file.path },
+                      file.path.split(/[\\/]/).at(-1) ?? "the file",
+                      file.status === "deleted",
+                    )}
+                  />
                 </li>
               ))}
             </ul>
@@ -3866,6 +4180,20 @@ export function SessionDetailPanel({
           onToggle={() => toggleColumn("effort")}
         />
       </div>
+      {externalStatus && (
+        <div
+          className={`session-external-status is-${externalStatus.kind}`}
+          role="status"
+          aria-live="polite"
+        >
+          {externalStatus.kind === "pending" ? (
+            <RefreshCw aria-hidden="true" />
+          ) : (
+            <ExternalLink aria-hidden="true" />
+          )}
+          <span>{externalStatus.message}</span>
+        </div>
+      )}
     </div>
   );
 }

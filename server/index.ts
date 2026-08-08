@@ -4,6 +4,7 @@ import { getSnapshot, refresh } from "./collector";
 import { buildInsights, resolveScope } from "./insights";
 import { importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
+import { ExternalOpenError, externalOpenOriginAllowed, isExternalOpenAction, openSessionExternalTarget } from "./external-open";
 import { buildEffortAggregate, buildEffortSessionDigest, buildEffortStatus, buildSessionEffortSummary, clearEffortMemo, effortEtag, memoizedBody, resolveEffortGroup, resolveEffortScope, scopeKey } from "./effort-api";
 import { scheduleEffortIndexing } from "./effort-index";
 import { deleteEffortDerived, setEffortEnabled } from "./effort-store";
@@ -139,6 +140,27 @@ async function api(request: Request, url: URL) {
     const input = await body(request);
     setAnnotation(decodeURIComponent(annotationMatch[1]), { tags: Array.isArray(input.tags) ? input.tags.map(String) : [], note: String(input.note ?? "") });
     return json({ ok: true });
+  }
+  const externalOpenMatch = path.match(/^\/api\/sessions\/([^/]+)\/external-open$/);
+  if (externalOpenMatch && request.method === "POST") {
+    if (!externalOpenOriginAllowed(request.headers))
+      return errorResponse("External-open requests must come from this local app.", 403);
+    const input = await body(request);
+    if (!isExternalOpenAction(input.action))
+      return errorResponse("A valid external-open action is required.", 400);
+    const sessionId = decodeURIComponent(externalOpenMatch[1]);
+    const target = input.target;
+    try {
+      if (target === "transcript")
+        return json(await openSessionExternalTarget(sessionId, input.action, { kind: "transcript" }));
+      if (target !== "file" || typeof input.path !== "string")
+        return errorResponse("A listed session file path is required.", 400);
+      return json(await openSessionExternalTarget(sessionId, input.action, { kind: "file", path: input.path }));
+    } catch (error) {
+      return error instanceof ExternalOpenError
+        ? errorResponse(error, error.status)
+        : errorResponse(error);
+    }
   }
   const detailMatch = path.match(/^\/api\/sessions\/([^/]+)\/detail$/);
   if (detailMatch && request.method === "GET") {

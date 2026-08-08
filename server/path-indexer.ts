@@ -142,6 +142,6 @@ export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }>
 }
 
 export function getSessionSource(sessionId: string) {
-  const row = db.query("SELECT agent, source_file FROM session_paths WHERE session_id = ?").get(sessionId) as {agent:string;source_file:string} | null;
-  return row ? { agent: row.agent, sourceFile: row.source_file } : null;
+  const row = db.query("SELECT agent, source_file, cwd FROM session_paths WHERE session_id = ?").get(sessionId) as {agent:string;source_file:string;cwd:string|null} | null;
+  return row ? { agent: row.agent, sourceFile: row.source_file, cwd: row.cwd } : null;
 }

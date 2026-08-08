@@ -158,6 +158,12 @@ excluded. Nothing from that read is written to the database or sent anywhere —
 goes to your browser on localhost and is gone on the next request. Application
 state lives in `.usage-observatory/data.db`, which Git ignores.
 
+Session-detail action menus can explicitly reveal that transcript or a listed
+changed file in Finder, open it in Visual Studio Code, or send it to the macOS
+default text editor. These actions launch a local application only after a click;
+the server resolves targets from its indexed session record and never executes a
+browser-supplied shell command.
+
 Set `USAGE_OBSERVATORY_DB` to relocate the database, or `QUOTA_SERVICE_URL` to
 point at a different [`quota-service`](https://github.com/anobjectn/quota-service).
 

@@ -209,5 +209,9 @@ test("session detail columns render in the requested order and default state", (
   expect(html).toContain("Expand Model Mix, Mixed, 2 models");
   expect(html).toContain("file-diff");
   expect(html).toContain("1 addition and 0 deletions");
+  expect(html).toContain('aria-label="Open Prompt source actions"');
+  expect(html).toContain('aria-label="Open Output source actions"');
+  expect(html).toContain('aria-label="Open actions for src/App.tsx"');
+  expect(html).toContain('class="file-path-tail"');
   expect(sessionModelNames(mixedSession)).toEqual(["gpt-test", "gpt-second"]);
 });
