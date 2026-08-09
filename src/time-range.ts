@@ -12,7 +12,7 @@ export function validDateKey(value: string | null | undefined): value is string 
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-function shiftDateKey(value: string, days: number) {
+export function shiftDateKey(value: string, days: number) {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);

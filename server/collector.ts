@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { utcDate } from "../src/effort-model";
+import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
 import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
@@ -42,10 +42,10 @@ type ProjectActivitySession = {
 
 type ProjectModelTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number};
 
-export function aggregateProjects(sessions: ProjectActivitySession[]) {
+export function aggregateProjects(sessions: ProjectActivitySession[], timeZone = systemTimeZone()) {
   const projects = new Map<string, {name:string;tokens:number;cost:number;sessions:number;models:Map<string,number>;days:Map<string,{date:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number;models:Map<string,ProjectModelTotals>}>}>();
   for (const session of sessions) {
-    const date = utcDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
     if (!activityProvider(session.agent) || !date || !session.cwd) continue;
     const projectId = session.cwd.replace(/\/+$/, "");
     const project = projects.get(projectId) ?? {name:projectId,tokens:0,cost:0,sessions:0,models:new Map(),days:new Map()};
@@ -87,19 +87,19 @@ export function aggregateProjects(sessions: ProjectActivitySession[]) {
   })).sort((a, b) => b.cost - a.cost);
 }
 
-// Effort, projects, and project activity all bucket days through the one shared helper in
-// src/effort-model.ts; a private copy here would let one view's days drift from another's.
+// Effort, projects, and project activity all bucket days through the one shared reporting-time
+// helper; a private copy here would let one view's days drift from another's.
 // The provider mapper is likewise shared: this now also recognises "openai"-flavoured agent
 // labels as Codex, matching what Insights already did.
 function activityProvider(agent: string) {
   return providerFromAgent(agent);
 }
 
-export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
+export function aggregateProjectActivity(sessions: ProjectActivitySession[], timeZone = systemTimeZone()) {
   const activity = new Map<string, {date:string;provider:"anthropic"|"codex";projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>();
   for (const session of sessions) {
     const provider = activityProvider(session.agent);
-    const date = utcDate(session.metadata?.lastActivity) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
     if (!provider || !date || !session.cwd) continue;
     const projectId = session.cwd.replace(/\/+$/, "");
     const key = `${date}\0${provider}\0${projectId}`;
@@ -122,7 +122,8 @@ export function aggregateProjectActivity(sessions: ProjectActivitySession[]) {
 }
 
 async function buildSnapshot() {
-  const [paths, ccusage, quota] = await Promise.all([indexSessionPaths(), collectCcusage(), collectQuota()]);
+  const timeZone = systemTimeZone();
+  const [paths, ccusage, quota] = await Promise.all([indexSessionPaths(), collectCcusage(timeZone), collectQuota()]);
   setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
   const annotations = getAnnotations();
@@ -133,6 +134,7 @@ async function buildSnapshot() {
   }).sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
   return {
     collectedAt: new Date().toISOString(),
+    timeZone,
     ccusageVersion: ccusage.version,
     costMethodology: "ccusage",
     blockScope: "Claude Code",
@@ -141,9 +143,9 @@ async function buildSnapshot() {
     monthly: ccusage.unified.monthly,
     totals: ccusage.unified.totals,
     sessions,
-    projectActivity: aggregateProjectActivity(sessions),
+    projectActivity: aggregateProjectActivity(sessions, timeZone),
     blocks: ccusage.blocks.blocks,
-    projects: aggregateProjects(sessions),
+    projects: aggregateProjects(sessions, timeZone),
     models: aggregateModels(ccusage.unified.daily, ccusage.unpricedModels),
     unpricedModels: ccusage.unpricedModels,
     quotas: quota,
@@ -154,8 +156,8 @@ async function buildSnapshot() {
         name: "ccusage",
         status: ccusage.unpricedModels.length ? "degraded" : "healthy",
         detail: ccusage.unpricedModels.length
-          ? `Pinned v${ccusage.version} · no pricing for ${ccusage.unpricedModels.join(", ")} — cost totals exclude these models`
-          : `Pinned v${ccusage.version} · live pricing`,
+          ? `Pinned v${ccusage.version} · ${timeZone} calendar · no pricing for ${ccusage.unpricedModels.join(", ")} — cost totals exclude these models`
+          : `Pinned v${ccusage.version} · ${timeZone} calendar · live pricing`,
         kind: "local analytics",
       },
       { name: "Path index", status: "healthy", detail: `${sessions.filter((session) => session.cwd).length} sessions joined · metadata only`, kind: "local metadata" },

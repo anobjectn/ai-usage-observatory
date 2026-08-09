@@ -1,4 +1,5 @@
 import type { QuotaHistory } from "./types";
+import { dateKeyInTimeZone, hourInTimeZone, systemTimeZone } from "./reporting-time";
 
 export type QuotaMarker = {
   key: string;
@@ -33,11 +34,6 @@ function events(history?: QuotaHistory): MarkerEvent[] {
     provider: "codex" as const,
   }));
   return [...quotaEvents, ...resetEvents];
-}
-
-function localDay(timestamp: number) {
-  const date = new Date(timestamp);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function groupMarkers(
@@ -83,11 +79,12 @@ export function dailyQuotaMarkers(
   history: QuotaHistory | undefined,
   periods: string[],
   providerFilter: ProviderFilter = null,
+  timeZone = systemTimeZone(),
 ) {
   const visible = new Set(periods);
   return groupMarkers(history, (timestamp) => {
-    const day = localDay(timestamp);
-    return visible.has(day) ? day : null;
+    const day = dateKeyInTimeZone(new Date(timestamp), timeZone);
+    return day !== null && visible.has(day) ? day : null;
   }, providerFilter);
 }
 
@@ -95,9 +92,12 @@ export function hourlyQuotaMarkers(
   history: QuotaHistory | undefined,
   day: string,
   providerFilter: ProviderFilter = null,
+  timeZone = systemTimeZone(),
 ) {
   return groupMarkers(history, (timestamp) => {
-    if (localDay(timestamp) !== day) return null;
-    return String(new Date(timestamp).getHours());
+    const instant = new Date(timestamp);
+    if (dateKeyInTimeZone(instant, timeZone) !== day) return null;
+    const hour = hourInTimeZone(instant, timeZone);
+    return hour === null ? null : String(hour);
   }, providerFilter);
 }

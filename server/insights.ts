@@ -1,7 +1,8 @@
 import type { DashboardData, Session } from "../src/types";
 import { providerFromAgent } from "../src/provider";
 import { familyOf } from "../src/model-family";
-import { validDateKey } from "../src/time-range";
+import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
+import { shiftDateKey, validDateKey } from "../src/time-range";
 import {
   buildEffortSessionDigest,
   resolveEffortFacet,
@@ -186,8 +187,8 @@ export function contextEstimate(row: { cacheReadTokens: number; cacheCreationTok
   return { turns: Math.round((2 * row.cacheReadTokens) / row.cacheCreationTokens), contextWritten: row.cacheCreationTokens };
 }
 
-function insightDate(row: Session) {
-  const activity = String(row.metadata?.lastActivity ?? "").slice(0, 10);
+function insightDate(row: Session, timeZone: string) {
+  const activity = dateKeyInTimeZone(row.metadata?.lastActivity, timeZone);
   if (validDateKey(activity)) return activity;
   const period = row.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-");
   return validDateKey(period) ? period : null;
@@ -351,17 +352,18 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   for (const window of data.quotas.history?.windows ?? []) overviewProviderIds.add(window.provider);
   const overviewProviders = (["anthropic", "codex"] as Provider[]).filter((id) => overviewProviderIds.has(id));
 
-  const cutoff = scope.rangeDays === null ? null : Date.now() - scope.rangeDays * 86_400_000;
+  const timeZone = data.timeZone || systemTimeZone();
+  const today = dateKeyInTimeZone(new Date(), timeZone);
+  const rangeStart = scope.rangeDays === null || !today ? null : shiftDateKey(today, -(scope.rangeDays - 1));
   const effortSessions = sessionsMatchingEffortFacet(data, scope);
   const base: InsightSession[] = data.sessions
     .filter((row) => {
       const itemProvider = provider(row.agent);
-      const timestamp = Date.parse(String(row.metadata?.lastActivity ?? ""));
-      const date = insightDate(row);
+      const date = insightDate(row, timeZone);
       return itemProvider
         && (effortSessions === null || effortSessions.has(row.sessionId))
         && matchesAgentScope(row, itemProvider, scope)
-        && (scope.fromDate ? date !== null && date >= scope.fromDate : cutoff === null || !Number.isFinite(timestamp) || timestamp >= cutoff)
+        && (scope.fromDate ? date !== null && date >= scope.fromDate : rangeStart === null || date === null || date >= rangeStart)
         && (!scope.toDate || (date !== null && date <= scope.toDate))
         && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
     })

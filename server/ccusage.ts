@@ -46,10 +46,10 @@ export function findUnpricedModels(unified: UnifiedReport) {
   return [...unpriced].sort();
 }
 
-export async function collectCcusage() {
+export async function collectCcusage(timeZone: string) {
   const [unified, blocks, version] = await Promise.all([
-    invoke(["daily", "--sections", "daily,weekly,monthly,session", "--by-agent", "--timezone", "UTC", "--json"]).then((value) => unifiedReportSchema.parse(value)),
-    invoke(["blocks", "--recent", "--json"]).then((value) => blocksReportSchema.parse(value)),
+    invoke(["daily", "--sections", "daily,weekly,monthly,session", "--by-agent", "--timezone", timeZone, "--json"]).then((value) => unifiedReportSchema.parse(value)),
+    invoke(["blocks", "--recent", "--timezone", timeZone, "--json"]).then((value) => blocksReportSchema.parse(value)),
     ccusageVersion(),
   ]);
   return { unified, blocks, version, unpricedModels: findUnpricedModels(unified) };

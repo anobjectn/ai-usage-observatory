@@ -172,7 +172,7 @@ async function api(request: Request, url: URL) {
   if (path === "/api/settings" && request.method === "PUT") { setSettings(await body(request) as Record<string, string>); return json(getSettings()); }
 
   const snapshot = await getSnapshot();
-  if (request.method === "GET" && path === "/api/overview") return json({ totals: snapshot.totals, blocks: snapshot.blocks, quotas: snapshot.quotas, sources: snapshot.sources, collectedAt: snapshot.collectedAt });
+  if (request.method === "GET" && path === "/api/overview") return json({ totals: snapshot.totals, blocks: snapshot.blocks, quotas: snapshot.quotas, sources: snapshot.sources, collectedAt: snapshot.collectedAt, timeZone: snapshot.timeZone });
   if (request.method === "GET" && path === "/api/usage") return json({ daily: snapshot.daily, weekly: snapshot.weekly, monthly: snapshot.monthly });
   if (request.method === "GET" && path === "/api/sessions") {
     const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));

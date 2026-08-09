@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildEffortDaySeries, capEffortLevels, foldEffort, normalizeEffort, sortEffortBuckets, utcDate } from "../src/effort-model";
+import { buildEffortDaySeries, capEffortLevels, foldEffort, normalizeEffort, sortEffortBuckets } from "../src/effort-model";
+import { dateKeyInTimeZone, hourInTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
 import {
   SENSITIVE_SENTINEL,
@@ -20,7 +21,7 @@ import {
   type EffortAccumulator,
 } from "./effort-parse";
 
-const day = utcDate("2026-07-01T15:00:00.000Z")!;
+const day = dateKeyInTimeZone("2026-07-01T15:00:00.000Z")!;
 
 function run(lines: string[], agent: Agent, prefilter = true) {
   const accumulator = createAccumulator();
@@ -32,15 +33,18 @@ function run(lines: string[], agent: Agent, prefilter = true) {
 const rowFor = (accumulator: EffortAccumulator, effort: string) =>
   [...accumulator.rows.values()].filter((row) => row.effort === effort);
 
-describe("shared UTC-date helper", () => {
-  test("uses the UTC calendar day regardless of timestamp offset", () => {
-    expect(utcDate("2026-07-01T23:30:00.000-04:00")).toBe("2026-07-02");
-    expect(utcDate("2026-07-02T00:30:00.000+09:00")).toBe("2026-07-01");
+describe("shared reporting-time helpers", () => {
+  test("uses the selected IANA timezone for calendar and hour boundaries", () => {
+    const instant = "2026-07-02T03:30:00.000Z";
+    expect(dateKeyInTimeZone(instant, "America/New_York")).toBe("2026-07-01");
+    expect(hourInTimeZone(instant, "America/New_York")).toBe(23);
+    expect(dateKeyInTimeZone(instant, "Asia/Tokyo")).toBe("2026-07-02");
+    expect(hourInTimeZone(instant, "Asia/Tokyo")).toBe(12);
   });
 
   test("rejects unusable timestamps rather than guessing a day", () => {
-    expect(utcDate(undefined)).toBeNull();
-    expect(utcDate("not-a-date")).toBeNull();
+    expect(dateKeyInTimeZone(undefined)).toBeNull();
+    expect(dateKeyInTimeZone("not-a-date")).toBeNull();
   });
 });
 

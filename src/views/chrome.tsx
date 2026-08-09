@@ -420,7 +420,7 @@ export function InformationSources({ data }: { data: DashboardData }) {
           </a>
           <span>
             v{data.ccusageVersion} by ryoppippi · MIT · local usage analytics
-            and published-rate price estimates
+            and published-rate price estimates · {data.timeZone} calendar
           </span>
         </li>
         <li>

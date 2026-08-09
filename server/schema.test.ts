@@ -147,7 +147,7 @@ describe("cross-agent project activity", () => {
           },
         ],
       },
-    ]);
+    ], "UTC");
     expect(activity).toHaveLength(2);
     expect(
       activity.find((item) => item.provider === "codex")?.projectName,
@@ -195,7 +195,7 @@ describe("cross-agent project activity", () => {
           },
         ],
       },
-    ]);
+    ], "UTC");
     expect(projects).toHaveLength(1);
     expect(projects[0]).toMatchObject({
       name: "/work/observatory",

@@ -1,11 +1,12 @@
 import type { DashboardData, EffortAggregate, EffortGroup, EffortIndexStatus, EffortSessionDigest, EffortSummary, MetricRow, Session } from "../src/types";
-import { foldEffort, sortEffortBuckets, utcDate } from "../src/effort-model";
+import { foldEffort, sortEffortBuckets } from "../src/effort-model";
+import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
 import { PARSER_VERSION } from "./effort-parse";
 import { effortProgress, isEffortIndexing } from "./effort-index";
 import { familyOf } from "../src/model-family";
 import { outlierFlags } from "./insights";
-import { validDateKey } from "../src/time-range";
+import { shiftDateKey, validDateKey } from "../src/time-range";
 import {
   getEffortCounters,
   getEffortMeta,
@@ -81,19 +82,24 @@ export function resolveEffortFacet(effort: string | null | undefined) {
     : "all";
 }
 
-function sessionDate(session: Session) {
-  return utcDate(session.metadata?.lastActivity)
+function snapshotTimeZone(snapshot: DashboardData) {
+  return snapshot.timeZone || systemTimeZone();
+}
+
+function sessionDate(session: Session, timeZone: string) {
+  return dateKeyInTimeZone(session.metadata?.lastActivity, timeZone)
     ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-")
     ?? null;
 }
 
-function rangeStart(rangeDays: number | null) {
+function rangeStart(rangeDays: number | null, timeZone: string) {
   if (rangeDays === null) return null;
-  return utcDate(new Date(Date.now() - (rangeDays - 1) * 86_400_000).toISOString());
+  const today = dateKeyInTimeZone(new Date(), timeZone);
+  return today ? shiftDateKey(today, -(rangeDays - 1)) : null;
 }
 
-function scopeStart(scope: EffortScope) {
-  return scope.fromDate ?? rangeStart(scope.rangeDays);
+function scopeStart(scope: EffortScope, timeZone: string) {
+  return scope.fromDate ?? rangeStart(scope.rangeDays, timeZone);
 }
 
 function sessionTokens(session: Session) {
@@ -117,18 +123,19 @@ export function matchesAgentScope(session: Session, scope: EffortScope) {
 /** Session selection is identical for both bases; only whether the day filter reaches the derived
  * rows differs. See `effortQuery`. */
 export function scopedSessions(snapshot: DashboardData, scope: EffortScope) {
-  const from = scopeStart(scope);
+  const timeZone = snapshotTimeZone(snapshot);
+  const from = scopeStart(scope, timeZone);
   const base = snapshot.sessions.filter((session) => {
     if (!matchesAgentScope(session, scope)) return false;
     if (scope.pathTag !== "all" && !session.pathTags.includes(scope.pathTag)) return false;
     if (scope.project && (session.cwd ?? "").replace(/\/+$/, "") !== scope.project) return false;
     if (scope.model && !session.modelBreakdowns.some((model) => model.modelName === scope.model)) return false;
     if (from) {
-      const date = sessionDate(session);
+      const date = sessionDate(session, timeZone);
       if (!date || date < from) return false;
     }
     if (scope.toDate) {
-      const date = sessionDate(session);
+      const date = sessionDate(session, timeZone);
       if (!date || date > scope.toDate) return false;
     }
     return true;
@@ -158,12 +165,12 @@ function agentsFor(scope: EffortScope): Array<"claude" | "codex"> | null {
   return scope.providers.map((provider) => (provider === "anthropic" ? "claude" : "codex"));
 }
 
-function effortQuery(group: EffortGroup, scope: EffortScope, sessionIds: string[]): EffortQuery {
+function effortQuery(group: EffortGroup, scope: EffortScope, sessionIds: string[], timeZone: string): EffortQuery {
   return {
     group,
     sessionIds,
     // The timeline basis restricts calendar activity; the sessions basis takes whole sessions.
-    fromDate: scope.basis === "timeline" ? scopeStart(scope) : null,
+    fromDate: scope.basis === "timeline" ? scopeStart(scope, timeZone) : null,
     toDate: scope.basis === "timeline" ? scope.toDate : null,
     agents: agentsFor(scope),
     project: scope.project,
@@ -176,7 +183,8 @@ function modelTokens(model: Session["modelBreakdowns"][number]) {
 }
 
 function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions: Session[]) {
-  const from = scopeStart(scope);
+  const timeZone = snapshotTimeZone(snapshot);
+  const from = scopeStart(scope, timeZone);
   const to = scope.toDate;
   const totals = new Map<string, number>();
   // Neither authoritative source is broken down by model family, so a family-scoped request falls
@@ -216,7 +224,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
   // Path- and project-scoped days fall back to session allocation, which is what the existing
   // path-filtered views already do.
   for (const session of sessions) {
-    const date = sessionDate(session);
+    const date = sessionDate(session, timeZone);
     if (!date || (from && date < from) || (to && date > to)) continue;
     totals.set(date, (totals.get(date) ?? 0) + sessionTokens(session));
   }
@@ -322,11 +330,12 @@ export function buildEffortAggregate(snapshot: DashboardData, scope: EffortScope
   }
 
   const sessionIds = sessions.map((session) => session.sessionId);
-  const rows = foldGroupedRows(queryEffortGrouped(effortQuery(group, scope, sessionIds)), (key) => eligible.get(key) ?? 0, quality)
+  const timeZone = snapshotTimeZone(snapshot);
+  const rows = foldGroupedRows(queryEffortGrouped(effortQuery(group, scope, sessionIds, timeZone)), (key) => eligible.get(key) ?? 0, quality)
     .map((row) => ({ ...row, label: labelFor(group, row.key) }))
     .sort((a, b) => (group === "day" ? a.key.localeCompare(b.key) : b.summary.attributedTokens - a.summary.attributedTokens || a.key.localeCompare(b.key)));
 
-  const totalRows = group === "total" ? rows : foldGroupedRows(queryEffortGrouped(effortQuery("total", scope, sessionIds)), () => totalEligible, quality).map((row) => ({ ...row, label: "All activity" }));
+  const totalRows = group === "total" ? rows : foldGroupedRows(queryEffortGrouped(effortQuery("total", scope, sessionIds, timeZone)), () => totalEligible, quality).map((row) => ({ ...row, label: "All activity" }));
   return {
     group,
     rows,
@@ -346,7 +355,7 @@ export function buildEffortSessionDigest(snapshot: DashboardData, scope: EffortS
 
   const bySession = new Map<string, EffortGroupedRow[]>();
   if (analysisAvailable(status)) {
-    for (const row of queryEffortBySession(effortQuery("total", scope, sessions.map((session) => session.sessionId)))) {
+    for (const row of queryEffortBySession(effortQuery("total", scope, sessions.map((session) => session.sessionId), snapshotTimeZone(snapshot)))) {
       bySession.set(row.key, [...(bySession.get(row.key) ?? []), row]);
     }
   }

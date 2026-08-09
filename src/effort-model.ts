@@ -161,12 +161,3 @@ export function buildEffortDaySeries(
 
 export const emptyEffortSummary = (quality: EffortSummary["quality"] = "ok"): EffortSummary =>
   foldEffort([], { eligibleTokens: 0, unknownObservations: 0, quality });
-
-/** The one UTC-date helper. Every transcript timestamp and every ccusage activity timestamp
- * must convert through this, or a day bucket in one view will not line up with another. */
-export function utcDate(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
-}

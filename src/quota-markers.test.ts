@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { dailyQuotaMarkers, hourlyQuotaMarkers } from "./quota-markers";
 import type { QuotaHistory } from "./types";
 
-const quotaAt = new Date(2026, 6, 18, 10, 15).getTime();
-const resetAt = new Date(2026, 6, 18, 16, 40).getTime();
+const timeZone = "America/New_York";
+const quotaAt = Date.parse("2026-07-18T14:15:00.000Z");
+const resetAt = Date.parse("2026-07-18T20:40:00.000Z");
 const history: QuotaHistory = {
   available: true,
   trackingSince: quotaAt,
@@ -15,13 +16,13 @@ const history: QuotaHistory = {
 };
 
 test("daily markers combine quota and reset events that share a day", () => {
-  expect(dailyQuotaMarkers(history, ["2026-07-18"])).toEqual([
+  expect(dailyQuotaMarkers(history, ["2026-07-18"], null, timeZone)).toEqual([
     { key: "2026-07-18:codex:mixed", x: "2026-07-18", kind: "mixed", provider: "codex", label: "Codex 5h quota reached · Codex reset applied" },
   ]);
 });
 
 test("hourly markers preserve separate event hours and ignore weekly limits", () => {
-  expect(hourlyQuotaMarkers(history, "2026-07-18")).toEqual([
+  expect(hourlyQuotaMarkers(history, "2026-07-18", null, timeZone)).toEqual([
     { key: "10:codex:quota", x: "10", kind: "quota", provider: "codex", label: "Codex 5h quota reached" },
     { key: "16:codex:reset", x: "16", kind: "reset", provider: "codex", label: "Codex reset applied" },
   ]);
@@ -36,8 +37,8 @@ test("agent filtering only returns events for the selected provider", () => {
     ],
   };
 
-  expect(dailyQuotaMarkers(mixedHistory, ["2026-07-18"], "anthropic")).toEqual([
+  expect(dailyQuotaMarkers(mixedHistory, ["2026-07-18"], "anthropic", timeZone)).toEqual([
     { key: "2026-07-18:anthropic:quota", x: "2026-07-18", kind: "quota", provider: "anthropic", label: "Claude 5h quota reached" },
   ]);
-  expect(dailyQuotaMarkers(mixedHistory, ["2026-07-18"], "warp")).toEqual([]);
+  expect(dailyQuotaMarkers(mixedHistory, ["2026-07-18"], "warp", timeZone)).toEqual([]);
 });

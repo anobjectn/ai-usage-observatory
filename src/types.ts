@@ -218,6 +218,8 @@ export type QuotaHistory = {
 };
 export type DashboardData = {
   collectedAt: string;
+  /** IANA timezone used by ccusage and every AIUO calendar boundary in this snapshot. */
+  timeZone: string;
   ccusageVersion: string;
   costMethodology: string;
   blockScope: string;

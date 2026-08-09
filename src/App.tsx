@@ -14,9 +14,9 @@ import {
   buildEffortDaySeries,
   compareEffort,
   effortRank,
-  utcDate,
   type EffortDayPoint,
 } from "./effort-model";
+import { dateKeyInTimeZone, hourInTimeZone, systemTimeZone } from "./reporting-time";
 import {
   EffortBadge,
   EffortCoverage,
@@ -493,12 +493,13 @@ const formatCompact = (value: number) =>
   }).format(value);
 const formatMoney = (value: number) =>
   `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const formatDate = (value: string) =>
+const formatDate = (value: string, timeZone?: string) =>
   new Date(value).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    ...(timeZone ? { timeZone, timeZoneName: "short" as const } : {}),
   });
 const formatPromptTimestamp = (value: string | null) =>
   value
@@ -1120,14 +1121,9 @@ function ProviderChartTooltip({
   );
 }
 
-function sessionDate(session: Session) {
-  const lastActivity = session.metadata?.lastActivity;
-  if (typeof lastActivity === "string") {
-    const date = new Date(lastActivity);
-    if (Number.isFinite(date.getTime())) {
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    }
-  }
+function sessionDate(session: Session, timeZone = systemTimeZone()) {
+  const activityDate = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone);
+  if (activityDate) return activityDate;
   const match = session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 }
@@ -1156,13 +1152,14 @@ function withoutCacheProjectTrend(row: ProjectTrendRow): ProjectTrendRow {
 function withoutCacheProjectActivity(
   activity: ProjectActivity[],
   sessions: Session[],
+  timeZone: string,
 ) {
   const totals = new Map<
     string,
     { tokens: number; models: Map<string, { tokens: number; cost: number }> }
   >();
   sessions.forEach((session) => {
-    const date = sessionDate(session);
+    const date = sessionDate(session, timeZone);
     const provider = providerKey(session.agent);
     const projectId = session.cwd?.replace(/\/+$/, "");
     if (
@@ -1221,7 +1218,7 @@ export function withoutCacheDashboardData(data: DashboardData): DashboardData {
       totalTokens: data.totals.inputTokens + data.totals.outputTokens,
     },
     sessions,
-    projectActivity: withoutCacheProjectActivity(data.projectActivity, sessions),
+    projectActivity: withoutCacheProjectActivity(data.projectActivity, sessions, data.timeZone),
     projects,
     models: data.models.map((model) => ({
       ...model,
@@ -1362,10 +1359,10 @@ function combineMetricRows(
   };
 }
 
-export function pathFilteredRows(sessions: Session[], periods: Set<string>) {
+export function pathFilteredRows(sessions: Session[], periods: Set<string>, timeZone = systemTimeZone()) {
   const sessionsByPeriod = new Map<string, Session[]>();
   sessions.forEach((session) => {
-    const date = sessionDate(session);
+    const date = sessionDate(session, timeZone);
     if (date === null || !periods.has(date)) return;
     sessionsByPeriod.set(date, [
       ...(sessionsByPeriod.get(date) ?? []),
@@ -1473,12 +1470,14 @@ function ProviderTimeline({
   projectActivity,
   activeProvider,
   quotaHistory,
+  timeZone,
   emptyText,
 }: {
   rows: MetricRow[];
   projectActivity: ProjectActivity[];
   activeProvider: (typeof providerSeries)[number]["key"] | null;
   quotaHistory: DashboardData["quotas"]["history"];
+  timeZone: string;
   emptyText: string;
 }) {
   const projectsByDay = new Map<string, Record<string, ProjectActivity[]>>();
@@ -1568,6 +1567,7 @@ function ProviderTimeline({
     quotaHistory,
     rows.map((row) => row.period),
     activeProvider,
+    timeZone,
   );
   if (visibleProviders.length === 0) return <Empty text={emptyText} />;
   return (
@@ -1695,6 +1695,7 @@ export function periodTickLabel(value: string) {
 function hourTickLabel(value: string) {
   return new Date(Date.UTC(2000, 0, 1, Number(value))).toLocaleTimeString(undefined, {
     hour: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -1702,12 +1703,14 @@ function HourlyProviderTimeline({
   date,
   sessions,
   quotaHistory,
+  timeZone,
   activeProvider,
   emptyText,
 }: {
   date: string;
   sessions: Session[];
   quotaHistory: DashboardData["quotas"]["history"];
+  timeZone: string;
   activeProvider: (typeof providerSeries)[number]["key"] | null;
   emptyText: string;
 }) {
@@ -1754,15 +1757,16 @@ function HourlyProviderTimeline({
     hour: String(hour),
     label: new Date(Date.UTC(2000, 0, 1, hour)).toLocaleTimeString(undefined, {
       hour: "numeric",
+      timeZone: "UTC",
     }),
   }));
   sessions.forEach((session) => {
     const activity = session.metadata?.lastActivity;
-    if (typeof activity !== "string" || utcDate(activity) !== date) return;
-    const timestamp = new Date(activity);
+    if (typeof activity !== "string" || dateKeyInTimeZone(activity, timeZone) !== date) return;
+    const hour = hourInTimeZone(activity, timeZone);
     const provider = providerKey(session.agent);
-    if (!provider) return;
-    const bucket = data[timestamp.getUTCHours()];
+    if (!provider || hour === null) return;
+    const bucket = data[hour];
     bucket[provider] += session.totalTokens;
     bucket.costs[provider] += session.totalCost;
     session.modelBreakdowns.forEach((model) => {
@@ -1840,7 +1844,7 @@ function HourlyProviderTimeline({
   }));
   const visibleProviders = totals.filter((provider) => provider.value > 0);
   const visibleStackedProviders = [...visibleProviders].reverse();
-  const quotaMarkers = hourlyQuotaMarkers(quotaHistory, date, activeProvider);
+  const quotaMarkers = hourlyQuotaMarkers(quotaHistory, date, activeProvider, timeZone);
   if (visibleProviders.length === 0) return <Empty text={emptyText} />;
   return (
     <>
@@ -2662,6 +2666,7 @@ function Overview({
               date={daily[0].period}
               sessions={sessions}
               quotaHistory={data.quotas.history}
+              timeZone={data.timeZone}
               activeProvider={selectionProvider(agent)}
               emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
             />
@@ -2671,6 +2676,7 @@ function Overview({
               projectActivity={data.projectActivity}
               activeProvider={selectionProvider(agent)}
               quotaHistory={data.quotas.history}
+              timeZone={data.timeZone}
               emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
             />
           )}
@@ -2922,11 +2928,13 @@ function EffortByDay({
   scope,
   providerLabel,
   rows,
+  timeZone,
   emptyText,
 }: {
   scope: EffortScopeInput;
   providerLabel: string;
   rows: MetricRow[];
+  timeZone: string;
   emptyText: string;
 }) {
   const [basis, setBasis] = useState<"tokens" | "observations">("tokens");
@@ -2950,7 +2958,7 @@ function EffortByDay({
       { providers: Map<string, number>; models: Map<string, number> }
     >();
     rows.forEach((row) => {
-      const date = utcDate(row.metadata?.lastActivity) ?? row.period;
+      const date = dateKeyInTimeZone(row.metadata?.lastActivity, timeZone) ?? row.period;
       const totals = totalsByDay.get(date) ?? {
         providers: new Map<string, number>(),
         models: new Map<string, number>(),
@@ -3000,7 +3008,7 @@ function EffortByDay({
         ];
       }),
     );
-  }, [rows]);
+  }, [rows, timeZone]);
   const showFilterEmpty =
     rows.length === 0 &&
     Boolean(aggregate?.status.enabled) &&
@@ -3276,6 +3284,7 @@ function Explorer({
             date={rows[0].period}
             sessions={sessions}
             quotaHistory={data.quotas.history}
+            timeZone={data.timeZone}
             activeProvider={selectionProvider(agent)}
             emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
           />
@@ -3285,6 +3294,7 @@ function Explorer({
             projectActivity={projectActivity}
             activeProvider={selectionProvider(agent)}
             quotaHistory={data.quotas.history}
+            timeZone={data.timeZone}
             emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
           />
         )}
@@ -3292,6 +3302,7 @@ function Explorer({
       <EffortByDay
         scope={globalEffortScope(agent, dateRange, pathTag)}
         rows={rows}
+        timeZone={data.timeZone}
         emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
         providerLabel={
           selectionProvider(agent) === "anthropic"
@@ -4992,6 +5003,7 @@ function ProjectDetails({
   sessions,
   daily,
   quotaHistory,
+  timeZone,
   effortScope,
   rangeEmptyText,
   onOpenSession,
@@ -5001,6 +5013,7 @@ function ProjectDetails({
   sessions: Session[];
   daily: MetricRow[];
   quotaHistory: DashboardData["quotas"]["history"];
+  timeZone: string;
   effortScope: EffortScopeInput;
   rangeEmptyText: string;
   onOpenSession: (sessionId: string) => void;
@@ -5066,6 +5079,8 @@ function ProjectDetails({
   const quotaMarkers = dailyQuotaMarkers(
     quotaHistory,
     chartDays.map((day) => day.date),
+    null,
+    timeZone,
   );
   const projectProviderSeries = providerSeries
     .map((provider) => ({
@@ -5370,6 +5385,7 @@ function ProjectDetails({
           project: project.name,
         }}
         rows={sessions}
+        timeZone={timeZone}
         emptyText={rangeEmptyText}
         providerLabel="All providers"
       />
@@ -5678,6 +5694,7 @@ function Projects({
                         project.name,
                     )}
                     quotaHistory={data.quotas.history}
+                    timeZone={data.timeZone}
                     effortScope={effortScope}
                     rangeEmptyText={filterEmptyMessage([], metricRange, "all", customRange)}
                     onOpenSession={onOpenSession}
@@ -6399,7 +6416,7 @@ function Sources({
             <span className="overline">DATA SOURCE HEALTH</span>
             <h2>Collection boundaries</h2>
           </div>
-          <span>Updated {formatDate(data.collectedAt)}</span>
+          <span>Updated {formatDate(data.collectedAt, data.timeZone)} · {data.timeZone} calendar</span>
         </div>
         <div className="source-list">
           {data.sources.map((source) => (
@@ -7674,20 +7691,20 @@ export function App() {
       return rangeRows
         .map((row) => selectAgentRow(row, agent))
         .filter(Boolean) as MetricRow[];
-    return pathFilteredRows(sessions, new Set(rangeRows.map((row) => row.period)));
+    return pathFilteredRows(sessions, new Set(rangeRows.map((row) => row.period)), data.timeZone);
   }, [data, agent, pathTag, rangeRows, sessions]);
   const rangeSessions = useMemo(() => {
     if (!data) return [];
     const periods = new Set(rangeRows.map((row) => row.period));
     return data.sessions.filter((session) => {
-      const date = sessionDate(session);
+      const date = sessionDate(session, data.timeZone);
       return date !== null && periods.has(date);
     });
   }, [data, rangeRows]);
   const datedSessions = useMemo(() => {
     const periods = new Set(rangeRows.map((row) => row.period));
     return sessions.filter((session) => {
-      const date = sessionDate(session);
+      const date = sessionDate(session, data?.timeZone ?? systemTimeZone());
       return date !== null && periods.has(date);
     });
   }, [rangeRows, sessions]);
