@@ -68,7 +68,7 @@ application; release changelogs preserve version-specific captures.
       <a href="docs/screenshots/2.explorer.png">
         <img src="docs/screenshots/2.explorer.png" width="100%" alt="Usage Explorer with provider activity and model distribution">
       </a>
-      <sub>Explorer — activity over time and model distribution</sub>
+      <sub>Explorer — activity over time and model distribution; quota/reset info from <a href="https://github.com/anobjectn/quota-service">quota-service</a></sub>
     </td>
     <td width="50%">
       <a href="docs/screenshots/3.sessions.png">
