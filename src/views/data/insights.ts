@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { DateRange } from "../../time-range";
 
 export type Provider = "anthropic" | "codex";
 export type ProfileCard = {
@@ -63,7 +64,7 @@ export const shortDate = (value: string | null) =>
 export const sessionHref = (sessionId: string) => `?view=sessions&session=${encodeURIComponent(sessionId)}`;
 
 export function useInsights(
-  scope: { days: string; providers: string[]; modelFamilies: string[]; pathTag: string; showCache: boolean; collectedAt: string },
+  scope: { days: string; dateRange: DateRange | null; providers: string[]; modelFamilies: string[]; pathTag: string; showCache: boolean; collectedAt: string },
   facets: DataFacets,
 ) {
   const [insights, setInsights] = useState<Insights | null>(null);
@@ -71,7 +72,7 @@ export function useInsights(
   const providerKey = scope.providers.join(",");
   const familyKey = scope.modelFamilies.join(",");
   const query = useMemo(() => {
-    return new URLSearchParams({
+    const params = new URLSearchParams({
       range: scope.days,
       providers: providerKey,
       modelFamilies: familyKey,
@@ -80,8 +81,13 @@ export function useInsights(
       outliers: facets.outliers,
       finding: facets.finding,
       effort: facets.effort,
-    }).toString();
-  }, [scope.days, providerKey, familyKey, scope.pathTag, scope.showCache, facets.outliers, facets.finding, facets.effort]);
+    });
+    if (scope.dateRange) {
+      params.set("from", scope.dateRange.from);
+      params.set("to", scope.dateRange.to);
+    }
+    return params.toString();
+  }, [scope.days, scope.dateRange, providerKey, familyKey, scope.pathTag, scope.showCache, facets.outliers, facets.finding, facets.effort]);
 
   useEffect(() => {
     let active = true;

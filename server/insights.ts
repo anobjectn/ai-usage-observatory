@@ -1,6 +1,7 @@
 import type { DashboardData, Session } from "../src/types";
 import { providerFromAgent } from "../src/provider";
 import { familyOf } from "../src/model-family";
+import { validDateKey } from "../src/time-range";
 import {
   buildEffortSessionDigest,
   resolveEffortFacet,
@@ -11,6 +12,8 @@ import {
 
 export type AnalysisScope = {
   rangeDays: number | null;
+  fromDate: string | null;
+  toDate: string | null;
   /** Selected providers, unioned with `modelFamilies`. Empty means every provider. */
   providers: Provider[];
   /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
@@ -131,10 +134,18 @@ export function outlierFlags<T extends OutlierRowInput>(rows: T[]) {
 export function resolveScope(input: URLSearchParams): AnalysisScope {
   const requestedRange = input.get("range");
   const range = Number(requestedRange ?? 30);
+  const requestedFrom = input.get("from");
+  const requestedTo = input.get("to");
+  const validBounds =
+    (!requestedFrom || validDateKey(requestedFrom)) &&
+    (!requestedTo || validDateKey(requestedTo)) &&
+    (!requestedFrom || !requestedTo || requestedFrom <= requestedTo);
   const requestedOutliers = input.get("outliers");
   const requestedFinding = input.get("finding");
   return {
     rangeDays: requestedRange === "all" ? null : Math.max(1, Math.min(120, Number.isFinite(range) ? Math.floor(range) : 30)),
+    fromDate: validBounds && requestedFrom ? requestedFrom : null,
+    toDate: validBounds && requestedTo ? requestedTo : null,
     providers: resolveProviders(input.get("providers")),
     modelFamilies: resolveModelFamilies(input.get("modelFamilies")),
     pathTag: input.get("pathTag") || "all",
@@ -173,6 +184,13 @@ function allowance(data: DashboardData, providerId: Provider, sessionCount: numb
 export function contextEstimate(row: { cacheReadTokens: number; cacheCreationTokens: number }) {
   if (row.cacheCreationTokens <= 0) return { turns: null, contextWritten: null };
   return { turns: Math.round((2 * row.cacheReadTokens) / row.cacheCreationTokens), contextWritten: row.cacheCreationTokens };
+}
+
+function insightDate(row: Session) {
+  const activity = String(row.metadata?.lastActivity ?? "").slice(0, 10);
+  if (validDateKey(activity)) return activity;
+  const period = row.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-");
+  return validDateKey(period) ? period : null;
 }
 
 function summarizeGroup(rows: InsightSession[]) {
@@ -339,10 +357,12 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
     .filter((row) => {
       const itemProvider = provider(row.agent);
       const timestamp = Date.parse(String(row.metadata?.lastActivity ?? ""));
+      const date = insightDate(row);
       return itemProvider
         && (effortSessions === null || effortSessions.has(row.sessionId))
         && matchesAgentScope(row, itemProvider, scope)
-        && (cutoff === null || !Number.isFinite(timestamp) || timestamp >= cutoff)
+        && (scope.fromDate ? date !== null && date >= scope.fromDate : cutoff === null || !Number.isFinite(timestamp) || timestamp >= cutoff)
+        && (!scope.toDate || (date !== null && date <= scope.toDate))
         && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
     })
     .map((row) => {
@@ -420,6 +440,8 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   const effortLevels = buildEffortSessionDigest(data, {
     basis: "sessions",
     rangeDays: scope.rangeDays,
+    fromDate: scope.fromDate,
+    toDate: scope.toDate,
     providers: scope.providers,
     modelFamilies: scope.modelFamilies,
     pathTag: scope.pathTag,

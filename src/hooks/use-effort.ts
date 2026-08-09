@@ -4,6 +4,8 @@ import type { EffortAggregate, EffortGroup, EffortIndexStatus, EffortSessionDige
 export type EffortScopeInput = {
   basis?: "timeline" | "sessions";
   rangeDays?: number | null;
+  fromDate?: string | null;
+  toDate?: string | null;
   /** Unioned with `modelFamilies`; empty means every provider. */
   providers?: string[];
   /** Unioned with `providers`; empty means every model. */
@@ -19,6 +21,8 @@ export function effortScopeParams(scope: EffortScopeInput) {
   const params = new URLSearchParams();
   if (scope.basis) params.set("basis", scope.basis);
   if (scope.rangeDays) params.set("rangeDays", String(scope.rangeDays));
+  if (scope.fromDate) params.set("from", scope.fromDate);
+  if (scope.toDate) params.set("to", scope.toDate);
   if (scope.providers?.length) params.set("providers", scope.providers.join(","));
   if (scope.modelFamilies?.length) params.set("modelFamilies", scope.modelFamilies.join(","));
   if (scope.pathTag && scope.pathTag !== "all") params.set("pathTag", scope.pathTag);

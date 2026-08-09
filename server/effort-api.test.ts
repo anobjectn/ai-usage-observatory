@@ -75,6 +75,17 @@ describe("scope validation", () => {
     expect(api.resolveEffortScope(params("effort=unknown")).effort).toBe("unknown");
   });
 
+  test("accepts valid inclusive bounds and drops an invalid pair", () => {
+    expect(api.resolveEffortScope(params("from=2026-07-01&to=2026-07-10"))).toMatchObject({
+      fromDate: "2026-07-01",
+      toDate: "2026-07-10",
+    });
+    expect(api.resolveEffortScope(params("from=2026-07-10&to=2026-07-01"))).toMatchObject({
+      fromDate: null,
+      toDate: null,
+    });
+  });
+
   test("a path-tag scope cannot alter SQL", () => {
     const snapshot = snapshotOf([session({ sessionId: "s1", pathTags: ["a'); DROP TABLE session_effort_usage;--"] })]);
     seed("s1", "claude", "/fixture/alpha", [{ day: today, model: "claude-opus-5", effort: "high", observations: 1, tokens: 400 }]);
@@ -197,6 +208,23 @@ describe("timeline and session bases", () => {
     const summary = api.buildEffortAggregate(build(), api.resolveEffortScope(params("basis=sessions&rangeDays=7")), "total").total;
     expect(summary.attributedTokens).toBe(800);
     expect(summary.levels.map((level) => level.effort)).toEqual(["low", "high"]);
+  });
+
+  test("timeline applies both custom endpoints inclusively", () => {
+    const snapshot = snapshotOf([
+      session({ sessionId: "s1", metadata: { lastActivity: `${yesterday}T12:00:00.000Z` } }),
+    ]);
+    seed("s1", "claude", "/fixture/alpha", [
+      { day: old, model: "claude-opus-5", effort: "low", observations: 1, tokens: 200 },
+      { day: yesterday, model: "claude-opus-5", effort: "high", observations: 1, tokens: 400 },
+      { day: today, model: "claude-opus-5", effort: "xhigh", observations: 1, tokens: 600 },
+    ]);
+    const summary = api.buildEffortAggregate(
+      snapshot,
+      api.resolveEffortScope(params(`basis=timeline&from=${yesterday}&to=${yesterday}`)),
+      "total",
+    ).total;
+    expect(summary.attributedTokens).toBe(400);
   });
 
   test("day rows are ordered and use the daily denominators", () => {
@@ -334,7 +362,7 @@ describe("caching", () => {
   });
 
   test("scope keys never leak raw JSON into the header input", () => {
-    expect(api.scopeKey(api.resolveEffortScope(params("basis=sessions&rangeDays=30&providers=codex")))).toBe("sessions|30|codex||all|||all|all");
+    expect(api.scopeKey(api.resolveEffortScope(params("basis=sessions&rangeDays=30&providers=codex")))).toBe("sessions|30|||codex||all|||all|all");
   });
 
   test("memoization is bounded and reuses bodies", () => {

@@ -5,7 +5,7 @@ import { summarizeQuotaHistory } from "./quota";
 
 describe("insights scope", () => {
   test("clamps the analysis window and keeps unsupported filters harmless", () => {
-    expect(resolveScope(new URLSearchParams("range=500&providers=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all" });
+    expect(resolveScope(new URLSearchParams("range=500&providers=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, fromDate: null, toDate: null, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all" });
   });
   test("accepts all time as an unbounded analysis window", () => {
     expect(resolveScope(new URLSearchParams("range=all"))).toMatchObject({ rangeDays: null });
@@ -13,6 +13,10 @@ describe("insights scope", () => {
   test("accepts both Agent-filter grains and the finding facet", () => {
     expect(resolveScope(new URLSearchParams("providers=anthropic&modelFamilies=claude-opus-5,gpt-5.6-sol&finding=missed-clear")))
       .toMatchObject({ providers: ["anthropic"], modelFamilies: ["claude-opus-5", "gpt-5.6-sol"], finding: "missed-clear" });
+  });
+  test("accepts exact custom bounds", () => {
+    expect(resolveScope(new URLSearchParams("range=custom&from=2026-07-01&to=2026-07-10")))
+      .toMatchObject({ fromDate: "2026-07-01", toDate: "2026-07-10" });
   });
 });
 
@@ -58,6 +62,19 @@ describe("allowance profiles", () => {
       recent.profiles.map((profile) => profile.components.find((component) => component.id === "headroom")?.evidence.sessions),
     ).toEqual([1, 1]);
     expect(recent.volume.providers.map((entry) => entry.provider)).toEqual(["anthropic"]);
+  });
+});
+
+describe("custom date scope", () => {
+  test("includes both endpoints and excludes sessions outside them", () => {
+    const first = { ...session("first", "claude", "claude-opus-5", {}), metadata: { lastActivity: "2026-07-01T12:00:00.000Z" } };
+    const last = { ...session("last", "claude", "claude-opus-5", {}), metadata: { lastActivity: "2026-07-10T12:00:00.000Z" } };
+    const outside = { ...session("outside", "claude", "claude-opus-5", {}), metadata: { lastActivity: "2026-07-11T12:00:00.000Z" } };
+    const insights = buildInsights(
+      dashboard([first, last, outside]),
+      resolveScope(new URLSearchParams("range=custom&from=2026-07-01&to=2026-07-10")),
+    );
+    expect(insights.facets.sessionsInScope).toBe(2);
   });
 });
 

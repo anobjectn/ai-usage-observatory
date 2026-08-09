@@ -5,6 +5,7 @@ import { PARSER_VERSION } from "./effort-parse";
 import { effortProgress, isEffortIndexing } from "./effort-index";
 import { familyOf } from "../src/model-family";
 import { outlierFlags } from "./insights";
+import { validDateKey } from "../src/time-range";
 import {
   getEffortCounters,
   getEffortMeta,
@@ -17,6 +18,8 @@ import {
 export type EffortScope = {
   basis: "timeline" | "sessions";
   rangeDays: number | null;
+  fromDate: string | null;
+  toDate: string | null;
   /** Selected providers, unioned with `modelFamilies`. Empty means every provider. */
   providers: Array<"anthropic" | "codex">;
   /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
@@ -48,11 +51,19 @@ export function resolveModelFamilies(value: string | null): string[] {
 
 export function resolveEffortScope(params: URLSearchParams): EffortScope {
   const rangeDays = Number(params.get("rangeDays"));
+  const requestedFrom = params.get("from");
+  const requestedTo = params.get("to");
+  const validBounds =
+    (!requestedFrom || validDateKey(requestedFrom)) &&
+    (!requestedTo || validDateKey(requestedTo)) &&
+    (!requestedFrom || !requestedTo || requestedFrom <= requestedTo);
   const effort = resolveEffortFacet(params.get("effort"));
   const outliers = params.get("outliers");
   return {
     basis: params.get("basis") === "sessions" ? "sessions" : "timeline",
     rangeDays: Number.isFinite(rangeDays) && rangeDays > 0 ? Math.min(3_650, Math.floor(rangeDays)) : null,
+    fromDate: validBounds && requestedFrom ? requestedFrom : null,
+    toDate: validBounds && requestedTo ? requestedTo : null,
     providers: resolveProviders(params.get("providers")),
     modelFamilies: resolveModelFamilies(params.get("modelFamilies")),
     pathTag: params.get("pathTag") ?? "all",
@@ -81,6 +92,10 @@ function rangeStart(rangeDays: number | null) {
   return utcDate(new Date(Date.now() - (rangeDays - 1) * 86_400_000).toISOString());
 }
 
+function scopeStart(scope: EffortScope) {
+  return scope.fromDate ?? rangeStart(scope.rangeDays);
+}
+
 function sessionTokens(session: Session) {
   return session.totalTokens;
 }
@@ -102,7 +117,7 @@ export function matchesAgentScope(session: Session, scope: EffortScope) {
 /** Session selection is identical for both bases; only whether the day filter reaches the derived
  * rows differs. See `effortQuery`. */
 export function scopedSessions(snapshot: DashboardData, scope: EffortScope) {
-  const from = rangeStart(scope.rangeDays);
+  const from = scopeStart(scope);
   const base = snapshot.sessions.filter((session) => {
     if (!matchesAgentScope(session, scope)) return false;
     if (scope.pathTag !== "all" && !session.pathTags.includes(scope.pathTag)) return false;
@@ -111,6 +126,10 @@ export function scopedSessions(snapshot: DashboardData, scope: EffortScope) {
     if (from) {
       const date = sessionDate(session);
       if (!date || date < from) return false;
+    }
+    if (scope.toDate) {
+      const date = sessionDate(session);
+      if (!date || date > scope.toDate) return false;
     }
     return true;
   });
@@ -144,7 +163,8 @@ function effortQuery(group: EffortGroup, scope: EffortScope, sessionIds: string[
     group,
     sessionIds,
     // The timeline basis restricts calendar activity; the sessions basis takes whole sessions.
-    fromDate: scope.basis === "timeline" ? rangeStart(scope.rangeDays) : null,
+    fromDate: scope.basis === "timeline" ? scopeStart(scope) : null,
+    toDate: scope.basis === "timeline" ? scope.toDate : null,
     agents: agentsFor(scope),
     project: scope.project,
     model: scope.model,
@@ -156,7 +176,8 @@ function modelTokens(model: Session["modelBreakdowns"][number]) {
 }
 
 function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions: Session[]) {
-  const from = rangeStart(scope.rangeDays);
+  const from = scopeStart(scope);
+  const to = scope.toDate;
   const totals = new Map<string, number>();
   // Neither authoritative source is broken down by model family, so a family-scoped request falls
   // through to session allocation rather than reporting a provider-wide denominator.
@@ -167,7 +188,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
     // Project activity already carries the app's authoritative provider/day allocation. Using it
     // avoids assigning a multi-day session's whole denominator to its last-activity day.
     for (const row of snapshot.projectActivity ?? []) {
-      if (row.projectId !== scope.project || (from && row.date < from)) continue;
+      if (row.projectId !== scope.project || (from && row.date < from) || (to && row.date > to)) continue;
       if (!wantsProvider(row.provider)) continue;
       totals.set(row.date, (totals.get(row.date) ?? 0) + row.tokens);
     }
@@ -179,7 +200,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
     // its token chart share one denominator.
     for (const row of snapshot.daily as MetricRow[]) {
       const date = row.period;
-      if (from && date < from) continue;
+      if ((from && date < from) || (to && date > to)) continue;
       const tokens = scope.providers.length === 0
         ? row.totalTokens
         : (row.agents ?? [])
@@ -196,7 +217,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
   // path-filtered views already do.
   for (const session of sessions) {
     const date = sessionDate(session);
-    if (!date) continue;
+    if (!date || (from && date < from) || (to && date > to)) continue;
     totals.set(date, (totals.get(date) ?? 0) + sessionTokens(session));
   }
   return totals;
@@ -369,7 +390,7 @@ export function buildSessionEffortSummary(snapshot: DashboardData, sessionId: st
   if (!analysisAvailable(status)) return null;
   const session = snapshot.sessions.find((item) => item.sessionId === sessionId);
   if (!session) return null;
-  const rows = queryEffortBySession({ sessionIds: [sessionId], fromDate: null, agents: null, project: null, model: null });
+  const rows = queryEffortBySession({ sessionIds: [sessionId], fromDate: null, toDate: null, agents: null, project: null, model: null });
   if (rows.length === 0) return null;
   const known = rows.filter((row) => row.effort !== null).map((row) => ({ effort: row.effort!, observations: row.observations, tokens: row.tokens }));
   const unknownObservations = rows.filter((row) => row.effort === null).reduce((sum, row) => sum + row.observations, 0);
@@ -385,7 +406,7 @@ export function buildSessionEffortSummary(snapshot: DashboardData, sessionId: st
 export function sessionsMatchingEffortFacet(snapshot: DashboardData, scope: Pick<EffortScope, "effort">): Set<string> | null {
   if (scope.effort === "all" || !analysisAvailable(buildEffortStatus())) return null;
   const digest = new Map<string, { known: Set<string> }>();
-  for (const row of queryEffortBySession({ sessionIds: null, fromDate: null, agents: null, project: null, model: null })) {
+  for (const row of queryEffortBySession({ sessionIds: null, fromDate: null, toDate: null, agents: null, project: null, model: null })) {
     const entry = digest.get(row.key) ?? { known: new Set<string>() };
     if (row.effort !== null) entry.known.add(row.effort);
     digest.set(row.key, entry);
@@ -410,6 +431,8 @@ export function scopeKey(scope: EffortScope) {
   return [
     scope.basis,
     scope.rangeDays,
+    scope.fromDate,
+    scope.toDate,
     [...scope.providers].sort().join("+"),
     [...scope.modelFamilies].sort().join("+"),
     scope.pathTag,

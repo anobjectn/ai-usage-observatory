@@ -21,6 +21,10 @@ describe("effort scope params", () => {
     expect(effortScopeParams({ providers: ["anthropic"], modelFamilies: ["gpt-5.6-sol", "claude-opus-5"] }).toString())
       .toBe("providers=anthropic&modelFamilies=gpt-5.6-sol%2Cclaude-opus-5");
   });
+  test("serializes inclusive custom date bounds", () => {
+    expect(effortScopeParams({ fromDate: "2026-07-01", toDate: "2026-07-10" }).toString())
+      .toBe("from=2026-07-01&to=2026-07-10");
+  });
 });
 
 describe("digest decoding", () => {

@@ -10,6 +10,7 @@ import { OutlierSessions } from "./outliers";
 import { AllowanceProfiles } from "./profiles";
 import { CacheComposition, InferenceVolume, ModelBreakdown } from "./signals";
 import { EffortProvenance, ReasoningEffortAnalysis, useReasoningEffort } from "./effort";
+import type { DateRange } from "../../time-range";
 
 function agentSummary(providers: string[], modelFamilies: string[]) {
   if (providers.length === 0 && modelFamilies.length === 0) return "all agents";
@@ -19,6 +20,7 @@ function agentSummary(providers: string[], modelFamilies: string[]) {
 export function UsageIntelligence({
   data,
   days,
+  dateRange,
   agent,
   pathTag,
   showCache,
@@ -28,6 +30,7 @@ export function UsageIntelligence({
 }: {
   data: DashboardData;
   days: string;
+  dateRange: DateRange | null;
   agent: AgentSelection;
   pathTag: string;
   showCache: boolean;
@@ -37,10 +40,10 @@ export function UsageIntelligence({
 }) {
   const { providers, modelFamilies } = useMemo(() => agentSelectionParams(agent), [agent]);
   const { insights, error } = useInsights(
-    { days, providers, modelFamilies, pathTag, showCache, collectedAt: data.collectedAt },
+    { days, dateRange, providers, modelFamilies, pathTag, showCache, collectedAt: data.collectedAt },
     facets,
   );
-  const effort = useReasoningEffort({ days, providers, modelFamilies, pathTag, facets });
+  const effort = useReasoningEffort({ days, dateRange, providers, modelFamilies, pathTag, facets });
   const modelEffort = useEffortAggregate("model", {});
   useEffortRefreshOnIndexChange(effort.status?.indexVersion, [modelEffort.load]);
 
@@ -80,6 +83,7 @@ export function UsageIntelligence({
         insights={insights}
         agentSummary={agentSummary(providers, modelFamilies)}
         days={days}
+        dateRange={dateRange}
         pathTag={pathTag}
         showCache={showCache}
       />

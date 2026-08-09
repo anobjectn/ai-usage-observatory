@@ -6,6 +6,7 @@ import {
   pathFilteredRows,
   periodTickLabel,
   projectDayRows,
+  projectSummaryInRange,
   projectTrendRowsInRange,
   sessionModelNames,
   withoutCacheMetricRow,
@@ -103,6 +104,39 @@ test("projectTrendRowsInRange uses the dashboard time window", () => {
     "2026-07-17",
     "2026-07-18",
   ]);
+});
+
+test("projectSummaryInRange recalculates every project card total", () => {
+  const daily = [{ period: "2026-07-18" }] as MetricRow[];
+  const trend = [
+    {
+      date: "2026-07-17",
+      totalTokens: 100,
+      totalCost: 1,
+      modelBreakdowns: [{ modelName: "old", inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }],
+    },
+    {
+      date: "2026-07-18",
+      totalTokens: 25,
+      totalCost: 0.25,
+      modelBreakdowns: [{ modelName: "current", inputTokens: 20, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0.25 }],
+    },
+  ] as ProjectTrendRow[];
+  const project = {
+    name: "/work/example",
+    tokens: 125,
+    cost: 1.25,
+    sessions: 4,
+    models: ["old", "current"],
+    trend,
+  };
+  expect(projectSummaryInRange(project, daily, 1)).toMatchObject({
+    tokens: 25,
+    cost: 0.25,
+    sessions: 1,
+    models: ["current"],
+    trend: [trend[1]],
+  });
 });
 
 test("projectDayRows exposes provider token segments", () => {

@@ -1,7 +1,13 @@
-import { Check, ChevronDown, Minus, Orbit } from "lucide-react";
+import { CalendarRange, Check, ChevronDown, Minus, Orbit } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DashboardData } from "../types";
 import type { AgentEntry, AgentSelection, BranchState } from "../agent-filter";
+import {
+  dateRangeLabel,
+  validDateRange,
+  type DateRange,
+  type MetricRange,
+} from "../time-range";
 
 export function PageTitle({
   eyebrow,
@@ -50,6 +56,152 @@ export function Segmented({
           {option.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+const timeOptions = [
+  { value: "1", short: "1d", long: "1 day" },
+  { value: "7", short: "7d", long: "7 days" },
+  { value: "14", short: "14d", long: "14 days" },
+  { value: "30", short: "30d", long: "30 days" },
+  { value: "120", short: "120d", long: "120 days" },
+  { value: "all", short: "All", long: "All time" },
+] satisfies Array<{ value: MetricRange; short: string; long: string }>;
+
+export function TimeRangeControl({
+  value,
+  customRange,
+  availableRange,
+  resolvedRange,
+  onChange,
+  expandedLabels = false,
+  label = "Dashboard time span",
+}: {
+  value: MetricRange;
+  customRange: DateRange | null;
+  availableRange: DateRange | null;
+  resolvedRange: DateRange | null;
+  onChange: (value: MetricRange, customRange?: DateRange) => void;
+  expandedLabels?: boolean;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<DateRange>(() =>
+    customRange ?? resolvedRange ?? availableRange ?? { from: "", to: "" },
+  );
+  const root = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const firstInput = useRef<HTMLInputElement | null>(null);
+  const valid = validDateRange(draft);
+
+  const close = (restoreFocus = false) => {
+    setOpen(false);
+    if (restoreFocus) window.setTimeout(() => trigger.current?.focus(), 0);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    setDraft(customRange ?? resolvedRange ?? availableRange ?? { from: "", to: "" });
+    const focusTimer = window.setTimeout(() => firstInput.current?.focus(), 0);
+    const onPointerDown = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close(true);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, customRange, resolvedRange, availableRange]);
+
+  return (
+    <div className="time-range-control" ref={root}>
+      <div className="segmented time-range-segmented" aria-label={label}>
+        {timeOptions.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            className={value === option.value ? "active" : ""}
+            aria-pressed={value === option.value}
+            onClick={() => {
+              close();
+              onChange(option.value);
+            }}
+          >
+            {expandedLabels ? option.long : option.short}
+          </button>
+        ))}
+        <button
+          ref={trigger}
+          type="button"
+          className={`time-range-custom${value === "custom" ? " active" : ""}`}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-pressed={value === "custom"}
+          aria-label={
+            value === "custom"
+              ? `Custom dates, ${dateRangeLabel(customRange)}`
+              : "Choose custom dates"
+          }
+          title={value === "custom" ? dateRangeLabel(customRange) : "Choose custom dates"}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <CalendarRange aria-hidden="true" />
+          <span>{expandedLabels ? "Custom" : "Dates"}</span>
+        </button>
+      </div>
+      {open && (
+        <div className="date-range-popover" role="dialog" aria-label="Choose custom date range">
+          <div className="date-range-popover__head">
+            <span className="overline">CUSTOM INTERVAL</span>
+            <b>Select inclusive dates</b>
+          </div>
+          <div className="date-range-fields">
+            <label>
+              <span>From</span>
+              <input
+                ref={firstInput}
+                type="date"
+                value={draft.from}
+                min={availableRange?.from}
+                max={draft.to || availableRange?.to}
+                onChange={(event) => setDraft((current) => ({ ...current, from: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>To</span>
+              <input
+                type="date"
+                value={draft.to}
+                min={draft.from || availableRange?.from}
+                max={availableRange?.to}
+                onChange={(event) => setDraft((current) => ({ ...current, to: event.target.value }))}
+              />
+            </label>
+          </div>
+          {!valid && <small className="date-range-error">Choose a valid start date on or before the end date.</small>}
+          <div className="date-range-actions">
+            <button type="button" onClick={() => close(true)}>Cancel</button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!valid}
+              onClick={() => {
+                if (!valid) return;
+                onChange("custom", draft);
+                close(true);
+              }}
+            >
+              Apply range
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

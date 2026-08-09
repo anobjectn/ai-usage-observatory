@@ -42,6 +42,8 @@ export type EffortQuery = {
   sessionIds: string[] | null;
   /** Inclusive lower bound on calendar activity; only used by the timeline basis. */
   fromDate: string | null;
+  /** Inclusive upper bound on calendar activity; only used by the timeline basis. */
+  toDate: string | null;
   agents: Array<"claude" | "codex"> | null;
   project: string | null;
   model: string | null;
@@ -273,6 +275,7 @@ const groupExpressions: Record<EffortGroup, string> = {
 const filters = `
   WHERE ($allSessions = 1 OR u.session_id IN (SELECT value FROM json_each($sessionIds)))
     AND ($fromDate IS NULL OR (u.occurred_on <> '' AND u.occurred_on >= $fromDate))
+    AND ($toDate IS NULL OR (u.occurred_on <> '' AND u.occurred_on <= $toDate))
     AND ($allAgents = 1 OR p.agent IN (SELECT value FROM json_each($agents)))
     AND ($project IS NULL OR rtrim(COALESCE(p.cwd, ''), '/') = $project)
     AND ($model IS NULL OR u.model = $model)`;
@@ -295,6 +298,7 @@ function bindings(query: EffortQuery) {
     $allSessions: query.sessionIds === null ? 1 : 0,
     $sessionIds: JSON.stringify(query.sessionIds ?? []),
     $fromDate: query.fromDate,
+    $toDate: query.toDate,
     $allAgents: query.agents === null ? 1 : 0,
     $agents: JSON.stringify(query.agents ?? []),
     $project: query.project,

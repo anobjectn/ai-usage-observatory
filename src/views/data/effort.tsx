@@ -20,6 +20,7 @@ import {
   EFFORT_HELP,
 } from "../../components/effort";
 import type { DataFacets } from "./insights";
+import type { DateRange } from "../../time-range";
 
 function Breakdown({
   title,
@@ -58,12 +59,14 @@ function Breakdown({
 
 export function useReasoningEffort({
   days,
+  dateRange,
   providers,
   modelFamilies,
   pathTag,
   facets,
 }: {
   days: string;
+  dateRange: DateRange | null;
   providers: string[];
   modelFamilies: string[];
   pathTag: string;
@@ -75,12 +78,14 @@ export function useReasoningEffort({
   const scope = useMemo<EffortScopeInput>(() => ({
     basis: "sessions",
     rangeDays: days === "all" ? null : Number(days),
+    fromDate: dateRange?.from,
+    toDate: dateRange?.to,
     providers: providerKey ? providerKey.split(",") : [],
     modelFamilies: familyKey ? familyKey.split(",") : [],
     pathTag,
     effort: facets.effort,
     outliers: facets.outliers,
-  }), [days, facets.effort, facets.outliers, pathTag, providerKey, familyKey]);
+  }), [days, dateRange, facets.effort, facets.outliers, pathTag, providerKey, familyKey]);
   const models = useEffortAggregate("model", scope);
   const projects = useEffortAggregate("project", scope);
   const digest = useEffortSessions(scope);

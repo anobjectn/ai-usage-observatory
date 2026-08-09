@@ -132,6 +132,7 @@ import {
   InformationSources,
   PageTitle,
   Segmented,
+  TimeRangeControl,
   type AgentFilterGroup,
 } from "./views/chrome";
 import {
@@ -149,7 +150,17 @@ import {
   type AgentSelection,
 } from "./agent-filter";
 import { familyOf } from "./model-family";
-import { filterEmptyMessage, type MetricRange } from "./filter-summary";
+import { filterEmptyMessage } from "./filter-summary";
+import {
+  availableDateRange,
+  dateRangeLabel,
+  metricRangeLabel,
+  metricRangeRows,
+  resolvedDateRange,
+  type DateRange,
+  type MetricRange,
+} from "./time-range";
+import { aggregateModels } from "./model-aggregation";
 import { UsageIntelligence } from "./views/data/intelligence";
 import type { DataFacets } from "./views/data/insights";
 
@@ -655,17 +666,30 @@ function useDashboard() {
  * Explorer read calendar activity, so both use the timeline basis. */
 function globalEffortScope(
   agent: AgentSelection,
-  range: MetricRange,
+  dateRange: DateRange | null,
   pathTag: string,
 ) {
   const { providers, modelFamilies } = agentSelectionParams(agent);
   return {
     basis: "timeline" as const,
-    rangeDays: range === "all" ? null : Number(range),
+    fromDate: dateRange?.from,
+    toDate: dateRange?.to,
     providers,
     modelFamilies,
     pathTag,
   };
+}
+
+function timeEffortScope(
+  dateRange: DateRange | null,
+  basis: "timeline" | "sessions" = "timeline",
+) {
+  return {
+    basis,
+    fromDate: dateRange?.from,
+    toDate: dateRange?.to,
+    pathTag: "all",
+  } satisfies EffortScopeInput;
 }
 
 function MetricCard({
@@ -1093,29 +1117,6 @@ function ProviderChartTooltip({
         </section>
       )}
     </div>
-  );
-}
-
-function metricRangeRows(
-  rows: MetricRow[],
-  range: MetricRange,
-  periodOffset = 0,
-) {
-  if (!rows.length) return [];
-  const sorted = [...rows].sort((a, b) => a.period.localeCompare(b.period));
-  if (range === "all") return periodOffset === 0 ? sorted : [];
-  const days = Number(range);
-  const latest = new Date(`${sorted.at(-1)!.period}T12:00:00`);
-  const end = new Date(latest);
-  end.setDate(end.getDate() - days * periodOffset);
-  const start = new Date(end);
-  start.setDate(start.getDate() - days + 1);
-  const toPeriod = (date: Date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  const startPeriod = toPeriod(start);
-  const endPeriod = toPeriod(end);
-  return sorted.filter(
-    (row) => row.period >= startPeriod && row.period <= endPeriod,
   );
 }
 
@@ -2449,6 +2450,9 @@ function Overview({
   agent,
   pathTag,
   metricRange,
+  customRange,
+  dateRange,
+  availableRange,
   onMetricRangeChange,
   onOpenSession,
   onTagSession,
@@ -2463,7 +2467,10 @@ function Overview({
   agent: AgentSelection;
   pathTag: string;
   metricRange: MetricRange;
-  onMetricRangeChange: (range: MetricRange) => void;
+  customRange: DateRange | null;
+  dateRange: DateRange | null;
+  availableRange: DateRange | null;
+  onMetricRangeChange: (range: MetricRange, customRange?: DateRange) => void;
   onOpenSession: (sessionId: string) => void;
   onTagSession: (session: Session) => void;
   onUpdateWebCredits: () => void;
@@ -2476,7 +2483,7 @@ function Overview({
   // this page; the headline token and cost cards are untouched.
   const effortRequest = useEffortAggregate(
     "provider",
-    globalEffortScope(agent, metricRange, pathTag),
+    globalEffortScope(agent, dateRange, pathTag),
   );
   const digestRequest = useEffortSessions({});
   const statusRequest = useEffortStatus();
@@ -2491,7 +2498,7 @@ function Overview({
     [effortDigest],
   );
   const totals = metricTotals(daily);
-  const previousDaily = metricRangeRows(data.daily, metricRange, 1)
+  const previousDaily = metricRangeRows(data.daily, metricRange, customRange, 1)
     .map((row) => selectAgentRow(row, agent))
     .filter(Boolean) as MetricRow[];
   const previousTotals = metricTotals(previousDaily);
@@ -2540,12 +2547,7 @@ function Overview({
   const previousCacheShare = previousTotals.traffic
     ? Math.round((previousTotals.cache / previousTotals.traffic) * 100)
     : 0;
-  const rangeLabel =
-    metricRange === "all"
-      ? "All time"
-      : metricRange === "1"
-        ? "Latest day"
-        : `Last ${metricRange} days`;
+  const rangeLabel = metricRangeLabel(metricRange, customRange);
   const periodLabel =
     daily.length === 1
       ? new Date(`${daily[0].period}T12:00:00`).toLocaleDateString(undefined, {
@@ -2596,18 +2598,14 @@ function Overview({
           </div>
           <div className="metric-range">
             <span>Time span</span>
-            <Segmented
+            <TimeRangeControl
               label="Summary and trajectory time span"
               value={metricRange}
-              onChange={(value) => onMetricRangeChange(value as MetricRange)}
-              options={[
-                { value: "1", label: "1 day" },
-                { value: "7", label: "7 days" },
-                { value: "14", label: "14 days" },
-                { value: "30", label: "30 days" },
-                { value: "120", label: "120 days" },
-                { value: "all", label: "All time" },
-              ]}
+              customRange={customRange}
+              availableRange={availableRange}
+              resolvedRange={dateRange}
+              expandedLabels
+              onChange={onMetricRangeChange}
             />
           </div>
         </div>
@@ -2665,7 +2663,7 @@ function Overview({
               sessions={sessions}
               quotaHistory={data.quotas.history}
               activeProvider={selectionProvider(agent)}
-              emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
+              emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
             />
           ) : (
             <ProviderTimeline
@@ -2673,7 +2671,7 @@ function Overview({
               projectActivity={data.projectActivity}
               activeProvider={selectionProvider(agent)}
               quotaHistory={data.quotas.history}
-              emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
+              emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
             />
           )}
         </article>
@@ -3192,6 +3190,8 @@ function Explorer({
   agent,
   pathTag,
   metricRange,
+  customRange,
+  dateRange,
   metric,
   setMetric,
 }: {
@@ -3201,12 +3201,14 @@ function Explorer({
   agent: AgentSelection;
   pathTag: string;
   metricRange: MetricRange;
+  customRange: DateRange | null;
+  dateRange: DateRange | null;
   metric: Metric;
   setMetric: (metric: Metric) => void;
 }) {
   const modelEffortRequest = useEffortAggregate(
     "model",
-    globalEffortScope(agent, metricRange, pathTag),
+    globalEffortScope(agent, dateRange, pathTag),
   );
   const modelEffortStatus = useEffortStatus();
   useEffortRefreshOnIndexChange(modelEffortStatus.data?.indexVersion, [
@@ -3244,6 +3246,8 @@ function Explorer({
   const rangeLabel =
     metricRange === "all"
       ? "ALL-TIME FIELD"
+      : metricRange === "custom"
+        ? dateRangeLabel(customRange).toUpperCase()
       : metricRange === "1"
         ? "LATEST DAY"
         : `${metricRange}-DAY FIELD`;
@@ -3273,7 +3277,7 @@ function Explorer({
             sessions={sessions}
             quotaHistory={data.quotas.history}
             activeProvider={selectionProvider(agent)}
-            emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
+            emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
           />
         ) : (
           <ProviderTimeline
@@ -3281,14 +3285,14 @@ function Explorer({
             projectActivity={projectActivity}
             activeProvider={selectionProvider(agent)}
             quotaHistory={data.quotas.history}
-            emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
+            emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
           />
         )}
       </section>
       <EffortByDay
-        scope={globalEffortScope(agent, metricRange, pathTag)}
+        scope={globalEffortScope(agent, dateRange, pathTag)}
         rows={rows}
-        emptyText={filterEmptyMessage(agent, metricRange, pathTag)}
+        emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
         providerLabel={
           selectionProvider(agent) === "anthropic"
             ? "Claude Code"
@@ -3315,7 +3319,7 @@ function Explorer({
             />
           </div>
           {modelData.length === 0 ? (
-            <Empty text={filterEmptyMessage(agent, metricRange, pathTag)} />
+            <Empty text={filterEmptyMessage(agent, metricRange, pathTag, customRange)} />
           ) : (
             <div
               className="bar-chart"
@@ -4340,10 +4344,12 @@ function Sessions({
   sessions,
   onEdit,
   focusSessionId,
+  focusOutsideRange = false,
 }: {
   sessions: Session[];
   onEdit: (session: Session) => void;
   focusSessionId?: string | null;
+  focusOutsideRange?: boolean;
 }) {
   type SortKey =
     | "activity"
@@ -4637,6 +4643,9 @@ function Sessions({
                               Mixed · {sessionModelNames(session).length}
                             </i>
                           )}
+                          {focusOutsideRange && session.sessionId === focusSessionId && (
+                            <i className="session-range-exception">Outside active range</i>
+                          )}
                         </span>
                         <small>{session.period.slice(0, 18)}</small>
                       </span>
@@ -4866,6 +4875,39 @@ export function projectTrendRowsInRange(
   return trend.filter((row) => periods.has(row.date));
 }
 
+export function projectSummaryInRange(
+  project: ProjectSummary,
+  daily: MetricRow[],
+  sessionCount: number,
+): ProjectSummary | null {
+  const trend = projectTrendRowsInRange(project.trend, daily);
+  if (!trend.length) return null;
+  const modelTotals = new Map<string, number>();
+  for (const day of trend) {
+    for (const model of day.modelBreakdowns) {
+      const tokens =
+        model.inputTokens +
+        model.outputTokens +
+        model.cacheReadTokens +
+        model.cacheCreationTokens;
+      modelTotals.set(
+        model.modelName,
+        (modelTotals.get(model.modelName) ?? 0) + tokens,
+      );
+    }
+  }
+  return {
+    ...project,
+    trend,
+    tokens: trend.reduce((sum, day) => sum + day.totalTokens, 0),
+    cost: trend.reduce((sum, day) => sum + day.totalCost, 0),
+    sessions: sessionCount,
+    models: [...modelTotals.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .map(([model]) => model),
+  };
+}
+
 function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
   const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
   if (!active || !payload?.length) return null;
@@ -4950,7 +4992,8 @@ function ProjectDetails({
   sessions,
   daily,
   quotaHistory,
-  effortRangeDays,
+  effortScope,
+  rangeEmptyText,
   onOpenSession,
 }: {
   project: ProjectSummary;
@@ -4958,7 +5001,8 @@ function ProjectDetails({
   sessions: Session[];
   daily: MetricRow[];
   quotaHistory: DashboardData["quotas"]["history"];
-  effortRangeDays: number | null;
+  effortScope: EffortScopeInput;
+  rangeEmptyText: string;
   onOpenSession: (sessionId: string) => void;
 }) {
   type ModelSortKey = "name" | "tokens" | "cost";
@@ -5322,20 +5366,11 @@ function ProjectDetails({
       </div>
       <EffortByDay
         scope={{
-          basis: "timeline",
-          rangeDays: effortRangeDays,
-
-          pathTag: "all",
+          ...effortScope,
           project: project.name,
         }}
         rows={sessions}
-        emptyText={filterEmptyMessage(
-          [],
-          effortRangeDays === null
-            ? "all"
-            : (String(effortRangeDays) as MetricRange),
-          "all",
-        )}
+        emptyText={rangeEmptyText}
         providerLabel="All providers"
       />
       <section
@@ -5439,12 +5474,18 @@ function ProjectDetails({
 function Projects({
   data,
   daily,
+  sessions,
   metricRange,
+  customRange,
+  dateRange,
   onOpenSession,
 }: {
   data: DashboardData;
   daily: MetricRow[];
+  sessions: Session[];
   metricRange: MetricRange;
+  customRange: DateRange | null;
+  dateRange: DateRange | null;
   onOpenSession: (sessionId: string) => void;
 }) {
   const [openProject, setOpenProject] = useState<string | null>(null);
@@ -5452,24 +5493,30 @@ function Projects({
   const [sort, setSort] = useState("tokens-desc");
   const openProjectRef = useRef<HTMLElement | null>(null);
   const lastUserScrollAt = useUserScrollIntent();
-  const effortRequest = useEffortAggregate("project", {
-    basis: "sessions",
-    rangeDays: null,
-
-    pathTag: "all",
-  });
+  const effortScope = timeEffortScope(dateRange, "timeline");
+  const effortRequest = useEffortAggregate("project", effortScope);
   const statusRequest = useEffortStatus();
   useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [effortRequest.load]);
   const effortByProject = useMemo(
     () => new Map((effortRequest.data?.rows ?? []).map((row) => [row.key, row.summary])),
     [effortRequest.data],
   );
+  const scopedProjects = useMemo(() => {
+    const sessionCounts = new Map<string, number>();
+    sessions.forEach((session) => {
+      const project = (session.cwd ?? "").replace(/\/+$/, "");
+      if (project) sessionCounts.set(project, (sessionCounts.get(project) ?? 0) + 1);
+    });
+    return data.projects
+      .map((project) => projectSummaryInRange(project, daily, sessionCounts.get(project.name) ?? 0))
+      .filter(Boolean) as ProjectSummary[];
+  }, [data.projects, daily, sessions]);
   const visibleProjects = useMemo(() => {
     const [key, direction] = sort.split("-") as [
       "name" | "tokens" | "cost" | "sessions",
       "asc" | "desc",
     ];
-    const matches = data.projects.filter((project) =>
+    const matches = scopedProjects.filter((project) =>
       `${friendlyProject(project.name)} ${project.models.join(" ")}`
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
@@ -5485,7 +5532,7 @@ function Projects({
           : String(a).localeCompare(String(b));
       return direction === "asc" ? comparison : -comparison;
     });
-  }, [data.projects, query, sort]);
+  }, [scopedProjects, query, sort]);
   useEffect(() => {
     if (!openProject) return;
     const timeout = window.setTimeout(() => {
@@ -5625,13 +5672,14 @@ function Projects({
                     activity={data.projectActivity.filter(
                       (activity) => activity.projectId === project.name,
                     )}
-                    sessions={data.sessions.filter(
+                    sessions={sessions.filter(
                       (session) =>
                         (session.cwd ?? "").replace(/\/+$/, "") ===
                         project.name,
                     )}
                     quotaHistory={data.quotas.history}
-                    effortRangeDays={metricRange === "all" ? null : Number(metricRange)}
+                    effortScope={effortScope}
+                    rangeEmptyText={filterEmptyMessage([], metricRange, "all", customRange)}
                     onOpenSession={onOpenSession}
                   />
                 </div>
@@ -5640,7 +5688,7 @@ function Projects({
           );
         })}
       </section>
-      {!data.projects.length ? (
+      {!scopedProjects.length ? (
         <Empty text="No source-exposed projects found in this period." />
       ) : (
         !visibleProjects.length && (
@@ -5653,9 +5701,15 @@ function Projects({
 
 function Models({
   data,
+  daily,
+  sessions,
+  dateRange,
   onOpenSession,
 }: {
   data: DashboardData;
+  daily: MetricRow[];
+  sessions: Session[];
+  dateRange: DateRange | null;
   onOpenSession: (sessionId: string) => void;
 }) {
   const [openModels, setOpenModels] = useState<Set<string>>(
@@ -5668,13 +5722,15 @@ function Models({
   const modelGridRef = useRef<HTMLElement | null>(null);
   const pendingScrollModel = useRef<string | null>(modelIdsFromUrl().at(-1) ?? null);
   const lastUserScrollAt = useUserScrollIntent();
-  const effortRequest = useEffortAggregate("model", {
-    basis: "sessions",
-    rangeDays: null,
-
-    pathTag: "all",
-  });
-  const digestRequest = useEffortSessions({});
+  const models = useMemo(
+    () => aggregateModels(daily, data.unpricedModels),
+    [daily, data.unpricedModels],
+  );
+  const effortRequest = useEffortAggregate(
+    "model",
+    timeEffortScope(dateRange, "timeline"),
+  );
+  const digestRequest = useEffortSessions(timeEffortScope(dateRange, "sessions"));
   const statusRequest = useEffortStatus();
   useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [
     effortRequest.load,
@@ -5698,10 +5754,10 @@ function Models({
     () => decodeEffortDigest(digestRequest.data),
     [digestRequest.data],
   );
-  const max = Math.max(...data.models.map((model) => model.cost), 1);
+  const max = Math.max(...models.map((model) => model.cost), 1);
   const visibleModels = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    const matches = data.models
+    const matches = models
       .map((model, index) => ({ model, index }))
       .filter(({ model }) =>
         `${model.model} ${model.agents.join(" ")}`
@@ -5712,7 +5768,7 @@ function Models({
       const comparison = left.model.tokens - right.model.tokens;
       return usageOrder === "most" ? -comparison : comparison;
     });
-  }, [data.models, query, usageOrder]);
+  }, [models, query, usageOrder]);
   useEffect(() => {
     const model = pendingScrollModel.current;
     if (!model) return;
@@ -5808,7 +5864,7 @@ function Models({
       {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
       <section className="model-grid" ref={modelGridRef}>
         {visibleModels.map(({ model, index }) => {
-          const sessions = data.sessions
+          const modelSessions = sessions
             .filter((session) => session.modelsUsed.includes(model.model))
             .sort((left, right) =>
               String(
@@ -5820,10 +5876,10 @@ function Models({
           const open = openModels.has(model.model);
           const page = Math.min(
             pages[model.model] ?? 1,
-            Math.max(1, Math.ceil(sessions.length / pageSize)),
+            Math.max(1, Math.ceil(modelSessions.length / pageSize)),
           );
-          const pageCount = Math.max(1, Math.ceil(sessions.length / pageSize));
-          const pageSessions = sessions.slice(
+          const pageCount = Math.max(1, Math.ceil(modelSessions.length / pageSize));
+          const pageSessions = modelSessions.slice(
             (page - 1) * pageSize,
             page * pageSize,
           );
@@ -5904,8 +5960,8 @@ function Models({
                 onClick={() => toggleModel(model.model)}
               >
                 <span>
-                  <b>{sessions.length}</b>{" "}
-                  {sessions.length === 1 ? "session" : "sessions"}
+                  <b>{modelSessions.length}</b>{" "}
+                  {modelSessions.length === 1 ? "session" : "sessions"}
                 </span>
                 <Plus aria-hidden="true" />
               </button>
@@ -5970,7 +6026,7 @@ function Models({
                     <p>No indexed sessions use this model.</p>
                   )}
                   <div className="model-sessions-footer">
-                    {sessions.length > pageSize && (
+                    {modelSessions.length > pageSize && (
                       <div
                         className="model-session-pagination"
                         aria-label={`Session pages for ${model.model}`}
@@ -6022,7 +6078,7 @@ function Models({
           );
         })}
       </section>
-      {!data.models.length ? (
+      {!models.length ? (
         <Empty text="No model usage found in this period." />
       ) : (
         !visibleModels.length && <Empty text="No models match that filter." />
@@ -6262,6 +6318,7 @@ function Sources({
   onRules,
   onUpdateWebCredits,
   days,
+  dateRange,
   agent,
   pathTag,
   showCache,
@@ -6273,6 +6330,7 @@ function Sources({
   onRules: () => void;
   onUpdateWebCredits: () => void;
   days: string;
+  dateRange: DateRange | null;
   agent: AgentSelection;
   pathTag: string;
   showCache: boolean;
@@ -6295,6 +6353,7 @@ function Sources({
       <UsageIntelligence
         data={data}
         days={days}
+        dateRange={dateRange}
         agent={agent}
         pathTag={pathTag}
         showCache={showCache}
@@ -7424,6 +7483,7 @@ export function App() {
   );
   const [agent, setAgent] = useState<AgentSelection>([]);
   const [days, setDays] = useState<MetricRange>("30");
+  const [customRange, setCustomRange] = useState<DateRange | null>(null);
   const [pathTag, setPathTag] = useState("all");
   const [metric, setMetric] = useState<Metric>("totalTokens");
   const [sidebar, setSidebar] = useState(false);
@@ -7595,25 +7655,46 @@ export function App() {
       ) ?? [],
     [data, agent, pathTag],
   );
+  const availableRange = useMemo(
+    () => (data ? availableDateRange(data.daily) : null),
+    [data],
+  );
+  const resolvedRange = useMemo(
+    () => (data ? resolvedDateRange(data.daily, days, customRange) : null),
+    [data, days, customRange],
+  );
+  const activeDateRange = days === "all" ? null : resolvedRange;
+  const rangeRows = useMemo(
+    () => (data ? metricRangeRows(data.daily, days, customRange) : []),
+    [data, days, customRange],
+  );
   const daily = useMemo(() => {
     if (!data) return [];
-    const range = metricRangeRows(data.daily, days);
     if (pathTag === "all")
-      return range
+      return rangeRows
         .map((row) => selectAgentRow(row, agent))
         .filter(Boolean) as MetricRow[];
-    return pathFilteredRows(sessions, new Set(range.map((row) => row.period)));
-  }, [data, agent, days, pathTag, sessions]);
-  const datedSessions = useMemo(() => {
+    return pathFilteredRows(sessions, new Set(rangeRows.map((row) => row.period)));
+  }, [data, agent, pathTag, rangeRows, sessions]);
+  const rangeSessions = useMemo(() => {
     if (!data) return [];
-    const periods = new Set(
-      metricRangeRows(data.daily, days).map((row) => row.period),
-    );
+    const periods = new Set(rangeRows.map((row) => row.period));
+    return data.sessions.filter((session) => {
+      const date = sessionDate(session);
+      return date !== null && periods.has(date);
+    });
+  }, [data, rangeRows]);
+  const datedSessions = useMemo(() => {
+    const periods = new Set(rangeRows.map((row) => row.period));
     return sessions.filter((session) => {
       const date = sessionDate(session);
       return date !== null && periods.has(date);
     });
-  }, [data, days, sessions]);
+  }, [rangeRows, sessions]);
+  const changeTimeRange = (range: MetricRange, nextCustomRange?: DateRange) => {
+    if (range === "custom" && nextCustomRange) setCustomRange(nextCustomRange);
+    setDays(range);
+  };
   const visibleSessions = useMemo(() => {
     if (!data) return datedSessions;
     const focused = focusSessionId
@@ -7768,66 +7849,54 @@ export function App() {
           </div>
           <div className="global-controls">
             <BenchmarkSplitLauncher onOpen={setBenchmarkSite} />
-            {view !== "models" && (
-              <>
-                {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
-                    label would forward stray clicks into the first of them. */}
-                {view !== "projects" && (
-                  <div className="global-filter global-filter--agent">
-                    <span>Agent</span>
-                    <AgentFilter
-                      selection={agent}
-                      onChange={setAgent}
-                      groups={agentFilterGroups}
-                    />
-                  </div>
-                )}
-                {view !== "projects" && (
-                  <label className="global-filter global-filter--path">
-                    <span>Path</span>
-                    <select
-                      value={pathTag}
-                      onChange={(e) => setPathTag(e.target.value)}
-                    >
-                      <option value="all">All paths</option>
-                      {pathTags.map((tag) => (
-                        <option value={tag} key={tag}>
-                          {tag}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {view !== "overview" && (
-                  <Segmented
-                    label="Dashboard time span"
-                    value={days}
-                    onChange={(value) => setDays(value as MetricRange)}
-                    options={[
-                      { value: "1", label: "1d" },
-                      { value: "7", label: "7d" },
-                      { value: "14", label: "14d" },
-                      { value: "30", label: "30d" },
-                      { value: "120", label: "120d" },
-                      { value: "all", label: "All" },
-                    ]}
-                  />
-                )}
-              </>
-            )}
-            {view !== "overview" && (
-              <label
-                className="cache-control"
-                data-tooltip="Includes cache read and creation tokens in usage graphs and session, project, and model totals. Cost estimates, cache metrics, and the recent five-hour block are unchanged."
-              >
-                <input
-                  type="checkbox"
-                  checked={showCache}
-                  onChange={(event) => setShowCache(event.target.checked)}
+            {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
+                label would forward stray clicks into the first of them. */}
+            {view !== "models" && view !== "projects" && (
+              <div className="global-filter global-filter--agent">
+                <span>Agent</span>
+                <AgentFilter
+                  selection={agent}
+                  onChange={setAgent}
+                  groups={agentFilterGroups}
                 />
-                <span>Show cache</span>
+              </div>
+            )}
+            {view !== "models" && view !== "projects" && (
+              <label className="global-filter global-filter--path">
+                <span>Path</span>
+                <select
+                  value={pathTag}
+                  onChange={(e) => setPathTag(e.target.value)}
+                >
+                  <option value="all">All paths</option>
+                  {pathTags.map((tag) => (
+                    <option value={tag} key={tag}>
+                      {tag}
+                    </option>
+                  ))}
+                </select>
               </label>
             )}
+            {view !== "overview" && (
+              <TimeRangeControl
+                value={days}
+                customRange={customRange}
+                availableRange={availableRange}
+                resolvedRange={resolvedRange}
+                onChange={changeTimeRange}
+              />
+            )}
+            <label
+              className="cache-control"
+              data-tooltip="Includes cache read and creation tokens in usage graphs and session, project, and model totals. Cost estimates, cache metrics, and the recent five-hour block are unchanged."
+            >
+              <input
+                type="checkbox"
+                checked={showCache}
+                onChange={(event) => setShowCache(event.target.checked)}
+              />
+              <span>Show cache</span>
+            </label>
             <button
               className="appearance-button"
               onClick={() => setAppearance(true)}
@@ -7863,11 +7932,14 @@ export function App() {
             <Overview
               data={data}
               daily={daily}
-              sessions={sessions}
+              sessions={datedSessions}
               agent={agent}
               pathTag={pathTag}
               metricRange={days}
-              onMetricRangeChange={setDays}
+              customRange={customRange}
+              dateRange={activeDateRange}
+              availableRange={availableRange}
+              onMetricRangeChange={changeTimeRange}
               onOpenSession={openSession}
               onTagSession={setSession}
               onUpdateWebCredits={() => setWebImport(true)}
@@ -7884,6 +7956,8 @@ export function App() {
               agent={agent}
               pathTag={pathTag}
               metricRange={days}
+              customRange={customRange}
+              dateRange={activeDateRange}
               metric={metric}
               setMetric={setMetric}
             />
@@ -7893,18 +7967,30 @@ export function App() {
               sessions={visibleSessions}
               onEdit={setSession}
               focusSessionId={focusSessionId}
+              focusOutsideRange={Boolean(
+                focusSessionId && !datedSessions.some((session) => session.sessionId === focusSessionId),
+              )}
             />
           )}
           {view === "projects" && (
             <Projects
               data={data}
-              daily={metricRangeRows(data.daily, days)}
+              daily={rangeRows}
+              sessions={rangeSessions}
               metricRange={days}
+              customRange={customRange}
+              dateRange={activeDateRange}
               onOpenSession={openSession}
             />
           )}
           {view === "models" && (
-            <Models data={data} onOpenSession={openSession} />
+            <Models
+              data={data}
+              daily={rangeRows}
+              sessions={rangeSessions}
+              dateRange={activeDateRange}
+              onOpenSession={openSession}
+            />
           )}
           {view === "sources" && (
             <Sources
@@ -7912,6 +7998,7 @@ export function App() {
               onRules={() => setRules(true)}
               onUpdateWebCredits={() => setWebImport(true)}
               days={days}
+              dateRange={activeDateRange}
               agent={agent}
               pathTag={pathTag}
               showCache={showCache}

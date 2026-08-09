@@ -2,6 +2,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { Segmented } from "../chrome";
 import type { DataFacets, Insights } from "./insights";
 import { effortLabel } from "../../components/effort";
+import { dateRangeLabel, type DateRange } from "../../time-range";
 
 export function FacetBar({
   facets,
@@ -9,6 +10,7 @@ export function FacetBar({
   insights,
   agentSummary,
   days,
+  dateRange,
   pathTag,
   showCache,
 }: {
@@ -19,12 +21,13 @@ export function FacetBar({
    * offering a second control that could disagree with the one in the topbar. */
   agentSummary: string;
   days: string;
+  dateRange: DateRange | null;
   pathTag: string;
   showCache: boolean;
 }) {
   const { sessionsInScope, sessionsShown, outlierCount, effortLevels } = insights.facets;
   const scopeParts = [
-    `${days === "all" ? "all history" : `${days} days`}`,
+    `${days === "all" ? "all history" : days === "custom" ? dateRangeLabel(dateRange) : `${days} days`}`,
     agentSummary,
     pathTag === "all" ? "all path tags" : pathTag,
     showCache ? "cache included" : "cache excluded",

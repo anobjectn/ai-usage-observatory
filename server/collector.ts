@@ -8,6 +8,9 @@ import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
 import { getAnnotations, getSettings, listRules } from "./store";
 import { buildInsights, resolveScope } from "./insights";
 import { reconcileAdvice } from "./advice";
+import { aggregateModels } from "../src/model-aggregation";
+
+export { aggregateModels } from "../src/model-aggregation";
 
 type Snapshot = Awaited<ReturnType<typeof buildSnapshot>>;
 let snapshot: Snapshot | null = null;
@@ -25,28 +28,6 @@ function accumulateModel<T>(models: Map<string, T>, model: ModelUsage, create: (
   update(current, model);
   models.set(model.modelName, current);
   return current;
-}
-
-export function aggregateModels(rows: Awaited<ReturnType<typeof collectCcusage>>["unified"]["daily"], unpricedModels: string[] = []) {
-  const unpriced = new Set(unpricedModels);
-  const models = new Map<string, {model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:Set<string>}>();
-  for (const row of rows) for (const agent of row.agents ?? []) for (const model of agent.modelBreakdowns) {
-    const current = accumulateModel(models, model, () => ({ model: model.modelName, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, agents: new Set<string>() }), (current, entry) => {
-      current.tokens += modelTokens(entry);
-      current.cost += entry.cost;
-      current.inputTokens += entry.inputTokens;
-      current.outputTokens += entry.outputTokens;
-      current.cacheReadTokens += entry.cacheReadTokens;
-      current.cacheCreationTokens += entry.cacheCreationTokens;
-    });
-    current.agents.add(agent.agent);
-    models.set(model.modelName, current);
-  }
-  // Unpriced models carry cost 0, so a plain cost sort buries the very models whose cost is
-  // unknown at the bottom of the list, reading as "cheapest". Float them to the top instead.
-  return [...models.values()]
-    .map((model) => ({ ...model, agents: [...model.agents], priced: !unpriced.has(model.model) }))
-    .sort((a, b) => Number(a.priced) - Number(b.priced) || b.cost - a.cost || b.tokens - a.tokens);
 }
 
 type ProjectActivitySession = {

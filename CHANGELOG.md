@@ -5,6 +5,18 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add a custom date-to-date selector alongside the preset time ranges.
+
+### Changed
+
+- Apply the selected date range to Models, Projects, Overview sessions, and
+  Data analysis.
+- Expose the wired Cache filter in Overview.
+
 ## [1.9.0] - 2026-08-08
 
 ### Added

@@ -41,5 +41,8 @@ describe("filtered widget empty message", () => {
     ).toBe(
       "No data matches Agent: claude · Range: 1 day · Path: observatory.",
     );
+    expect(
+      filterEmptyMessage([], "custom", "all", { from: "2026-07-01", to: "2026-07-10" }),
+    ).toBe("No data matches Range: Jul 1–Jul 10, 2026.");
   });
 });
