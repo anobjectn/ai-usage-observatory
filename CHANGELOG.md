@@ -5,17 +5,23 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.0] - 2026-08-09
 
 ### Added
 
-- Add a custom date-to-date selector alongside the preset time ranges.
+- Add a custom inclusive date-to-date selector alongside the preset time ranges.
 
 ### Changed
 
 - Apply the selected date range to Models, Projects, Overview sessions, and
-  Data analysis.
-- Expose the wired Cache filter in Overview.
+  Data analysis, and expose the Cache filter in Overview.
+- Clarify the README's usage analysis, visual-status playback, recommended
+  `quota-service` setup, and compatible bring-your-own service contract.
+
+### Fixed
+
+- Keep usage, project, insight, effort, and quota-marker dates aligned to the
+  system IANA timezone, and show the localized collection time.
 
 ## [1.9.0] - 2026-08-08
 
@@ -278,6 +284,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.10.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.6.0...v1.7.0
