@@ -29,7 +29,7 @@ Produce a decision-ready audit without changing the dependency or application co
 10. Create `reports/ccusage-audits/YYYY-MM-DD/evidence.json` following the contract, then render `index.html`:
 
 ```bash
-python3 .agents/skills/audit-ccusage-upstream/scripts/render_report.py \
+bun run .agents/skills/audit-ccusage-upstream/scripts/render-report.ts \
   reports/ccusage-audits/YYYY-MM-DD/evidence.json \
   reports/ccusage-audits/YYYY-MM-DD/index.html
 ```
