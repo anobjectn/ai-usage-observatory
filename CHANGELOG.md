@@ -5,12 +5,13 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.1] - 2026-08-10
 
 ### Changed
 
-- Keep the ccusage audit renderer on the repository's Bun/TypeScript toolchain
-  instead of requiring Python.
+- Keep the ccusage audit renderer on the repository's Bun/TypeScript toolchain,
+  removing the Python runtime requirement from project tooling.
+- Refresh the Explorer screenshot and caption to include quota/reset context.
 
 ### Fixed
 
@@ -296,6 +297,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.10.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.7.0...v1.8.0
