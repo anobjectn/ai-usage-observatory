@@ -1,6 +1,6 @@
 # AI Usage Observatory
 
-![Version](https://img.shields.io/badge/version-1.10.1-0f766e)
+![Version](https://img.shields.io/badge/version-1.11.0-0f766e)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%201.3%2B-fbf0df?logo=bun&logoColor=black)
 ![Language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Privacy](https://img.shields.io/badge/privacy-local--first%20%26%20no%20telemetry-0f766e)
@@ -50,6 +50,9 @@ bun run start
 ```
 
 Open `http://127.0.0.1:4318`.
+
+To update a clone, run `git pull` followed by `bun install`. A downloaded copy
+must be replaced with a newer one.
 
 ## Inside the Observatory
 
@@ -449,9 +452,23 @@ or when an available credit disappears without evidence that it expired.
   supplies provider-reported allowance windows, resets, credits, and status. It
   is a separate localhost service, not a bundled dependency.
 
-## Current scope
+## Current scope and potential enhancements
 
 The current product deliberately excludes additional theme packs, wallpaper
-engines, git-aware worktree canonicalization, touched-file indexing, task
-classification, filesystem watching, a desktop wrapper, native provider
-collectors, and multi-account attribution within a provider.
+engines, and a desktop wrapper.
+
+Under consideration, with no committed timeline: git-aware worktree
+canonicalization, touched-file indexing, task classification, filesystem
+watching, native provider collectors, and multi-account attribution within a
+provider.
+
+Updating is the most likely next improvement. Today a new version means
+replacing a downloaded copy or running `git pull` in a clone; a built-in check
+that reports a new release and applies it in place would remove that step.
+
+## Suggestions welcome
+
+There is room for improvement here, and suggestions are welcome. If something is
+missing, awkward, or wrong for the way you work,
+[open an issue](https://github.com/anobjectn/ai-usage-observatory/issues) —
+including questions, corrections, and ideas that fall outside the current scope.

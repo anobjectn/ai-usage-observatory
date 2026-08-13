@@ -5,28 +5,21 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] - 2026-08-13
 
 ### Added
 
-- Add in-memory chart tooltip pinning with immediate drag handles, keyboard
-  controls, viewport clamping, stacking, and navigation cleanup.
+- Add pinnable chart tooltips: a drag handle detaches a tooltip into a floating
+  card that can be moved, stacked, and kept on screen while the chart keeps
+  responding, with keyboard pinning, arrow-key movement, `Escape` to dismiss,
+  viewport clamping, and automatic clearing on navigation or reload.
 
 ### Changed
 
-- Keep chart tooltip snapshots reachable during pointer and focus transitions
-  without delaying normal plot scrubbing, and freeze the intended data point
-  while its pin is hovered or focused.
-- Hide the in-chart tooltip for a data point that is already pinned, so pinning
-  and dragging no longer leaves a duplicate card behind.
-- Dismiss a pinned card with `Escape` while its handle has focus.
+- Keep chart tooltips reachable when the pointer leaves the plot area for the
+  card, without delaying normal chart scrubbing.
 - Standardize daily chart tooltip headers to abbreviated weekday, full month,
   and day, such as `Sun July 26`.
-
-### Fixed
-
-- Resume tooltip updates after pinning: clicking a pin no longer leaves the
-  hovered card frozen on the pinned data point while the cursor moves on.
 
 ## [1.10.1] - 2026-08-10
 
@@ -320,6 +313,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.11.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.8.0...v1.9.0
