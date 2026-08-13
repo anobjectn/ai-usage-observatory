@@ -261,6 +261,21 @@ test("explicit dismissal clears inactive retained state", () => {
   expect(isChartTooltipShown(dismissed, 1)).toBe(false);
 });
 
+test("dismissal releases every hold but keeps the live Recharts state", () => {
+  const held = tooltipHoldReducer(
+    tooltipHoldReducer(createTooltipHoldState(true), {
+      type: "pin-pointer",
+      inside: true,
+      now: 0,
+    }),
+    { type: "pin-focus", inside: true, now: 0 },
+  );
+  const dismissed = tooltipHoldReducer(held, { type: "dismiss" });
+
+  expect(dismissed).toEqual(createTooltipHoldState(true));
+  expect(isChartTooltipFrozen(dismissed)).toBe(false);
+});
+
 test("retained is limited to inactive tooltips with a cached snapshot", () => {
   const active = createTooltipHoldState(true);
   const activePin = tooltipHoldReducer(active, {

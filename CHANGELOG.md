@@ -17,8 +17,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Keep chart tooltip snapshots reachable during pointer and focus transitions
   without delaying normal plot scrubbing, and freeze the intended data point
   while its pin is hovered or focused.
+- Hide the in-chart tooltip for a data point that is already pinned, so pinning
+  and dragging no longer leaves a duplicate card behind.
+- Dismiss a pinned card with `Escape` while its handle has focus.
 - Standardize daily chart tooltip headers to abbreviated weekday, full month,
   and day, such as `Sun July 26`.
+
+### Fixed
+
+- Resume tooltip updates after pinning: clicking a pin no longer leaves the
+  hovered card frozen on the pinned data point while the cursor moves on.
 
 ## [1.10.1] - 2026-08-10
 

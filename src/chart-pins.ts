@@ -129,7 +129,7 @@ export function tooltipHoldReducer(
       return state;
     return { ...state, deadline: null };
   }
-  return createTooltipHoldState(false);
+  return createTooltipHoldState(state.rechartsActive);
 }
 
 export type ChartPinDescriptor = {

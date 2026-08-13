@@ -237,10 +237,21 @@ type ChartTooltipPinInteractionProps = {
   onPointerLeave: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onFocus: (event: ReactFocusEvent<HTMLButtonElement>) => void;
   onBlur: (event: ReactFocusEvent<HTMLButtonElement>) => void;
+  onRelease: () => void;
 };
 
 function tooltipNow() {
   return performance.now();
+}
+
+// Pointer-down focuses the pin so arrow keys can nudge it, but only keyboard
+// focus should hold and freeze the tooltip behind it.
+function isKeyboardFocus(element: HTMLElement) {
+  try {
+    return element.matches(":focus-visible");
+  } catch {
+    return true;
+  }
 }
 
 export function useChartTooltipHold<T>(current: T | null) {
@@ -325,16 +336,29 @@ export function useChartTooltipHold<T>(current: T | null) {
       if (retained) event.stopPropagation();
     },
   };
-  const pinInteractionProps: ChartTooltipPinInteractionProps = {
-    onPointerEnter: () =>
-      dispatch({ type: "pin-pointer", inside: true, now: tooltipNow() }),
-    onPointerLeave: () =>
-      dispatch({ type: "pin-pointer", inside: false, now: tooltipNow() }),
-    onFocus: () =>
-      dispatch({ type: "pin-focus", inside: true, now: tooltipNow() }),
-    onBlur: () =>
-      dispatch({ type: "pin-focus", inside: false, now: tooltipNow() }),
-  };
+  const releasePin = useCallback(() => {
+    const now = tooltipNow();
+    dispatch({ type: "pin-pointer", inside: false, now });
+    dispatch({ type: "pin-focus", inside: false, now });
+    dispatch({ type: "card-pointer", inside: false, now });
+    dispatch({ type: "card-focus", inside: false, now });
+  }, []);
+  const pinInteractionProps = useMemo<ChartTooltipPinInteractionProps>(
+    () => ({
+      onPointerEnter: () =>
+        dispatch({ type: "pin-pointer", inside: true, now: tooltipNow() }),
+      onPointerLeave: () =>
+        dispatch({ type: "pin-pointer", inside: false, now: tooltipNow() }),
+      onFocus: (event) => {
+        if (!isKeyboardFocus(event.currentTarget)) return;
+        dispatch({ type: "pin-focus", inside: true, now: tooltipNow() });
+      },
+      onBlur: () =>
+        dispatch({ type: "pin-focus", inside: false, now: tooltipNow() }),
+      onRelease: releasePin,
+    }),
+    [releasePin],
+  );
 
   return {
     snapshot,
@@ -357,6 +381,10 @@ function PinDragHandle({
   const { pins, add, remove, move, raise, beginDrag } = useChartPins();
   const item = pins.find((candidate) => candidate.id === descriptor.id);
   const pinned = Boolean(item);
+  const { onRelease, ...handlers } = interactionProps ?? {};
+  // A card removed under the pointer emits no pointerleave or blur, so the
+  // holds it opened have to be released when the handle goes away with it.
+  useEffect(() => () => onRelease?.(), [onRelease]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
@@ -373,6 +401,12 @@ function PinDragHandle({
     );
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Escape" && pinned) {
+      event.preventDefault();
+      event.stopPropagation();
+      remove(descriptor.id);
+      return;
+    }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       event.stopPropagation();
@@ -406,8 +440,10 @@ function PinDragHandle({
           : `Pin ${descriptor.ariaLabel}`
       }
       aria-pressed={pinned}
-      title={pinned ? "Drag to move · click to unpin" : "Pin and drag"}
-      {...interactionProps}
+      title={
+        pinned ? "Drag to move · click or Escape to unpin" : "Pin and drag"
+      }
+      {...handlers}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
       onClick={(event) => event.stopPropagation()}
@@ -438,10 +474,14 @@ export function PinnableChartTooltip({
   pinInteractionProps,
 }: PinnableChartTooltipProps) {
   const localRef = useRef<HTMLDivElement>(null);
+  const { pins } = useChartPins();
   const descriptor = useMemo(
     () => ({ id, ariaLabel, className, content: children }),
     [id, ariaLabel, className, children],
   );
+  // The pinned copy already shows this data point, so the in-chart card would
+  // only duplicate it — including while the pin is being dragged away.
+  if (pins.some((item) => item.id === id)) return null;
   return (
     <div
       className={`chart-tooltip pinnable-chart-tooltip ${className}`.trim()}
