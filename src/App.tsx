@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -163,6 +164,12 @@ import {
 import { aggregateModels } from "./model-aggregation";
 import { UsageIntelligence } from "./views/data/intelligence";
 import type { DataFacets } from "./views/data/insights";
+import {
+  ChartPinProvider,
+  PinnableChartTooltip,
+  useChartTooltipHold,
+} from "./components/chart-pins";
+import { chartTooltipDateLabel } from "./chart-pins";
 
 type View =
   "overview" | "explorer" | "sessions" | "projects" | "models" | "sources";
@@ -744,6 +751,10 @@ type ChartTooltipProps = {
   payload?: ChartTooltipPayload[];
 };
 
+const chartTooltipWrapperStyle = {
+  transition: "none",
+} as const;
+
 function ChartTooltip({
   active,
   payload,
@@ -784,18 +795,35 @@ function ModelSignalTooltip({
   coordinate?: { x?: number };
   metric: Metric;
 }) {
-  const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
-  const row = payload?.[0]?.payload;
-  if (!active || !row) return null;
+  const pinSource = useId();
+  const liveRow = payload?.[0]?.payload;
+  const hold = useChartTooltipHold(
+    active && liveRow ? { row: liveRow, coordinate, metric } : null,
+  );
+  const tooltipRef = useClampedTooltip(
+    Boolean(hold.snapshot),
+    hold.snapshot?.coordinate,
+  );
+  if (!hold.snapshot) return null;
+  const { row, metric: snapshotMetric } = hold.snapshot;
   const summary = row.effort;
   return (
-    <div className="chart-tooltip model-signal-tooltip" ref={tooltipRef}>
+    <PinnableChartTooltip
+      id={`${pinSource}:${row.provider ?? "unknown"}:${row.rawName}:${snapshotMetric}`}
+      ariaLabel={`${row.rawName} model details`}
+      className="model-signal-tooltip"
+      forwardedRef={tooltipRef}
+      interactionRef={hold.cardRef}
+      retained={hold.retained}
+      cardInteractionProps={hold.cardInteractionProps}
+      pinInteractionProps={hold.pinInteractionProps}
+    >
       <span>{row.rawName}</span>
       <div>
         <i style={{ background: row.color }} aria-hidden="true" />
         Usage:{" "}
         <b>
-          {metric === "totalCost"
+          {snapshotMetric === "totalCost"
             ? formatMoney(row.value)
             : formatCompact(row.value)}
         </b>
@@ -812,12 +840,13 @@ function ModelSignalTooltip({
             .filter((level) => level.tokens > 0)
             .map((level) => (
               <span key={level.effort}>
-                {effortLabel(level.effort)} {sharePercent(level.tokens, summary.attributedTokens)}
+                {effortLabel(level.effort)}{" "}
+                {sharePercent(level.tokens, summary.attributedTokens)}
               </span>
             ))}
         </div>
       )}
-    </div>
+    </PinnableChartTooltip>
   );
 }
 
@@ -866,6 +895,8 @@ function useClampedTooltip(active: boolean, coordinate?: { x?: number }) {
 }
 
 type TimelineTooltipRow = {
+  period?: string;
+  hour?: string;
   label?: string;
   costs?: Partial<Record<(typeof providerSeries)[number]["key"], number>>;
   models?: Partial<
@@ -932,9 +963,17 @@ function ProviderChartTooltip({
   label,
   coordinate,
 }: ChartTooltipProps) {
-  const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
-  if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
+  const pinSource = useId();
+  const hold = useChartTooltipHold(
+    active && payload?.length ? { payload, label, coordinate } : null,
+  );
+  const tooltipRef = useClampedTooltip(
+    Boolean(hold.snapshot),
+    hold.snapshot?.coordinate,
+  );
+  if (!hold.snapshot) return null;
+  const { payload: snapshotPayload, label: snapshotLabel } = hold.snapshot;
+  const row = snapshotPayload[0]?.payload;
   const timelineRow = row as TimelineTooltipRow | undefined;
   const projects = tooltipProjects(row);
   const visibleProjects = projects.slice(0, 4);
@@ -943,20 +982,28 @@ function ProviderChartTooltip({
     0,
   );
   const projectCost = projects.reduce((sum, project) => sum + project.cost, 0);
+  const tooltipLabel = timelineRow?.period
+    ? chartTooltipDateLabel(timelineRow.period)
+    : timelineRow?.label ?? snapshotLabel;
   return (
-    <div
-      className="chart-tooltip provider-tooltip"
-      key={label}
-      ref={tooltipRef}
+    <PinnableChartTooltip
+      id={`${pinSource}:${timelineRow?.period ?? timelineRow?.hour ?? String(snapshotLabel)}`}
+      ariaLabel={`activity details for ${tooltipLabel}`}
+      className="provider-tooltip"
+      forwardedRef={tooltipRef}
+      interactionRef={hold.cardRef}
+      retained={hold.retained}
+      cardInteractionProps={hold.cardInteractionProps}
+      pinInteractionProps={hold.pinInteractionProps}
     >
       <div className="tooltip-columns">
-        <span>{timelineRow?.label ?? label}</span>
+        <span>{tooltipLabel}</span>
         <small>Tokens</small>
         <small>API $</small>
       </div>
       {providerSeries
         .map((provider) =>
-          payload.find((item) => item.dataKey === provider.key),
+          snapshotPayload.find((item) => item.dataKey === provider.key),
         )
         .filter(
           (
@@ -1117,7 +1164,7 @@ function ProviderChartTooltip({
           )}
         </section>
       )}
-    </div>
+    </PinnableChartTooltip>
   );
 }
 
@@ -1653,7 +1700,7 @@ function ProviderTimeline({
               cursor={{ stroke: "#71807b", strokeDasharray: "3 3" }}
               offset={0}
               isAnimationActive={false}
-              wrapperStyle={{ transition: "none" }}
+              wrapperStyle={chartTooltipWrapperStyle}
             />
             <QuotaReferenceLines markers={quotaMarkers} />
             {visibleProviders.map((provider) => (
@@ -1892,7 +1939,7 @@ function HourlyProviderTimeline({
               cursor={{ fill: "#15211d" }}
               offset={0}
               isAnimationActive={false}
-              wrapperStyle={{ transition: "none" }}
+              wrapperStyle={chartTooltipWrapperStyle}
             />
             <QuotaReferenceLines markers={quotaMarkers} />
             {visibleStackedProviders.map((provider) => (
@@ -3064,7 +3111,7 @@ function EffortByDay({
                     }
                     cursor={{ fill: "#15211d" }}
                     isAnimationActive={false}
-                    wrapperStyle={{ transition: "none" }}
+                    wrapperStyle={chartTooltipWrapperStyle}
                   />
                   {series.keys.map((key) => (
                     <Bar
@@ -3136,9 +3183,18 @@ function EffortDayTooltip({
   providerLabel: string;
   usageByDay: Map<string, EffortDayContext>;
 }) {
-  const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
-  const point = payload?.[0]?.payload.__point;
-  if (!active || !point) return null;
+  const pinSource = useId();
+  const livePoint = payload?.[0]?.payload.__point;
+  const hold = useChartTooltipHold(
+    active && livePoint ? { point: livePoint, label, coordinate } : null,
+  );
+  const tooltipRef = useClampedTooltip(
+    Boolean(hold.snapshot),
+    hold.snapshot?.coordinate,
+  );
+  if (!hold.snapshot) return null;
+  const { point } = hold.snapshot;
+  const dateLabel = chartTooltipDateLabel(point.date);
   const entries = Object.entries(point.values).filter(([, amount]) => amount > 0);
   const usage = usageByDay.get(point.date);
   const coverage =
@@ -3146,13 +3202,18 @@ function EffortDayTooltip({
       ? "coverage unavailable"
       : `${Math.round(point.summary.tokenCoverage * 100)}% of tokens attributed`;
   return (
-    <div
-      className="chart-tooltip provider-tooltip effort-day-tooltip"
-      key={label}
-      ref={tooltipRef}
+    <PinnableChartTooltip
+      id={`${pinSource}:${point.date}:${basis}`}
+      ariaLabel={`effort details for ${dateLabel}`}
+      className="provider-tooltip effort-day-tooltip"
+      forwardedRef={tooltipRef}
+      interactionRef={hold.cardRef}
+      retained={hold.retained}
+      cardInteractionProps={hold.cardInteractionProps}
+      pinInteractionProps={hold.pinInteractionProps}
     >
       <div className="tooltip-effort-head">
-        <b>{label}</b>
+        <b>{dateLabel}</b>
         <small>
           {providerLabel} · {coverage}
         </small>
@@ -3187,7 +3248,7 @@ function EffortDayTooltip({
           )}
         </div>
       )}
-    </div>
+    </PinnableChartTooltip>
   );
 }
 
@@ -3356,7 +3417,7 @@ function Explorer({
                   content={<ModelSignalTooltip metric={metric} />}
                   cursor={{ fill: "#15211d" }}
                   isAnimationActive={false}
-                  wrapperStyle={{ transition: "none" }}
+                  wrapperStyle={chartTooltipWrapperStyle}
                 />
                 <Bar
                   dataKey="value"
@@ -4920,18 +4981,30 @@ export function projectSummaryInRange(
 }
 
 function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
-  const tooltipRef = useClampedTooltip(Boolean(active), coordinate);
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload as ReturnType<typeof projectDayRows>[number];
-  const dateLabel = new Date(`${row.date}T12:00:00`).toLocaleDateString(
-    undefined,
-    { weekday: "short", month: "long", day: "numeric", year: "numeric" },
+  const pinSource = useId();
+  const liveRow = payload?.[0]?.payload as
+    | ReturnType<typeof projectDayRows>[number]
+    | undefined;
+  const hold = useChartTooltipHold(
+    active && liveRow ? { row: liveRow, coordinate } : null,
   );
+  const tooltipRef = useClampedTooltip(
+    Boolean(hold.snapshot),
+    hold.snapshot?.coordinate,
+  );
+  if (!hold.snapshot) return null;
+  const { row } = hold.snapshot;
+  const dateLabel = chartTooltipDateLabel(row.date);
   return (
-    <div
-      className="chart-tooltip provider-tooltip"
-      key={row.date}
-      ref={tooltipRef}
+    <PinnableChartTooltip
+      id={`${pinSource}:${row.date}`}
+      ariaLabel={`project activity details for ${dateLabel}`}
+      className="provider-tooltip"
+      forwardedRef={tooltipRef}
+      interactionRef={hold.cardRef}
+      retained={hold.retained}
+      cardInteractionProps={hold.cardInteractionProps}
+      pinInteractionProps={hold.pinInteractionProps}
     >
       <div className="tooltip-columns">
         <span>{dateLabel}</span>
@@ -4993,7 +5066,7 @@ function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
           </section>
         );
       })}
-    </div>
+    </PinnableChartTooltip>
   );
 }
 
@@ -5273,7 +5346,7 @@ function ProjectDetails({
                   cursor={{ fill: "rgba(183,242,92,.05)" }}
                   offset={0}
                   isAnimationActive={false}
-                  wrapperStyle={{ transition: "none" }}
+                  wrapperStyle={chartTooltipWrapperStyle}
                 />
                 <QuotaReferenceLines markers={quotaMarkers} yAxisId="tokens" />
                 {[...projectProviderSeries].reverse().map((provider) => (
@@ -7944,7 +8017,8 @@ export function App() {
             {data.unpricedModels.length > 1 ? "these models" : "this model"}.
           </div>
         )}
-        <div className="content">
+        <ChartPinProvider key={view}>
+          <div className="content">
           {view === "overview" && (
             <Overview
               data={data}
@@ -8026,7 +8100,8 @@ export function App() {
               onOpenSession={openSession}
             />
           )}
-        </div>
+          </div>
+        </ChartPinProvider>
         <InformationSources data={data} />
       </main>
       {session && (

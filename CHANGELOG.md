@@ -5,6 +5,21 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add in-memory chart tooltip pinning with immediate drag handles, keyboard
+  controls, viewport clamping, stacking, and navigation cleanup.
+
+### Changed
+
+- Keep chart tooltip snapshots reachable during pointer and focus transitions
+  without delaying normal plot scrubbing, and freeze the intended data point
+  while its pin is hovered or focused.
+- Standardize daily chart tooltip headers to abbreviated weekday, full month,
+  and day, such as `Sun July 26`.
+
 ## [1.10.1] - 2026-08-10
 
 ### Changed
