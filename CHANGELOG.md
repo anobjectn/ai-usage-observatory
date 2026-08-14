@@ -5,6 +5,27 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.2] - 2026-08-14
+
+### Added
+
+- Add concise context labels and descriptions to pinnable chart tooltips across
+  activity, project, model, and reasoning views.
+- Add viewport-clamped tooltip descriptions with an explicit close control.
+
+### Changed
+
+- Persist the collapsed sidebar state and support hover-to-open navigation.
+- Standardize daily tooltip date typography and keep project Tokens/API columns
+  aligned with their existing headers.
+
+### Fixed
+
+- Prevent stale transient tooltips from surviving newer chart points or pinned
+  cards.
+- Keep contextual descriptions outside clipping containers and make pointer
+  dismissal reliable alongside keyboard focus.
+
 ## [1.11.1] - 2026-08-13
 
 ### Fixed
