@@ -479,6 +479,15 @@ export function PinnableChartTooltip({
     () => ({ id, ariaLabel, className, content: children }),
     [id, ariaLabel, className, children],
   );
+  // Recharts renders this card inside the chart, and its accessibility layer
+  // reads any focus that reaches the chart as the start of keyboard navigation,
+  // which opens a second tooltip on the first data point. Focusing the pin
+  // handle must stay inside the card.
+  const {
+    onFocus: onCardFocus,
+    onBlur: onCardBlur,
+    ...cardHandlers
+  } = cardInteractionProps ?? {};
   // The pinned copy already shows this data point, so the in-chart card would
   // only duplicate it — including while the pin is being dragged away.
   if (pins.some((item) => item.id === id)) return null;
@@ -486,7 +495,15 @@ export function PinnableChartTooltip({
     <div
       className={`chart-tooltip pinnable-chart-tooltip ${className}`.trim()}
       data-tooltip-retained={retained ? "true" : undefined}
-      {...cardInteractionProps}
+      {...cardHandlers}
+      onFocus={(event) => {
+        event.stopPropagation();
+        onCardFocus?.(event);
+      }}
+      onBlur={(event) => {
+        event.stopPropagation();
+        onCardBlur?.(event);
+      }}
       ref={(node) => {
         localRef.current = node;
         setRef(forwardedRef, node);
