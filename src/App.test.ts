@@ -6,9 +6,11 @@ import {
   pathFilteredRows,
   periodTickLabel,
   projectDayRows,
+  projectModelSessionRows,
   projectSummaryInRange,
   projectTrendRowsInRange,
   sessionModelNames,
+  sessionRangeLabel,
   withoutCacheMetricRow,
 } from "./App";
 import type {
@@ -248,4 +250,88 @@ test("session detail columns render in the requested order and default state", (
   expect(html).toContain('aria-label="Open actions for src/App.tsx"');
   expect(html).toContain('class="file-path-tail"');
   expect(sessionModelNames(mixedSession)).toEqual(["gpt-test", "gpt-second"]);
+});
+
+test("projectModelSessionRows keeps only sessions that touched the model, newest first", () => {
+  const rows = projectModelSessionRows(
+    [
+      session({
+        sessionId: "older",
+        metadata: { lastActivity: "2026-07-16T09:00:00Z" },
+      }),
+      session({
+        sessionId: "other-model",
+        modelsUsed: ["gpt-other"],
+        modelBreakdowns: [
+          {
+            modelName: "gpt-other",
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            cost: 0.5,
+          },
+        ],
+        metadata: { lastActivity: "2026-07-19T09:00:00Z" },
+      }),
+      session({
+        sessionId: "newer",
+        metadata: { lastActivity: "2026-07-18T09:00:00Z" },
+      }),
+    ],
+    "gpt-test",
+  );
+
+  expect(rows.map((row) => row.session.sessionId)).toEqual(["newer", "older"]);
+  expect(rows[0]?.tokens).toBe(35);
+  expect(rows[0]?.cost).toBeCloseTo(0.02);
+});
+
+test("projectModelSessionRows counts only the model's share of a mixed session", () => {
+  const [row] = projectModelSessionRows(
+    [
+      session({
+        sessionId: "mixed",
+        totalTokens: 135,
+        totalCost: 0.52,
+        modelsUsed: ["gpt-test", "gpt-second"],
+        modelBreakdowns: [
+          {
+            modelName: "gpt-test",
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 20,
+            cacheCreationTokens: 0,
+            cost: 0.02,
+          },
+          {
+            modelName: "gpt-second",
+            inputTokens: 60,
+            outputTokens: 40,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            cost: 0.5,
+          },
+        ],
+      }),
+    ],
+    "gpt-second",
+  );
+
+  expect(row?.tokens).toBe(100);
+  expect(row?.cost).toBeCloseTo(0.5);
+});
+
+test("sessionRangeLabel collapses a single-day range and reports empty sets", () => {
+  const rows = projectModelSessionRows(
+    [
+      session({ sessionId: "a", period: "2026-07-16" }),
+      session({ sessionId: "b", period: "2026-07-18" }),
+    ],
+    "gpt-test",
+  );
+
+  expect(sessionRangeLabel(rows)).toBe("Jul 16, 2026 — Jul 18, 2026");
+  expect(sessionRangeLabel(rows.slice(0, 1))).toBe("Jul 18, 2026");
+  expect(sessionRangeLabel([])).toBe("No dated sessions");
 });

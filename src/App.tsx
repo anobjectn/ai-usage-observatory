@@ -5124,6 +5124,303 @@ function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
   );
 }
 
+export type ProjectModelSessionRow = {
+  session: Session;
+  /** Best available instant for the session: its last activity, else its period day. */
+  timestamp: string;
+  tokens: number;
+  cost: number;
+};
+
+/** Sessions of one project that touched one model, newest first. Tokens and cost are that
+ * model's share of the session, so a mixed-model session is not counted at its full weight. */
+export function projectModelSessionRows(
+  sessions: Session[],
+  modelName: string,
+): ProjectModelSessionRow[] {
+  return sessions
+    .filter((session) => sessionModelNames(session).includes(modelName))
+    .map((session) => {
+      const breakdowns = session.modelBreakdowns.filter(
+        (model) => model.modelName === modelName,
+      );
+      return {
+        session,
+        timestamp: String(session.metadata?.lastActivity ?? session.period),
+        tokens: breakdowns.length
+          ? breakdowns.reduce(
+              (sum, model) =>
+                sum +
+                model.inputTokens +
+                model.outputTokens +
+                model.cacheReadTokens +
+                model.cacheCreationTokens,
+              0,
+            )
+          : session.totalTokens,
+        cost: breakdowns.length
+          ? breakdowns.reduce((sum, model) => sum + model.cost, 0)
+          : session.totalCost,
+      };
+    })
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+}
+
+/** Date-only periods have no time zone, so they are read at midday to keep the calendar day. */
+function sessionStampDate(value: string) {
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
+}
+
+function formatSessionDay(value: string) {
+  const date = sessionStampDate(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+}
+
+function formatSessionStamp(value: string) {
+  const date = sessionStampDate(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? formatSessionDay(value)
+    : date.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+}
+
+/** Oldest — newest, collapsed to a single date when the whole set lands on one day. */
+export function sessionRangeLabel(rows: ProjectModelSessionRow[]) {
+  if (!rows.length) return "No dated sessions";
+  const newest = formatSessionDay(rows[0]!.timestamp);
+  const oldest = formatSessionDay(rows.at(-1)!.timestamp);
+  return oldest === newest ? oldest : `${oldest} — ${newest}`;
+}
+
+const MODEL_SESSION_PAGE_SIZE = 6;
+
+/** Per-model link in the project model mix that opens a paged, project + model scoped
+ * session list. The card is portalled and fixed-positioned because the model list scrolls. */
+function ProjectModelSessions({
+  projectName,
+  modelName,
+  color,
+  rows,
+  onOpenSession,
+}: {
+  projectName: string;
+  modelName: string;
+  color: string;
+  rows: ProjectModelSessionRow[];
+  onOpenSession: (sessionId: string) => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+  const labelId = useId();
+  const pages = Math.max(1, Math.ceil(rows.length / MODEL_SESSION_PAGE_SIZE));
+  const safePage = Math.min(page, pages - 1);
+  const visible = rows.slice(
+    safePage * MODEL_SESSION_PAGE_SIZE,
+    safePage * MODEL_SESSION_PAGE_SIZE + MODEL_SESSION_PAGE_SIZE,
+  );
+  const close = useCallback(() => {
+    setOpen(false);
+    setPosition(null);
+  }, []);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const trigger = triggerRef.current;
+      const card = cardRef.current;
+      if (!trigger || !card) return;
+      const anchor = trigger.getBoundingClientRect();
+      const bounds = card.getBoundingClientRect();
+      const gap = 8;
+      const edge = 12;
+      const below = anchor.bottom + gap;
+      const top =
+        below + bounds.height > window.innerHeight - edge
+          ? Math.max(edge, anchor.top - gap - bounds.height)
+          : below;
+      const left = Math.min(
+        Math.max(edge, anchor.left),
+        Math.max(edge, window.innerWidth - edge - bounds.width),
+      );
+      setPosition((current) =>
+        current && current.top === top && current.left === left
+          ? current
+          : { top, left },
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, safePage]);
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      close();
+      triggerRef.current?.focus();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (cardRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [open, close]);
+  const scopeLabel = `${friendlyProject(projectName)} · ${modelName}`;
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`project-model-sessions__trigger${open ? " is-open" : ""}`}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        disabled={!rows.length}
+        title={
+          rows.length
+            ? `Show sessions for ${scopeLabel}`
+            : `No indexed sessions for ${scopeLabel}`
+        }
+        aria-label={`${rows.length} ${rows.length === 1 ? "session" : "sessions"} for ${scopeLabel}`}
+        onClick={() => {
+          setPage(0);
+          setOpen((current) => !current);
+          setPosition(null);
+        }}
+      >
+        <FileText aria-hidden="true" />
+        <span>
+          {rows.length} {rows.length === 1 ? "session" : "sessions"}
+        </span>
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={cardRef}
+            className="model-sessions-card"
+            role="dialog"
+            aria-labelledby={labelId}
+            style={{
+              top: position?.top ?? 0,
+              left: position?.left ?? 0,
+              visibility: position ? undefined : "hidden",
+            }}
+          >
+            <div className="model-sessions-card__head">
+              <div>
+                <span className="overline">SESSIONS · PROJECT × MODEL</span>
+                <strong id={labelId}>
+                  <i style={{ background: color }} />
+                  {scopeLabel}
+                </strong>
+              </div>
+              <button
+                type="button"
+                className="model-sessions-card__close"
+                aria-label="Close session list"
+                onClick={() => {
+                  close();
+                  triggerRef.current?.focus();
+                }}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+            <p className="model-sessions-card__range">
+              <b>
+                {rows.length} {rows.length === 1 ? "session" : "sessions"}
+              </b>
+              <span>{sessionRangeLabel(rows)}</span>
+            </p>
+            <ol className="model-sessions-card__list">
+              {visible.map(({ session, timestamp, tokens, cost }) => (
+                <li key={session.sessionId}>
+                  <div className="model-sessions-card__when">
+                    <span className={`agent-pill ${session.agent}`}>
+                      {session.agent}
+                    </span>
+                    <b>{formatSessionStamp(timestamp)}</b>
+                  </div>
+                  <div className="model-sessions-card__stats">
+                    <b>{formatCompact(tokens)}</b>
+                    <em>{formatMoney(cost)}</em>
+                  </div>
+                  <a
+                    href={sessionHref(session.sessionId)}
+                    onClick={(event) => {
+                      if (
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey
+                      )
+                        return;
+                      event.preventDefault();
+                      close();
+                      onOpenSession(session.sessionId);
+                    }}
+                  >
+                    Open <ArrowUpRight aria-hidden="true" />
+                  </a>
+                </li>
+              ))}
+            </ol>
+            {pages > 1 && (
+              <div className="model-sessions-card__pager">
+                <button
+                  type="button"
+                  aria-label="Previous page of sessions"
+                  disabled={safePage === 0}
+                  onClick={() => setPage(Math.max(0, safePage - 1))}
+                >
+                  <ChevronLeft aria-hidden="true" />
+                </button>
+                <span aria-live="polite">
+                  Page {safePage + 1} of {pages}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Next page of sessions"
+                  disabled={safePage >= pages - 1}
+                  onClick={() => setPage(Math.min(pages - 1, safePage + 1))}
+                >
+                  <ChevronRight aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function ProjectDetails({
   project,
   activity,
@@ -5495,12 +5792,21 @@ function ProjectDetails({
                     }}
                   />
                 </div>
-                <small>
-                  {project.tokens
-                    ? Math.round((model.tokens / project.tokens) * 100)
-                    : 0}
-                  % of tokens
-                </small>
+                <div className="project-model-foot">
+                  <ProjectModelSessions
+                    projectName={project.name}
+                    modelName={model.name}
+                    color={palette[model.colorIndex % palette.length] ?? "var(--accent)"}
+                    rows={projectModelSessionRows(sessions, model.name)}
+                    onOpenSession={onOpenSession}
+                  />
+                  <small>
+                    {project.tokens
+                      ? Math.round((model.tokens / project.tokens) * 100)
+                      : 0}
+                    % of tokens
+                  </small>
+                </div>
               </div>
             ))}
           </div>
