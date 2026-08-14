@@ -210,6 +210,7 @@ const accentStorageKey = "usage-observatory:accent";
 const providerColorsStorageKey = "usage-observatory:provider-colors";
 const favoriteAccentsStorageKey = "usage-observatory:favorite-accents";
 const dataTextScaleStorageKey = "usage-observatory:data-text-scale";
+const sidebarCollapsedStorageKey = "usage-observatory:sidebar-collapsed";
 const defaultDataTextScale = 125;
 
 function faviconHref(accent: string) {
@@ -276,6 +277,14 @@ function savedDataTextScale() {
       : defaultDataTextScale;
   } catch {
     return defaultDataTextScale;
+  }
+}
+
+function savedSidebarCollapsed() {
+  try {
+    return localStorage.getItem(sidebarCollapsedStorageKey) === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -7577,7 +7586,8 @@ export function App() {
   const [pathTag, setPathTag] = useState("all");
   const [metric, setMetric] = useState<Metric>("totalTokens");
   const [sidebar, setSidebar] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(savedSidebarCollapsed);
+  const sidebarHoverTimeout = useRef<number | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [rules, setRules] = useState(false);
   const [appearance, setAppearance] = useState(false);
@@ -7591,6 +7601,27 @@ export function App() {
   const [sceneEffects, setSceneEffects] =
     useState<SceneEffects>(savedSceneEffects);
   const reducedMotion = usePrefersReducedMotion();
+  const cancelSidebarHover = useCallback(() => {
+    if (sidebarHoverTimeout.current === null) return;
+    window.clearTimeout(sidebarHoverTimeout.current);
+    sidebarHoverTimeout.current = null;
+  }, []);
+  const beginSidebarHover = useCallback(() => {
+    if (!sidebarCollapsed || sidebarHoverTimeout.current !== null) return;
+    sidebarHoverTimeout.current = window.setTimeout(() => {
+      sidebarHoverTimeout.current = null;
+      setSidebarCollapsed(false);
+    }, 560);
+  }, [sidebarCollapsed]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(sidebarCollapsedStorageKey, String(sidebarCollapsed));
+    } catch {}
+  }, [sidebarCollapsed]);
+  useEffect(() => {
+    if (!sidebarCollapsed) cancelSidebarHover();
+  }, [cancelSidebarHover, sidebarCollapsed]);
+  useEffect(() => cancelSidebarHover, [cancelSidebarHover]);
   useEffect(() => {
     document.documentElement.style.setProperty("--accent", accent);
     const favicon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
@@ -7851,7 +7882,10 @@ export function App() {
           <a
             className={`brand-home${view === "overview" ? " active" : ""}`}
             href={viewHref("overview")}
+            onMouseEnter={beginSidebarHover}
+            onMouseLeave={cancelSidebarHover}
             onClick={(event) => {
+              cancelSidebarHover();
               event.preventDefault();
               navigateToView("overview");
             }}
@@ -7876,13 +7910,18 @@ export function App() {
         </div>
         <button
           className="sidebar-toggle"
-          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          onMouseEnter={beginSidebarHover}
+          onMouseLeave={cancelSidebarHover}
+          onClick={() => {
+            cancelSidebarHover();
+            setSidebarCollapsed((collapsed) => !collapsed);
+          }}
           aria-label={
             sidebarCollapsed ? "Expand navigation" : "Collapse navigation"
           }
           aria-expanded={!sidebarCollapsed}
         >
-          {sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}
+          <ChevronLeft className={sidebarCollapsed ? "is-collapsed" : undefined} />
         </button>
         <nav>
           {nav.map((item) => (
