@@ -152,6 +152,9 @@ export function tooltipHoldReducer(
 export type ChartPinDescriptor = {
   id: string;
   ariaLabel: string;
+  contextLabel?: string;
+  contextDescription?: string;
+  contextPlacement?: "header" | "inline";
   className?: string;
   content: ReactNode;
 };

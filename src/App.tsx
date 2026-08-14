@@ -166,6 +166,7 @@ import { UsageIntelligence } from "./views/data/intelligence";
 import type { DataFacets } from "./views/data/insights";
 import {
   ChartPinProvider,
+  ChartTooltipContext,
   PinnableChartTooltip,
   useChartTooltipHold,
 } from "./components/chart-pins";
@@ -825,6 +826,8 @@ function ModelSignalTooltip({
     <PinnableChartTooltip
       id={`${pinSource}:${row.provider ?? "unknown"}:${row.rawName}:${snapshotMetric}`}
       ariaLabel={`${row.rawName} model details`}
+      contextLabel="Model usage"
+      contextDescription="Model tokens or estimated API cost, with recorded reasoning effort when available."
       className="model-signal-tooltip"
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
@@ -1009,6 +1012,9 @@ function ProviderChartTooltip({
     <PinnableChartTooltip
       id={`${pinSource}:${timelineRow?.period ?? timelineRow?.hour ?? String(snapshotLabel)}`}
       ariaLabel={`activity details for ${tooltipLabel}`}
+      contextLabel="Activity"
+      contextDescription="Tokens and API cost grouped by provider, model, and project for this point in time."
+      contextPlacement="inline"
       className="provider-tooltip"
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
@@ -1017,7 +1023,14 @@ function ProviderChartTooltip({
       pinInteractionProps={hold.pinInteractionProps}
     >
       <div className="tooltip-columns">
-        <span>{tooltipLabel}</span>
+        <div className="tooltip-columns__date">
+          <span className="tooltip-date-label">{tooltipLabel}</span>
+          <ChartTooltipContext
+            label="Activity"
+            description="Tokens and API cost grouped by provider, model, and project for this point in time."
+            className="chart-tooltip__context--inline"
+          />
+        </div>
         <small>Tokens</small>
         <small>API $</small>
       </div>
@@ -3227,6 +3240,9 @@ function EffortDayTooltip({
     <PinnableChartTooltip
       id={`${pinSource}:${point.date}:${basis}`}
       ariaLabel={`effort details for ${dateLabel}`}
+      contextLabel="Reasoning effort"
+      contextDescription="Provider-recorded reasoning effort for this day, with usage context below when available."
+      contextPlacement="inline"
       className="provider-tooltip effort-day-tooltip"
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
@@ -3235,7 +3251,12 @@ function EffortDayTooltip({
       pinInteractionProps={hold.pinInteractionProps}
     >
       <div className="tooltip-effort-head">
-        <b>{dateLabel}</b>
+        <span className="tooltip-date-label">{dateLabel}</span>
+        <ChartTooltipContext
+          label="Reasoning effort"
+          description="Provider-recorded reasoning effort for this day, with usage context below when available."
+          className="chart-tooltip__context--inline"
+        />
         <small>
           {providerLabel} · {coverage}
         </small>
@@ -5022,6 +5043,9 @@ function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
     <PinnableChartTooltip
       id={`${pinSource}:${row.date}`}
       ariaLabel={`project activity details for ${dateLabel}`}
+      contextLabel="Project usage"
+      contextDescription="Project tokens and estimated API cost, grouped by provider and model."
+      contextPlacement="inline"
       className="provider-tooltip"
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
@@ -5030,7 +5054,14 @@ function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
       pinInteractionProps={hold.pinInteractionProps}
     >
       <div className="tooltip-columns">
-        <span>{dateLabel}</span>
+        <div className="tooltip-columns__date">
+          <span className="tooltip-date-label">{dateLabel}</span>
+          <ChartTooltipContext
+            label="Project usage"
+            description="Project tokens and estimated API cost, grouped by provider and model."
+            className="chart-tooltip__context--inline"
+          />
+        </div>
         <small>Tokens</small>
         <small>API $</small>
       </div>

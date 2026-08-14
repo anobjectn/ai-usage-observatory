@@ -18,7 +18,7 @@ import {
   type Ref,
 } from "react";
 import { createPortal } from "react-dom";
-import { Pin } from "lucide-react";
+import { Info, Pin, X } from "lucide-react";
 import {
   createTooltipHoldState,
   chartPinsReducer,
@@ -542,6 +542,9 @@ function PinDragHandle({
 }
 
 type PinnableChartTooltipProps = Omit<ChartPinDescriptor, "content"> & {
+  contextLabel: string;
+  contextDescription: string;
+  contextPlacement?: "header" | "inline";
   forwardedRef?: Ref<HTMLDivElement>;
   interactionRef?: Ref<HTMLDivElement>;
   retained?: boolean;
@@ -553,6 +556,9 @@ type PinnableChartTooltipProps = Omit<ChartPinDescriptor, "content"> & {
 export function PinnableChartTooltip({
   id,
   ariaLabel,
+  contextLabel,
+  contextDescription,
+  contextPlacement = "header",
   className = "",
   children,
   forwardedRef,
@@ -564,8 +570,24 @@ export function PinnableChartTooltip({
   const localRef = useRef<HTMLDivElement>(null);
   const { pins } = useChartPins();
   const descriptor = useMemo(
-    () => ({ id, ariaLabel, className, content: children }),
-    [id, ariaLabel, className, children],
+    () => ({
+      id,
+      ariaLabel,
+      contextLabel,
+      contextDescription,
+      contextPlacement,
+      className,
+      content: children,
+    }),
+    [
+      id,
+      ariaLabel,
+      contextLabel,
+      contextDescription,
+      contextPlacement,
+      className,
+      children,
+    ],
   );
   // Recharts renders this card inside the chart, and its accessibility layer
   // reads any focus that reaches the chart as the start of keyboard navigation,
@@ -603,8 +625,247 @@ export function PinnableChartTooltip({
         cardRef={localRef}
         interactionProps={pinInteractionProps}
       />
+      {contextPlacement === "header" && (
+        <ChartTooltipContext
+          label={contextLabel}
+          description={contextDescription}
+        />
+      )}
       <div className="chart-tooltip__body">{children}</div>
     </div>
+  );
+}
+
+export function ChartTooltipContext({
+  label,
+  description,
+  className = "",
+}: {
+  label?: string;
+  description?: string;
+  className?: string;
+}) {
+  const descriptionId = useId();
+  const infoRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverPosition, setPopoverPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "right" | "left" | "bottom" | "top";
+  } | null>(null);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const pointerActiveRef = useRef(false);
+  const keyboardFocusRef = useRef(false);
+  const pointerDismissTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (pointerDismissTimerRef.current !== null) {
+        window.clearTimeout(pointerDismissTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (!popoverOpen || !description) return;
+    const updatePosition = () => {
+      const info = infoRef.current;
+      const popover = popoverRef.current;
+      if (!info || !popover) return;
+
+      const anchor = info.getBoundingClientRect();
+      const popoverBounds = popover.getBoundingClientRect();
+      const edgePadding = 12;
+      const gap = 10;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const clamp = (value: number, min: number, max: number) =>
+        Math.min(Math.max(value, min), Math.max(min, max));
+      const canPlaceRight =
+        anchor.right + gap + popoverBounds.width <= viewportWidth - edgePadding;
+      const canPlaceLeft =
+        anchor.left - gap - popoverBounds.width >= edgePadding;
+
+      let left: number;
+      let top: number;
+      let placement: "right" | "left" | "bottom" | "top";
+      if (canPlaceRight) {
+        left = anchor.right + gap;
+        top = anchor.top + (anchor.height - popoverBounds.height) / 2;
+        placement = "right";
+      } else if (canPlaceLeft) {
+        left = anchor.left - gap - popoverBounds.width;
+        top = anchor.top + (anchor.height - popoverBounds.height) / 2;
+        placement = "left";
+      } else {
+        left = anchor.left + (anchor.width - popoverBounds.width) / 2;
+        const belowTop = anchor.bottom + gap;
+        const aboveTop = anchor.top - gap - popoverBounds.height;
+        if (belowTop + popoverBounds.height <= viewportHeight - edgePadding) {
+          top = belowTop;
+          placement = "bottom";
+        } else {
+          top = aboveTop;
+          placement = "top";
+        }
+      }
+
+      setPopoverPosition((previous) => {
+        const next = {
+          left: clamp(
+            left,
+            edgePadding,
+            viewportWidth - edgePadding - popoverBounds.width,
+          ),
+          top: clamp(
+            top,
+            edgePadding,
+            viewportHeight - edgePadding - popoverBounds.height,
+          ),
+          placement,
+        };
+        return previous &&
+          previous.left === next.left &&
+          previous.top === next.top &&
+          previous.placement === next.placement
+          ? previous
+          : next;
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("pointermove", updatePosition);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("pointermove", updatePosition);
+    };
+  }, [description, popoverOpen]);
+
+  if (!label) return null;
+  const cancelPointerDismiss = () => {
+    if (pointerDismissTimerRef.current === null) return;
+    window.clearTimeout(pointerDismissTimerRef.current);
+    pointerDismissTimerRef.current = null;
+  };
+  const showPopover = () => setPopoverOpen(true);
+  const hidePopover = () => {
+    cancelPointerDismiss();
+    setPopoverOpen(false);
+    setPopoverPosition(null);
+  };
+  const schedulePointerDismiss = () => {
+    cancelPointerDismiss();
+    pointerDismissTimerRef.current = window.setTimeout(() => {
+      pointerDismissTimerRef.current = null;
+      if (!pointerActiveRef.current && !keyboardFocusRef.current) {
+        hidePopover();
+      }
+    }, 180);
+  };
+  const showForPointer = () => {
+    cancelPointerDismiss();
+    pointerActiveRef.current = true;
+    showPopover();
+  };
+  const hideForPointer = () => {
+    pointerActiveRef.current = false;
+    if (!keyboardFocusRef.current) schedulePointerDismiss();
+  };
+  const showForKeyboard = () => {
+    if (!pointerActiveRef.current) keyboardFocusRef.current = true;
+    showPopover();
+  };
+  const hideForKeyboard = () => {
+    keyboardFocusRef.current = false;
+    if (!pointerActiveRef.current) schedulePointerDismiss();
+  };
+  const closeFromControl = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    pointerActiveRef.current = false;
+    keyboardFocusRef.current = false;
+    event.currentTarget.blur();
+    hidePopover();
+  };
+  const stopPopoverPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+  };
+  const showForPopoverFocus = () => {
+    cancelPointerDismiss();
+    keyboardFocusRef.current = true;
+    showPopover();
+  };
+  const hideForPopoverFocus = (event: ReactFocusEvent<HTMLDivElement>) => {
+    const related = event.relatedTarget;
+    if (!(related instanceof Node) || !event.currentTarget.contains(related)) {
+      keyboardFocusRef.current = false;
+      if (!pointerActiveRef.current) schedulePointerDismiss();
+    }
+  };
+  return (
+    <>
+      <span className={`chart-tooltip__context ${className}`.trim()}>
+        <span className="chart-tooltip__context-label">{label}</span>
+        {description && (
+          <button
+            ref={infoRef}
+            type="button"
+            className="chart-tooltip__info"
+            aria-label={`About ${label}`}
+            aria-describedby={descriptionId}
+            onPointerEnter={showForPointer}
+            onPointerLeave={hideForPointer}
+            onPointerCancel={hideForPointer}
+            onFocus={showForKeyboard}
+            onBlur={hideForKeyboard}
+            onPointerDown={(event) => {
+              cancelPointerDismiss();
+              pointerActiveRef.current = true;
+              event.stopPropagation();
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Info aria-hidden="true" />
+          </button>
+        )}
+      </span>
+      {description && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className={`chart-tooltip__context-popover${popoverPosition ? " is-visible" : ""}`}
+              data-placement={popoverPosition?.placement ?? "right"}
+              role="dialog"
+              aria-label={`About ${label}`}
+              onPointerEnter={showForPointer}
+              onPointerLeave={hideForPointer}
+              onPointerDown={stopPopoverPointerDown}
+              onFocus={showForPopoverFocus}
+              onBlur={hideForPopoverFocus}
+              style={{
+                left: popoverPosition?.left ?? 0,
+                top: popoverPosition?.top ?? 0,
+                visibility: popoverPosition ? "visible" : "hidden",
+              }}
+            >
+              <span id={descriptionId}>{description}</span>
+              <button
+                type="button"
+                className="chart-tooltip__context-close"
+                aria-label={`Close ${label} description`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={closeFromControl}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -630,6 +891,9 @@ function PinnedTooltipCard({
     () => ({
       id: item.id,
       ariaLabel: item.ariaLabel,
+      contextLabel: item.contextLabel,
+      contextDescription: item.contextDescription,
+      contextPlacement: item.contextPlacement,
       className: item.className,
       content: item.content,
     }),
@@ -653,6 +917,12 @@ function PinnedTooltipCard({
       onFocusCapture={() => raise(item.id)}
     >
       <PinDragHandle descriptor={descriptor} cardRef={cardRef} />
+      {item.contextPlacement !== "inline" && (
+        <ChartTooltipContext
+          label={item.contextLabel}
+          description={item.contextDescription}
+        />
+      )}
       <div className="chart-tooltip__body">{item.content}</div>
     </div>
   );
