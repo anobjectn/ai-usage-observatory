@@ -342,6 +342,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.11.2]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.1...v1.11.2
 [1.11.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.10.0...v1.10.1
