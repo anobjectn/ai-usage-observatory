@@ -5,6 +5,17 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-08-14
+
+### Added
+
+- Add a per-model session control to the Projects view model mix. Each model in
+  "Usage by model" opens a labeled card listing the sessions for that project and
+  model, with the date range they span, the model's share of each session's tokens
+  and API-equivalent cost, and a link to open the session.
+- Page the project-and-model session list six sessions at a time, and dismiss the
+  card with Escape, its close control, or a click outside it.
+
 ## [1.11.2] - 2026-08-14
 
 ### Added
@@ -342,6 +353,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.12.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.2...v1.12.0
 [1.11.2]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.1...v1.11.2
 [1.11.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.10.1...v1.11.0

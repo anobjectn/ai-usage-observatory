@@ -1,6 +1,6 @@
 # AI Usage Observatory
 
-![Version](https://img.shields.io/badge/version-1.11.2-0f766e)
+![Version](https://img.shields.io/badge/version-1.12.0-0f766e)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%201.3%2B-fbf0df?logo=bun&logoColor=black)
 ![Language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Privacy](https://img.shields.io/badge/privacy-local--first%20%26%20no%20telemetry-0f766e)
