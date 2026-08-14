@@ -261,6 +261,25 @@ test("explicit dismissal clears inactive retained state", () => {
   expect(isChartTooltipShown(dismissed, 1)).toBe(false);
 });
 
+test("superseded tooltips hide even if Recharts still reports them active", () => {
+  const active = createTooltipHoldState(true);
+  const superseded = tooltipHoldReducer(active, { type: "supersede" });
+
+  expect(superseded.rechartsActive).toBe(true);
+  expect(superseded.superseded).toBe(true);
+  expect(isChartTooltipShown(superseded, 0)).toBe(false);
+});
+
+test("a new live point restores a superseded tooltip", () => {
+  const superseded = tooltipHoldReducer(createTooltipHoldState(true), {
+    type: "supersede",
+  });
+  const restored = tooltipHoldReducer(superseded, { type: "restore" });
+
+  expect(restored.superseded).toBe(false);
+  expect(isChartTooltipShown(restored, 0)).toBe(true);
+});
+
 test("dismissal releases every hold but keeps the live Recharts state", () => {
   const held = tooltipHoldReducer(
     tooltipHoldReducer(createTooltipHoldState(true), {

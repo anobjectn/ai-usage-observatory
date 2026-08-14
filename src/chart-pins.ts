@@ -20,6 +20,7 @@ export function chartTooltipDateLabel(value: string) {
 
 export type TooltipHoldState = {
   rechartsActive: boolean;
+  superseded: boolean;
   cardPointer: boolean;
   focusWithin: boolean;
   pinPointer: boolean;
@@ -34,6 +35,8 @@ export type TooltipHoldAction =
   | { type: "pin-pointer"; inside: boolean; now: number }
   | { type: "pin-focus"; inside: boolean; now: number }
   | { type: "timer"; now: number }
+  | { type: "supersede" }
+  | { type: "restore" }
   | { type: "dismiss" };
 
 export function createTooltipHoldState(
@@ -41,6 +44,7 @@ export function createTooltipHoldState(
 ): TooltipHoldState {
   return {
     rechartsActive,
+    superseded: false,
     cardPointer: false,
     focusWithin: false,
     pinPointer: false,
@@ -64,9 +68,10 @@ export function isChartTooltipFrozen(state: TooltipHoldState) {
 
 export function isChartTooltipShown(state: TooltipHoldState, now: number) {
   return (
-    state.rechartsActive ||
-    isChartTooltipHeld(state) ||
-    (state.deadline !== null && now < state.deadline)
+    !state.superseded &&
+    (state.rechartsActive ||
+      isChartTooltipHeld(state) ||
+      (state.deadline !== null && now < state.deadline))
   );
 }
 
@@ -102,7 +107,12 @@ export function tooltipHoldReducer(
   if (action.type === "recharts") {
     if (action.active === state.rechartsActive) return state;
     if (action.active)
-      return { ...state, rechartsActive: true, deadline: null };
+      return {
+        ...state,
+        rechartsActive: true,
+        superseded: false,
+        deadline: null,
+      };
     const next = { ...state, rechartsActive: false };
     return {
       ...next,
@@ -129,6 +139,13 @@ export function tooltipHoldReducer(
       return state;
     return { ...state, deadline: null };
   }
+  if (action.type === "supersede")
+    return {
+      ...createTooltipHoldState(state.rechartsActive),
+      superseded: true,
+    };
+  if (action.type === "restore")
+    return state.superseded ? { ...state, superseded: false } : state;
   return createTooltipHoldState(state.rechartsActive);
 }
 

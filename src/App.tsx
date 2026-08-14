@@ -806,8 +806,13 @@ function ModelSignalTooltip({
 }) {
   const pinSource = useId();
   const liveRow = payload?.[0]?.payload;
+  const claimKey =
+    active && liveRow
+      ? `${liveRow.provider ?? "unknown"}:${liveRow.rawName}:${metric}`
+      : null;
   const hold = useChartTooltipHold(
     active && liveRow ? { row: liveRow, coordinate, metric } : null,
+    claimKey,
   );
   const tooltipRef = useClampedTooltip(
     Boolean(hold.snapshot),
@@ -973,8 +978,14 @@ function ProviderChartTooltip({
   coordinate,
 }: ChartTooltipProps) {
   const pinSource = useId();
+  const liveRow = payload?.[0]?.payload as TimelineTooltipRow | undefined;
+  const claimKey =
+    active && payload?.length
+      ? (liveRow?.period ?? liveRow?.hour ?? String(label))
+      : null;
   const hold = useChartTooltipHold(
     active && payload?.length ? { payload, label, coordinate } : null,
+    claimKey,
   );
   const tooltipRef = useClampedTooltip(
     Boolean(hold.snapshot),
@@ -3194,8 +3205,10 @@ function EffortDayTooltip({
 }) {
   const pinSource = useId();
   const livePoint = payload?.[0]?.payload.__point;
+  const claimKey = active && livePoint ? `${livePoint.date}:${basis}` : null;
   const hold = useChartTooltipHold(
     active && livePoint ? { point: livePoint, label, coordinate } : null,
+    claimKey,
   );
   const tooltipRef = useClampedTooltip(
     Boolean(hold.snapshot),
@@ -4996,6 +5009,7 @@ function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
     | undefined;
   const hold = useChartTooltipHold(
     active && liveRow ? { row: liveRow, coordinate } : null,
+    active && liveRow ? liveRow.date : null,
   );
   const tooltipRef = useClampedTooltip(
     Boolean(hold.snapshot),

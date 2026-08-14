@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -45,6 +46,8 @@ type ChartPinContextValue = {
     pointer: { id: number; x: number; y: number },
     wasPinned: boolean,
   ) => void;
+  claimTransient: (id: string, dismiss: () => void) => void;
+  releaseTransient: (id: string) => void;
 };
 
 const ChartPinContext = createContext<ChartPinContextValue | null>(null);
@@ -60,6 +63,9 @@ export function ChartPinProvider({ children }: { children: ReactNode }) {
   const [pins, setPins] = useState<ChartPinItem[]>([]);
   const pinsRef = useRef(pins);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const transientRef = useRef<{ id: string; dismiss: () => void } | null>(
+    null,
+  );
   pinsRef.current = pins;
   const dispatch = useCallback((action: ChartPinAction) => {
     setPins((current) => chartPinsReducer(current, action));
@@ -184,6 +190,14 @@ export function ChartPinProvider({ children }: { children: ReactNode }) {
     },
     [add, dispatch, raise, remove],
   );
+  const claimTransient = useCallback((id: string, dismiss: () => void) => {
+    const current = transientRef.current;
+    if (current?.id !== id) current?.dismiss();
+    transientRef.current = { id, dismiss };
+  }, []);
+  const releaseTransient = useCallback((id: string) => {
+    if (transientRef.current?.id === id) transientRef.current = null;
+  }, []);
 
   useEffect(() => {
     const clamp = () => {
@@ -200,8 +214,28 @@ export function ChartPinProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => dragCleanupRef.current?.(), []);
 
   const value = useMemo(
-    () => ({ pins, add, remove, move, raise, measure, beginDrag }),
-    [pins, add, remove, move, raise, measure, beginDrag],
+    () => ({
+      pins,
+      add,
+      remove,
+      move,
+      raise,
+      measure,
+      beginDrag,
+      claimTransient,
+      releaseTransient,
+    }),
+    [
+      pins,
+      add,
+      remove,
+      move,
+      raise,
+      measure,
+      beginDrag,
+      claimTransient,
+      releaseTransient,
+    ],
   );
   return (
     <ChartPinContext.Provider value={value}>
@@ -254,8 +288,13 @@ function isKeyboardFocus(element: HTMLElement) {
   }
 }
 
-export function useChartTooltipHold<T>(current: T | null) {
+export function useChartTooltipHold<T>(
+  current: T | null,
+  claimKey: string | null,
+) {
   const live = current !== null;
+  const transientId = useId();
+  const { claimTransient, releaseTransient } = useChartPins();
   const [state, dispatch] = useReducer(
     tooltipHoldReducer,
     live,
@@ -282,7 +321,34 @@ export function useChartTooltipHold<T>(current: T | null) {
       snapshotRef.current !== null,
       renderNow,
     );
-  const snapshot = live || retained ? snapshotRef.current : null;
+  const snapshot =
+    !renderState.superseded && (live || retained)
+      ? snapshotRef.current
+      : null;
+
+  const dismissForSupersede = useCallback(() => {
+    const card = cardRef.current;
+    const focused =
+      typeof document !== "undefined" ? document.activeElement : null;
+    if (card && focused instanceof Node && card.contains(focused)) return;
+    dispatch({ type: "supersede" });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!live || claimKey === null) return;
+    claimTransient(transientId, dismissForSupersede);
+    dispatch({ type: "restore" });
+  }, [claimKey, claimTransient, dismissForSupersede, live, transientId]);
+
+  useEffect(() => {
+    if (snapshot !== null) return;
+    releaseTransient(transientId);
+  }, [releaseTransient, snapshot, transientId]);
+
+  useEffect(
+    () => () => releaseTransient(transientId),
+    [releaseTransient, transientId],
+  );
 
   useLayoutEffect(() => {
     dispatch({ type: "recharts", active: live, now: tooltipNow() });
@@ -307,11 +373,33 @@ export function useChartTooltipHold<T>(current: T | null) {
       if (!(target instanceof Node) || !cardRef.current?.contains(target))
         dispatch({ type: "dismiss" });
     };
+    const releasePointerHolds = () => {
+      const now = tooltipNow();
+      dispatch({ type: "pin-pointer", inside: false, now });
+      dispatch({ type: "card-pointer", inside: false, now });
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      const card = cardRef.current;
+      if (!card || event.composedPath().includes(card)) return;
+      releasePointerHolds();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden")
+        dispatch({ type: "dismiss" });
+    };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointercancel", releasePointerHolds, true);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("blur", releasePointerHolds);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.removeEventListener("pointercancel", releasePointerHolds, true);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", releasePointerHolds);
     };
   }, [retained]);
 
