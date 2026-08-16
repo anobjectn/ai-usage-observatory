@@ -35,6 +35,7 @@ import {
   buildComboDaySeries,
   comboKey,
   comboLabel,
+  comboOf,
   comboSeriesColor,
   comboSeriesLabel,
   parseComboFacet,
@@ -2589,8 +2590,8 @@ function Overview({
     globalEffortScope(agent, dateRange, pathTag),
   );
   const digestRequest = useEffortSessions({});
-  // The aggregate stack answers "how much effort"; the pills below it answer "recorded by which
-  // model", which is the only form in which an effort value is comparable.
+  // Combos are the primary reading: an effort value is only comparable beside the model that
+  // recorded it. The aggregate stack remains useful as secondary context.
   const comboDaysRequest = useEffortComboDays(
     globalEffortScope(agent, dateRange, pathTag),
   );
@@ -2921,39 +2922,6 @@ function Overview({
             </div>
             <Gauge aria-hidden="true" />
           </div>
-          <EffortState status={effort?.status ?? null} summary={effort?.total}>
-            {effort?.total && (
-              <div className="effort-provider-bars">
-                {/* Combined first, then one bar per provider, so a mix that reads as balanced
-                 * overall can still be seen to come from two different distributions. */}
-                <div className="effort-provider-bar">
-                  <div>
-                    <h3>All providers</h3>
-                    <EffortBadge summary={effort.total} />
-                  </div>
-                  <EffortStack summary={effort.total} height={12} />
-                  <EffortCoverage
-                    summary={effort.total}
-                    indexing={effort.status.phase === "indexing"}
-                  />
-                </div>
-                {effort.rows.map((row) => (
-                  <div className="effort-provider-bar" key={row.key}>
-                    <div>
-                      <h3>{row.label}</h3>
-                      <EffortBadge summary={row.summary} />
-                    </div>
-                    <EffortStack
-                      summary={row.summary}
-                      height={10}
-                      showLegend={false}
-                    />
-                    <EffortCoverage summary={row.summary} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </EffortState>
           {topCombos.length > 0 && (
             <div className="effort-panel__combos">
               <span className="overline">TOP MODEL × EFFORT</span>
@@ -2968,6 +2936,42 @@ function Overview({
               </div>
             </div>
           )}
+          <EffortState status={effort?.status ?? null} summary={effort?.total}>
+            {effort?.total && (
+              <div className="effort-panel__aggregate">
+                <span className="overline">AGGREGATE EFFORT</span>
+                <div className="effort-provider-bars">
+                  {/* Combined first, then one bar per provider, so a mix that reads as balanced
+                   * overall can still be seen to come from two different distributions. */}
+                  <div className="effort-provider-bar">
+                    <div>
+                      <h3>All providers</h3>
+                      <EffortBadge summary={effort.total} />
+                    </div>
+                    <EffortStack summary={effort.total} height={12} />
+                    <EffortCoverage
+                      summary={effort.total}
+                      indexing={effort.status.phase === "indexing"}
+                    />
+                  </div>
+                  {effort.rows.map((row) => (
+                    <div className="effort-provider-bar" key={row.key}>
+                      <div>
+                        <h3>{row.label}</h3>
+                        <EffortBadge summary={row.summary} />
+                      </div>
+                      <EffortStack
+                        summary={row.summary}
+                        height={10}
+                        showLegend={false}
+                      />
+                      <EffortCoverage summary={row.summary} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </EffortState>
           <p className="effort-help">{EFFORT_HELP}</p>
         </article>
         <article className="panel panel-wide recent-panel">
@@ -6454,6 +6458,18 @@ function Models({
     () => new Map((effortRequest.data?.rows ?? []).map((row) => [row.key, row.summary])),
     [effortRequest.data],
   );
+  const effortCombosByModel = useMemo(
+    () => new Map(
+      (effortRequest.data?.rows ?? []).map((row) => {
+        const combos = row.summary.levels
+          .filter((level) => level.effort && level.tokens > 0)
+          .map((level) => ({ ...comboOf(row.key, level.effort), tokens: level.tokens }))
+          .sort((left, right) => right.tokens - left.tokens || left.effort.localeCompare(right.effort));
+        return [row.key, combos] as const;
+      }),
+    ),
+    [effortRequest.data],
+  );
   const effortBySession = useMemo(
     () => decodeEffortDigest(digestRequest.data),
     [digestRequest.data],
@@ -6589,6 +6605,7 @@ function Models({
           );
           const panelId = `model-sessions-${index}`;
           const effortSummary = effortByModel.get(model.model) ?? null;
+          const effortCombos = effortCombosByModel.get(model.model) ?? [];
           return (
             <article
               className={`model-card${open ? " model-card--open" : ""}`}
@@ -6604,6 +6621,20 @@ function Models({
                   <p>{model.agents.join(" · ")}</p>
                 </div>
               </div>
+              {effortCombos.length > 0 && (
+                <div className="model-effort-combos">
+                  <span>MODEL × EFFORT</span>
+                  <div>
+                    {effortCombos.map((combo) => (
+                      <ComboPill
+                        key={comboKey(combo)}
+                        combo={combo}
+                        trailing={sharePercent(combo.tokens, effortSummary?.attributedTokens ?? 0)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="model-effort-summary">
                 <span>Effort</span>
                 <EffortState status={statusRequest.data} summary={effortSummary}>
