@@ -1,4 +1,4 @@
-export type ActivityProvider = "anthropic" | "codex";
+export type ActivityProvider = "anthropic" | "codex" | "warp";
 
 /** The single agent → API-provider mapper. Collector, insights, and effort code all route
  * through this so a session can never be Anthropic in one view and Codex in another.
@@ -8,6 +8,7 @@ export function providerFromAgent(agent: string): ActivityProvider | null {
   const normalized = agent.toLowerCase();
   if (normalized.includes("claude") || normalized.includes("anthropic")) return "anthropic";
   if (normalized.includes("codex") || normalized.includes("openai")) return "codex";
+  if (normalized.includes("warp")) return "warp";
   return null;
 }
 

@@ -1,9 +1,11 @@
 import { basename } from "node:path";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
+import type { MetricRow, ModelBreakdown, WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
-import { getPathIndex, indexSessionPaths } from "./path-indexer";
+import { getPathIndex, indexSessionPaths, pathTagsForCwd } from "./path-indexer";
+import { collectWarp } from "./warp";
 import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
 import { emptyAnnotation, getAnnotations, getAnnotationVersion, getSettings, listRules } from "./store";
 import { buildInsights, resolveScope } from "./insights";
@@ -34,28 +36,37 @@ function accumulateModel<T>(models: Map<string, T>, model: ModelUsage, create: (
 type ProjectActivitySession = {
   agent: string;
   period: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
   totalTokens: number;
   cwd: string | null;
   metadata?: {lastActivity?:unknown};
   totalCost: number;
   modelBreakdowns: Array<{modelName:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number}>;
+  warp?: { credits: number };
 };
 
 type ProjectModelTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number};
+type ProjectDay = {date:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number;warpCredits:number;models:Map<string,ProjectModelTotals>};
+type ProjectBucket = {name:string;tokens:number;cost:number;sessions:number;warpCredits:number;models:Map<string,number>;days:Map<string,ProjectDay>};
 
 export function aggregateProjects(sessions: ProjectActivitySession[], timeZone = systemTimeZone()) {
-  const projects = new Map<string, {name:string;tokens:number;cost:number;sessions:number;models:Map<string,number>;days:Map<string,{date:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number;models:Map<string,ProjectModelTotals>}>}>();
+  const projects = new Map<string, ProjectBucket>();
   for (const session of sessions) {
     const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
     if (!activityProvider(session.agent) || !date || !session.cwd) continue;
     const projectId = session.cwd.replace(/\/+$/, "");
-    const project = projects.get(projectId) ?? {name:projectId,tokens:0,cost:0,sessions:0,models:new Map(),days:new Map()};
-    const day = project.days.get(date) ?? {date,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,totalTokens:0,totalCost:0,models:new Map()};
+    const project = projects.get(projectId) ?? {name:projectId,tokens:0,cost:0,sessions:0,warpCredits:0,models:new Map(),days:new Map()};
+    const day = project.days.get(date) ?? {date,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,totalTokens:0,totalCost:0,warpCredits:0,models:new Map()};
     project.tokens += session.totalTokens;
     project.cost += session.totalCost;
     project.sessions++;
+    project.warpCredits += session.warp?.credits ?? 0;
     day.totalTokens += session.totalTokens;
     day.totalCost += session.totalCost;
+    day.warpCredits += session.warp?.credits ?? 0;
     for (const model of session.modelBreakdowns) {
       const tokens = modelTokens(model);
       project.models.set(model.modelName, (project.models.get(model.modelName) ?? 0) + tokens);
@@ -79,6 +90,7 @@ export function aggregateProjects(sessions: ProjectActivitySession[], timeZone =
     tokens: project.tokens,
     cost: project.cost,
     sessions: project.sessions,
+    warpCredits: project.warpCredits || undefined,
     models: [...project.models.entries()].sort((a, b) => b[1] - a[1]).map(([model]) => model),
     trend: [...project.days.values()].sort((a, b) => a.date.localeCompare(b.date)).map((day) => {
       const {models, ...totals} = day;
@@ -97,17 +109,18 @@ function activityProvider(agent: string) {
 }
 
 export function aggregateProjectActivity(sessions: ProjectActivitySession[], timeZone = systemTimeZone()) {
-  const activity = new Map<string, {date:string;provider:"anthropic"|"codex";projectId:string;projectName:string;tokens:number;cost:number;sessions:number;models:Map<string,{tokens:number;cost:number}>}>();
+  const activity = new Map<string, {date:string;provider:"anthropic"|"codex"|"warp";projectId:string;projectName:string;tokens:number;cost:number;sessions:number;warpCredits:number;models:Map<string,{tokens:number;cost:number}>}>();
   for (const session of sessions) {
     const provider = activityProvider(session.agent);
     const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
     if (!provider || !date || !session.cwd) continue;
     const projectId = session.cwd.replace(/\/+$/, "");
     const key = `${date}\0${provider}\0${projectId}`;
-    const bucket = activity.get(key) ?? { date, provider, projectId, projectName: basename(projectId), tokens: 0, cost: 0, sessions: 0, models: new Map<string,{tokens:number;cost:number}>() };
+    const bucket = activity.get(key) ?? { date, provider, projectId, projectName: basename(projectId), tokens: 0, cost: 0, sessions: 0, warpCredits: 0, models: new Map<string,{tokens:number;cost:number}>() };
     bucket.tokens += session.totalTokens;
     bucket.cost += session.totalCost;
     bucket.sessions++;
+    bucket.warpCredits += session.warp?.credits ?? 0;
     for (const model of session.modelBreakdowns) {
       accumulateModel(bucket.models, model, () => ({tokens:0,cost:0}), (current, entry) => {
         current.tokens += modelTokens(entry);
@@ -118,41 +131,132 @@ export function aggregateProjectActivity(sessions: ProjectActivitySession[], tim
   }
   return [...activity.values()].map((item) => ({
     ...item,
+    warpCredits: item.warpCredits || undefined,
     models: [...item.models.entries()].map(([model, values]) => ({model, ...values})).sort((a, b) => b.tokens - a.tokens),
   })).sort((a, b) => a.date.localeCompare(b.date) || b.tokens - a.tokens);
 }
 
+function warpDailyRows(sessions: ProjectActivitySession[], timeZone: string) {
+  const byDate = new Map<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; totalTokens: number; totalCost: number; models: Map<string, ModelBreakdown> }>();
+  for (const session of sessions) {
+    if (activityProvider(session.agent) !== "warp") continue;
+    const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    if (!date) continue;
+    const day = byDate.get(date) ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, totalCost: 0, models: new Map() };
+    day.inputTokens += session.inputTokens ?? session.modelBreakdowns.reduce((sum, model) => sum + model.inputTokens, 0);
+    day.outputTokens += session.outputTokens ?? session.modelBreakdowns.reduce((sum, model) => sum + model.outputTokens, 0);
+    day.cacheReadTokens += session.cacheReadTokens ?? session.modelBreakdowns.reduce((sum, model) => sum + model.cacheReadTokens, 0);
+    day.cacheCreationTokens += session.cacheCreationTokens ?? session.modelBreakdowns.reduce((sum, model) => sum + model.cacheCreationTokens, 0);
+    day.totalTokens += session.totalTokens;
+    day.totalCost += session.totalCost;
+    for (const model of session.modelBreakdowns) {
+      const current = day.models.get(model.modelName) ?? { modelName: model.modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
+      current.inputTokens += model.inputTokens;
+      current.outputTokens += model.outputTokens;
+      current.cacheReadTokens += model.cacheReadTokens;
+      current.cacheCreationTokens += model.cacheCreationTokens;
+      current.cost += model.cost;
+      day.models.set(model.modelName, current);
+    }
+    byDate.set(date, day);
+  }
+  return [...byDate.entries()].map(([period, values]): MetricRow => ({
+    agent: "warp",
+    period,
+    inputTokens: values.inputTokens,
+    outputTokens: values.outputTokens,
+    cacheReadTokens: values.cacheReadTokens,
+    cacheCreationTokens: values.cacheCreationTokens,
+    totalTokens: values.totalTokens,
+    totalCost: values.totalCost,
+    modelsUsed: [...values.models.keys()],
+    modelBreakdowns: [...values.models.values()],
+  }));
+}
+
+function mergeRows(left: MetricRow, right: MetricRow): MetricRow {
+  const modelMap = new Map<string, ModelBreakdown>();
+  for (const model of [...left.modelBreakdowns, ...right.modelBreakdowns]) {
+    const current = modelMap.get(model.modelName) ?? { modelName: model.modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
+    current.inputTokens += model.inputTokens;
+    current.outputTokens += model.outputTokens;
+    current.cacheReadTokens += model.cacheReadTokens;
+    current.cacheCreationTokens += model.cacheCreationTokens;
+    current.cost += model.cost;
+    modelMap.set(model.modelName, current);
+  }
+  const agents = [
+    ...(left.agents?.length ? left.agents : left.agent === "all" ? [] : [left]),
+    ...(right.agents?.length ? right.agents : [right]),
+  ];
+  return {
+    agent: "all",
+    period: left.period,
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
+    cacheCreationTokens: left.cacheCreationTokens + right.cacheCreationTokens,
+    totalTokens: left.totalTokens + right.totalTokens,
+    totalCost: left.totalCost + right.totalCost,
+    modelsUsed: [...modelMap.keys()],
+    modelBreakdowns: [...modelMap.values()],
+    agents,
+  };
+}
+
+function mergeWarpDaily(base: MetricRow[], warpSessions: ProjectActivitySession[], timeZone: string) {
+  const rows = new Map(base.map((row) => [row.period, row]));
+  for (const warp of warpDailyRows(warpSessions, timeZone)) {
+    const current = rows.get(warp.period);
+    rows.set(warp.period, current ? mergeRows(current, warp) : { ...warp, agents: [warp] });
+  }
+  return [...rows.values()].sort((left, right) => left.period.localeCompare(right.period));
+}
+
+function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number}, warp: {tokens:number}) {
+  return { ...base, inputTokens: base.inputTokens + warp.tokens, totalTokens: base.totalTokens + warp.tokens };
+}
+
 async function buildSnapshot() {
   const timeZone = systemTimeZone();
-  const [paths, ccusage, quota] = await Promise.all([indexSessionPaths(), collectCcusage(timeZone), collectQuota()]);
+  const [paths, ccusage, quota, warpCollection] = await Promise.all([indexSessionPaths(), collectCcusage(timeZone), collectQuota(), collectWarp(timeZone)]);
   setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
   // Read the revision before the rows: a write in between only causes one harmless re-overlay,
   // whereas the other order could leave a stale annotation looking current.
   snapshotAnnotationVersion = getAnnotationVersion();
   const annotations = getAnnotations();
-  const sessions = ccusage.unified.session.map((row) => {
+  const transcriptSessions = ccusage.unified.session.map((row) => {
     const path = pathIndex[`${row.agent}:${row.period}`];
     const sessionId = path?.sessionId ?? `${row.agent}-${row.period}`;
     return { ...row, sessionId, cwd: path?.cwd ?? null, pathTags: path?.tags ?? [], annotation: annotations[sessionId] ?? emptyAnnotation() };
-  }).sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
+  });
+  const warpSessions = warpCollection.sessions.map((session) => ({
+    ...session,
+    pathTags: pathTagsForCwd(session.cwd),
+    annotation: annotations[session.sessionId] ?? emptyAnnotation(),
+  }));
+  const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
+  const daily = mergeWarpDaily(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
+  const { sessions: _warpSessions, ...warp } = warpCollection;
   return {
     collectedAt: new Date().toISOString(),
     timeZone,
     ccusageVersion: ccusage.version,
     costMethodology: "ccusage",
     blockScope: "Claude Code",
-    daily: ccusage.unified.daily,
+    daily,
     weekly: ccusage.unified.weekly,
     monthly: ccusage.unified.monthly,
-    totals: ccusage.unified.totals,
+    totals: totalsWithWarp(ccusage.unified.totals, warp.totals),
     sessions,
     projectActivity: aggregateProjectActivity(sessions, timeZone),
     blocks: ccusage.blocks.blocks,
     projects: aggregateProjects(sessions, timeZone),
-    models: aggregateModels(ccusage.unified.daily, ccusage.unpricedModels),
+    models: aggregateModels(daily, ccusage.unpricedModels),
     unpricedModels: ccusage.unpricedModels,
     quotas: quota,
+    warp,
     rules: listRules(),
     settings: getSettings(),
     sources: [
@@ -164,7 +268,15 @@ async function buildSnapshot() {
           : `Pinned v${ccusage.version} · ${timeZone} calendar · live pricing`,
         kind: "local analytics",
       },
-      { name: "Path index", status: "healthy", detail: `${sessions.filter((session) => session.cwd).length} sessions joined · metadata only`, kind: "local metadata" },
+      { name: "Path index", status: "healthy", detail: `${transcriptSessions.filter((session) => session.cwd).length} transcript sessions joined · metadata only`, kind: "local metadata" },
+      {
+        name: "Warp local ledger",
+        status: !warp.available ? "unavailable" : warp.schema.missing.length ? "degraded" : "healthy",
+        detail: warp.available
+          ? `${warp.sessionCount} conversation snapshots · ${warp.totals.credits.toFixed(1)} credits · machine-specific local data`
+          : warp.error ?? "Warp's local session database is unavailable",
+        kind: "local metadata",
+      },
       { name: "quota-service", status: quota.available ? "healthy" : "unavailable", detail: quota.available ? "Provider-reported limits connected" : quota.error, kind: "provider quota" },
     ],
   };

@@ -72,8 +72,12 @@ export const efficiencyRules = [
   { id: "cold-cache", label: "Cache never amortised", severity: "notice" as const, question: "Which sessions paid to write a cache they then barely read?", basis: "Cache-creation tokens at or above cache-read tokens within the same session." },
 ];
 
-// Exactly one provider mapper exists; see src/provider.ts.
-const provider = providerFromAgent;
+// Exactly one provider mapper exists; see src/provider.ts. Warp has a separate credit ledger and
+// does not enter ccusage-derived efficiency comparisons, so it is explicitly excluded here.
+function provider(agent: string): Provider | null {
+  const mapped = providerFromAgent(agent);
+  return mapped === "warp" ? null : mapped;
+}
 function modelTokens(model: Session["modelBreakdowns"][number]) {
   return model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
 }
@@ -147,7 +151,7 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
     rangeDays: requestedRange === "all" ? null : Math.max(1, Math.min(120, Number.isFinite(range) ? Math.floor(range) : 30)),
     fromDate: validBounds && requestedFrom ? requestedFrom : null,
     toDate: validBounds && requestedTo ? requestedTo : null,
-    providers: resolveProviders(input.get("providers")),
+    providers: resolveProviders(input.get("providers")).filter((provider): provider is Provider => provider !== "warp"),
     modelFamilies: resolveModelFamilies(input.get("modelFamilies")),
     pathTag: input.get("pathTag") || "all",
     cache: input.get("cache") === "exclude" ? "exclude" : "include",

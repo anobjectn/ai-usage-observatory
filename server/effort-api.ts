@@ -43,7 +43,7 @@ export type EffortScope = {
   fromDate: string | null;
   toDate: string | null;
   /** Selected providers, unioned with `modelFamilies`. Empty means every provider. */
-  providers: Array<"anthropic" | "codex">;
+  providers: Array<"anthropic" | "codex" | "warp">;
   /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
   modelFamilies: string[];
   pathTag: string;
@@ -62,9 +62,9 @@ export function resolveEffortGroup(value: string | null): EffortGroup {
 
 /** Comma-separated list parameter. Unknown provider names are dropped rather than rejected: a
  * stale bookmark should narrow to what still exists, not fail the request. */
-export function resolveProviders(value: string | null): Array<"anthropic" | "codex"> {
+export function resolveProviders(value: string | null): Array<"anthropic" | "codex" | "warp"> {
   const wanted = (value ?? "").split(",").map((part) => part.trim()).filter(Boolean);
-  return [...new Set(wanted.filter((part): part is "anthropic" | "codex" => part === "anthropic" || part === "codex"))];
+  return [...new Set(wanted.filter((part): part is "anthropic" | "codex" | "warp" => part === "anthropic" || part === "codex" || part === "warp"))];
 }
 
 export function resolveModelFamilies(value: string | null): string[] {
@@ -184,7 +184,7 @@ export function scopedSessions(snapshot: DashboardData, scope: EffortScope) {
 /** Derived-row prefilter. It can only narrow by provider, so a scope that also names model
  * families must not push it down — the session-id allowlist already carries the union. */
 function agentsFor(scope: EffortScope): Array<"claude" | "codex"> | null {
-  if (scope.modelFamilies.length > 0 || scope.providers.length === 0) return null;
+  if (scope.modelFamilies.length > 0 || scope.providers.length === 0 || scope.providers.includes("warp")) return null;
   return scope.providers.map((provider) => (provider === "anthropic" ? "claude" : "codex"));
 }
 
@@ -213,7 +213,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
   // Neither authoritative source is broken down by model family, so a family-scoped request falls
   // through to session allocation rather than reporting a provider-wide denominator.
   const providerOnly = scope.modelFamilies.length === 0;
-  const wantsProvider = (provider: "anthropic" | "codex") =>
+  const wantsProvider = (provider: "anthropic" | "codex" | "warp") =>
     scope.providers.length === 0 || scope.providers.includes(provider);
   if (providerOnly && scope.pathTag === "all" && scope.project && !scope.model) {
     // Project activity already carries the app's authoritative provider/day allocation. Using it
@@ -264,14 +264,14 @@ function denominators(group: EffortGroup, snapshot: DashboardData, scope: Effort
   if (group === "day") return dailyDenominators(snapshot, scope, sessions);
   for (const session of sessions) {
     if (group === "project") add((session.cwd ?? "").replace(/\/+$/, ""), sessionTokens(session));
-    else if (group === "provider") add(session.agent === "codex" ? "codex" : "claude", sessionTokens(session));
+    else if (group === "provider") add(session.agent === "codex" ? "codex" : session.agent === "warp" ? "warp" : "claude", sessionTokens(session));
     else for (const model of session.modelBreakdowns) add(model.modelName, modelTokens(model));
   }
   return totals;
 }
 
 function labelFor(group: EffortGroup, key: string) {
-  if (group === "provider") return key === "codex" ? "Codex" : "Claude Code";
+  if (group === "provider") return key === "codex" ? "Codex" : key === "warp" ? "Warp" : "Claude Code";
   if (group === "project") return key === "" ? "Unassigned" : key;
   if (group === "model") return key === "" ? "Unknown model" : key;
   if (group === "day") return key === "" ? "Undated" : key;

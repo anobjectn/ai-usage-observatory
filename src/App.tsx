@@ -139,6 +139,7 @@ import type {
   Session,
   SessionDetail,
   AnthropicWebCredits,
+  WarpSessionStats,
 } from "./types";
 import {
   dailyQuotaMarkers,
@@ -528,6 +529,8 @@ const formatCompact = (value: number) =>
   }).format(value);
 const formatMoney = (value: number) =>
   `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatWarpCredits = (value: number) =>
+  value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatDate = (value: string, timeZone?: string) =>
   new Date(value).toLocaleString(undefined, {
     month: "short",
@@ -1265,7 +1268,7 @@ function withoutCacheProjectActivity(
     if (
       !date ||
       !projectId ||
-      (provider !== "anthropic" && provider !== "codex")
+      !provider
     )
       return;
     const key = `${date}\0${provider}\0${projectId}`;
@@ -4004,6 +4007,90 @@ function SessionDetailColumn({
   );
 }
 
+function warpMetricLabel(value: string) {
+  return value
+    .replace(/_stats$/, "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function WarpSessionDetailPanel({
+  session,
+  annotation,
+  onAnnotationChange,
+}: {
+  session: Session;
+  annotation?: SessionAnnotation;
+  onAnnotationChange?: (sessionId: string, annotation: SessionAnnotation) => void;
+}) {
+  const stats = session.warp!;
+  const toolEntries = Object.entries(stats.toolUsage).sort((left, right) => right[1] - left[1]);
+  const categoryEntries = Object.entries(stats.tokensByCategory).sort((left, right) => right[1] - left[1]);
+  return (
+    <div className="session-detail warp-session-detail">
+      <div className="session-detail__summary">
+        <div className="session-detail__verdict">
+          <span>YOUR VERDICT</span>
+          <strong>
+            <SessionVerdictControl
+              sessionId={session.sessionId}
+              verdict={(annotation ?? session.annotation).verdict}
+              onChange={onAnnotationChange ?? (() => {})}
+            />
+          </strong>
+        </div>
+        <div><span>WARP CREDITS</span><strong>{formatWarpCredits(stats.credits)}</strong></div>
+        <div><span>LAST TURN</span><strong>{stats.lastTurnCredits === null ? "—" : formatWarpCredits(stats.lastTurnCredits)}</strong></div>
+        <div><span>CONTEXT WINDOW</span><strong>{stats.contextWindowUsage === null ? "—" : `${Math.round(stats.contextWindowUsage * 100)}%`}</strong></div>
+        <div><span>AGENT TURNS</span><strong>{stats.turns}</strong></div>
+        <div><span>STATUS</span><strong>{stats.status}</strong></div>
+      </div>
+      <div className="warp-session-detail__grid">
+        <section className="warp-session-detail__card">
+          <span className="overline">TOKEN SOURCES</span>
+          <h4>Recorded tokens</h4>
+          <dl>
+            <div><dt>Total</dt><dd>{formatCompact(stats.tokensBySource.total)}</dd></div>
+            <div><dt>Warp-managed</dt><dd>{formatCompact(stats.tokensBySource.warp)}</dd></div>
+            <div><dt>BYOK</dt><dd>{formatCompact(stats.tokensBySource.byok)}</dd></div>
+            <div><dt>Custom endpoint</dt><dd>{formatCompact(stats.tokensBySource.customEndpoint)}</dd></div>
+          </dl>
+        </section>
+        <section className="warp-session-detail__card">
+          <span className="overline">TOOL USE</span>
+          <h4>Observed categories</h4>
+          {toolEntries.length ? (
+            <ul className="tool-list">
+              {toolEntries.map(([name, count]) => <li key={name}><code>{warpMetricLabel(name)}</code><b>×{count}</b></li>)}
+            </ul>
+          ) : <p>No tool metadata was recorded.</p>}
+        </section>
+        <section className="warp-session-detail__card">
+          <span className="overline">WORK SHAPE</span>
+          <h4>Files, commands, and context</h4>
+          <dl>
+            <div><dt>Files changed</dt><dd>{stats.filesChanged}</dd></div>
+            <div><dt>Line diff</dt><dd><i>+{stats.linesAdded}</i> <em>−{stats.linesRemoved}</em></dd></div>
+            <div><dt>Commands executed</dt><dd>{stats.commandsExecuted}</dd></div>
+            <div><dt>Failed commands</dt><dd>{stats.failedCommands}</dd></div>
+            <div><dt>Compaction observed</dt><dd>{stats.wasSummarized ? "Yes" : "No"}</dd></div>
+          </dl>
+        </section>
+        <section className="warp-session-detail__card">
+          <span className="overline">TOKEN CATEGORIES</span>
+          <h4>Where the recorded tokens went</h4>
+          {categoryEntries.length ? (
+            <ul className="model-list">
+              {categoryEntries.map(([name, value]) => <li key={name}><span>{warpMetricLabel(name)}</span><b>{formatCompact(value)}</b></li>)}
+            </ul>
+          ) : <p>No category breakdown was recorded.</p>}
+        </section>
+      </div>
+      <p className="scope-note"><Database /> Warp rows are metadata-only snapshots from this computer. Prompts, responses, command text, and transcript contents are not imported.</p>
+    </div>
+  );
+}
+
 export function SessionDetailPanel({
   session,
   detail,
@@ -4110,6 +4197,9 @@ export function SessionDetailPanel({
       return next;
     });
   };
+  if (session.source === "warp" && session.warp) {
+    return <WarpSessionDetailPanel session={session} annotation={annotation} onAnnotationChange={onAnnotationChange} />;
+  }
   if (loading)
     return (
       <div className="session-detail session-detail--loading">
@@ -4808,6 +4898,7 @@ function Sessions({
   const toggle = async (session: Session) => {
     if (expanded === session.sessionId) return setExpanded(null);
     setExpanded(session.sessionId);
+    if (session.source === "warp") return;
     if (details[session.sessionId]) return;
     setLoadingDetail(session.sessionId);
     try {
@@ -4902,7 +4993,7 @@ function Sessions({
       <PageTitle
         eyebrow="SESSION LEDGER"
         title="Trace sessions"
-        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Nothing leaves this machine."
+        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Warp rows contain metadata-only credit and tool summaries from this machine."
         actions={
           <div className="project-controls">
             <label className="search">
@@ -4947,7 +5038,7 @@ function Sessions({
                 {header("agent", "Agent")}
                 {header("cwd", "Working directory")}
                 {header("tokens", "Tokens")}
-                {header("cost", "Cost")}
+                {header("cost", "Cost / credits")}
                 {header("effort", "Model \u00d7 effort")}
                 <th className="session-verdict-header">
                   <span title="Your own rating of the session. It is never inferred, and it is the only signal in this app that is user-supplied.">
@@ -5031,12 +5122,23 @@ function Sessions({
                     <td>
                       <b>{formatCompact(session.totalTokens)}</b>
                       <small>
-                        {formatCompact(session.outputTokens)} output
+                        {session.source === "warp"
+                          ? "recorded tokens"
+                          : `${formatCompact(session.outputTokens)} output`}
                       </small>
                     </td>
                     <td>
-                      <b>{formatMoney(session.totalCost)}</b>
-                      <small>ccusage</small>
+                      {session.source === "warp" ? (
+                        <>
+                          <b>{formatWarpCredits(session.warp?.credits ?? 0)}</b>
+                          <small>Warp credits</small>
+                        </>
+                      ) : (
+                        <>
+                          <b>{formatMoney(session.totalCost)}</b>
+                          <small>ccusage</small>
+                        </>
+                      )}
                     </td>
                     <td className="session-row__effort">
                       <SessionEffortCell
@@ -5164,6 +5266,7 @@ export function projectDayRows(
       date: string;
       tokens: number;
       cost: number;
+      warpCredits: number;
       runs: number;
       models: Map<string, { tokens: number; cost: number }>;
     }
@@ -5173,11 +5276,13 @@ export function projectDayRows(
       date: row.date,
       tokens: 0,
       cost: 0,
+      warpCredits: 0,
       runs: 0,
       models: new Map<string, { tokens: number; cost: number }>(),
     };
     day.tokens += row.totalTokens;
     day.cost += row.totalCost;
+    day.warpCredits += row.warpCredits ?? 0;
     day.runs++;
     row.modelBreakdowns.forEach((model) => {
       const tokens =
@@ -5271,6 +5376,7 @@ export function projectSummaryInRange(
     trend,
     tokens: trend.reduce((sum, day) => sum + day.totalTokens, 0),
     cost: trend.reduce((sum, day) => sum + day.totalCost, 0),
+    warpCredits: trend.reduce((sum, day) => sum + (day.warpCredits ?? 0), 0) || undefined,
     sessions: sessionCount,
     models: [...modelTotals.entries()]
       .sort((left, right) => right[1] - left[1])
@@ -5716,6 +5822,22 @@ function ProjectDetails({
         while (!cancelled) {
           const session = sessions[next++];
           if (!session) return;
+        if (session.source === "warp" && session.warp) {
+          details.push({
+            session,
+            detail: {
+              available: true,
+              prompts: [],
+              outputs: [],
+              tools: [],
+              files: [],
+              additions: session.warp.linesAdded,
+              deletions: session.warp.linesRemoved,
+              eventsRead: session.warp.turns,
+            },
+          });
+          continue;
+        }
         try {
           const response = await fetch(
             `/api/sessions/${encodeURIComponent(session.sessionId)}/detail`,
@@ -5830,6 +5952,7 @@ function ProjectDetails({
       detail.files.map((file) => file.path),
     ),
   );
+  const warpFiles = sessions.reduce((sum, session) => sum + (session.warp?.filesChanged ?? 0), 0);
   const additions = sessionDetails.reduce(
     (sum, { detail }) => sum + detail.additions,
     0,
@@ -5862,7 +5985,7 @@ function ProjectDetails({
         </div>
         <div>
           <span>Files changed</span>
-          <strong>{loadingSessions ? "…" : changedFiles.size}</strong>
+          <strong>{loadingSessions ? "…" : changedFiles.size + warpFiles}</strong>
         </div>
         <div>
           <span>Time observed</span>
@@ -6015,6 +6138,12 @@ function ProjectDetails({
               <small>API eq.</small>
               {formatMoney(project.cost)}
             </b>
+            {project.warpCredits ? (
+              <b className="project-model-credit">
+                <small>Warp credits</small>
+                {formatWarpCredits(project.warpCredits)}
+              </b>
+            ) : null}
           </div>
           <div className="project-model-sort" aria-label="Sort model usage">
             {modelSortButton("name", "Model")}
@@ -6122,7 +6251,9 @@ function ProjectDetails({
                 </div>
                 <div className="project-session-files">
                   <span>
-                    {detail.available
+                    {session.source === "warp"
+                      ? `${session.warp?.filesChanged ?? 0} observed ${session.warp?.filesChanged === 1 ? "file" : "files"}`
+                      : detail.available
                       ? `${detail.files.length} ${detail.files.length === 1 ? "file" : "files"}`
                       : "Patch unavailable"}
                   </span>
@@ -6268,7 +6399,7 @@ function Projects({
       <PageTitle
         eyebrow="PROJECT CARTOGRAPHY"
         title="Where the work happened"
-        description="Select a project to inspect its daily activity, model mix, and observed time range."
+        description="Select a project to inspect daily activity, model mix, and observed time range. Warp credits remain separate from API-equivalent cost."
         actions={
           <div className="project-controls">
             <label className="search">
@@ -6354,6 +6485,7 @@ function Projects({
                 <div className="rank-stat">
                   <span>Cost</span>
                   <b>{formatMoney(project.cost)}</b>
+                  {project.warpCredits ? <small className="rank-stat__credit">+ {formatWarpCredits(project.warpCredits)} Warp credits</small> : null}
                 </div>
                 <div className="rank-stat">
                   <span>Active days</span>
@@ -6535,7 +6667,7 @@ function Models({
       <PageTitle
         eyebrow="MODEL SPECTROGRAPH"
         title="Model mix and efficiency"
-        description="Compare API-equivalent cost, output volume, and cache behavior using ccusage as the sole analytical cost source."
+        description="Compare API-equivalent cost, output volume, and cache behavior. Warp models contribute recorded tokens, while provider credits stay separate from dollar estimates."
         actions={
           <div className="model-controls">
             <label className="search model-search">
@@ -6584,6 +6716,7 @@ function Models({
       {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
       <section className="model-grid" ref={modelGridRef}>
         {visibleModels.map(({ model, index }) => {
+          const warpOnly = model.agents.length > 0 && model.agents.every((agent) => providerKey(agent) === "warp");
           const modelSessions = sessions
             .filter((session) => session.modelsUsed.includes(model.model))
             .sort((left, right) =>
@@ -6654,7 +6787,7 @@ function Models({
                   {model.priced ? formatMoney(model.cost) : "Pricing unavailable"}
                 </strong>
                 <span>
-                  {model.priced ? "API-equivalent" : "no rate card in ccusage"}
+                  {model.priced ? "API-equivalent" : warpOnly ? "Warp credits separate" : "no rate card in ccusage"}
                 </span>
               </div>
               <div className={`meter${model.priced ? "" : " meter--unpriced"}`}>
@@ -6675,8 +6808,8 @@ function Models({
                   <dd>{formatCompact(model.tokens)}</dd>
                 </div>
                 <div>
-                  <dt>Output</dt>
-                  <dd>{formatCompact(model.outputTokens)}</dd>
+                  <dt>{warpOnly ? "Recorded" : "Output"}</dt>
+                  <dd>{formatCompact(warpOnly ? model.tokens : model.outputTokens)}</dd>
                 </div>
                 <div>
                   <dt>Cache read</dt>
@@ -6746,7 +6879,7 @@ function Models({
                             </span>
                             <span className="model-session-usage">
                               <b>{formatCompact(session.totalTokens)}</b>
-                              <small>{formatMoney(session.totalCost)}</small>
+                              <small>{session.source === "warp" ? `${formatWarpCredits(session.warp?.credits ?? 0)} credits` : formatMoney(session.totalCost)}</small>
                             </span>
                             <SessionEffortCell
                               decoded={effortBySession.get(session.sessionId)}
@@ -7073,6 +7206,7 @@ function Sources({
   onFacets: (next: Partial<DataFacets>) => void;
   onOpenSession: (sessionId: string) => void;
 }) {
+  const warpDays = data.warp.daily.filter((day) => day.credits > 0 || day.sessions > 0);
   return (
     <div className="view-stack page-enter">
       <PageTitle
@@ -7151,6 +7285,55 @@ function Sources({
             </div>
           ))}
         </div>
+      </section>
+      <section className="panel warp-ledger-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="overline">WARP LOCAL LEDGER</span>
+            <h2>Credits beyond the countdown</h2>
+            <p>Conversation snapshots, model/token metadata, tool categories, and credit burn gathered from Warp’s local SQLite database.</p>
+          </div>
+          <span className={`status-label ${data.warp.available ? "healthy" : "unavailable"}`}>
+            {data.warp.available ? "read-only" : "unavailable"}
+          </span>
+        </div>
+        {data.warp.available ? (
+          <>
+            <div className="warp-ledger-stats">
+              <div><span>Conversation snapshots</span><b>{data.warp.sessionCount}</b></div>
+              <div><span>Recorded credits</span><b>{formatWarpCredits(data.warp.totals.credits)}</b></div>
+              <div><span>Query coverage</span><b>{Math.round(data.warp.queryCoverage * 100)}%</b></div>
+              <div><span>Last observed</span><b>{formatDate(data.warp.observedAt)}</b></div>
+            </div>
+            {warpDays.length ? (
+              <div className="warp-credit-chart" role="img" aria-label="Warp credits recorded by day">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={warpDays} margin={{ top: 12, right: 12, left: -18, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="warpCreditsArea" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--warp-color)" stopOpacity={0.6} />
+                        <stop offset="100%" stopColor="var(--warp-color)" stopOpacity={0.08} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })} tick={{ fill: "#71807b", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
+                    <YAxis tickFormatter={formatCompact} tick={{ fill: "#71807b", fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      cursor={{ stroke: "#71807b", strokeDasharray: "3 3" }}
+                      contentStyle={{ background: "#0c1715", border: "1px solid #30413c", borderRadius: 8 }}
+                      labelFormatter={(value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" })}
+                      formatter={(value) => [`${formatWarpCredits(Number(value))} credits`, "Warp"]}
+                    />
+                    <Area type="monotone" dataKey="credits" name="Warp credits" stroke="var(--warp-color)" strokeWidth={2} fill="url(#warpCreditsArea)" activeDot={{ r: 4, fill: "#07100f", stroke: "var(--warp-color)", strokeWidth: 2 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <Empty text="No credit observations are available yet." />}
+            <p className="warp-machine-note"><Database /> Warp data is machine-specific. It comes from <code>{data.warp.sourceFile ?? "Warp's local database"}</code>, reflects this computer’s stored conversation snapshots, and is not a complete account-wide ledger across other devices. The app reads it read-only and imports no prompts, responses, command text, or transcript contents.</p>
+          </>
+        ) : (
+          <p className="scope-note"><Database /> {data.warp.error ?? "Warp’s local database is unavailable on this machine."}</p>
+        )}
       </section>
       <QuotaProvenance data={data} onUpdateWebCredits={onUpdateWebCredits} />
     </div>
@@ -8341,13 +8524,7 @@ export function App() {
   const agents = useMemo(
     () =>
       data
-        ? [
-            ...new Set(
-              data.daily.flatMap(
-                (row) => row.agents?.map((a) => a.agent) ?? [],
-              ),
-            ),
-          ]
+        ? [...new Set(data.sessions.map((session) => session.agent))]
         : [],
     [data],
   );

@@ -17,6 +17,7 @@ export function aggregateModels(rows: ModelAggregateRow[], unpricedModels: strin
   const models = new Map<string, AggregatedModel & { agents: string[] }>();
   for (const row of rows) {
     for (const agent of row.agents ?? [row]) {
+      const isWarp = agent.agent.toLowerCase().includes("warp");
       for (const entry of agent.modelBreakdowns) {
         const current = models.get(entry.modelName) ?? {
           model: entry.modelName,
@@ -27,8 +28,11 @@ export function aggregateModels(rows: ModelAggregateRow[], unpricedModels: strin
           cacheReadTokens: 0,
           cacheCreationTokens: 0,
           agents: [],
-          priced: !unpriced.has(entry.modelName),
+          priced: !isWarp && !unpriced.has(entry.modelName),
         };
+        // A model can appear in both Warp and ccusage. Only a ccusage-priced observation makes
+        // the API-equivalent cost card meaningful; Warp's provider credits never become dollars.
+        if (!isWarp && !unpriced.has(entry.modelName)) current.priced = true;
         current.tokens += modelTokens(entry);
         current.cost += entry.cost;
         current.inputTokens += entry.inputTokens;

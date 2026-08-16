@@ -13,22 +13,54 @@ export type MetricRow = {
   metadata?: { lastActivity?: string; [key: string]: unknown };
 };
 export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
-export type ProjectTrendRow = Omit<MetricRow, "agent" | "period"> & { date: string; period?: string };
+export type ProjectTrendRow = Omit<MetricRow, "agent" | "period"> & { date: string; period?: string; warpCredits?: number };
 export type ProjectActivity = {
   date: string;
-  provider: "anthropic" | "codex";
+  provider: "anthropic" | "codex" | "warp";
   projectId: string;
   projectName: string;
   tokens: number;
   cost: number;
   sessions: number;
+  warpCredits?: number;
   models: Array<{model:string;tokens:number;cost:number}>;
 };
 /** `verdict` is the user's own rating of the session. It is never inferred and is null until
  * they record one. */
 export type SessionVerdict = "good" | "mixed" | "bad";
 export type SessionAnnotation = { tags: string[]; note: string; verdict: SessionVerdict | null; updatedAt?: string };
-export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: SessionAnnotation };
+export type WarpSessionStats = {
+  conversationId: string;
+  credits: number;
+  lastTurnCredits: number | null;
+  contextWindowUsage: number | null;
+  wasSummarized: boolean;
+  status: string;
+  turns: number;
+  tasks: number;
+  blockCount: number;
+  failedCommands: number;
+  filesChanged: number;
+  linesAdded: number;
+  linesRemoved: number;
+  commandsExecuted: number;
+  toolUsage: Record<string, number>;
+  tokensBySource: {
+    total: number;
+    warp: number;
+    byok: number;
+    customEndpoint: number;
+  };
+  tokensByCategory: Record<string, number>;
+};
+export type Session = MetricRow & {
+  sessionId: string;
+  cwd: string | null;
+  pathTags: string[];
+  annotation: SessionAnnotation;
+  source?: "ccusage" | "warp";
+  warp?: WarpSessionStats;
+};
 export type SessionDetail = {
   available: boolean;
   prompts: Array<{ text: string; timestamp: string | null }>;
@@ -323,6 +355,25 @@ export type QuotaHistory = {
   series?: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";capturedAt:number;usedPercent:number;resetsAt:number|null;cycleId:string}>;
   codexBankedResets: {usedCount:number;used:Array<{id:string;title:string;usedAt:number}>};
 };
+export type WarpDailyUsage = {
+  date: string;
+  sessions: number;
+  credits: number;
+  tokens: number;
+};
+export type WarpData = {
+  available: boolean;
+  sourceFile: string | null;
+  observedAt: string;
+  sessionCount: number;
+  queryCount: number;
+  linkedQueryCount: number;
+  queryCoverage: number;
+  totals: { sessions: number; credits: number; tokens: number };
+  daily: WarpDailyUsage[];
+  schema: { required: string[]; missing: string[] };
+  error?: string;
+};
 export type DashboardData = {
   collectedAt: string;
   /** IANA timezone used by ccusage and every AIUO calendar boundary in this snapshot. */
@@ -337,11 +388,12 @@ export type DashboardData = {
   sessions: Session[];
   projectActivity: ProjectActivity[];
   blocks: Array<{id:string;startTime:string;endTime:string;actualEndTime?:string|null;isActive:boolean;totalTokens:number;costUSD:number;burnRate?:{tokensPerMinute?:number;costPerHour?:number}|null;projection?:{totalTokens?:number;totalCost?:number}|null;models:string[];entries:number}>;
-  projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:ProjectTrendRow[]}>;
-  models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:string[];priced:boolean}>;
+  projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:ProjectTrendRow[];warpCredits?:number}>;
+  models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:string[];priced:boolean;warpCredits?:number}>;
   /** Models ccusage had no rate card for; their tokens are real but excluded from every cost total. */
   unpricedModels: string[];
   quotas: {available:boolean;usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;history?:QuotaHistory;status?:unknown;error?:string;collectedAt:string};
+  warp: WarpData;
   rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;
   settings: Record<string,string>;
   sources: Array<{name:string;status:string;detail:string;kind:string}>;

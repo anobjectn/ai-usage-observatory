@@ -125,8 +125,10 @@ function globRegex(pattern: string) {
   return new RegExp(`^${escaped}$`, "i");
 }
 
-export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }> {
-  const rows = db.query("SELECT session_id, agent, native_session_key, cwd, source_file FROM session_paths").all() as Array<{session_id:string;agent:string;native_session_key:string;cwd:string|null;source_file:string}>;
+/** Applies the user's path rules to any local working directory, including sources that do not
+ * have a transcript row in `session_paths` (such as Warp's SQLite conversations). */
+export function pathTagsForCwd(cwd: string | null) {
+  if (!cwd) return [];
   const rules = listRules().flatMap((rule) => {
     try {
       return [{ tag: rule.tag, matcher: rule.kind === "regex" ? new RegExp(rule.pattern, "i") : globRegex(rule.pattern) }];
@@ -134,8 +136,13 @@ export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }>
       return [];
     }
   });
+  return rules.filter((rule) => rule.matcher.test(cwd)).map((rule) => rule.tag);
+}
+
+export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }> {
+  const rows = db.query("SELECT session_id, agent, native_session_key, cwd, source_file FROM session_paths").all() as Array<{session_id:string;agent:string;native_session_key:string;cwd:string|null;source_file:string}>;
   return Object.fromEntries(rows.flatMap((row) => {
-    const tags = row.cwd ? rules.filter((rule) => rule.matcher.test(row.cwd!)).map((rule) => rule.tag) : [];
+    const tags = pathTagsForCwd(row.cwd);
     const value = { sessionId: row.session_id, agent: row.agent, nativeKey: row.native_session_key, cwd: row.cwd, sourceFile: relative(homedir(), row.source_file), tags };
     return sessionReportKeys(row.agent, row.native_session_key, row.source_file).map((key) => [`${row.agent}:${key}`, value]);
   }));
