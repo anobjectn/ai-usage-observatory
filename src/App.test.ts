@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  averageMetricSlices,
+  metricRowCacheShare,
   SessionDetailPanel,
   pathFilteredRows,
   periodTickLabel,
@@ -89,6 +91,58 @@ test("pathFilteredRows combines matching sessions only within the selected perio
     cacheReadTokens: 20,
     cost: 0.03,
   });
+});
+
+test("averageMetricSlices separates active weekdays and weekends", () => {
+  const rows = [
+    session({ period: "2026-07-20", totalTokens: 100 }),
+    session({ period: "2026-07-21", totalTokens: 300 }),
+    session({ period: "2026-07-25", totalTokens: 50 }),
+    session({ period: "2026-07-26", totalTokens: 150 }),
+  ];
+
+  expect(averageMetricSlices(rows, (row) => row.totalTokens)).toEqual({
+    day: 150,
+    weekday: 200,
+    weekend: 100,
+  });
+  expect(averageMetricSlices([], (row) => row.totalTokens)).toEqual({
+    day: null,
+    weekday: null,
+    weekend: null,
+  });
+});
+
+test("cache-share averages use each active day's share", () => {
+  const rows = [
+    session({
+      period: "2026-07-20",
+      inputTokens: 50,
+      outputTokens: 50,
+      cacheReadTokens: 100,
+      cacheCreationTokens: 0,
+    }),
+    session({
+      period: "2026-07-21",
+      inputTokens: 100,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    }),
+    session({
+      period: "2026-07-25",
+      inputTokens: 0,
+      outputTokens: 50,
+      cacheReadTokens: 50,
+      cacheCreationTokens: 0,
+    }),
+  ];
+
+  expect(metricRowCacheShare(rows[0])).toBe(50);
+  expect(
+    averageMetricSlices(rows, metricRowCacheShare),
+  ).toMatchObject({ weekday: 25, weekend: 50 });
+  expect(averageMetricSlices(rows, metricRowCacheShare).day).toBeCloseTo(33.3333, 3);
 });
 
 test("projectTrendRowsInRange uses the dashboard time window", () => {

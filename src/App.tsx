@@ -731,12 +731,41 @@ function timeEffortScope(
   } satisfies EffortScopeInput;
 }
 
+type MetricCardAverage = {
+  label: string;
+  value: string;
+  trend?: number;
+};
+
+function MetricTrend({
+  value,
+  unit = "%",
+  context = "previous equal span",
+}: {
+  value: number;
+  unit?: "%" | "pp";
+  context?: string;
+}) {
+  const direction = value >= 0 ? "up" : "down";
+  return (
+    <span
+      className={direction === "up" ? "trend-up" : "trend-down"}
+      aria-label={`${direction === "up" ? "Up" : "Down"} ${Math.abs(value)}${unit}, ${context}`}
+    >
+      {direction === "up" ? <ArrowUpRight /> : <ArrowDownRight />}
+      {Math.abs(value)}
+      {unit}
+    </span>
+  );
+}
+
 function MetricCard({
   eyebrow,
   value,
   detail,
   trend,
   trendUnit = "%",
+  averages,
   icon: Icon,
 }: {
   eyebrow: string;
@@ -744,6 +773,7 @@ function MetricCard({
   detail: string;
   trend?: number;
   trendUnit?: "%" | "pp";
+  averages?: MetricCardAverage[];
   icon: typeof Orbit;
 }) {
   return (
@@ -755,14 +785,38 @@ function MetricCard({
       <strong aria-live="polite">{value}</strong>
       <div className="metric-detail">
         <span>{detail}</span>
-        {trend !== undefined && (
-          <span className={trend >= 0 ? "trend-up" : "trend-down"}>
-            {trend >= 0 ? <ArrowUpRight /> : <ArrowDownRight />}
-            {Math.abs(trend)}
-            {trendUnit}
-          </span>
-        )}
+        {trend !== undefined && <MetricTrend value={trend} unit={trendUnit} />}
       </div>
+      {averages && (
+        <div className="metric-card__averages" aria-label={`${eyebrow} averages`}>
+          <div className="metric-card__averages-heading">
+            <span>AVERAGES</span>
+            <small>active days · vs prior span</small>
+          </div>
+          <div className="metric-card__average-grid">
+            {averages.map((average) => (
+              <div className="metric-card__average" key={average.label}>
+                <span>{average.label}</span>
+                <strong>{average.value}</strong>
+                {average.trend === undefined ? (
+                  <span
+                    className="metric-card__average-trend metric-card__average-trend--empty"
+                    aria-label="No previous matching slice"
+                  >
+                    —
+                  </span>
+                ) : (
+                  <MetricTrend
+                    value={average.trend}
+                    unit={trendUnit}
+                    context="previous matching slice"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </article>
   );
 }
@@ -1330,6 +1384,20 @@ export function withoutCacheDashboardData(data: DashboardData): DashboardData {
   };
 }
 
+function metricRowTraffic(row: MetricRow) {
+  return (
+    row.inputTokens +
+    row.outputTokens +
+    row.cacheReadTokens +
+    row.cacheCreationTokens
+  );
+}
+
+export function metricRowCacheShare(row: MetricRow) {
+  const traffic = metricRowTraffic(row);
+  return traffic > 0 ? (row.cacheReadTokens / traffic) * 100 : null;
+}
+
 function metricTotals(rows: MetricRow[]) {
   return rows.reduce(
     (sum, row) => ({
@@ -1337,15 +1405,75 @@ function metricTotals(rows: MetricRow[]) {
       cost: sum.cost + row.totalCost,
       output: sum.output + row.outputTokens,
       cache: sum.cache + row.cacheReadTokens,
-      traffic:
-        sum.traffic +
-        row.inputTokens +
-        row.outputTokens +
-        row.cacheReadTokens +
-        row.cacheCreationTokens,
+      traffic: sum.traffic + metricRowTraffic(row),
     }),
     { tokens: 0, cost: 0, output: 0, cache: 0, traffic: 0 },
   );
+}
+
+type MetricAverageSlice = "day" | "weekday" | "weekend";
+export type MetricAverageSlices = Record<MetricAverageSlice, number | null>;
+type MetricChange = (current: number, previous: number) => number | undefined;
+
+function average(values: number[]) {
+  return values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : null;
+}
+
+function metricAverageSlice(period: string): Exclude<MetricAverageSlice, "day"> {
+  const day = new Date(`${period}T12:00:00Z`).getUTCDay();
+  return day === 0 || day === 6 ? "weekend" : "weekday";
+}
+
+/** Averages over rows with activity. The dashboard's daily rows are sparse, so this keeps
+ * the denominator consistent with the existing active-day count shown on the cards. */
+export function averageMetricSlices(
+  rows: MetricRow[],
+  select: (row: MetricRow) => number | null,
+): MetricAverageSlices {
+  const values: Record<MetricAverageSlice, number[]> = {
+    day: [],
+    weekday: [],
+    weekend: [],
+  };
+  rows.forEach((row) => {
+    const value = select(row);
+    if (value === null || !Number.isFinite(value)) return;
+    values.day.push(value);
+    values[metricAverageSlice(row.period)].push(value);
+  });
+  return {
+    day: average(values.day),
+    weekday: average(values.weekday),
+    weekend: average(values.weekend),
+  };
+}
+
+const metricAverageSliceLabels: Array<{ key: MetricAverageSlice; label: string }> = [
+  { key: "day", label: "DAY" },
+  { key: "weekday", label: "WEEKDAY" },
+  { key: "weekend", label: "WEEKEND" },
+];
+
+function metricAverageCardItems(
+  current: MetricAverageSlices,
+  previous: MetricAverageSlices,
+  format: (value: number) => string,
+  calculateTrend: MetricChange = percentChange,
+): MetricCardAverage[] {
+  return metricAverageSliceLabels.map(({ key, label }) => {
+    const value = current[key];
+    const previousValue = previous[key];
+    return {
+      label,
+      value: value === null ? "—" : format(value),
+      trend:
+        value !== null && previousValue !== null
+          ? calculateTrend(value, previousValue)
+          : undefined,
+    };
+  });
 }
 
 function modelDistribution(rows: MetricRow[], metric: Metric) {
@@ -1492,6 +1620,10 @@ function percentChange(current: number, previous: number) {
   return previous > 0
     ? Math.round(((current - previous) / previous) * 100)
     : undefined;
+}
+
+function percentagePointChange(current: number, previous: number) {
+  return Math.round(current - previous);
 }
 
 const quotaMarkerColors = {
@@ -2633,6 +2765,26 @@ function Overview({
     .map((row) => selectAgentRow(row, agent))
     .filter(Boolean) as MetricRow[];
   const previousTotals = metricTotals(previousDaily);
+  const tokenAverages = averageMetricSlices(daily, (row) => row.totalTokens);
+  const previousTokenAverages = averageMetricSlices(
+    previousDaily,
+    (row) => row.totalTokens,
+  );
+  const costAverages = averageMetricSlices(daily, (row) => row.totalCost);
+  const previousCostAverages = averageMetricSlices(
+    previousDaily,
+    (row) => row.totalCost,
+  );
+  const outputAverages = averageMetricSlices(daily, (row) => row.outputTokens);
+  const previousOutputAverages = averageMetricSlices(
+    previousDaily,
+    (row) => row.outputTokens,
+  );
+  const cacheShareAverages = averageMetricSlices(daily, metricRowCacheShare);
+  const previousCacheShareAverages = averageMetricSlices(
+    previousDaily,
+    metricRowCacheShare,
+  );
   const activeBlock =
     data.blocks.find((block) => block.isActive) ?? data.blocks.at(-1);
   const blockStart = activeBlock ? Date.parse(activeBlock.startTime) : 0;
@@ -2746,6 +2898,11 @@ function Overview({
             value={formatCompact(totals.tokens)}
             detail={`${daily.length} active ${daily.length === 1 ? "day" : "days"}`}
             trend={percentChange(totals.tokens, previousTotals.tokens)}
+            averages={metricAverageCardItems(
+              tokenAverages,
+              previousTokenAverages,
+              formatCompact,
+            )}
             icon={Zap}
           />
           <MetricCard
@@ -2753,6 +2910,11 @@ function Overview({
             value={formatMoney(totals.cost)}
             detail="ccusage · offline pricing"
             trend={percentChange(totals.cost, previousTotals.cost)}
+            averages={metricAverageCardItems(
+              costAverages,
+              previousCostAverages,
+              formatMoney,
+            )}
             icon={CircleDollarSign}
           />
           <MetricCard
@@ -2760,6 +2922,11 @@ function Overview({
             value={formatCompact(totals.output)}
             detail={`${totals.tokens ? Math.round((totals.output / totals.tokens) * 100) : 0}% of period tokens`}
             trend={percentChange(totals.output, previousTotals.output)}
+            averages={metricAverageCardItems(
+              outputAverages,
+              previousOutputAverages,
+              formatCompact,
+            )}
             icon={Sparkles}
           />
           <MetricCard
@@ -2772,6 +2939,12 @@ function Overview({
                 : undefined
             }
             trendUnit="pp"
+            averages={metricAverageCardItems(
+              cacheShareAverages,
+              previousCacheShareAverages,
+              (value) => `${Math.round(value)}%`,
+              percentagePointChange,
+            )}
             icon={Database}
           />
         </div>
