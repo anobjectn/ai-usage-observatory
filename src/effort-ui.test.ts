@@ -6,7 +6,9 @@ import {
   effortSummaryLabel,
   matchesSessionEffortFilter,
   sessionEffortSortValue,
+  type DecodedSessionEffort,
 } from "./hooks/use-effort";
+import { comboKey, encodeComboFacet, type Combo } from "./combo";
 import { effortColor, effortLabel, familyColor, familyLabel, sharePercent } from "./components/effort";
 import { effortRank } from "./effort-model";
 import type { EffortSessionDigest } from "./types";
@@ -27,23 +29,53 @@ describe("effort scope params", () => {
   });
 });
 
-describe("digest decoding", () => {
+describe("digest v2 decoding", () => {
+  // combos: 0 = Opus 5 · high, 1 = Sol · high, 2 = Sol · low
   const digest: EffortSessionDigest = {
-    levels: ["high", "low"],
+    version: 2,
+    families: ["claude-opus-5", "gpt-5.6-sol"],
+    efforts: ["low", "high"],
+    combos: [[0, 1, "interactive"], [1, 1, "interactive"], [1, 0, "interactive"]],
     rows: [
       ["a", 0, 0, 1_000, "1"],
-      ["b", 1, 1 | 2, 600, "3"],
+      ["b", 2, 1 | 2 | 8, 600, "6"],
       ["c", -1, 2 | 4, 0, "0"],
+      ["d", 0, 8, 900, "3"],
     ],
   };
 
   test("views never have to index tuple positions", () => {
     const decoded = decodeEffortDigest(digest);
-    expect(decoded.get("a")).toMatchObject({ dominant: "high", mixed: false, hasUnknown: false, unjoinable: false, tokenCoverage: 1 });
-    expect(decoded.get("a")?.levels).toEqual(new Set(["high"]));
-    expect(decoded.get("b")).toMatchObject({ dominant: "low", mixed: true, hasUnknown: true, tokenCoverage: 0.6 });
+    expect(decoded.get("a")).toMatchObject({
+      dominantCombo: { family: "claude-opus-5", effort: "high" },
+      dominant: "high",
+      mixed: false,
+      multipleCombos: false,
+      hasUnknown: false,
+      unjoinable: false,
+      tokenCoverage: 1,
+    });
+    expect(decoded.get("a")?.combos).toEqual([{ family: "claude-opus-5", effort: "high" }]);
+    expect(decoded.get("b")?.dominantCombo).toEqual({ family: "gpt-5.6-sol", effort: "low" });
     expect(decoded.get("b")?.levels).toEqual(new Set(["high", "low"]));
-    expect(decoded.get("c")).toMatchObject({ dominant: null, mixed: false, hasUnknown: true, unjoinable: true, tokenCoverage: null });
+    expect(decoded.get("c")).toMatchObject({ dominantCombo: null, dominant: null, tokenCoverage: null });
+  });
+
+  test("mixed effort and multiple combos are separate facts", () => {
+    const decoded = decodeEffortDigest(digest);
+    // Two combos, but both recorded `high`: several models, one effort.
+    expect(decoded.get("d")).toMatchObject({ mixed: false, multipleCombos: true });
+    expect(decoded.get("d")?.combos).toHaveLength(2);
+    expect(decoded.get("b")).toMatchObject({ mixed: true, multipleCombos: true });
+    expect(decoded.get("a")).toMatchObject({ mixed: false, multipleCombos: false });
+  });
+
+  test("a combo facet selects sessions containing that family and effort", () => {
+    const decoded = decodeEffortDigest(digest);
+    const sol = encodeComboFacet({ family: "gpt-5.6-sol", effort: "high" });
+    expect(matchesSessionEffortFilter(decoded.get("d"), sol)).toBe(true);
+    expect(matchesSessionEffortFilter(decoded.get("a"), sol)).toBe(false);
+    expect(matchesSessionEffortFilter(decoded.get("b"), "value:low")).toBe(true);
   });
 
   test("a missing digest decodes to an empty map rather than throwing", () => {
@@ -81,20 +113,46 @@ describe("effort presentation", () => {
 });
 
 describe("Sessions view effort behaviour", () => {
-  const known = { sessionId: "a", dominant: "high", mixed: false, hasUnknown: false, unjoinable: false, tokenCoverage: 1, levels: new Set(["high"]) };
-  const mixed = { ...known, sessionId: "b", dominant: "low", mixed: true, hasUnknown: true, levels: new Set(["low", "high"]) };
-  const unknown = { ...known, sessionId: "c", dominant: null, tokenCoverage: null, levels: new Set<string>() };
+  const decodedOf = (combos: Combo[], overrides: Partial<DecodedSessionEffort> = {}): DecodedSessionEffort => ({
+    sessionId: "a",
+    dominantCombo: combos[0] ?? null,
+    dominant: combos[0]?.effort ?? null,
+    combos,
+    mixed: new Set(combos.map((combo) => combo.effort)).size >= 2,
+    multipleCombos: combos.length >= 2,
+    hasUnknown: false,
+    unjoinable: false,
+    tokenCoverage: 1,
+    levels: new Set(combos.map((combo) => combo.effort)),
+    comboKeys: new Set(combos.map(comboKey)),
+    ...overrides,
+  });
+  const known = decodedOf([{ family: "claude-opus-5", effort: "high" }]);
+  const mixed = decodedOf(
+    [{ family: "gpt-5.6-luna", effort: "low" }, { family: "claude-opus-5", effort: "high" }],
+    { sessionId: "b", hasUnknown: true },
+  );
+  const unknown = decodedOf([], { sessionId: "c", tokenCoverage: null });
 
-  test("Mixed and Unknown stay searchable as words", () => {
-    expect(effortSearchText(known)).toBe("high");
-    expect(effortSearchText(mixed)).toBe("low high mixed unknown");
+  test("model, effort, Mixed, and Unknown stay searchable as words", () => {
+    expect(effortSearchText(known)).toBe("opus 5 claude-opus-5 high");
+    expect(effortSearchText(mixed)).toContain("mixed");
+    expect(effortSearchText(mixed)).toContain("unknown");
     expect(effortSearchText(unknown)).toBe("unknown");
     expect(effortSearchText(undefined)).toBe("unknown");
+  });
+
+  test("a model-and-effort query such as `luna max` finds its sessions", () => {
+    const luna = decodedOf([{ family: "gpt-5.6-luna", effort: "max" }]);
+    expect(effortSearchText(luna).includes("luna")).toBe(true);
+    expect("luna max".split(" ").every((word) => effortSearchText(luna).includes(word))).toBe(true);
+    expect("luna max".split(" ").every((word) => effortSearchText(known).includes(word))).toBe(false);
   });
 
   test("the filter covers All, each value, Mixed, and Unknown", () => {
     expect(matchesSessionEffortFilter(known, "all")).toBe(true);
     expect(matchesSessionEffortFilter(known, "high")).toBe(true);
+    expect(matchesSessionEffortFilter(known, "value:high")).toBe(true);
     expect(matchesSessionEffortFilter(known, "low")).toBe(false);
     expect(matchesSessionEffortFilter(mixed, "mixed")).toBe(true);
     expect(matchesSessionEffortFilter(mixed, "high")).toBe(true);
@@ -110,14 +168,15 @@ describe("Sessions view effort behaviour", () => {
     expect(rank({ ...known, dominant: "low" })).toBeLessThan(rank({ ...known, dominant: "medium" }));
     expect(rank({ ...known, dominant: "medium" })).toBeLessThan(rank({ ...known, dominant: "high" }));
     expect(rank({ ...known, dominant: "high" })).toBeLessThan(rank({ ...known, dominant: "xhigh" }));
-    expect(rank({ ...known, dominant: "xhigh" })).toBeLessThan(rank({ ...known, dominant: "turbo" }));
+    expect(rank({ ...known, dominant: "xhigh" })).toBeLessThan(rank({ ...known, dominant: "max" }));
+    expect(rank({ ...known, dominant: "max" })).toBeLessThan(rank({ ...known, dominant: "turbo" }));
     expect(rank(unknown)).toBe(Number.MAX_SAFE_INTEGER);
     expect(rank(undefined)).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   test("keyboard and empty-state labels never rely on colour", () => {
-    expect(effortSummaryLabel(known)).toBe("high");
-    expect(effortSummaryLabel(mixed)).toBe("mixed, mostly low");
+    expect(effortSummaryLabel(known)).toBe("Opus 5 · High");
+    expect(effortSummaryLabel(mixed)).toBe("GPT 5.6 Luna · Low and 1 more");
     expect(effortSummaryLabel(unknown)).toBe("unknown");
   });
 });

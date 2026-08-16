@@ -1,71 +1,34 @@
-import type { EffortIndexStatus, EffortSummary } from "../../types";
+import type { Combo, ComboKind } from "../../combo";
+import type { EffortCoverageFields, EffortIndexStatus, EffortSummary } from "../../types";
 import { capEffortLevels } from "../../effort-model";
+import {
+  comboLabel,
+  effortColor,
+  effortLabel,
+  encodeComboFacet,
+  familyColor,
+  familyLabel,
+} from "../../combo";
 
 /** Compact UI says "Effort"; help text says "provider-recorded reasoning effort". Effort is an
- * observed categorical value — never a capability, quality score, model tier, or recommendation. */
-export const EFFORT_HELP = "Provider-recorded reasoning effort, as written by the agent into its own transcript. It is not a quality score and is never inferred.";
+ * observed categorical value — never a capability, quality score, model tier, or recommendation.
+ * It is comparable only beside the model that recorded it: `High` on two different families is
+ * two different cohorts, not one. */
+export const EFFORT_HELP = "Provider-recorded reasoning effort, as written by the agent into its own transcript. It is not a quality score, is never inferred, and is only meaningful next to the model that recorded it.";
 
-const fixedColors: Record<string, string> = {
-  low: "var(--aqua)",
-  medium: "var(--accent)",
-  high: "var(--orange)",
-  xhigh: "var(--violet)",
-};
+/** Colour and label vocabulary lives in `src/combo.ts` so the server can use it too; it is
+ * re-exported here because every existing view imports it from this module. */
+export { comboColor, comboLabel, comboShortLabel, effortColor, effortLabel, effortShortLabel, familyColor, familyLabel } from "../../combo";
 
-const fallbackPalette = ["#7fb3a5", "#b39ddb", "#e6b86a", "#8fa9d9", "#cf8fb1", "#86c58a"];
-const neutral = "var(--line-bright)";
-
-function stablePaletteColor(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index++) hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
-  return fallbackPalette[hash % fallbackPalette.length];
-}
-
-/** Values the providers add later still get a stable, repeatable colour rather than a random one
- * or a silent drop. Colour is never the only label. */
-export function effortColor(effort: string) {
-  if (effort === "unknown" || effort === "other" || effort === "") return neutral;
-  const fixed = fixedColors[effort];
-  if (fixed) return fixed;
-  return stablePaletteColor(effort);
-}
-
-export function effortLabel(effort: string | null) {
-  if (!effort) return "Unknown";
-  if (effort === "xhigh") return "X-high";
-  if (effort === "other") return "Other";
-  return effort.charAt(0).toUpperCase() + effort.slice(1);
-}
-
-const fixedFamilyColors: Record<string, string> = {
-  "claude-fable-5": "var(--violet)",
-  "claude-opus-5": "var(--orange)",
-  "claude-sonnet-5": "var(--accent)",
-  "claude-haiku-4-5": "var(--aqua)",
-  "gpt-5.6-sol": "#8fa9d9",
-};
-
-/** Model families need their own colours: provider colours would make every Claude or Codex
- * family indistinguishable. Unknown future families still get a stable palette entry. */
-export function familyColor(family: string) {
-  if (!family || family === "unknown") return neutral;
-  return fixedFamilyColors[family.toLowerCase()] ?? stablePaletteColor(`family:${family.toLowerCase()}`);
-}
-
-/** Compact family label for pills and legends, without discarding the release family. */
-export function familyLabel(family: string) {
-  if (!family || family === "unknown") return "Unknown model";
-  const withoutProvider = family
-    .replace(/^claude[-_ ]/i, "")
-    .replace(/^gpt[-_ ]/i, "GPT ");
-  const words = withoutProvider
-    .replace(/[-_]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word.toLowerCase() === "gpt"
-      ? "GPT"
-      : word.charAt(0).toUpperCase() + word.slice(1));
-  return words.join(" ").replace(/(\d) (\d)(?=$| )/g, "$1.$2");
+/** One combo rendered as its family and its recorded effort, never as effort alone. */
+export function ComboPill({ combo, trailing }: { combo: Combo; trailing?: string }) {
+  return (
+    <SplitPill
+      left={{ label: familyLabel(combo.family), color: familyColor(combo.family) }}
+      right={{ label: effortLabel(combo.effort), color: effortColor(combo.effort) }}
+      trailing={trailing}
+    />
+  );
 }
 
 export function SplitPill({
@@ -184,7 +147,7 @@ export function EffortStack({
 
 /** Token coverage is always displayed; observation coverage only when the source supplied a
  * supported observation boundary. */
-export function EffortCoverage({ summary, indexing = false }: { summary: EffortSummary; indexing?: boolean }) {
+export function EffortCoverage({ summary, indexing = false }: { summary: EffortCoverageFields; indexing?: boolean }) {
   const parts = [`${percent(summary.tokenCoverage)} of tokens have a recorded effort`];
   if (summary.observationCoverage !== null) {
     parts.push(`${percent(summary.observationCoverage)} of ${compact(summary.observedObservations + summary.unknownObservations)} observations`);
@@ -211,7 +174,9 @@ export function EffortState({
   children,
 }: {
   status: EffortIndexStatus | null;
-  summary?: EffortSummary | null;
+  /** Only the coverage state is read, so a combo response can supply it without inventing
+   * effort-only levels it does not have. */
+  summary?: Pick<EffortSummary, "coverageState"> | null;
   children?: React.ReactNode;
 }) {
   if (!status) return <p className="effort-empty">Effort information is unavailable right now.</p>;
@@ -262,5 +227,62 @@ export function EffortIndexSummary({ status }: { status: EffortIndexStatus }) {
       <div><dt>Context gaps</dt><dd>{status.contextGaps}</dd></div>
       <div><dt>Skipped bytes</dt><dd>{compact(status.skippedBytes)}</dd></div>
     </dl>
+  );
+}
+
+/** The one effort facet control. Effort-only options and combo options are grouped separately —
+ * effort alone is a coarse secondary filter, and a combo is the primary unit — and combos are
+ * grouped by family so the list stays usable as models are added.
+ *
+ * Only observed combos are listed. A synthetic family × effort pairing nobody has recorded must
+ * never be offered as something to filter on. */
+export function ComboFacetSelect({
+  value,
+  onChange,
+  effortLevels,
+  combos,
+  disabled = false,
+  id,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  effortLevels: string[];
+  combos: Array<{ family: string; effort: string; kind: ComboKind }>;
+  disabled?: boolean;
+  id?: string;
+}) {
+  const interactive = combos.filter((combo) => combo.kind === "interactive");
+  const other = combos.filter((combo) => combo.kind !== "interactive");
+  const byFamily = (list: typeof combos) => {
+    const families = new Map<string, typeof combos>();
+    for (const combo of list) families.set(combo.family, [...(families.get(combo.family) ?? []), combo]);
+    return [...families.entries()].sort((a, b) => familyLabel(a[0]).localeCompare(familyLabel(b[0])));
+  };
+  const option = (combo: { family: string; effort: string }) => (
+    <option key={encodeComboFacet(combo)} value={encodeComboFacet(combo)}>
+      {comboLabel(combo)}
+    </option>
+  );
+  return (
+    <select id={id} value={value} disabled={disabled} title={EFFORT_HELP} onChange={(event) => onChange(event.target.value)}>
+      <option value="all">All</option>
+      {byFamily(interactive).map(([family, list]) => (
+        <optgroup key={family} label={familyLabel(family)}>
+          {list.map(option)}
+        </optgroup>
+      ))}
+      {other.length > 0 && (
+        <optgroup label="Automated, synthetic, and unrecorded">
+          {other.map(option)}
+        </optgroup>
+      )}
+      <optgroup label="Effort only (across models)">
+        {effortLevels.map((effort) => (
+          <option key={effort} value={`value:${effort}`}>{effortLabel(effort)}</option>
+        ))}
+        <option value="mixed">Mixed effort</option>
+        <option value="unknown">Unknown</option>
+      </optgroup>
+    </select>
   );
 }

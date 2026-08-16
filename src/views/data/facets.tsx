@@ -1,7 +1,7 @@
 import { SlidersHorizontal } from "lucide-react";
 import { Segmented } from "../chrome";
 import type { DataFacets, Insights } from "./insights";
-import { effortLabel } from "../../components/effort";
+import { ComboFacetSelect } from "../../components/effort";
 import { dateRangeLabel, type DateRange } from "../../time-range";
 
 export function FacetBar({
@@ -25,7 +25,7 @@ export function FacetBar({
   pathTag: string;
   showCache: boolean;
 }) {
-  const { sessionsInScope, sessionsShown, outlierCount, effortLevels } = insights.facets;
+  const { sessionsInScope, sessionsShown, outlierCount, effortLevels, effortCombos } = insights.facets;
   const scopeParts = [
     `${days === "all" ? "all history" : days === "custom" ? dateRangeLabel(dateRange) : `${days} days`}`,
     agentSummary,
@@ -56,15 +56,13 @@ export function FacetBar({
           />
         </label>
         <label>
-          <span>Effort</span>
-          <select value={facets.effort} onChange={(event) => onChange({ effort: event.target.value })}>
-            <option value="all">All effort</option>
-            {effortLevels.map((effort) => (
-              <option key={effort} value={`value:${effort}`}>{effortLabel(effort)}</option>
-            ))}
-            <option value="mixed">Mixed</option>
-            <option value="unknown">Unknown</option>
-          </select>
+          <span>Model × effort</span>
+          <ComboFacetSelect
+            value={facets.effort}
+            onChange={(effort) => onChange({ effort })}
+            effortLevels={effortLevels}
+            combos={effortCombos}
+          />
         </label>
       </div>
     </section>

@@ -2,7 +2,7 @@ import type { EffortLevelBucket, EffortSummary } from "./types";
 
 /** Canonical display order. Anything the providers add later sorts alphabetically after these,
  * so an unknown future value is still rendered rather than dropped. */
-const canonicalOrder = ["low", "medium", "high", "xhigh"];
+const canonicalOrder = ["low", "medium", "high", "xhigh", "max"];
 
 /** Trim and lowercase only. Effort is never inferred from model names, model catalogs,
  * reasoning-token counts, or token ratios. */

@@ -33,7 +33,7 @@ describe("context estimates", () => {
 function session(id: string, agent: string, model: string, buckets: Partial<Session>): Session {
   const row = { inputTokens: 1_000, outputTokens: 10_000, cacheReadTokens: 500_000, cacheCreationTokens: 50_000, ...buckets };
   return {
-    agent, period: "2026-07-20", sessionId: id, cwd: "/Users/x/demo", pathTags: [], annotation: { tags: [], note: "" },
+    agent, period: "2026-07-20", sessionId: id, cwd: "/Users/x/demo", pathTags: [], annotation: { tags: [], note: "", verdict: null },
     inputTokens: row.inputTokens!, outputTokens: row.outputTokens!, cacheReadTokens: row.cacheReadTokens!, cacheCreationTokens: row.cacheCreationTokens!,
     totalTokens: row.inputTokens! + row.outputTokens! + row.cacheReadTokens! + row.cacheCreationTokens!,
     totalCost: 1, modelsUsed: [model],

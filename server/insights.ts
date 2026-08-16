@@ -328,6 +328,39 @@ function buildFindings(rows: InsightSession[], rates: Map<string, ModelRate>): E
   return findings.sort((a, b) => weight[a.severity] - weight[b.severity] || (b.recoverable ?? 0) - (a.recoverable ?? 0) || b.processed - a.processed);
 }
 
+/** The one mapper from a dashboard session to the row shape the efficiency rules measure. */
+function toInsightSession(row: Session, itemProvider: Provider, timeZone: string, cache: AnalysisScope["cache"]): InsightSession {
+  const dominantModel = [...row.modelBreakdowns].sort((a, b) => modelTokens(b) - modelTokens(a))[0]?.modelName ?? "unknown";
+  const lastActivity = String(row.metadata?.lastActivity ?? "");
+  return {
+    ...row,
+    provider: itemProvider,
+    processed: total(row, cache),
+    raw: total(row, "include"),
+    dominantModel,
+    family: familyOf(dominantModel),
+    date: Number.isFinite(Date.parse(lastActivity)) ? lastActivity : null,
+    project: projectOf(row),
+    outlier: false,
+    outlierReasons: [] as string[],
+  };
+}
+
+/** Every session id that trips at least one efficiency rule, over the cohort handed in.
+ *
+ * `buildInsights().efficiency.findings` is truncated to 80 for the wire, so a flag rate derived
+ * from it would silently under-count. This returns the untruncated set instead, and counts each
+ * session once no matter how many rules it trips. */
+export function flaggedSessionIds(sessions: Session[], timeZone: string, cache: AnalysisScope["cache"] = "include") {
+  const rows = sessions
+    .map((row) => {
+      const itemProvider = provider(row.agent);
+      return itemProvider ? toInsightSession(row, itemProvider, timeZone, cache) : null;
+    })
+    .filter(Boolean) as InsightSession[];
+  return new Set(buildFindings(rows, modelRates(rows)).map((finding) => finding.sessionId));
+}
+
 /** The Agent filter's provider and model grains are unioned; see `matchesAgentScope`. */
 function matchesAgentScope(row: Session, itemProvider: Provider, scope: AnalysisScope) {
   if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return true;
@@ -367,22 +400,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
         && (!scope.toDate || (date !== null && date <= scope.toDate))
         && (scope.pathTag === "all" || row.pathTags.includes(scope.pathTag));
     })
-    .map((row) => {
-      const dominantModel = [...row.modelBreakdowns].sort((a, b) => modelTokens(b) - modelTokens(a))[0]?.modelName ?? "unknown";
-      const lastActivity = String(row.metadata?.lastActivity ?? "");
-      return {
-        ...row,
-        provider: provider(row.agent)!,
-        processed: total(row, scope.cache),
-        raw: total(row, "include"),
-        dominantModel,
-        family: familyOf(dominantModel),
-        date: Number.isFinite(Date.parse(lastActivity)) ? lastActivity : null,
-        project: projectOf(row),
-        outlier: false,
-        outlierReasons: [] as string[],
-      };
-    });
+    .map((row) => toInsightSession(row, provider(row.agent)!, timeZone, scope.cache));
 
   const { flagged, evaluated, skipped } = outlierFlags(base);
   const marked = base.map((row) => ({ ...row, outlier: flagged.has(row.sessionId), outlierReasons: flagged.get(row.sessionId) ?? [] }));
@@ -439,7 +457,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   const perSession = new Map<string, number>();
   for (const finding of findings) perSession.set(finding.sessionId, Math.max(perSession.get(finding.sessionId) ?? 0, finding.recoverable ?? 0));
   const recoverable = [...perSession.values()].reduce((sum, value) => sum + value, 0);
-  const effortLevels = buildEffortSessionDigest(data, {
+  const digest = buildEffortSessionDigest(data, {
     basis: "sessions",
     rangeDays: scope.rangeDays,
     fromDate: scope.fromDate,
@@ -451,7 +469,15 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
     model: null,
     effort: "all",
     outliers: "all",
-  }).levels;
+  });
+  const effortLevels = digest.efforts;
+  // Observed combos only. A synthetic family × effort pairing nobody has recorded must not be
+  // offered as a filter option.
+  const effortCombos = digest.combos.map(([familyIndex, effortIndex, kind]) => ({
+    family: digest.families[familyIndex],
+    effort: digest.efforts[effortIndex],
+    kind,
+  }));
 
   return {
     scope,
@@ -501,6 +527,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
       sessionsShown: sessions.length,
       outlierCount: outliers.length,
       effortLevels,
+      effortCombos,
     },
   };
 }

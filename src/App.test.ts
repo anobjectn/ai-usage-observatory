@@ -27,7 +27,7 @@ function session(overrides: Partial<Session>): Session {
     period: "2026-07-18",
     cwd: "/work/observatory",
     pathTags: ["observatory"],
-    annotation: { tags: [], note: "" },
+    annotation: { tags: [], note: "", verdict: null },
     inputTokens: 10,
     outputTokens: 5,
     cacheReadTokens: 20,

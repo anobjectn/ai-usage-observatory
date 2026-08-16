@@ -20,7 +20,12 @@ if (!db.query("SELECT value FROM settings WHERE key = 'monthlyBudget'").get()) {
 }
 
 export type PathRule = { id: number; pattern: string; kind: "glob" | "regex"; tag: string; created_at: string };
-export type Annotation = { tags: string[]; note: string; updatedAt?: string };
+/** A user's own rating of a session. It is never inferred from tokens, cost, or effort. */
+export type Verdict = "good" | "mixed" | "bad";
+export const verdicts: Verdict[] = ["good", "mixed", "bad"];
+export const isVerdict = (value: unknown): value is Verdict => verdicts.includes(value as Verdict);
+export type Annotation = { tags: string[]; note: string; verdict: Verdict | null; updatedAt?: string };
+export const emptyAnnotation = (): Annotation => ({ tags: [], note: "", verdict: null });
 
 export function listRules(): PathRule[] {
   return db.query("SELECT * FROM path_rules ORDER BY tag, pattern").all() as PathRule[];
@@ -40,16 +45,51 @@ export function deleteRule(id: number) {
   db.query("DELETE FROM path_rules WHERE id = ?").run(id);
 }
 
+type AnnotationRow = { session_id: string; tags: string; note: string; verdict: string | null; updated_at: string };
+
+const annotationOf = (row: AnnotationRow): Annotation => ({
+  tags: JSON.parse(row.tags),
+  note: row.note,
+  verdict: isVerdict(row.verdict) ? row.verdict : null,
+  updatedAt: row.updated_at,
+});
+
 export function getAnnotations(): Record<string, Annotation> {
-  const rows = db.query("SELECT session_id, tags, note, updated_at FROM annotations").all() as Array<{session_id:string;tags:string;note:string;updated_at:string}>;
-  return Object.fromEntries(rows.map((row) => [row.session_id, { tags: JSON.parse(row.tags), note: row.note, updatedAt: row.updated_at }]));
+  const rows = db.query("SELECT session_id, tags, note, verdict, updated_at FROM annotations").all() as AnnotationRow[];
+  return Object.fromEntries(rows.map((row) => [row.session_id, annotationOf(row)]));
 }
 
-export function setAnnotation(sessionId: string, annotation: Annotation) {
+export function getAnnotation(sessionId: string): Annotation {
+  const row = db.query("SELECT session_id, tags, note, verdict, updated_at FROM annotations WHERE session_id = ?").get(sessionId) as AnnotationRow | null;
+  return row ? annotationOf(row) : emptyAnnotation();
+}
+
+/** Annotation writes change neither `collectedAt` nor the effort index version, so without this
+ * revision a verdict edit would stay invisible behind a cached snapshot and a `304`. */
+export function getAnnotationVersion() {
+  return Number((db.query("SELECT version FROM annotation_meta WHERE id = 1").get() as { version?: number } | null)?.version ?? 0);
+}
+
+const bumpAnnotationVersion = () => db.query("UPDATE annotation_meta SET version = version + 1 WHERE id = 1").run();
+
+/** Tags and note only. The two setters are field-preserving on purpose: a single replacement
+ * setter would let a tag edit silently clear a verdict the user recorded. */
+export const setAnnotationText = db.transaction((sessionId: string, annotation: Pick<Annotation, "tags" | "note">) => {
   db.query(`INSERT INTO annotations (session_id, tags, note, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(session_id) DO UPDATE SET tags = excluded.tags, note = excluded.note, updated_at = CURRENT_TIMESTAMP`)
     .run(sessionId, JSON.stringify(annotation.tags), annotation.note);
-}
+  bumpAnnotationVersion();
+  return getAnnotation(sessionId);
+});
+
+/** Verdict only; `null` clears it. Tags and note are preserved. */
+export const setVerdict = db.transaction((sessionId: string, verdict: Verdict | null) => {
+  db.query(`INSERT INTO annotations (session_id, verdict, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(session_id) DO UPDATE SET verdict = excluded.verdict, updated_at = CURRENT_TIMESTAMP`)
+    .run(sessionId, verdict);
+  bumpAnnotationVersion();
+  return getAnnotation(sessionId);
+});
 
 export function getSettings() {
   const rows = db.query("SELECT key, value FROM settings").all() as Array<{key:string;value:string}>;

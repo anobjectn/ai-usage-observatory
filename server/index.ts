@@ -5,15 +5,17 @@ import { buildInsights, resolveScope } from "./insights";
 import { importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
 import { ExternalOpenError, externalOpenOriginAllowed, isExternalOpenAction, openSessionExternalTarget } from "./external-open";
-import { buildEffortAggregate, buildEffortSessionDigest, buildEffortStatus, buildSessionEffortSummary, clearEffortMemo, effortEtag, memoizedBody, resolveEffortGroup, resolveEffortScope, scopeKey } from "./effort-api";
+import { buildEffortAggregate, buildEffortComboBoard, buildEffortComboDays, buildEffortSessionDigest, buildEffortStatus, buildSessionEffortSummary, clearEffortMemo, effortEtag, memoizedBody, resolveEffortGroup, resolveEffortScope, scopeKey } from "./effort-api";
 import { scheduleEffortIndexing } from "./effort-index";
 import { deleteEffortDerived, setEffortEnabled } from "./effort-store";
-import { createRule, deleteRule, getSettings, listAdvice, listRules, setAnnotation, setSettings, updateAdviceState, updateRule } from "./store";
+import { createRule, deleteRule, getAnnotationVersion, getSettings, isVerdict, listAdvice, listRules, setAnnotationText, setSettings, setVerdict, updateAdviceState, updateRule } from "./store";
 
 const port = Number(process.env.PORT ?? 4318);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const dashboard = (request: Request, value: Awaited<ReturnType<typeof getSnapshot>>) => {
-  const etag = `\"${value.collectedAt}\"`;
+  // The annotation revision is part of the identity: a verdict edit changes the body without
+  // changing `collectedAt`, and would otherwise stay hidden behind a 304.
+  const etag = `\"${value.collectedAt}:${getAnnotationVersion()}\"`;
   const headers = { "Cache-Control": "private, no-cache", ETag: etag };
   if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
   return Response.json(value, { headers });
@@ -87,15 +89,30 @@ async function api(request: Request, url: URL) {
     clearEffortMemo();
     return json(buildEffortStatus());
   }
-  if (request.method === "GET" && (path === "/api/effort" || path === "/api/effort/sessions")) {
+  if (request.method === "GET" && (path === "/api/effort" || path === "/api/effort/sessions" || path === "/api/effort/combo-days" || path === "/api/effort/combos")) {
     const snapshot = await getSnapshot();
     const scope = resolveEffortScope(url.searchParams);
     const group = resolveEffortGroup(url.searchParams.get("group"));
     const status = buildEffortStatus();
-    const isDigest = path === "/api/effort/sessions";
-    const etag = effortEtag([path, snapshot.collectedAt, status.indexVersion, isDigest ? "digest" : group, scopeKey(scope)]);
+    const kind = path === "/api/effort/sessions"
+      ? "digest"
+      : path === "/api/effort/combo-days"
+        ? "combo-days"
+        : path === "/api/effort/combos"
+          ? "combos"
+          : group;
+    // The scoreboard reports verdicts, which change neither `collectedAt` nor the index version.
+    // Without the annotation revision a new rating would sit behind a 304 and a memoized body.
+    const etag = effortEtag([path, snapshot.collectedAt, status.indexVersion, kind, scopeKey(scope), kind === "combos" ? getAnnotationVersion() : 0]);
     const data = snapshot as unknown as import("../src/types").DashboardData;
-    return conditionalBody(request, etag, () => memoizedBody(etag, () => (isDigest ? buildEffortSessionDigest(data, scope) : buildEffortAggregate(data, scope, group))));
+    return conditionalBody(request, etag, () => memoizedBody(etag, () =>
+      kind === "digest"
+        ? buildEffortSessionDigest(data, scope)
+        : kind === "combo-days"
+          ? buildEffortComboDays(data, scope)
+          : kind === "combos"
+            ? buildEffortComboBoard(data, scope)
+            : buildEffortAggregate(data, scope, group)));
   }
   if (request.method === "GET" && path === "/api/advice") return json(listAdvice(url.searchParams.get("state") ?? "active"));
   if (request.method === "GET" && path === "/api/advice/log") return json(listAdvice());
@@ -138,8 +155,17 @@ async function api(request: Request, url: URL) {
   const annotationMatch = path.match(/^\/api\/sessions\/([^/]+)\/annotations$/);
   if (annotationMatch && request.method === "PUT") {
     const input = await body(request);
-    setAnnotation(decodeURIComponent(annotationMatch[1]), { tags: Array.isArray(input.tags) ? input.tags.map(String) : [], note: String(input.note ?? "") });
-    return json({ ok: true });
+    const annotation = setAnnotationText(decodeURIComponent(annotationMatch[1]), { tags: Array.isArray(input.tags) ? input.tags.map(String) : [], note: String(input.note ?? "") });
+    return json({ ok: true, annotation });
+  }
+  const verdictMatch = path.match(/^\/api\/sessions\/([^/]+)\/verdict$/);
+  if (verdictMatch && request.method === "PUT") {
+    const input = await body(request);
+    // Exactly one recognised verdict, or an explicit null to clear it. Nothing else is accepted:
+    // a verdict is the user's own rating and must never be coerced out of a stray value.
+    if (!("verdict" in input) || (input.verdict !== null && !isVerdict(input.verdict)))
+      return errorResponse("verdict must be 'good', 'mixed', 'bad', or null", 400);
+    return json({ ok: true, annotation: setVerdict(decodeURIComponent(verdictMatch[1]), input.verdict) });
   }
   const externalOpenMatch = path.match(/^\/api\/sessions\/([^/]+)\/external-open$/);
   if (externalOpenMatch && request.method === "POST") {

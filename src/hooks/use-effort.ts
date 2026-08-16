@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EffortAggregate, EffortGroup, EffortIndexStatus, EffortSessionDigest } from "../types";
+import type { EffortAggregate, EffortComboBoard, EffortComboDays, EffortGroup, EffortIndexStatus, EffortSessionDigest, SessionAnnotation, SessionVerdict } from "../types";
+import { comboKey, comboLabel, familyLabel, parseComboFacet, type Combo } from "../combo";
 
 export type EffortScopeInput = {
   basis?: "timeline" | "sessions";
@@ -88,6 +89,27 @@ export function useEffortAggregate(group: EffortGroup, scope: EffortScopeInput, 
   return { ...aggregate, indexVersion };
 }
 
+/** Model × effort by day. Deliberately not an `EffortGroup`: `denominators()` handles only `day`
+ * specially, so a new group would fall into the raw-model branch and give every cell a zero
+ * denominator. The chart needs day-level reconciliation, not a per-model one. */
+export function useEffortComboDays(scope: EffortScopeInput, enabled = true) {
+  const url = enabled ? `/api/effort/combo-days?${effortScopeParams(scope).toString()}` : null;
+  const days = useConditional<EffortComboDays>(url);
+  const { load } = days;
+  useEffect(() => { void load(); }, [load]);
+  return days;
+}
+
+/** "What works where". Its ETag also tracks the annotation revision, so a verdict written from
+ * the Sessions table shows up here on the next conditional fetch. */
+export function useEffortComboBoard(scope: EffortScopeInput, enabled = true) {
+  const url = enabled ? `/api/effort/combos?${effortScopeParams(scope).toString()}` : null;
+  const board = useConditional<EffortComboBoard>(url);
+  const { load } = board;
+  useEffect(() => { void load(); }, [load]);
+  return board;
+}
+
 export function useEffortSessions(scope: EffortScopeInput, enabled = true) {
   const url = enabled ? `/api/effort/sessions?${effortScopeParams(scope).toString()}` : null;
   const digest = useConditional<EffortSessionDigest>(url);
@@ -99,50 +121,78 @@ export function useEffortSessions(scope: EffortScopeInput, enabled = true) {
 /** Views never index tuple positions directly; this is the one decoder. */
 export type DecodedSessionEffort = {
   sessionId: string;
+  /** Display-dominant combo. It is not an outcome leader; see the scoreboard for that. */
+  dominantCombo: Combo | null;
+  /** Effort of the dominant combo, kept because several surfaces still read effort alone. */
   dominant: string | null;
+  combos: Combo[];
+  /** Two or more distinct efforts. Tracked separately from `multipleCombos`. */
   mixed: boolean;
+  multipleCombos: boolean;
   hasUnknown: boolean;
   unjoinable: boolean;
   tokenCoverage: number | null;
   levels: Set<string>;
+  comboKeys: Set<string>;
 };
 
 export function decodeEffortDigest(digest: EffortSessionDigest | null): Map<string, DecodedSessionEffort> {
   const decoded = new Map<string, DecodedSessionEffort>();
-  for (const [sessionId, level, flags, coveragePerMille, maskHex] of digest?.rows ?? []) {
+  if (!digest) return decoded;
+  const combos: Combo[] = digest.combos.map(([familyIndex, effortIndex]) => ({
+    family: digest.families[familyIndex] ?? "unknown",
+    effort: digest.efforts[effortIndex] ?? "",
+  }));
+  for (const [sessionId, dominantIndex, flags, coveragePerMille, maskHex] of digest.rows) {
     const mask = BigInt(`0x${maskHex || "0"}`);
+    const present = combos.filter((_, index) => (mask & (1n << BigInt(index))) !== 0n);
+    const dominantCombo = dominantIndex >= 0 ? combos[dominantIndex] ?? null : null;
     decoded.set(sessionId, {
       sessionId,
-      dominant: level >= 0 ? digest!.levels[level] ?? null : null,
+      dominantCombo,
+      dominant: dominantCombo?.effort ?? null,
+      combos: present,
       mixed: (flags & 1) !== 0,
       hasUnknown: (flags & 2) !== 0,
       unjoinable: (flags & 4) !== 0,
-      tokenCoverage: level >= 0 || coveragePerMille > 0 ? coveragePerMille / 1000 : null,
-      levels: new Set(digest!.levels.filter((_, index) => (mask & (1n << BigInt(index))) !== 0n)),
+      multipleCombos: (flags & 8) !== 0,
+      tokenCoverage: dominantIndex >= 0 || coveragePerMille > 0 ? coveragePerMille / 1000 : null,
+      levels: new Set(present.map((combo) => combo.effort)),
+      comboKeys: new Set(present.map(comboKey)),
     });
   }
   return decoded;
 }
 
-/** Text form of a session's effort. Keyboard labels, search text, and empty states all use it, so
- * the value is never carried by colour alone. */
+/** Text form of a session's model and effort. Keyboard labels, search text, and empty states all
+ * use it, so the value is never carried by colour alone. */
 export function effortSummaryLabel(decoded: DecodedSessionEffort | undefined) {
-  if (!decoded || decoded.dominant === null) return "unknown";
-  return decoded.mixed ? `mixed, mostly ${decoded.dominant}` : decoded.dominant;
+  if (!decoded || !decoded.dominantCombo) return "unknown";
+  const label = comboLabel(decoded.dominantCombo);
+  const extra = decoded.combos.length - 1;
+  return extra > 0 ? `${label} and ${extra} more` : label;
 }
 
-/** Free-text haystack for the Sessions search box: Mixed and Unknown must be findable as words. */
+/** Free-text haystack for the Sessions search box. Family labels, raw family ids, and efforts are
+ * all included, so `luna max` finds the sessions that recorded it. */
 export function effortSearchText(decoded: DecodedSessionEffort | undefined) {
-  if (!decoded || decoded.dominant === null) return "unknown";
-  return [[...decoded.levels].join(" "), decoded.mixed ? "mixed" : "", decoded.hasUnknown ? "unknown" : ""].filter(Boolean).join(" ");
+  if (!decoded || decoded.combos.length === 0) return "unknown";
+  return [
+    ...decoded.combos.map((combo) => `${familyLabel(combo.family)} ${combo.family} ${combo.effort}`),
+    decoded.mixed ? "mixed" : "",
+    decoded.hasUnknown ? "unknown" : "",
+  ].filter(Boolean).join(" ").toLowerCase();
 }
 
-/** `filter` is "all", "mixed", "unknown", or an observed value. */
+/** `filter` is "all", "mixed", "unknown", `value:<effort>`, or an encoded combo. */
 export function matchesSessionEffortFilter(decoded: DecodedSessionEffort | undefined, filter: string) {
   if (filter === "all") return true;
   if (filter === "unknown") return !decoded || decoded.dominant === null;
   if (filter === "mixed") return Boolean(decoded?.mixed);
-  return Boolean(decoded?.levels.has(filter));
+  const combo = parseComboFacet(filter);
+  if (combo) return Boolean(decoded?.comboKeys.has(comboKey(combo)));
+  const effort = filter.startsWith("value:") ? filter.slice("value:".length) : filter;
+  return Boolean(decoded?.levels.has(effort));
 }
 
 /** Canonical numeric order for the sortable Effort column; Unknown always sorts last. */
@@ -176,4 +226,16 @@ export async function deleteEffortDerivedObservations() {
   const response = await fetch("/api/effort/derived", { method: "DELETE" });
   if (!response.ok) throw new Error(`Server returned ${response.status}`);
   return await response.json() as EffortIndexStatus;
+}
+
+/** One-click verdict write. It returns the stored annotation so the caller can patch visible
+ * state immediately; the next conditional fetch must independently return the same value. */
+export async function setSessionVerdict(sessionId: string, verdict: SessionVerdict | null) {
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/verdict`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ verdict }),
+  });
+  if (!response.ok) throw new Error(`Server returned ${response.status}`);
+  return (await response.json() as { annotation: SessionAnnotation }).annotation;
 }

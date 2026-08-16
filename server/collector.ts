@@ -5,7 +5,7 @@ import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths } from "./path-indexer";
 import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
-import { getAnnotations, getSettings, listRules } from "./store";
+import { emptyAnnotation, getAnnotations, getAnnotationVersion, getSettings, listRules } from "./store";
 import { buildInsights, resolveScope } from "./insights";
 import { reconcileAdvice } from "./advice";
 import { aggregateModels } from "../src/model-aggregation";
@@ -16,6 +16,7 @@ type Snapshot = Awaited<ReturnType<typeof buildSnapshot>>;
 let snapshot: Snapshot | null = null;
 let refreshPromise: Promise<Snapshot> | null = null;
 let lastError: string | null = null;
+let snapshotAnnotationVersion = -1;
 
 type ModelUsage = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
 
@@ -126,11 +127,14 @@ async function buildSnapshot() {
   const [paths, ccusage, quota] = await Promise.all([indexSessionPaths(), collectCcusage(timeZone), collectQuota()]);
   setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
+  // Read the revision before the rows: a write in between only causes one harmless re-overlay,
+  // whereas the other order could leave a stale annotation looking current.
+  snapshotAnnotationVersion = getAnnotationVersion();
   const annotations = getAnnotations();
   const sessions = ccusage.unified.session.map((row) => {
     const path = pathIndex[`${row.agent}:${row.period}`];
     const sessionId = path?.sessionId ?? `${row.agent}-${row.period}`;
-    return { ...row, sessionId, cwd: path?.cwd ?? null, pathTags: path?.tags ?? [], annotation: annotations[sessionId] ?? { tags: [], note: "" } };
+    return { ...row, sessionId, cwd: path?.cwd ?? null, pathTags: path?.tags ?? [], annotation: annotations[sessionId] ?? emptyAnnotation() };
   }).sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
   return {
     collectedAt: new Date().toISOString(),
@@ -187,8 +191,25 @@ export async function refresh() {
   return refreshPromise;
 }
 
+/** A verdict or tag edit must be visible without a full ccusage recollection. Re-overlaying the
+ * annotations onto the cached snapshot does that without redefining what `collectedAt` means. */
+function withCurrentAnnotations(current: Snapshot): Snapshot {
+  const version = getAnnotationVersion();
+  if (version === snapshotAnnotationVersion) return current;
+  const annotations = getAnnotations();
+  snapshotAnnotationVersion = version;
+  snapshot = {
+    ...current,
+    sessions: current.sessions.map((session) => ({
+      ...session,
+      annotation: annotations[session.sessionId] ?? emptyAnnotation(),
+    })),
+  };
+  return snapshot;
+}
+
 export async function getSnapshot() {
   const isStale = !snapshot || Date.now() - Date.parse(snapshot.collectedAt) >= 60_000;
-  const result = isStale ? await refresh() : snapshot!;
+  const result = isStale ? await refresh() : withCurrentAnnotations(snapshot!);
   return { ...result, refresh: { inProgress: Boolean(refreshPromise), lastError, stale: Boolean(lastError) } };
 }

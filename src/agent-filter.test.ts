@@ -39,7 +39,7 @@ const session = (id: string, agent: string, models: ModelBreakdown[]): Session =
     modelBreakdowns: models,
     cwd: null,
     pathTags: [],
-    annotation: { tags: [], note: "" },
+    annotation: { tags: [], note: "", verdict: null },
   }) as Session;
 
 describe("agent selection matching", () => {

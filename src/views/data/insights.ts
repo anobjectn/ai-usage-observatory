@@ -43,7 +43,12 @@ export type Insights = {
   };
   outliers: { count: number; sessionShare: number; tokenShare: number; cohortsEvaluated: number; cohortsSkipped: number; sessions: OutlierRow[] };
   efficiency: { rules: RuleSummary[]; findings: FindingRow[]; truncated: number; totals: { findings: number; flaggedSessions: number; sessionShare: number | null; recoverable: number; recoverableShare: number | null } };
-  facets: { modelFamilies: string[]; sessionsInScope: number; sessionsShown: number; outlierCount: number; effortLevels: string[] };
+  facets: {
+    modelFamilies: string[]; sessionsInScope: number; sessionsShown: number; outlierCount: number;
+    effortLevels: string[];
+    /** Observed family × effort pairs only; never a synthetic cross-product. */
+    effortCombos: Array<{ family: string; effort: string; kind: "interactive" | "automated" | "synthetic" | "unknown" }>;
+  };
 };
 
 /** Model family is deliberately absent: it moved into the global Agent filter, so there is one

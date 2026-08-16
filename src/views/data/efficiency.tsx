@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowUpRight, Lightbulb } from "lucide-react";
-import { familyColor, familyLabel, effortColor, effortLabel, SplitPill } from "../../components/effort";
-import { effortSummaryLabel, type DecodedSessionEffort } from "../../hooks/use-effort";
+import { ComboPill } from "../../components/effort";
+import { type DecodedSessionEffort } from "../../hooks/use-effort";
 import { familyOf } from "../../model-family";
 import { compactTokens, type DataFacets, type Insights, percent, providerColor, providerLabel, sessionHref, shortDate } from "./insights";
 
@@ -99,21 +99,12 @@ export function EfficiencyFindings({
               <div className="finding__top">
                 <span className="finding__rule">{rules.find((rule) => rule.id === finding.ruleId)?.label ?? finding.ruleId}</span>
                 {(() => {
-                  const family = familyOf(finding.model);
+                  // The dominant combo the digest recorded, falling back to this finding's own
+                  // dominant model with no effort rather than inventing one.
                   const decoded = effortBySession.get(finding.sessionId);
-                  const effort = effortSummaryLabel(decoded);
-                  const labelledEffort = decoded?.dominant
-                    ? effort.replace(decoded.dominant, effortLabel(decoded.dominant))
-                    : effort;
-                  return (
-                    <SplitPill
-                      left={{ label: familyLabel(family), color: familyColor(family) }}
-                      right={{
-                        label: labelledEffort.charAt(0).toUpperCase() + labelledEffort.slice(1),
-                        color: effortColor(decoded?.dominant ?? ""),
-                      }}
-                    />
-                  );
+                  const combo = decoded?.dominantCombo ?? { family: familyOf(finding.model), effort: "" };
+                  const extra = (decoded?.combos.length ?? 1) - 1;
+                  return <ComboPill combo={combo} trailing={extra > 0 ? `+${extra}` : undefined} />;
                 })()}
                 <span className="finding__meta">
                   <i style={{ background: providerColor(finding.provider) }} />

@@ -23,7 +23,7 @@ cloud account or telemetry service is required.
 | --- | --- |
 | How is my usage changing? | Daily, weekly, monthly, per-session, and five-hour activity, with comparable date ranges. |
 | Which work is driving it? | Cross-provider attribution to projects and sessions, including model breakdowns. |
-| How are model and effort choices shifting? | Token composition, API-equivalent cost, model mix, and provider-recorded reasoning effort where available. |
+| How are model and effort choices shifting? | Token composition, API-equivalent cost, model mix, and provider-recorded reasoning effort beside the model family that recorded it, where available. |
 | How much provider capacity remains? | Optional provider-reported allowance windows, headroom, resets, credits, and locally observed quota history. |
 | Which activity deserves closer review? | Outlier sessions, allowance-capture and efficiency signals, transcript context, tool activity, and patch summaries. |
 
@@ -145,6 +145,7 @@ analytical context between the views that support each filter.
 - Separate input, output, cache-read, and cache-creation tokens, or exclude cache
   traffic when it would obscure the comparison.
 - Compare API-equivalent cost, model mix, and provider-recorded reasoning effort
+  as model family x effort — the unit an effort label is actually comparable in —
   without presenting missing effort labels as known data.
 - Trace work across Claude Code and Codex from session to project and model.
 - Apply glob or regular-expression path rules retroactively to the indexed
@@ -161,7 +162,8 @@ analytical context between the views that support each filter.
 | --- | --- | --- |
 | Tokens and API-equivalent cost | Pinned [`ccusage`](https://github.com/ccusage/ccusage) analytics | Produces usage rollups and reconstructed activity blocks from local records. |
 | Session and project attribution | Local Claude Code and Codex session files | Recovers native session identifiers and working directories through a metadata-only path index. |
-| Reasoning effort | Optional derived index of local session files | Reads provider-recorded effort labels and stores categorical aggregates, never reasoning text. |
+| Model x effort | Optional derived index of local session files | Reads provider-recorded effort labels beside the model that recorded them and stores categorical aggregates, never reasoning text. |
+| Session verdict | You | A rating you record yourself. It is never inferred, and it is the only signal in the app that does not come from a local record or a provider. |
 | Provider capacity | Optional [`quota-service`](https://github.com/anobjectn/quota-service) instance | Supplies provider-reported allowance windows, resets, credits, and status without changing local usage totals. |
 
 > [!IMPORTANT]
@@ -184,7 +186,8 @@ session file — enough to recover the native session ID and working directory.
 Reasoning-effort indexing is separate, opt-in, and disabled by default. When
 enabled in Data, it scans transcripts incrementally and stores only
 session/date/provider/model/effort categories, token buckets, observation
-counts, parser offsets and hashes, and quality counters. It never stores
+counts, parser offsets and hashes, and quality counters. Session verdicts are
+stored alongside your existing tags and notes and stay on this machine too. It never stores
 prompts, responses, reasoning text, commands, tool arguments or results, file
 contents, or transcript fragments. Disabling the index stops new processing and
 excludes retained rows from analysis; Data can delete all derived effort
@@ -231,6 +234,20 @@ different quota-service base URL.
   not inferred from model names or reasoning-token counts, and they are not a
   quality score or recommendation. One observation represents one Claude
   assistant usage event or one Codex turn context.
+- Effort is only comparable beside the model that recorded it, so the unit of
+  comparison is model family x effort. `High` on two different families is two
+  different cohorts, not one.
+- Tokens and observations are attributable to a family x effort combination.
+  Session cost, efficiency findings, and verdicts are not: they describe whole
+  sessions, and are reported only over sessions a single combination uniquely
+  led by attributed tokens. Sessions with no unique leader contribute volume and
+  no outcome. These are observed cohort differences — they do not control for
+  task difficulty and are not a recommendation to change model or effort.
+- Reasoning share is reported only where the provider reports reasoning tokens.
+  A provider-reported zero is shown as zero; a provider that reports nothing is
+  shown as not reported, never as zero.
+- Session verdicts are yours. Nothing in the app infers one, and a rate is shown
+  only once a cohort has at least five ratings.
 
 ## Provider allowance data
 

@@ -50,9 +50,55 @@ analysis. Deleting derived observations disables indexing and removes only the t
 tables' contents.
 
 Effort freshness is independent of `/api/dashboard`. Status polling watches the private index
-version; aggregate and session-digest ETags include both snapshot and index versions. Data's effort
-facet also includes the index version in `/api/insights` because it selects whole sessions before
-existing metrics are computed.
+version; aggregate, combo, and session-digest ETags include both snapshot and index versions.
+Data's effort facet also includes the index version in `/api/insights` because it selects whole
+sessions before existing metrics are computed.
+
+## Model family x effort
+
+The unit of comparison is the **combo**: `{ family, effort }`, where family comes from `familyOf()`
+and effort is the provider-recorded label, normalized but never inferred. An effort value on its
+own is not a decision unit — `Opus 5 · High` and `Sol · High` are different cohorts. `src/combo.ts`
+owns the vocabulary (keys, labels, colours, facet encoding, series selection) and is shared by the
+server and the client so a model can never be grouped one way in a chart and another in a filter.
+
+`/api/effort/combo-days` returns day rows of family x effort buckets. Raw model variants collapse
+to families in TypeScript, not SQL, and reconciliation stays **per day** against the existing
+authoritative day total: there is no `(day, model)` denominator, so a multi-day session allocated
+to its last-activity day cannot suppress otherwise-valid model cells. Days present only in the
+denominator are returned as all-unknown coverage rather than disappearing.
+
+`/api/effort/combos` is the scoreboard. Tokens, observations, appearances, and reasoning share are
+combo-attributable. Median tokens, median cost, efficiency flag rate, and verdict are *whole-session*
+statistics over the sessions a combo **uniquely led** — the single combo with strictly more
+attributed tokens than every other. A tie is not broken alphabetically: those sessions contribute
+volume to every combo present and outcomes to none. Comparative cells need five led sessions;
+verdict rates need five ratings, counted separately. Automated, synthetic, and unrecorded-model
+rows keep their volume and never receive comparative metrics. Flag rate comes from an untruncated
+pass over the efficiency rules, not from the 80-item public findings array.
+
+Reasoning share is `reasoningOutputTokens / outputTokens`, and is `null` when the provider reported
+no reasoning events at all. A provider-reported zero stays zero; the two are distinguished by the
+event count, never by the sum.
+
+The session digest is version 2 and carries family and effort as separate indexes plus a per-session
+combo bitmask, so the Sessions table can render, sort, search, and filter by dominant combo. "Mixed
+effort" (two or more distinct efforts) and "multiple combos" are separate flags. The Data effort
+facet is one field extended rather than duplicated: `all`, `mixed`, `unknown`, `value:<effort>`, and
+`combo:<JSON tuple>`. A combo selection chooses **sessions**; those sessions keep every other combo
+they recorded in each downstream metric.
+
+## Session verdict
+
+`verdict` is the user's own rating of a session (`good`, `mixed`, `bad`, or unrated). It is never
+inferred from tokens, cost, effort, or any heuristic, and it is the only user-supplied signal in the
+app. Annotation writes are field-preserving: `setAnnotationText()` cannot clear a verdict and
+`setVerdict()` cannot clear tags or a note.
+
+A verdict changes neither `collectedAt` nor the effort index version, so `annotation_meta.version`
+is bumped in the same transaction as every write. The cached dashboard snapshot re-overlays
+annotations when that revision changes — no ccusage recollection — and the revision is part of both
+the dashboard ETag and the combo-scoreboard ETag.
 
 ## Quota integration
 

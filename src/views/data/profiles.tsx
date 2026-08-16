@@ -5,13 +5,11 @@ import { familyOf } from "../../model-family";
 import { providerFromModel } from "../../provider";
 import type { EffortAggregate, EffortGroupRow, EffortSummary } from "../../types";
 import {
+  ComboPill,
   EffortCoverage,
   EffortState,
-  SplitPill,
   effortColor,
   effortLabel,
-  familyColor,
-  familyLabel,
   sharePercent,
 } from "../../components/effort";
 import { type ProfileCard, providerColor } from "./insights";
@@ -128,10 +126,9 @@ function ProviderEffortPie({
                 <span className="overline">TOP MODEL × EFFORT</span>
                 <div>
                   {combos.map((combo) => (
-                    <SplitPill
+                    <ComboPill
                       key={`${combo.family}-${combo.effort}`}
-                      left={{ label: familyLabel(combo.family), color: familyColor(combo.family) }}
-                      right={{ label: effortLabel(combo.effort), color: effortColor(combo.effort) }}
+                      combo={combo}
                       trailing={sharePercent(combo.tokens, providerTotal)}
                     />
                   ))}

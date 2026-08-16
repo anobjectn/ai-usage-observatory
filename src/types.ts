@@ -24,7 +24,11 @@ export type ProjectActivity = {
   sessions: number;
   models: Array<{model:string;tokens:number;cost:number}>;
 };
-export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: { tags: string[]; note: string } };
+/** `verdict` is the user's own rating of the session. It is never inferred and is null until
+ * they record one. */
+export type SessionVerdict = "good" | "mixed" | "bad";
+export type SessionAnnotation = { tags: string[]; note: string; verdict: SessionVerdict | null; updatedAt?: string };
+export type Session = MetricRow & { sessionId: string; cwd: string | null; pathTags: string[]; annotation: SessionAnnotation };
 export type SessionDetail = {
   available: boolean;
   prompts: Array<{ text: string; timestamp: string | null }>;
@@ -69,15 +73,9 @@ export type EffortLevelBucket = {
   tokens: number;
 };
 
-/** One scope's provider-recorded reasoning-effort picture. `eligibleTokens` always comes from
- * the matching normalized ccusage scope so the app's existing token totals stay authoritative. */
-export type EffortSummary = {
-  coverageState: "unavailable" | "partial" | "complete";
-  quality: "ok" | "stale" | "degraded";
-  dominant: string | null;
-  dominantBasis: "tokens" | "observations" | null;
-  mixed: boolean;
-  levels: Array<EffortLevelBucket & { tokenShare: number | null }>;
+/** Exactly the fields `EffortCoverage` renders. Combo responses carry these without pretending
+ * their buckets are the effort-only `EffortSummary.levels`. */
+export type EffortCoverageFields = {
   observedObservations: number;
   unknownObservations: number;
   observationCoverage: number | null;
@@ -85,6 +83,17 @@ export type EffortSummary = {
   attributedTokens: number;
   unknownTokens: number | null;
   tokenCoverage: number | null;
+};
+
+/** One scope's provider-recorded reasoning-effort picture. `eligibleTokens` always comes from
+ * the matching normalized ccusage scope so the app's existing token totals stay authoritative. */
+export type EffortSummary = EffortCoverageFields & {
+  coverageState: "unavailable" | "partial" | "complete";
+  quality: "ok" | "stale" | "degraded";
+  dominant: string | null;
+  dominantBasis: "tokens" | "observations" | null;
+  mixed: boolean;
+  levels: Array<EffortLevelBucket & { tokenShare: number | null }>;
   reconciliationDeltaTokens: number;
 };
 
@@ -99,13 +108,111 @@ export type EffortAggregate = {
   status: EffortIndexStatus;
 };
 
+/** One family × effort bucket. Tokens and observations are combo-attributable; session cost,
+ * efficiency findings, and verdict are not, and never appear here. */
+export type EffortComboBucket = {
+  family: string;
+  effort: string;
+  kind: "interactive" | "automated" | "synthetic" | "unknown";
+  observations: number;
+  tokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  reasoningReportedEvents: number;
+  /** Null when the provider reported no reasoning at all. A reported zero stays zero. */
+  reasoningShare: number | null;
+};
+
+export type EffortComboDayRow = {
+  key: string;
+  buckets: EffortComboBucket[];
+  coverage: EffortCoverageFields;
+  /** Derived combo tokens exceeded the authoritative day total, so this day draws nothing. */
+  suppressed: boolean;
+};
+
+export type EffortComboDays = {
+  rows: EffortComboDayRow[];
+  total: EffortCoverageFields;
+  coverageState: EffortSummary["coverageState"];
+  status: EffortIndexStatus;
+};
+
+/** Sessions a combo uniquely led before an outcome statistic may be shown for it. */
+export const LED_SESSION_FLOOR = 5;
+/** Ratings a combo's led cohort needs before a good-rate may be shown. Separate from the led
+ * floor: five led sessions do not make one rating a credible "100% good". */
+export const RATED_SESSION_FLOOR = 5;
+
+/** One combo's scoreboard row.
+ *
+ * Tokens, observations, appearances, and reasoning share are combo-attributable. Every
+ * `*PerLedSession` figure, `flagRate`, and `verdict` is a *whole-session* statistic over sessions
+ * this combo uniquely led: observational, never causal, and never a recommendation. */
+export type EffortComboBoardRow = {
+  family: string;
+  effort: string;
+  kind: EffortComboBucket["kind"];
+  tokens: number;
+  observations: number;
+  /** Distinct scoped sessions containing this combo at all. */
+  sessionsAppeared: number;
+  /** Sessions where this combo is the unique largest by attributed tokens. */
+  sessionsLed: number;
+  /** Sessions this combo appeared in that had no unique leader, so entered no outcome cohort. */
+  tiesExcluded: number;
+  reasoningShare: number | null;
+  medianTokensPerLedSession: number | null;
+  medianCostPerLedSession: number | null;
+  flagRate: number | null;
+  verdict: { rated: number; good: number; mixed: number; bad: number; goodRate: number | null };
+  projects: Array<{ projectId: string; tokens: number }>;
+};
+
+/** One observational deviation of a project × combo cohort from that project's own baseline.
+ *
+ * It is recorded evidence, never a recommendation: nothing here controls for task difficulty, and
+ * the copy that renders it must not say "best", "better", or "use". */
+export type EffortComboContrast = {
+  projectId: string;
+  family: string;
+  effort: string;
+  metric: "cost" | "flagRate";
+  /** Cost: the cohort median as a multiple of the project median. Flag rate: a signed
+   * percentage-point delta — never a ratio, since a zero baseline flag rate is legitimate. */
+  value: number;
+  cohortValue: number;
+  baselineValue: number;
+  cohortSessions: number;
+  baselineSessions: number;
+};
+
+export type EffortComboBoard = {
+  rows: EffortComboBoardRow[];
+  contrasts: EffortComboContrast[];
+  sessionsScoped: number;
+  /** Scoped sessions with no unique leading combo. They contribute volume, never outcomes. */
+  tiedSessions: number;
+  coverage: EffortCoverageFields;
+  coverageState: EffortSummary["coverageState"];
+  status: EffortIndexStatus;
+};
+
 /** High-cardinality digest: one row per dashboard session.
- * Tuple order is (sessionId, dominant level index or -1, bit flags, token coverage per mille,
- * hexadecimal known-level bitmask).
- * Bit flags: 1 = mixed, 2 = has unknown activity, 4 = unjoinable to any transcript. */
+ *
+ * Model family is carried as its own index rather than folded into the effort index: an
+ * effort-only tuple cannot render, sort, search, or filter by a dominant combo.
+ *
+ * Row tuple order is (sessionId, dominant combo index or -1, bit flags, token coverage per mille,
+ * hexadecimal recorded-combo bitmask indexed into `combos`).
+ * Bit flags: 1 = two or more distinct efforts, 2 = has unknown activity,
+ * 4 = unjoinable to any transcript, 8 = two or more distinct combos. */
 export type EffortSessionDigest = {
-  levels: string[];
-  rows: Array<[string, number, number, number, string]>;
+  version: 2;
+  families: string[];
+  efforts: string[];
+  combos: Array<[familyIndex: number, effortIndex: number, kind: EffortComboBucket["kind"]]>;
+  rows: Array<[sessionId: string, dominantComboIndex: number, flags: number, coveragePerMille: number, comboMaskHex: string]>;
 };
 export type QuotaWindow = { usedPercent: number; resetsAt: number | null };
 export type BankedResetCredit = {

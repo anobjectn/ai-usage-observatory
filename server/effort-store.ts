@@ -333,6 +333,59 @@ export function queryEffortBySession(query: Omit<EffortQuery, "group">): EffortG
   }));
 }
 
+/** A flat raw-model × effort bucket. Raw models are collapsed to families in TypeScript through
+ * `comboOf()`, so this SQL never has to know what a family is. */
+export type EffortComboRow = {
+  key: string;
+  model: string;
+  effort: string | null;
+  observations: number;
+  tokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  reasoningReportedEvents: number;
+};
+
+const comboColumns = `u.model AS model, u.effort AS effort,
+    SUM(u.observations) AS observations,
+    SUM(u.total_tokens) AS tokens,
+    SUM(u.output_tokens) AS output_tokens,
+    SUM(u.reasoning_output_tokens) AS reasoning_output_tokens,
+    SUM(u.reasoning_reported_events) AS reasoning_reported_events`;
+
+const comboDayQuery = db.query(`SELECT u.occurred_on AS key, ${comboColumns}
+  FROM session_effort_usage u
+  JOIN session_paths p ON p.session_id = u.session_id
+  ${filters}
+  GROUP BY u.occurred_on, u.model, u.effort`);
+
+const comboSessionQuery = db.query(`SELECT u.session_id AS key, ${comboColumns}
+  FROM session_effort_usage u
+  JOIN session_paths p ON p.session_id = u.session_id
+  ${filters}
+  GROUP BY u.session_id, u.model, u.effort`);
+
+function comboRow(row: Record<string, unknown>): EffortComboRow {
+  return {
+    key: String(row.key),
+    model: String(row.model),
+    effort: row.effort === "" ? null : String(row.effort),
+    observations: Number(row.observations),
+    tokens: Number(row.tokens),
+    outputTokens: Number(row.output_tokens),
+    reasoningOutputTokens: Number(row.reasoning_output_tokens),
+    reasoningReportedEvents: Number(row.reasoning_reported_events),
+  };
+}
+
+export function queryEffortCombosByDay(query: Omit<EffortQuery, "group">): EffortComboRow[] {
+  return (comboDayQuery.all(bindings({ ...query, group: "total" })) as Array<Record<string, unknown>>).map(comboRow);
+}
+
+export function queryEffortCombosBySession(query: Omit<EffortQuery, "group">): EffortComboRow[] {
+  return (comboSessionQuery.all(bindings({ ...query, group: "total" })) as Array<Record<string, unknown>>).map(comboRow);
+}
+
 const sessionUnknownObservationsQuery = db.query(`SELECT u.session_id AS key, SUM(u.observations) AS observations
   FROM session_effort_usage u WHERE u.effort = '' GROUP BY u.session_id`);
 

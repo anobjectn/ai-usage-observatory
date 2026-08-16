@@ -112,6 +112,26 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 4,
+    up(db) {
+      // Verdict is a user's own rating of a session. It is never inferred, and the column is
+      // added beside the existing annotation fields so one write can never clear the other.
+      const columns = db.query("PRAGMA table_info(annotations)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "verdict")) {
+        db.exec("ALTER TABLE annotations ADD COLUMN verdict TEXT CHECK (verdict IN ('good', 'mixed', 'bad'))");
+      }
+      // Annotation writes do not change `collectedAt` or the effort index version, so cached
+      // snapshots and conditional responses need a revision of their own to invalidate against.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS annotation_meta (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          version INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT OR IGNORE INTO annotation_meta(id) VALUES (1);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database, applied: Migration[] = migrations) {

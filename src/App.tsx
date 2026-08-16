@@ -19,6 +19,8 @@ import {
 } from "./effort-model";
 import { dateKeyInTimeZone, hourInTimeZone, systemTimeZone } from "./reporting-time";
 import {
+  ComboFacetSelect,
+  ComboPill,
   EffortBadge,
   EffortCoverage,
   EffortStack,
@@ -26,8 +28,18 @@ import {
   EFFORT_HELP,
   effortColor,
   effortLabel,
+  familyLabel,
   sharePercent,
 } from "./components/effort";
+import {
+  buildComboDaySeries,
+  comboKey,
+  comboLabel,
+  comboSeriesColor,
+  comboSeriesLabel,
+  parseComboFacet,
+  parseComboKey,
+} from "./combo";
 import { providerFromAgent } from "./provider";
 import {
   decodeEffortDigest,
@@ -36,6 +48,8 @@ import {
   matchesSessionEffortFilter,
   sessionEffortSortValue,
   useEffortAggregate,
+  useEffortComboDays,
+  setSessionVerdict,
   useEffortRefreshOnIndexChange,
   useEffortSessions,
   useEffortStatus,
@@ -112,6 +126,9 @@ import {
 } from "recharts";
 import type {
   DashboardData,
+  EffortComboBucket,
+  SessionAnnotation,
+  SessionVerdict,
   EffortIndexStatus,
   EffortSummary,
   MetricRow,
@@ -847,7 +864,9 @@ function ModelSignalTooltip({
       </div>
       {summary?.dominant && (
         <div className="model-signal-tooltip__effort">
-          <strong>Dominant effort: {effortLabel(summary.dominant)}</strong>
+          {/* The model is known here, so the dominant value is shown as the combo it actually
+           * is. An effort label on its own would invite comparison across families. */}
+          <ComboPill combo={{ family: familyOf(row.rawName), effort: summary.dominant }} />
           <small>
             {summary.tokenCoverage === null
               ? "Token coverage unavailable"
@@ -2570,17 +2589,41 @@ function Overview({
     globalEffortScope(agent, dateRange, pathTag),
   );
   const digestRequest = useEffortSessions({});
+  // The aggregate stack answers "how much effort"; the pills below it answer "recorded by which
+  // model", which is the only form in which an effort value is comparable.
+  const comboDaysRequest = useEffortComboDays(
+    globalEffortScope(agent, dateRange, pathTag),
+  );
   const statusRequest = useEffortStatus();
   const effort = effortRequest.data;
   const effortDigest = digestRequest.data;
   useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [
     effortRequest.load,
     digestRequest.load,
+    comboDaysRequest.load,
   ]);
   const effortBySession = useMemo(
     () => decodeEffortDigest(effortDigest),
     [effortDigest],
   );
+  const { topCombos, comboTotalTokens } = useMemo(() => {
+    const totals = new Map<string, { family: string; effort: string; tokens: number }>();
+    for (const row of comboDaysRequest.data?.rows ?? []) {
+      if (row.suppressed) continue;
+      for (const bucket of row.buckets) {
+        if (!bucket.effort || bucket.tokens <= 0) continue;
+        const key = comboKey(bucket);
+        const entry = totals.get(key) ?? { family: bucket.family, effort: bucket.effort, tokens: 0 };
+        entry.tokens += bucket.tokens;
+        totals.set(key, entry);
+      }
+    }
+    const ranked = [...totals.values()].sort((a, b) => b.tokens - a.tokens);
+    return {
+      topCombos: ranked.slice(0, 4),
+      comboTotalTokens: ranked.reduce((sum, combo) => sum + combo.tokens, 0),
+    };
+  }, [comboDaysRequest.data]);
   const totals = metricTotals(daily);
   const previousDaily = metricRangeRows(data.daily, metricRange, customRange, 1)
     .map((row) => selectAgentRow(row, agent))
@@ -2911,6 +2954,20 @@ function Overview({
               </div>
             )}
           </EffortState>
+          {topCombos.length > 0 && (
+            <div className="effort-panel__combos">
+              <span className="overline">TOP MODEL × EFFORT</span>
+              <div>
+                {topCombos.map((combo) => (
+                  <ComboPill
+                    key={comboKey(combo)}
+                    combo={combo}
+                    trailing={sharePercent(combo.tokens, comboTotalTokens)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
           <p className="effort-help">{EFFORT_HELP}</p>
         </article>
         <article className="panel panel-wide recent-panel">
@@ -2995,126 +3052,170 @@ function Overview({
 }
 
 const effortBasisLabel = { tokens: "tokens", observations: "observations" } as const;
-type EffortDayContext = {
-  providers: Array<{ key: string; label: string; color: string; tokens: number }>;
-  models: Array<{ name: string; tokens: number }>;
-  moreModels: number;
+type EffortDayMode = "combo" | "effort";
+
+/** Project and path tag are session-derived proxies for the user's task, so this block is
+ * labelled "Session context": not every event in a multi-day transcript was directly attributed
+ * to the project or tag shown here. */
+type EffortDayContext = { title: string; items: Array<{ label: string; tokens: number }>; more: number };
+type EffortDayContextSource =
+  | { kind: "project"; activity: ProjectActivity[] }
+  | { kind: "pathTag"; sessions: Session[] };
+
+const CONTEXT_LIMIT = 3;
+
+function buildSessionContextByDay(source: EffortDayContextSource, timeZone: string) {
+  const byDay = new Map<string, Map<string, number>>();
+  const add = (date: string, label: string, tokens: number) => {
+    const totals = byDay.get(date) ?? new Map<string, number>();
+    totals.set(label, (totals.get(label) ?? 0) + tokens);
+    byDay.set(date, totals);
+  };
+  if (source.kind === "project") {
+    for (const row of source.activity) add(row.date, friendlyProject(row.projectId), row.tokens);
+  } else {
+    for (const session of source.sessions) {
+      const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period;
+      // A session with no tag contributes no context rather than an invented "untagged" cohort.
+      for (const tag of session.pathTags) add(date, tag, session.totalTokens);
+    }
+  }
+  const title = source.kind === "project" ? "Top projects" : "Top path tags";
+  return new Map(
+    [...byDay.entries()].map(([date, totals]) => {
+      const ranked = [...totals.entries()]
+        .map(([label, tokens]) => ({ label, tokens }))
+        .sort((a, b) => b.tokens - a.tokens || a.label.localeCompare(b.label));
+      return [date, { title, items: ranked.slice(0, CONTEXT_LIMIT), more: Math.max(0, ranked.length - CONTEXT_LIMIT) }] as const;
+    }),
+  );
+}
+
+/** One row of the drawn stack, in either mode. Keeping both modes on one shape is what lets the
+ * tooltip, the `sr-only` summary, and the bars stay in lockstep with the active mode. */
+type EffortDayViewPoint = {
+  date: string;
+  suppressed: boolean;
+  total: number;
+  values: Record<string, number>;
+  tokenCoverage: number | null;
+  /** Combo buckets recorded that day; drives reasoning share and the effort-only model subline. */
+  buckets: EffortComboBucket[];
 };
 
-/** Daily stacked distribution of provider-recorded effort. Tokens is the primary comparison;
- * Observations is available because one Claude assistant response and one Codex turn context are
- * counted alike, and the two bases can disagree. */
+/** Daily stacked distribution of model family × provider-recorded effort. Effort alone is a
+ * secondary mode: `High` is only comparable beside the model that recorded it. Tokens is the
+ * primary basis; Observations is available because one Claude assistant response and one Codex
+ * turn context are counted alike, and the two bases can disagree. */
 function EffortByDay({
   scope,
   providerLabel,
-  rows,
+  hasActivity,
+  contextSource,
   timeZone,
   emptyText,
 }: {
   scope: EffortScopeInput;
   providerLabel: string;
-  rows: MetricRow[];
+  /** Whether anything at all survived the surrounding filters, so an empty scope reads as a
+   * filter result rather than as missing effort data. */
+  hasActivity: boolean;
+  contextSource: EffortDayContextSource;
   timeZone: string;
   emptyText: string;
 }) {
+  const [mode, setMode] = useState<EffortDayMode>("combo");
   const [basis, setBasis] = useState<"tokens" | "observations">("tokens");
-  const aggregateRequest = useEffortAggregate("day", scope);
+  // Combo days are fetched in both modes: effort-only rows still name the model families that
+  // recorded them, and that subline has to come from combo buckets rather than raw model context.
+  const comboRequest = useEffortComboDays(scope);
+  const aggregateRequest = useEffortAggregate("day", scope, mode === "effort");
   const statusRequest = useEffortStatus();
+  const combos = comboRequest.data;
   const aggregate = aggregateRequest.data;
-  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [aggregateRequest.load]);
-  const series = useMemo(
-    () => buildEffortDaySeries(aggregate?.rows ?? [], basis),
-    [aggregate, basis],
+  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [comboRequest.load, aggregateRequest.load]);
+
+  const comboSeries = useMemo(() => buildComboDaySeries(combos?.rows ?? [], basis), [combos, basis]);
+  const effortSeries = useMemo(() => buildEffortDaySeries(aggregate?.rows ?? [], basis), [aggregate, basis]);
+  const bucketsByDay = useMemo(
+    () => new Map((combos?.rows ?? []).map((row) => [row.key, row.buckets])),
+    [combos],
   );
-  const chartData = series.points.map((point) => ({
-    date: point.date,
-    ...point.values,
-    __point: point,
-  }));
-  const drawable = series.points.some((point) => point.total > 0);
-  const usageByDay = useMemo(() => {
-    const totalsByDay = new Map<
-      string,
-      { providers: Map<string, number>; models: Map<string, number> }
-    >();
-    rows.forEach((row) => {
-      const date = dateKeyInTimeZone(row.metadata?.lastActivity, timeZone) ?? row.period;
-      const totals = totalsByDay.get(date) ?? {
-        providers: new Map<string, number>(),
-        models: new Map<string, number>(),
-      };
-      const sources = row.agents?.length ? row.agents : [row];
-      sources.forEach((source) => {
-        const provider = providerKey(source.agent);
-        if (provider) {
-          totals.providers.set(
-            provider,
-            (totals.providers.get(provider) ?? 0) + source.totalTokens,
-          );
-        }
-        source.modelBreakdowns.forEach((model) => {
-          const tokens =
-            model.inputTokens +
-            model.outputTokens +
-            model.cacheReadTokens +
-            model.cacheCreationTokens;
-          totals.models.set(
-            model.modelName,
-            (totals.models.get(model.modelName) ?? 0) + tokens,
-          );
-        });
-      });
-      totalsByDay.set(date, totals);
-    });
-    return new Map(
-      [...totalsByDay.entries()].map(([date, totals]) => {
-        const models = [...totals.models.entries()]
-        .map(([name, tokens]) => ({ name, tokens }))
-        .sort((left, right) => right.tokens - left.tokens);
-        return [
-          date,
-          {
-            providers: providerSeries
-              .filter(
-                (provider) => (totals.providers.get(provider.key) ?? 0) > 0,
-              )
-              .map((provider) => ({
-                ...provider,
-                tokens: totals.providers.get(provider.key) ?? 0,
-              })),
-            models: models.slice(0, 3),
-            moreModels: Math.max(0, models.length - 3),
-          },
-        ];
-      }),
-    );
-  }, [rows, timeZone]);
+
+  const isCombo = mode === "combo";
+  const keys = isCombo ? comboSeries.keys : effortSeries.keys;
+  const suppressedDays = isCombo ? comboSeries.suppressedDays : effortSeries.suppressedDays;
+  const points = useMemo<EffortDayViewPoint[]>(
+    () => isCombo
+      ? comboSeries.points.map((point) => ({
+          date: point.date,
+          suppressed: point.suppressed,
+          total: point.total,
+          values: point.values,
+          tokenCoverage: point.row.coverage.tokenCoverage,
+          buckets: point.row.buckets,
+        }))
+      : effortSeries.points.map((point) => ({
+          date: point.date,
+          suppressed: point.suppressed,
+          total: point.total,
+          values: point.values,
+          tokenCoverage: point.summary.tokenCoverage,
+          buckets: bucketsByDay.get(point.date) ?? [],
+        })),
+    [isCombo, comboSeries, effortSeries, bucketsByDay],
+  );
+
+  const status = isCombo ? combos?.status ?? null : aggregate?.status ?? null;
+  const coverage = isCombo ? combos?.total ?? null : aggregate?.total ?? null;
+  const coverageState = isCombo ? combos?.coverageState : aggregate?.total.coverageState;
+  const seriesLabel = (key: string) => (isCombo ? comboSeriesLabel(key) : effortLabel(key));
+  const seriesColor = (key: string) => (isCombo ? comboSeriesColor(key) : effortColor(key));
+
+  const chartData = points.map((point) => ({ date: point.date, ...point.values, __point: point }));
+  const drawable = points.some((point) => point.total > 0);
+  const contextByDay = useMemo(
+    () => buildSessionContextByDay(contextSource, timeZone),
+    [contextSource, timeZone],
+  );
   const showFilterEmpty =
-    rows.length === 0 &&
-    Boolean(aggregate?.status.enabled) &&
-    aggregate?.status.phase !== "indexing" &&
-    aggregate?.status.phase !== "error";
+    !hasActivity &&
+    Boolean(status?.enabled) &&
+    status?.phase !== "indexing" &&
+    status?.phase !== "error";
 
   return (
     <section className="panel effort-day-panel">
       <div className="panel-heading">
         <div>
           <span className="overline">REASONING SIGNAL</span>
-          <h2>Effort by day</h2>
+          <h2>Model × effort by day</h2>
         </div>
-        <Segmented
-          value={basis}
-          onChange={(value) => setBasis(value as "tokens" | "observations")}
-          options={[
-            { value: "tokens", label: "Tokens" },
-            { value: "observations", label: "Observations" },
-          ]}
-        />
+        <div className="effort-day-controls">
+          <Segmented
+            label="Breakdown"
+            value={mode}
+            onChange={(value) => setMode(value as EffortDayMode)}
+            options={[
+              { value: "combo", label: "Model × effort" },
+              { value: "effort", label: "Effort only" },
+            ]}
+          />
+          <Segmented
+            label="Basis"
+            value={basis}
+            onChange={(value) => setBasis(value as "tokens" | "observations")}
+            options={[
+              { value: "tokens", label: "Tokens" },
+              { value: "observations", label: "Observations" },
+            ]}
+          />
+        </div>
       </div>
       {showFilterEmpty ? (
         <Empty text={emptyText} />
       ) : (
-        <EffortState status={aggregate?.status ?? null} summary={aggregate?.total}>
+        <EffortState status={status} summary={coverageState ? { coverageState } : null}>
         {drawable ? (
           <>
             <div className="bar-chart effort-day-chart" style={{ height: 280 }}>
@@ -3137,22 +3238,24 @@ function EffortByDay({
                   <Tooltip
                     content={
                       <EffortDayTooltip
+                        mode={mode}
                         basis={basis}
+                        keys={keys}
                         providerLabel={providerLabel}
-                        usageByDay={usageByDay}
+                        contextByDay={contextByDay}
                       />
                     }
                     cursor={{ fill: "#15211d" }}
                     isAnimationActive={false}
                     wrapperStyle={chartTooltipWrapperStyle}
                   />
-                  {series.keys.map((key) => (
+                  {keys.map((key) => (
                     <Bar
                       key={key}
                       dataKey={key}
                       stackId="effort"
-                      name={effortLabel(key)}
-                      fill={effortColor(key)}
+                      name={seriesLabel(key)}
+                      fill={seriesColor(key)}
                       isAnimationActive={false}
                     />
                   ))}
@@ -3160,33 +3263,32 @@ function EffortByDay({
               </ResponsiveContainer>
             </div>
             <p className="sr-only">
-              {`Effort by ${effortBasisLabel[basis]} per day for ${providerLabel}. `}
-              {series.points
-                .filter((point) => point.total > 0)
-                .map(
-                  (point) =>
-                    `${point.date}: ` +
-                    series.keys
-                      .filter((key) => point.values[key] > 0)
-                      .map(
-                        (key) =>
-                          `${effortLabel(key)} ${sharePercent(point.values[key], point.total)}`,
-                      )
-                      .join(", "),
+              {`${isCombo ? "Model and effort" : "Effort"} by ${effortBasisLabel[basis]} per day for ${providerLabel}. `}
+              {points
+                .map((point) =>
+                  point.suppressed
+                    ? `${point.date}: no stack drawn, derived totals exceeded the day total`
+                    : point.total > 0
+                      ? `${point.date}: ` +
+                        keys
+                          .filter((key) => point.values[key] > 0)
+                          .map((key) => `${seriesLabel(key)} ${sharePercent(point.values[key], point.total)}`)
+                          .join(", ")
+                      : null,
                 )
+                .filter(Boolean)
                 .join("; ")}
             </p>
-            {aggregate?.total && (
+            {coverage && (
               <EffortCoverage
-                summary={aggregate.total}
-                indexing={aggregate.status.phase === "indexing"}
+                summary={coverage}
+                indexing={status?.phase === "indexing"}
               />
             )}
-            {series.suppressedDays > 0 && (
+            {suppressedDays > 0 && (
               <p className="effort-coverage">
-                {series.suppressedDays} day
-                {series.suppressedDays === 1 ? "" : "s"} drew no stack because derived tokens
-                exceeded the day total.
+                {suppressedDays} day{suppressedDays === 1 ? "" : "s"} drew no stack because derived
+                {isCombo ? " combo" : ""} tokens exceeded the authoritative day total.
               </p>
             )}
           </>
@@ -3199,26 +3301,49 @@ function EffortByDay({
   );
 }
 
+/** `Mostly Sol, Opus 5, Luna (+2)` for the effort-only mode, derived from the same combo buckets
+ * the other mode draws — never from a separate raw-model context that could disagree. */
+function familySubline(buckets: EffortComboBucket[], basis: "tokens" | "observations") {
+  const totals = new Map<string, number>();
+  for (const bucket of buckets) {
+    if (!bucket.effort) continue;
+    const amount = basis === "tokens" ? bucket.tokens : bucket.observations;
+    if (amount <= 0) continue;
+    totals.set(bucket.family, (totals.get(bucket.family) ?? 0) + amount);
+  }
+  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (ranked.length === 0) return null;
+  const shown = ranked.slice(0, 3).map(([family]) => familyLabel(family));
+  const more = ranked.length - shown.length;
+  return `Mostly ${shown.join(", ")}${more > 0 ? ` (+${more})` : ""}`;
+}
+
 function EffortDayTooltip({
   active,
   payload,
   label,
   coordinate,
+  mode,
   basis,
+  keys,
   providerLabel,
-  usageByDay,
+  contextByDay,
 }: {
   active?: boolean;
-  payload?: Array<{ payload: { __point: EffortDayPoint } }>;
+  payload?: Array<{ payload: { __point: EffortDayViewPoint } }>;
   label?: string;
   coordinate?: { x?: number };
+  mode: EffortDayMode;
   basis: "tokens" | "observations";
+  keys: string[];
   providerLabel: string;
-  usageByDay: Map<string, EffortDayContext>;
+  contextByDay: Map<string, EffortDayContext>;
 }) {
   const pinSource = useId();
   const livePoint = payload?.[0]?.payload.__point;
-  const claimKey = active && livePoint ? `${livePoint.date}:${basis}` : null;
+  // Mode and basis are part of the claim: a held or pinned snapshot must not keep showing rows
+  // from the breakdown the user just switched away from.
+  const claimKey = active && livePoint ? `${livePoint.date}:${mode}:${basis}` : null;
   const hold = useChartTooltipHold(
     active && livePoint ? { point: livePoint, label, coordinate } : null,
     claimKey,
@@ -3229,19 +3354,27 @@ function EffortDayTooltip({
   );
   if (!hold.snapshot) return null;
   const { point } = hold.snapshot;
+  const isCombo = mode === "combo";
   const dateLabel = chartTooltipDateLabel(point.date);
-  const entries = Object.entries(point.values).filter(([, amount]) => amount > 0);
-  const usage = usageByDay.get(point.date);
+  const entries = keys.filter((key) => (point.values[key] ?? 0) > 0);
+  const context = contextByDay.get(point.date);
+  const subline = isCombo ? null : familySubline(point.buckets, basis);
+  const reasoningByKey = new Map(
+    point.buckets.filter((bucket) => bucket.effort).map((bucket) => [comboKey(bucket), bucket.reasoningShare]),
+  );
   const coverage =
-    point.summary.tokenCoverage === null
+    point.tokenCoverage === null
       ? "coverage unavailable"
-      : `${Math.round(point.summary.tokenCoverage * 100)}% of tokens attributed`;
+      : `${Math.round(point.tokenCoverage * 100)}% of tokens attributed`;
+  const description = isCombo
+    ? "Model family and provider-recorded effort for this day, with session context below when available."
+    : "Provider-recorded effort for this day, aggregated across models, with session context below when available.";
   return (
     <PinnableChartTooltip
-      id={`${pinSource}:${point.date}:${basis}`}
-      ariaLabel={`effort details for ${dateLabel}`}
-      contextLabel="Reasoning effort"
-      contextDescription="Provider-recorded reasoning effort for this day, with usage context below when available."
+      id={`${pinSource}:${point.date}:${mode}:${basis}`}
+      ariaLabel={`${isCombo ? "model and effort" : "effort"} details for ${dateLabel}`}
+      contextLabel={isCombo ? "Model × effort" : "Reasoning effort"}
+      contextDescription={description}
       contextPlacement="inline"
       className="provider-tooltip effort-day-tooltip"
       forwardedRef={tooltipRef}
@@ -3253,42 +3386,47 @@ function EffortDayTooltip({
       <div className="tooltip-effort-head">
         <span className="tooltip-date-label">{dateLabel}</span>
         <ChartTooltipContext
-          label="Reasoning effort"
-          description="Provider-recorded reasoning effort for this day, with usage context below when available."
+          label={isCombo ? "Model × effort" : "Reasoning effort"}
+          description={description}
           className="chart-tooltip__context--inline"
         />
         <small>
           {providerLabel} · {coverage}
         </small>
       </div>
-      {entries.map(([key, amount]) => (
-        <div key={key} className="tooltip-effort-row">
-          <i style={{ background: effortColor(key) }} aria-hidden="true" />
-          <span>{effortLabel(key)}</span>
-          <b>
-            {formatCompact(amount)} {effortBasisLabel[basis]}
-          </b>
-          <em>{sharePercent(amount, point.total)}</em>
-        </div>
-      ))}
-      {usage && (usage.providers.length > 0 || usage.models.length > 0) && (
+      {entries.map((key) => {
+        const amount = point.values[key];
+        const combo = isCombo ? parseComboKey(key) : null;
+        const reasoning = combo ? reasoningByKey.get(key) ?? null : null;
+        return (
+          <div key={key} className={combo ? "tooltip-combo-row" : "tooltip-effort-row"}>
+            {combo ? (
+              <ComboPill combo={combo} />
+            ) : (
+              <>
+                <i style={{ background: isCombo ? comboSeriesColor(key) : effortColor(key) }} aria-hidden="true" />
+                <span>{isCombo ? comboSeriesLabel(key) : effortLabel(key)}</span>
+              </>
+            )}
+            <b>
+              {formatCompact(amount)} {effortBasisLabel[basis]}
+            </b>
+            <em>{sharePercent(amount, point.total)}</em>
+            {reasoning !== null && <small>{Math.round(reasoning * 100)}% reasoning</small>}
+          </div>
+        );
+      })}
+      {subline && <p className="tooltip-effort-subline">{subline}</p>}
+      {context && context.items.length > 0 && (
         <div className="tooltip-day-context">
-          {usage.providers.map((provider) => (
-            <div key={provider.key}>
-              <i style={{ background: provider.color }} aria-hidden="true" />
-              <span>{provider.label}</span>
-              <b>{formatCompact(provider.tokens)} tokens</b>
+          <span className="overline">Session context · {context.title}</span>
+          {context.items.map((item) => (
+            <div className="tooltip-day-model" key={item.label}>
+              <span>{item.label}</span>
+              <b>{formatCompact(item.tokens)}</b>
             </div>
           ))}
-          {usage.models.map((model) => (
-            <div className="tooltip-day-model" key={model.name}>
-              <span>{model.name}</span>
-              <b>{formatCompact(model.tokens)}</b>
-            </div>
-          ))}
-          {usage.moreModels > 0 && (
-            <small>{usage.moreModels} more model{usage.moreModels === 1 ? "" : "s"}</small>
-          )}
+          {context.more > 0 && <small>{context.more} more</small>}
         </div>
       )}
     </PinnableChartTooltip>
@@ -3405,7 +3543,8 @@ function Explorer({
       </section>
       <EffortByDay
         scope={globalEffortScope(agent, dateRange, pathTag)}
-        rows={rows}
+        hasActivity={rows.length > 0}
+        contextSource={{ kind: "project", activity: projectActivity }}
         timeZone={data.timeZone}
         emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
         providerLabel={
@@ -3866,11 +4005,15 @@ export function SessionDetailPanel({
   detail,
   loading,
   effortStatus,
+  annotation,
+  onAnnotationChange,
 }: {
   session: Session;
   detail?: SessionDetail;
   loading: boolean;
   effortStatus: EffortIndexStatus | null;
+  annotation?: SessionAnnotation;
+  onAnnotationChange?: (sessionId: string, annotation: SessionAnnotation) => void;
 }) {
   const [promptOrder, setPromptOrder] = useState<"newest" | "oldest">(
     "oldest",
@@ -4022,6 +4165,16 @@ export function SessionDetailPanel({
   return (
     <div className="session-detail">
       <div className="session-detail__summary">
+        <div className="session-detail__verdict">
+          <span>YOUR VERDICT</span>
+          <strong>
+            <SessionVerdictControl
+              sessionId={session.sessionId}
+              verdict={(annotation ?? session.annotation).verdict}
+              onChange={onAnnotationChange ?? (() => {})}
+            />
+          </strong>
+        </div>
         <div>
           <span>TRANSCRIPT EVENTS</span>
           <strong>{detail.eventsRead}</strong>
@@ -4407,6 +4560,8 @@ function SessionEffortSection({
   );
 }
 
+/** The session's dominant model × effort. Effort alone was never a decision unit, so the cell
+ * names the model that recorded it and counts the other combos rather than hiding them. */
 function SessionEffortCell({
   decoded,
   enabled,
@@ -4420,7 +4575,7 @@ function SessionEffortCell({
         Off
       </span>
     );
-  if (!decoded || decoded.dominant === null)
+  if (!decoded || !decoded.dominantCombo)
     return (
       <span
         className="effort-badge effort-badge-unknown"
@@ -4437,20 +4592,87 @@ function SessionEffortCell({
     decoded.tokenCoverage === null
       ? "coverage unavailable"
       : `${Math.round(decoded.tokenCoverage * 100)}% of tokens attributed`;
+  const extra = decoded.combos.length - 1;
   return (
     <span
-      className={`effort-badge${decoded.mixed ? " effort-badge-mixed" : ""}`}
-      style={
-        decoded.mixed
-          ? undefined
-          : {
-              borderColor: effortColor(decoded.dominant),
-              color: effortColor(decoded.dominant),
-            }
-      }
-      title={`${effortSummaryLabel(decoded)} · ${coverage}`}
+      className="session-combo-cell"
+      title={`${effortSummaryLabel(decoded)} · ${coverage}${decoded.mixed ? " · mixed effort" : ""}`}
     >
-      {decoded.mixed ? "Mixed" : effortLabel(decoded.dominant)}
+      <ComboPill combo={decoded.dominantCombo} trailing={extra > 0 ? `+${extra}` : undefined} />
+    </span>
+  );
+}
+
+/** Names the active facet in words, so an empty state says which selection produced it. */
+function effortFilterLabel(filter: string) {
+  if (filter === "mixed") return "mixed effort";
+  if (filter === "unknown") return "unknown effort";
+  const combo = parseComboFacet(filter);
+  if (combo) return comboLabel(combo);
+  return `${effortLabel(filter.startsWith("value:") ? filter.slice("value:".length) : filter)} effort`;
+}
+
+const verdictOptions = [
+  { value: "good", label: "Good", icon: "＋" },
+  { value: "mixed", label: "Mixed", icon: "～" },
+  { value: "bad", label: "Bad", icon: "−" },
+] as const;
+
+/** One-click, keyboard-reachable rating. It is the user's own judgement: nothing here infers a
+ * verdict, and clicking the active option clears it rather than locking it in. */
+function SessionVerdictControl({
+  sessionId,
+  verdict,
+  onChange,
+}: {
+  sessionId: string;
+  verdict: SessionVerdict | null;
+  onChange: (sessionId: string, annotation: SessionAnnotation) => void;
+}) {
+  const [pending, setPending] = useState<SessionVerdict | null | "none">("none");
+  const [error, setError] = useState<string | null>(null);
+  const busy = pending !== "none";
+
+  const write = async (next: SessionVerdict | null) => {
+    setPending(next);
+    setError(null);
+    try {
+      onChange(sessionId, await setSessionVerdict(sessionId, next));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPending("none");
+    }
+  };
+
+  return (
+    <span
+      className={`session-verdict${busy ? " is-busy" : ""}`}
+      role="group"
+      aria-label={`Session verdict: ${verdict ?? "not rated"}`}
+      aria-busy={busy}
+    >
+      {verdictOptions.map((option) => {
+        const active = verdict === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={active ? "active" : ""}
+            aria-pressed={active}
+            disabled={busy}
+            title={active ? `Clear the ${option.label.toLowerCase()} rating` : `Rate this session ${option.label.toLowerCase()}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void write(active ? null : option.value);
+            }}
+          >
+            <i aria-hidden="true">{option.icon}</i>
+            <span className="sr-only">{active ? `Clear ${option.label} rating` : `Rate ${option.label}`}</span>
+          </button>
+        );
+      })}
+      {error && <em role="alert" title={error}>!</em>}
     </span>
   );
 }
@@ -4495,8 +4717,28 @@ function Sessions({
   const effortStatus = statusRequest.data;
   useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [digestRequest.load]);
   const effortBySession = useMemo(() => decodeEffortDigest(digest), [digest]);
+  // A verdict write returns the stored annotation. Patching it in here makes the change visible
+  // at once; the next dashboard fetch independently returns the same value, so the two agree.
+  const [annotationPatches, setAnnotationPatches] = useState<Record<string, SessionAnnotation>>({});
+  const annotationOf = useCallback(
+    (session: Session) => annotationPatches[session.sessionId] ?? session.annotation,
+    [annotationPatches],
+  );
+  const patchAnnotation = useCallback(
+    (sessionId: string, annotation: SessionAnnotation) =>
+      setAnnotationPatches((current) => ({ ...current, [sessionId]: annotation })),
+    [],
+  );
   const observedEffortValues = useMemo(
-    () => [...(digest?.levels ?? [])].sort(compareEffort),
+    () => [...(digest?.efforts ?? [])].sort(compareEffort),
+    [digest],
+  );
+  const observedCombos = useMemo(
+    () => (digest?.combos ?? []).map(([familyIndex, effortIndex, kind]) => ({
+      family: digest!.families[familyIndex],
+      effort: digest!.efforts[effortIndex],
+      kind,
+    })),
     [digest],
   );
   const effortText = useCallback(
@@ -4678,23 +4920,15 @@ function Sessions({
               )}
             </label>
             <div className="project-sort">
-              <span id="session-effort-filter-label">EFFORT</span>
-              <select
-                aria-labelledby="session-effort-filter-label"
+              <label htmlFor="session-effort-filter">MODEL × EFFORT</label>
+              <ComboFacetSelect
+                id="session-effort-filter"
                 value={effortFilter}
-                onChange={(event) => setEffortFilter(event.target.value)}
+                onChange={setEffortFilter}
+                effortLevels={observedEffortValues}
+                combos={observedCombos}
                 disabled={!effortStatus?.enabled}
-                title={EFFORT_HELP}
-              >
-                <option value="all">All</option>
-                {observedEffortValues.map((value) => (
-                  <option key={value} value={value}>
-                    {effortLabel(value)}
-                  </option>
-                ))}
-                <option value="mixed">Mixed</option>
-                <option value="unknown">Unknown</option>
-              </select>
+              />
             </div>
           </div>
         }
@@ -4710,7 +4944,12 @@ function Sessions({
                 {header("cwd", "Working directory")}
                 {header("tokens", "Tokens")}
                 {header("cost", "Cost")}
-                {header("effort", "Effort")}
+                {header("effort", "Model \u00d7 effort")}
+                <th className="session-verdict-header">
+                  <span title="Your own rating of the session. It is never inferred, and it is the only signal in this app that is user-supplied.">
+                    Verdict
+                  </span>
+                </th>
                 <th></th>
                 <th></th>
               </tr>
@@ -4778,7 +5017,7 @@ function Sessions({
                         {session.cwd ?? "Path unavailable"}
                       </span>
                       <span className="mini-tags">
-                        {[...session.pathTags, ...session.annotation.tags]
+                        {[...session.pathTags, ...annotationOf(session).tags]
                           .slice(0, 3)
                           .map((tag) => (
                             <i key={tag}>{tag}</i>
@@ -4799,6 +5038,16 @@ function Sessions({
                       <SessionEffortCell
                         decoded={effortBySession.get(session.sessionId)}
                         enabled={Boolean(effortStatus?.enabled)}
+                      />
+                    </td>
+                    <td
+                      className="session-row__verdict"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <SessionVerdictControl
+                        sessionId={session.sessionId}
+                        verdict={annotationOf(session).verdict}
+                        onChange={patchAnnotation}
                       />
                     </td>
                     <td
@@ -4853,12 +5102,14 @@ function Sessions({
                   </tr>
                   {expanded === session.sessionId && (
                     <tr className="session-detail-row">
-                      <td colSpan={9}>
+                      <td colSpan={10}>
                         <SessionDetailPanel
                           session={session}
                           detail={details[session.sessionId]}
                           loading={loadingDetail === session.sessionId}
                           effortStatus={effortStatus}
+                          annotation={annotationOf(session)}
+                          onAnnotationChange={patchAnnotation}
                         />
                       </td>
                     </tr>
@@ -4873,7 +5124,7 @@ function Sessions({
             text={
               effortFilter === "all"
                 ? "No sessions match those filters."
-                : `No sessions match those filters with ${effortSummaryLabel({ dominant: effortFilter === "mixed" || effortFilter === "unknown" ? null : effortFilter, mixed: effortFilter === "mixed" } as DecodedSessionEffort)} effort.`
+                : `No sessions match those filters with ${effortFilterLabel(effortFilter)}.`
             }
           />
         )}
@@ -5817,7 +6068,10 @@ function ProjectDetails({
           ...effortScope,
           project: project.name,
         }}
-        rows={sessions}
+        hasActivity={sessions.length > 0}
+        // Repeating this one project on its own page would say nothing; path tags are the
+        // session context that still varies here.
+        contextSource={{ kind: "pathTag", sessions }}
         timeZone={timeZone}
         emptyText={rangeEmptyText}
         providerLabel="All providers"
