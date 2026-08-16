@@ -42,6 +42,7 @@ import {
   parseComboKey,
 } from "./combo";
 import { providerFromAgent } from "./provider";
+import { PageJump } from "./components/page-jump";
 import {
   decodeEffortDigest,
   effortSearchText,
@@ -96,7 +97,9 @@ import {
 } from "lucide-react";
 import {
   HeadroomOrrery,
+  SceneEffectsContext,
   Starfield,
+  TesseractCore,
   type ProviderColors,
   type SceneEffects,
 } from "./scene";
@@ -1059,12 +1062,19 @@ function ProviderChartTooltip({
 }: ChartTooltipProps) {
   const pinSource = useId();
   const liveRow = payload?.[0]?.payload as TimelineTooltipRow | undefined;
+  // Days with no recorded activity still emit a zero-valued payload; showing a
+  // card with nothing but a date in it is noise, so treat them as no hover.
+  const hasActivity = Boolean(
+    payload?.some((item) => typeof item.value === "number" && item.value > 0),
+  );
   const claimKey =
-    active && payload?.length
+    active && payload?.length && hasActivity
       ? (liveRow?.period ?? liveRow?.hour ?? String(label))
       : null;
   const hold = useChartTooltipHold(
-    active && payload?.length ? { payload, label, coordinate } : null,
+    active && payload?.length && hasActivity
+      ? { payload, label, coordinate }
+      : null,
     claimKey,
   );
   const tooltipRef = useClampedTooltip(
@@ -5413,9 +5423,12 @@ function Sessions({
             <button disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
               <ChevronLeft />
             </button>
-            <span>
-              {page} / {pages}
-            </span>
+            <PageJump
+              page={page}
+              pages={pages}
+              label="session page"
+              onChange={setPage}
+            />
             <button
               disabled={page === pages}
               onClick={() => setPage((p) => p + 1)}
@@ -5935,9 +5948,12 @@ function ProjectModelSessions({
                 >
                   <ChevronLeft aria-hidden="true" />
                 </button>
-                <span aria-live="polite">
-                  Page {safePage + 1} of {pages}
-                </span>
+                <PageJump
+                  page={safePage + 1}
+                  pages={pages}
+                  label="session page"
+                  onChange={(next) => setPage(next - 1)}
+                />
                 <button
                   type="button"
                   aria-label="Next page of sessions"
@@ -7085,9 +7101,17 @@ function Models({
                         >
                           <ChevronLeft />
                         </button>
-                        <span>
-                          {page} / {pageCount}
-                        </span>
+                        <PageJump
+                          page={page}
+                          pages={pageCount}
+                          label={`session page for ${model.model}`}
+                          onChange={(next) =>
+                            setPages((current) => ({
+                              ...current,
+                              [model.model]: next,
+                            }))
+                          }
+                        />
                         <button
                           type="button"
                           disabled={page === pageCount}
@@ -7537,7 +7561,7 @@ const sceneEffectOptions: {
     key: "tesseract",
     label: "Tesseract core",
     detail:
-      "Replace the telescope icon with a 4D hypercube that contorts as the scene rotates",
+      "Replace the telescope icon with a 4D hypercube that contorts as the scene rotates, and use it on the loading screen",
   },
 ];
 const starDensityLabels = [
@@ -8838,9 +8862,13 @@ export function App() {
   if (loading && !data)
     return (
       <div className="boot">
-        <div className="boot-orbit">
-          <Orbit />
-        </div>
+        {sceneEffects.tesseract ? (
+          <TesseractCore accent={accent} className="boot-tesseract" />
+        ) : (
+          <div className="boot-orbit">
+            <Orbit />
+          </div>
+        )}
         <span>Calibrating local instruments…</span>
       </div>
     );
@@ -8862,6 +8890,7 @@ export function App() {
     ? "Cost data incomplete"
     : "Local systems nominal";
   return (
+    <SceneEffectsContext.Provider value={sceneEffects}>
     <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <aside className={sidebar ? "open" : ""}>
         <div className="brand">
@@ -9179,5 +9208,6 @@ export function App() {
       )}
       {sidebar && <div className="scrim" onClick={() => setSidebar(false)} />}
     </div>
+    </SceneEffectsContext.Provider>
   );
 }

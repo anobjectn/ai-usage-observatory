@@ -696,3 +696,40 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .model-sessions-card__pager button svg{width:11px;height:11px}
 .model-sessions-card__pager button:not(:disabled):is(:hover,:focus-visible){border-color:var(--accent);color:var(--accent);outline:0}
 .model-sessions-card__pager button:disabled{opacity:.32;cursor:default}
+/* Canonical tesseract: the orrery's hypercube, reused standalone. The canvas
+   fills its box and inherits `color` as the accent when none is passed. */
+.tesseract-core{display:inline-block;line-height:0}
+.tesseract-core canvas{width:100%;height:100%;display:block}
+
+.page-jump{display:inline-flex;align-items:center;gap:5px;color:inherit;font:inherit;white-space:nowrap}
+.page-jump__field{position:relative;display:inline-flex;align-items:center}
+.page-jump__input{height:22px;padding:0 16px 0 6px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--text);font:inherit;text-align:center;cursor:pointer}
+.page-jump__input:is(:hover,:focus-visible){border-color:var(--accent);color:var(--accent);outline:0}
+.page-jump__caret{position:absolute;right:1px;top:1px;bottom:1px;width:14px;padding:0;border:0;background:none;color:var(--dim);display:grid;place-items:center;cursor:pointer}
+.page-jump__caret svg{width:8px;height:5px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.page-jump__field:hover .page-jump__caret,.page-jump__input:focus-visible+.page-jump__caret{color:var(--accent)}
+.page-jump__menu{position:absolute;z-index:40;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);margin:0;padding:4px;list-style:none;max-height:168px;overflow-y:auto;min-width:100%;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:7px;background:var(--surface);box-shadow:0 12px 28px rgba(0,0,0,.5)}
+.page-jump__menu li{border:0}
+.page-jump__menu button{width:100%;min-width:30px;padding:4px 8px;border:0;border-radius:4px;background:none;color:var(--muted);font:inherit;text-align:center;cursor:pointer}
+.page-jump__menu button[data-active=true]{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.page-jump__menu button[aria-selected=true]{color:var(--text);font-weight:600}
+.page-jump__status{display:inline-flex;align-items:center;color:var(--accent)}
+.page-jump__status:empty{display:none}
+.page-jump__status-text{display:none}
+.page-jump__tesseract{width:17px;height:17px}
+.page-jump__busy-icon{width:12px;height:12px}
+/* Traveling accent segment: a conic gradient rotates behind the field and is
+   masked to the 1px border ring, so only a short bright arc appears to run. */
+.page-jump--loading .page-jump__input{border-color:transparent}
+.page-jump--loading .page-jump__field::before{content:"";position:absolute;inset:0;border-radius:5px;padding:1px;background:conic-gradient(from 0turn,transparent 0deg,transparent 250deg,var(--accent) 320deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;animation:page-jump-trace 1.1s linear infinite;pointer-events:none}
+@keyframes page-jump-trace{to{transform:rotate(1turn)}}
+@media (prefers-reduced-motion:reduce){
+.page-jump__tesseract,.page-jump__busy-icon{display:none}
+.page-jump__status-text{display:inline;color:var(--dim);font:inherit;letter-spacing:.04em}
+.page-jump--loading .page-jump__input{border-color:var(--line)}
+.page-jump--loading .page-jump__field::before{display:none}
+}
+
+/* Boot loader: the tesseract replaces the orbiting telescope when the
+   appearance setting has it on, matching the headroom orrery's core. */
+.boot-tesseract{width:112px;height:112px;color:var(--accent)}

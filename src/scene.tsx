@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import type { ProviderHeadroom } from "./quota-headroom";
 
 function TelescopeIcon() {
@@ -60,6 +60,14 @@ function useReducedMotionRef() {
 function channel(hex: string, index: number) { return parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16); }
 function mixHex(from: string, to: string, t: number) {
   return `#${[0, 1, 2].map(i => Math.round(channel(from, i) + (channel(to, i) - channel(from, i)) * t).toString(16).padStart(2, "0")).join("")}`;
+}
+// Computed styles come back as "rgb(r, g, b)"; the mixers below index into hex
+// digits, so anything read off the DOM has to be normalized first.
+function toHex(color: string) {
+  if (color.startsWith("#")) return color;
+  const parts = color.match(/\d+(\.\d+)?/g);
+  if (!parts || parts.length < 3) return "#7de3c8";
+  return `#${parts.slice(0, 3).map(part => Math.round(Number(part)).toString(16).padStart(2, "0")).join("")}`;
 }
 function rgba(hex: string, alpha: number) { return `rgba(${channel(hex, 0)},${channel(hex, 1)},${channel(hex, 2)},${alpha})`; }
 
@@ -184,6 +192,148 @@ const TESSERACT_EDGES: Array<[number, number]> = [];
 for (let a = 0; a < 16; a++) for (let b = a + 1; b < 16; b++) {
   const diff = a ^ b;
   if (!(diff & (diff - 1))) TESSERACT_EDGES.push([a, b]);
+}
+
+/**
+ * The orrery's hypercube on its own, for use anywhere outside the scene — the
+ * boot loader, busy indicators. It is deliberately the same geometry, the same
+ * aqua→accent depth ramp, and the same vertex dots as the orrery core rather
+ * than a simplified icon, so the app has one canonical tesseract. What differs
+ * is the camera: with no drag gesture to read, it tumbles on its own clock.
+ */
+export function TesseractCore({
+  accent,
+  className,
+}: {
+  /** Defaults to the element's inherited CSS `color`. */
+  accent?: string;
+  className?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const accentRef = useRef(accent);
+  const reduced = useReducedMotionRef();
+  useEffect(() => {
+    accentRef.current = accent;
+  }, [accent]);
+  useEffect(() => {
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    let w = 0,
+      h = 0,
+      raf = 0,
+      t = 0,
+      last = 0,
+      dirty = true,
+      inherited = "#7de3c8";
+    const resize = () => {
+      ({ w, h } = fitCanvas(canvas, ctx));
+      const color = getComputedStyle(canvas).color;
+      if (color) inherited = toHex(color);
+      dirty = true;
+      // Paint immediately rather than waiting on a frame, so the glyph is never
+      // blank on mount or in tabs where rAF is throttled.
+      draw();
+    };
+    const draw = () => {
+      const accent = toHex(accentRef.current ?? inherited);
+      ctx.clearRect(0, 0, w, h);
+      const midX = w / 2,
+        midY = h / 2,
+        D = 3.4;
+      const unit = Math.min(w, h) * 0.5;
+      const f = unit * Math.sqrt(D * D - 1);
+      const yaw = -0.6 + t * 0.38,
+        pitch = 0.18 + Math.sin(t * 0.29) * 0.3;
+      const cy = Math.cos(yaw),
+        sy = Math.sin(yaw);
+      const cp = Math.cos(pitch),
+        sp = Math.sin(pitch);
+      const project = (x: number, y: number, z: number): [number, number, number] => {
+        const rx = x * cy + z * sy, rz = z * cy - x * sy;
+        const ry = y * cp - rz * sp, rz2 = y * sp + rz * cp;
+        const depth = D - rz2;
+        return [midX + rx / depth * f, midY - ry / depth * f, rz2];
+      };
+      // 0.33 is the largest scale whose worst-case vertex lands inside the box:
+      // the w-division and the perspective divide together push the extremes to
+      // ~1.3x the nominal size, so anything larger clips against the canvas.
+      const scale = 0.33, wDist = 3;
+      const planes = [yaw * 0.85, pitch * 0.85, t * 0.3].map(
+        angle => [Math.cos(angle), Math.sin(angle)]);
+      const points = TESSERACT_VERTS.map(([x, y, z, w]) => {
+        let vx = x, vy = y, vz = z, vw = w;
+        [vx, vw] = [vx * planes[0][0] + vw * planes[0][1], vw * planes[0][0] - vx * planes[0][1]];
+        [vy, vw] = [vy * planes[1][0] + vw * planes[1][1], vw * planes[1][0] - vy * planes[1][1]];
+        [vz, vw] = [vz * planes[2][0] + vw * planes[2][1], vw * planes[2][0] - vz * planes[2][1]];
+        const k = scale * wDist / (wDist - vw);
+        return { screen: project(vx * k, vy * k, vz * k), w: vw };
+      });
+      ctx.lineWidth = Math.max(0.7, Math.min(w, h) / 46);
+      for (const [a, b] of TESSERACT_EDGES) {
+        const near = (points[a].w + points[b].w) / 2;
+        const front = (points[a].screen[2] + points[b].screen[2]) / 2 >= 0;
+        ctx.strokeStyle = rgba(mixHex(AQUA, accent, (near + 1) / 2),
+          (0.32 + 0.5 * (near + 1) / 2) * (front ? 1 : 0.5));
+        ctx.beginPath();
+        ctx.moveTo(points[a].screen[0], points[a].screen[1]);
+        ctx.lineTo(points[b].screen[0], points[b].screen[1]);
+        ctx.stroke();
+      }
+      const dot = Math.max(0.6, Math.min(w, h) / 42);
+      for (const point of points) {
+        ctx.fillStyle = rgba(accent, 0.3 + 0.4 * (point.w + 1) / 2);
+        ctx.beginPath();
+        ctx.arc(point.screen[0], point.screen[1], dot * (0.72 + 0.28 * (point.w + 1) / 2), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame);
+      const delta = last ? Math.min(0.1, (now - last) / 1000) : 0;
+      last = now;
+      // Reduced motion still gets the hypercube, just held on one frame.
+      if (reduced.current) {
+        if (!dirty) return;
+        dirty = false;
+        draw();
+        return;
+      }
+      t += delta;
+      draw();
+    };
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, []);
+  return (
+    <div className={`tesseract-core${className ? ` ${className}` : ""}`}>
+      <canvas ref={canvasRef} aria-hidden="true" />
+    </div>
+  );
+}
+
+/**
+ * Lets anything in the tree honour the "Tesseract core" appearance setting
+ * without prop-drilling it through every paginator and busy state.
+ */
+export const SceneEffectsContext = createContext<SceneEffects>({
+  starfield: true,
+  parallax: true,
+  twinkle: true,
+  tesseract: true,
+  speed: 3,
+  starDensity: 4,
+});
+
+export function useSceneEffects() {
+  return useContext(SceneEffectsContext);
 }
 
 const RINGS = [
