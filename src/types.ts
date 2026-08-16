@@ -325,6 +325,15 @@ export type QuotaManualEntry = {
 export type PoolQuotaSnapshot = {
   kind: "pool";
   pool: { used: number; limit: number; usedPercent: number; refreshesAt: number | null; cadence?: string };
+  extra?: {
+    isUnlimited?: boolean | null;
+    isUnlimitedVoice?: boolean | null;
+    voiceRequestLimit?: number | null;
+    voiceRequestsUsed?: number | null;
+    isUnlimitedCodebaseIndices?: boolean | null;
+    maxCodebaseIndices?: number | null;
+    maxFilesPerRepo?: number | null;
+  };
 };
 export type QuotaProvider = {
   provider: "anthropic" | "codex" | "warp";

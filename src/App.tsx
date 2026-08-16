@@ -112,6 +112,7 @@ import {
   type CodexCreditView,
   type CreditFreshness,
 } from "./quota-credits";
+import { warpQuotaSummary } from "./warp-quota";
 import {
   Area,
   AreaChart,
@@ -142,6 +143,7 @@ import type {
   Session,
   SessionDetail,
   AnthropicWebCredits,
+  QuotaProvider,
   WarpSessionStats,
 } from "./types";
 import {
@@ -2376,6 +2378,105 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
   ];
 }
 
+function WarpQuotaDetails({ report }: { report: QuotaProvider | undefined }) {
+  const summary = warpQuotaSummary(report);
+  const freshness =
+    summary.dataAgeMs === null ? "unknown" : `${formatDuration(summary.dataAgeMs)} ago`;
+  const hasVoice =
+    summary.voiceRequestsUsed !== null ||
+    summary.voiceRequestLimit !== null ||
+    summary.voiceUnlimited !== null;
+  const hasCodebase =
+    summary.codebaseIndicesLimit !== null ||
+    summary.codebaseIndicesUnlimited !== null ||
+    summary.maxFilesPerRepo !== null;
+  const hasDetails =
+    summary.remainingRequests !== null ||
+    summary.dataAgeMs !== null ||
+    summary.addonCredits !== null ||
+    hasVoice ||
+    hasCodebase;
+
+  if (!hasDetails) return null;
+
+  const addonMeta =
+    summary.addonCreditNote ??
+    (summary.addonCreditUpdatedAt === null
+      ? "manually reported"
+      : `updated ${formatDate(new Date(summary.addonCreditUpdatedAt).toISOString())}`);
+  const voiceParts = [
+    summary.voiceRequestsUsed === null
+      ? null
+      : `${summary.voiceRequestsUsed.toLocaleString()} used`,
+    summary.voiceRequestLimit === null
+      ? summary.voiceUnlimited === true
+        ? "unlimited"
+        : null
+      : `of ${summary.voiceRequestLimit.toLocaleString()}`,
+  ].filter((part): part is string => part !== null);
+
+  return (
+    <div className="warp-quota-details" aria-label="Warp quota details">
+      <div className="warp-quota-facts">
+        {summary.remainingRequests !== null && (
+          <div>
+            <span>Remaining</span>
+            <b>{summary.remainingRequests.toLocaleString()} requests</b>
+          </div>
+        )}
+        <div>
+          <span>Freshness</span>
+          <b>{freshness}</b>
+        </div>
+      </div>
+      {summary.addonCredits !== null && (
+        <div className="warp-quota-credit">
+          <div className="warp-quota-detail-head">
+            <span>Manual add-on credits</span>
+            <b>{formatWarpCredits(summary.addonCredits)}</b>
+          </div>
+          <small>{addonMeta} · separate from the request pool</small>
+        </div>
+      )}
+      {(hasVoice || hasCodebase) && (
+        <div className="warp-quota-features">
+          <div className="warp-quota-detail-head">
+            <span>Feature limits</span>
+            <small>provider reported</small>
+          </div>
+          <dl>
+            {hasVoice && (
+              <div>
+                <dt>Voice requests</dt>
+                <dd>{voiceParts.length ? voiceParts.join(" ") : "not reported"}</dd>
+              </div>
+            )}
+            {summary.codebaseIndicesLimit !== null || summary.codebaseIndicesUnlimited !== null ? (
+              <div>
+                <dt>Codebase indices</dt>
+                <dd>
+                  {summary.codebaseIndicesUnlimited === true
+                    ? "Unlimited"
+                    : summary.codebaseIndicesLimit === null
+                      ? "not reported"
+                      : `max ${summary.codebaseIndicesLimit.toLocaleString()}`}
+                </dd>
+              </div>
+            ) : null}
+            {summary.maxFilesPerRepo !== null && (
+              <div>
+                <dt>Files per repository</dt>
+                <dd>max {summary.maxFilesPerRepo.toLocaleString()}</dd>
+              </div>
+            )}
+          </dl>
+          <small>Feature limits are separate from monthly request usage.</small>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const CLAUDE_USAGE_URL = "https://claude.ai/new#settings/usage";
 
 const freshnessLabel: Record<CreditFreshness, string> = {
@@ -2523,6 +2624,9 @@ function QuotaDials({
   const codexCredits = buildCodexCreditView(
     quotas.usage?.providers.find((provider) => provider.provider === "codex"),
   );
+  const warpReport = quotas.usage?.providers.find(
+    (provider) => provider.provider === "warp",
+  );
   const trackingSince = quotas.history?.trackingSince
     ? new Date(quotas.history.trackingSince).toLocaleDateString(undefined, {
         month: "short",
@@ -2635,6 +2739,7 @@ function QuotaDials({
                   );
                 })}
               </div>
+              {card.provider === "warp" && <WarpQuotaDetails report={warpReport} />}
               {card.provider === "anthropic" && (
                 <AnthropicCredits
                   view={anthropicCredits}
