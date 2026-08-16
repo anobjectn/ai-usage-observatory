@@ -5,6 +5,38 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-08-16
+
+### Added
+
+- Read Warp's local session data so Warp usage is attributed to projects,
+  sessions, paths, and models alongside the other providers, rather than
+  appearing only as provider-reported totals.
+- Enrich the Warp subscription quota card with the plan's request allowance,
+  usage, headroom, and refresh timing.
+- Add per-slice averages to the dashboard metric breakdowns, so each slice
+  reports its typical value beside its total.
+- Add a shared page-jump control to paged lists. Three or more pages get a
+  numeric field and a listbox of every page; two or fewer stay static.
+
+### Changed
+
+- Extract the orrery's hypercube into a single canonical tesseract and use it
+  for the boot loader and the paginator's pending state, honoring the
+  "Tesseract core" appearance setting. With the setting off they fall back to
+  the telescope orbit and the refresh spinner, and reduced motion holds the
+  glyph on one frame.
+- Refresh the README screenshot gallery for the Overview, Sessions, Projects,
+  and Models views.
+
+### Fixed
+
+- Suppress the activity tooltip on days with no recorded usage, which
+  previously rendered a card holding nothing but a date.
+- Correct tesseract styling when an inherited accent color arrives as `rgb()`
+  instead of hex, and draw the canvas on mount instead of leaving it blank
+  until the first animation frame.
+
 ## [1.13.0] - 2026-08-16
 
 ### Added
@@ -381,6 +413,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.14.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.2...v1.12.0
 [1.11.2]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.1...v1.11.2
