@@ -5,6 +5,34 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-08-16
+
+### Added
+
+- Add model x effort combo analysis, pairing each model family with the effort
+  it recorded into a single comparable unit, with a combo board and day-stacked
+  view reporting token and observation volume per combo.
+- Report whole-session outcome metrics — API-equivalent cost, efficiency flags,
+  and verdicts — only over sessions that a single combo uniquely led.
+- Add session verdicts you record yourself, stored locally alongside existing
+  tags and notes and surfaced once a cohort has enough ratings.
+- Add per-model model x effort combo pills to Models, each showing its share of
+  attributed tokens.
+
+### Changed
+
+- Present model x effort combos as the primary effort reading, keeping the
+  aggregate effort stack and coverage as secondary context.
+- Describe the new unit of comparison and the verdict data flow in the README
+  and architecture documentation, and archive the completed plan documents.
+
+### Fixed
+
+- Prevent horizontal overscroll in Explorer. Cache-control tooltip text now
+  wraps instead of widening the page, collapsed-sidebar tooltip styling is
+  scoped to the sidebar, and global control labels, breadcrumbs, and button
+  text condense at intermediate widths.
+
 ## [1.12.0] - 2026-08-14
 
 ### Added
@@ -353,6 +381,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.13.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.2...v1.12.0
 [1.11.2]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.1...v1.11.2
 [1.11.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.0...v1.11.1
