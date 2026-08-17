@@ -5,6 +5,26 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-08-16
+
+### Added
+
+- List every model × effort combination in the sessions ledger. The cell shows
+  the dominant combo first, then the remainder in canonical family/effort
+  order, instead of folding them into a "+N" badge, and wraps rather than
+  clipping.
+
+### Fixed
+
+- Repair the paginator's page-jump control: the caret button no longer paints
+  an opaque box over the current page number, opening the page list no longer
+  scrolls the page away from the paginator, and the menu height is now an exact
+  multiple of its row height so the first and last entries are not sliced.
+- Hold the loading indicator's shape steady, cycling only color and brightness
+  instead of animating the ring's outline.
+- Match the page-jump field to the prev/next button height and give those
+  buttons the accent hover and focus treatment, skipped while disabled.
+
 ## [1.14.0] - 2026-08-16
 
 ### Added
@@ -413,6 +433,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.14.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.11.2...v1.12.0
