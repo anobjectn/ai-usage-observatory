@@ -7,7 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [1.14.1] - 2026-08-16
 
-### Added
+### Changed
 
 - List every model × effort combination in the sessions ledger. The cell shows
   the dominant combo first, then the remainder in canonical family/effort
