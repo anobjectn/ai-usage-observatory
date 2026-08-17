@@ -1,4 +1,6 @@
 import { getSessionSource } from "./path-indexer";
+import { warpDatabasePath } from "./warp";
+import { readWarpPrompts } from "./warp-prompts";
 import { stat } from "node:fs/promises";
 
 type JsonRecord = Record<string, unknown>;
@@ -335,6 +337,27 @@ export function parseSessionDetailJsonl(raw: string): SessionDetail {
   };
 }
 
+/** Warp sessions have no JSONL transcript to index, so they are keyed by their
+ * conversation id and read straight out of Warp's own SQLite database. Only
+ * prompts come back; every other field stays at its empty value because Warp
+ * keeps no local record of them. */
+const warpSessionPrefix = "warp-";
+
+function warpSessionDetail(sessionId: string): SessionDetail {
+  const prompts = readWarpPrompts(sessionId.slice(warpSessionPrefix.length));
+  if (!prompts) return detailUnavailable;
+  return {
+    available: true,
+    prompts,
+    outputs: [],
+    tools: [],
+    files: [],
+    additions: 0,
+    deletions: 0,
+    eventsRead: prompts.length,
+  };
+}
+
 async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   const source = getSessionSource(sessionId);
   if (!source || !await Bun.file(source.sourceFile).exists()) return detailUnavailable;
@@ -344,19 +367,23 @@ async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
 }
 
 export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
-  const source = getSessionSource(sessionId);
-  if (!source) return detailUnavailable;
+  const warpSession = sessionId.startsWith(warpSessionPrefix);
+  const source = warpSession ? null : getSessionSource(sessionId);
+  if (!warpSession && !source) return detailUnavailable;
 
+  const sourceFile = source?.sourceFile ?? warpDatabasePath();
   let mtimeMs: number;
   try {
-    mtimeMs = (await stat(source.sourceFile)).mtimeMs;
+    mtimeMs = (await stat(sourceFile)).mtimeMs;
   } catch {
     return detailUnavailable;
   }
   const cached = detailCache.get(sessionId);
   if (cached?.mtimeMs === mtimeMs) return cached.detail;
 
-  const detail = readSessionDetail(sessionId);
+  const detail = warpSession
+    ? Promise.resolve(warpSessionDetail(sessionId))
+    : readSessionDetail(sessionId);
   detailCache.set(sessionId, { mtimeMs, detail });
   void detail.catch(() => {
     if (detailCache.get(sessionId)?.detail === detail) detailCache.delete(sessionId);

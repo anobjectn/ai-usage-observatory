@@ -9,6 +9,12 @@ const defaultDatabasePath = join(
   homedir(),
   "Library/Group Containers/2BBY89MBSN.dev.warp/Library/Application Support/dev.warp.Warp-Stable/warp.sqlite",
 );
+
+/** The one place the Warp database is located, so the collector and the on-demand
+ * prompt reader always open the same file (including under `WARP_DB_PATH`). */
+export function warpDatabasePath() {
+  return process.env.WARP_DB_PATH || defaultDatabasePath;
+}
 const requiredTables = ["agent_conversations", "agent_tasks", "ai_queries", "blocks"];
 
 type JsonRecord = Record<string, unknown>;
@@ -89,7 +95,7 @@ function jsonValue(value: unknown): unknown {
 
 /** Warp's SQLite timestamps are local wall-clock strings. Converting them here keeps the
  * browser's existing date formatting and calendar grouping correct for the current machine. */
-function timestamp(value: unknown) {
+export function warpTimestamp(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = new Date(value.trim().replace(" ", "T"));
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
@@ -123,7 +129,7 @@ function queryStats(rows: QueryRow[]) {
     };
     current.turns += 1;
     current.cwd ??= stringValue(row.working_directory);
-    const activity = timestamp(row.start_ts);
+    const activity = warpTimestamp(row.start_ts);
     if (activity && (!current.firstActivity || activity < current.firstActivity)) current.firstActivity = activity;
     if (activity && (!current.lastActivity || activity > current.lastActivity)) current.lastActivity = activity;
     const model = stringValue(row.model_id);
@@ -243,7 +249,7 @@ function sessionFromConversation(
   const usage = record(data) ? data.conversation_usage_metadata : null;
   const token = tokenStats(usage);
   const tools = toolStats(record(usage) ? usage.tool_usage_metadata : null);
-  const lastActivity = timestamp(row.last_modified_at) ?? queries.lastActivity ?? queries.firstActivity;
+  const lastActivity = warpTimestamp(row.last_modified_at) ?? queries.lastActivity ?? queries.firstActivity;
   const models = [...token.byModel.keys()];
   for (const model of queries.models) if (!models.includes(model)) models.push(model);
   const modelBreakdowns: ModelBreakdown[] = models.map((modelName) => {
@@ -325,7 +331,7 @@ function summaryOf(collection: WarpCollection, timeZone: string): WarpCollection
 }
 
 export async function collectWarp(timeZone = systemTimeZone()): Promise<WarpCollection> {
-  const databasePath = process.env.WARP_DB_PATH || defaultDatabasePath;
+  const databasePath = warpDatabasePath();
   const sourceFile = relative(homedir(), databasePath) || databasePath;
   if (!existsSync(databasePath)) return emptyData(sourceFile, "Warp's local session database was not found on this machine.");
   try {

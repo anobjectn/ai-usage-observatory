@@ -4364,14 +4364,19 @@ function warpMetricLabel(value: string) {
 
 function WarpSessionDetailPanel({
   session,
+  detail,
+  loading,
   annotation,
   onAnnotationChange,
 }: {
   session: Session;
+  detail?: SessionDetail;
+  loading: boolean;
   annotation?: SessionAnnotation;
   onAnnotationChange?: (sessionId: string, annotation: SessionAnnotation) => void;
 }) {
   const stats = session.warp!;
+  const prompts = detail?.prompts ?? [];
   const toolEntries = Object.entries(stats.toolUsage).sort((left, right) => right[1] - left[1]);
   const categoryEntries = Object.entries(stats.tokensByCategory).sort((left, right) => right[1] - left[1]);
   return (
@@ -4393,6 +4398,34 @@ function WarpSessionDetailPanel({
         <div><span>AGENT TURNS</span><strong>{stats.turns}</strong></div>
         <div><span>STATUS</span><strong>{stats.status}</strong></div>
       </div>
+      <section className="warp-session-detail__card warp-session-prompts">
+        <span className="overline">YOUR PROMPTS</span>
+        <h4>Typed this session</h4>
+        {loading ? (
+          <p>Reading Warp's local query log…</p>
+        ) : prompts.length ? (
+          <ol className="session-transcript-list">
+            {prompts.map((prompt, index) => (
+              <li key={`${index}-${prompt.text.slice(0, 24)}`}>
+                <time
+                  className="session-prompt-time"
+                  dateTime={prompt.timestamp ?? undefined}
+                  title={prompt.timestamp ?? undefined}
+                >
+                  {formatPromptTimestamp(prompt.timestamp)}
+                </time>
+                <pre>{prompt.text}</pre>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p>
+            {detail?.available
+              ? "This conversation recorded no typed prompt of its own."
+              : "Warp's local query log could not be read."}
+          </p>
+        )}
+      </section>
       <div className="warp-session-detail__grid">
         <section className="warp-session-detail__card">
           <span className="overline">TOKEN SOURCES</span>
@@ -4434,7 +4467,7 @@ function WarpSessionDetailPanel({
           ) : <p>No category breakdown was recorded.</p>}
         </section>
       </div>
-      <p className="scope-note"><Database /> Warp rows are metadata-only snapshots from this computer. Prompts, responses, command text, and transcript contents are not imported.</p>
+      <p className="scope-note"><Database /> Prompts are read from Warp's own query log on this computer. Assistant responses are not available locally: Warp keeps the message history on its server and stores only usage metadata here, so responses, command text, and transcript contents are not imported.</p>
     </div>
   );
 }
@@ -4546,7 +4579,15 @@ export function SessionDetailPanel({
     });
   };
   if (session.source === "warp" && session.warp) {
-    return <WarpSessionDetailPanel session={session} annotation={annotation} onAnnotationChange={onAnnotationChange} />;
+    return (
+      <WarpSessionDetailPanel
+        session={session}
+        detail={detail}
+        loading={loading}
+        annotation={annotation}
+        onAnnotationChange={onAnnotationChange}
+      />
+    );
   }
   if (loading)
     return (
@@ -5253,7 +5294,8 @@ function Sessions({
   const toggle = async (session: Session) => {
     if (expanded === session.sessionId) return setExpanded(null);
     setExpanded(session.sessionId);
-    if (session.source === "warp") return;
+    // Warp rows used to stop here because they had no readable record. They now
+    // resolve to the prompts in Warp's own query log, so they fetch like the rest.
     if (details[session.sessionId]) return;
     setLoadingDetail(session.sessionId);
     try {
@@ -5348,7 +5390,7 @@ function Sessions({
       <PageTitle
         eyebrow="SESSION LEDGER"
         title="Trace sessions"
-        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Warp rows contain metadata-only credit and tool summaries from this machine."
+        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Warp rows add the prompts you typed to their credit and tool summaries; Warp keeps no local copy of the responses."
         actions={
           <div className="project-controls">
             <label className="search">
@@ -7713,7 +7755,7 @@ function Sources({
                 </ResponsiveContainer>
               </div>
             ) : <Empty text="No credit observations are available yet." />}
-            <p className="warp-machine-note"><Database /> Warp data is machine-specific. It comes from <code>{data.warp.sourceFile ?? "Warp's local database"}</code>, reflects this computer’s stored conversation snapshots, and is not a complete account-wide ledger across other devices. The app reads it read-only and imports no prompts, responses, command text, or transcript contents.</p>
+            <p className="warp-machine-note"><Database /> Warp data is machine-specific. It comes from <code>{data.warp.sourceFile ?? "Warp's local database"}</code>, reflects this computer’s stored conversation snapshots, and is not a complete account-wide ledger across other devices. The app reads it read-only. Prompts you typed are read from Warp’s query log; responses, command text, and transcript contents stay out, because Warp keeps the message history on its server rather than here.</p>
           </>
         ) : (
           <p className="scope-note"><Database /> {data.warp.error ?? "Warp’s local database is unavailable on this machine."}</p>
