@@ -68,11 +68,23 @@ export function PageJump({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
+  // `scrollIntoView` would scroll every scrollable ancestor, which yanks the
+  // whole page away from the paginator the moment the menu opens. Only the
+  // menu's own scrollTop may move.
   useLayoutEffect(() => {
     if (!open) return;
-    listRef.current
-      ?.querySelector('[data-active="true"]')
-      ?.scrollIntoView({ block: "center" });
+    const list = listRef.current;
+    const active = list?.querySelector<HTMLElement>('[data-active="true"]')
+      ?.parentElement;
+    const first = list?.firstElementChild as HTMLElement | null;
+    if (!list || !active || !first) return;
+    // Landing on a whole multiple of the row height is what keeps the first and
+    // last rows from being sliced through the middle of their digits.
+    const rowHeight = active.offsetHeight;
+    const index = Math.round((active.offsetTop - first.offsetTop) / rowHeight);
+    const visibleRows = Math.max(1, Math.floor(list.clientHeight / rowHeight));
+    list.scrollTop =
+      Math.max(0, index - Math.floor((visibleRows - 1) / 2)) * rowHeight;
   }, [open]);
 
   if (pages <= 2) {
