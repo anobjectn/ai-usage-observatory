@@ -35,6 +35,7 @@ import {
   buildComboDaySeries,
   comboKey,
   comboLabel,
+  compareComboKeys,
   comboOf,
   comboSeriesColor,
   comboSeriesLabel,
@@ -4942,8 +4943,9 @@ function SessionEffortSection({
   );
 }
 
-/** The session's dominant model × effort. Effort alone was never a decision unit, so the cell
- * names the model that recorded it and counts the other combos rather than hiding them. */
+/** Every model × effort the session recorded, dominant first. Effort alone was never a decision
+ * unit, so each pill names the model that recorded it; a session that switched combos shows all
+ * of them rather than hiding the rest behind a count. */
 function SessionEffortCell({
   decoded,
   enabled,
@@ -4974,13 +4976,19 @@ function SessionEffortCell({
     decoded.tokenCoverage === null
       ? "coverage unavailable"
       : `${Math.round(decoded.tokenCoverage * 100)}% of tokens attributed`;
-  const extra = decoded.combos.length - 1;
+  const dominantKey = comboKey(decoded.dominantCombo);
+  const rest = decoded.combos
+    .filter((combo) => comboKey(combo) !== dominantKey)
+    .sort((left, right) => compareComboKeys(comboKey(left), comboKey(right)));
   return (
     <span
       className="session-combo-cell"
       title={`${effortSummaryLabel(decoded)} · ${coverage}${decoded.mixed ? " · mixed effort" : ""}`}
     >
-      <ComboPill combo={decoded.dominantCombo} trailing={extra > 0 ? `+${extra}` : undefined} />
+      <ComboPill combo={decoded.dominantCombo} />
+      {rest.map((combo) => (
+        <ComboPill key={comboKey(combo)} combo={combo} />
+      ))}
     </span>
   );
 }

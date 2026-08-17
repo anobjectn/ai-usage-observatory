@@ -488,7 +488,8 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .session-row__effort{white-space:nowrap}
 /* The pill is a flex item, so it needs `min-width:0` to be allowed to shrink. Without it the
  * label overflows the fixed-width cell and paints over the verdict controls beside it. */
-.session-combo-cell{display:flex;min-width:0;max-width:100%;overflow:hidden}
+/* A session can record several combos; they wrap instead of being truncated to the largest one. */
+.session-combo-cell{display:flex;flex-wrap:wrap;gap:3px;min-width:0;max-width:100%;overflow:hidden}
 .session-combo-cell .split-pill{min-width:0}
 .session-row:hover td.session-row__effort .split-pill,.session-row:focus-visible td.session-row__effort .split-pill{text-decoration-line:none}
 /* Three states plus clear, one action each, reachable by keyboard and never colour-only. */
