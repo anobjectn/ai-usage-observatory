@@ -288,6 +288,11 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .tooltip-model-more { display:block;margin:5px 0 0 21px;font:9px var(--font-label);color:var(--dim); }
 .tooltip-more-row { display:grid!important;grid-template-columns:minmax(0,1fr) 68px 64px;column-gap:10px;align-items:center; }
 .tooltip-more-row b { color:var(--muted);font-weight:500;text-align:right;white-space:nowrap; }
+.tooltip-quota { margin:0 0 8px;padding:6px 8px;border:1px solid var(--line-bright);border-radius:5px;background:color-mix(in srgb,var(--surface-3) 55%,transparent); }
+.tooltip-quota__row { margin-top:0!important; }
+.tooltip-quota__row+.tooltip-quota__row { margin-top:4px!important; }
+.tooltip-quota__row span { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font:10px var(--font-label);text-transform:uppercase;letter-spacing:.05em; }
+.tooltip-quota__row b { color:var(--muted);font:10px var(--font-label);font-weight:500;white-space:nowrap; }
 .tooltip-projects { border-top:1px solid var(--line-bright);margin-top:10px;padding-top:9px; }
 .tooltip-projects__head { margin:0!important;text-transform:uppercase;letter-spacing:.08em;color:var(--aqua); }
 .tooltip-projects__head strong { font-size:10px; }

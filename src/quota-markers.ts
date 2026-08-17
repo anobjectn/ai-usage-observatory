@@ -7,6 +7,18 @@ export type QuotaMarker = {
   kind: MarkerKind | "mixed";
   provider: "anthropic" | "codex";
   label: string;
+  /** One row per event kind in this bucket, so a tooltip can restate what the
+   * in-chart marker label says and add the instants behind it. */
+  entries: QuotaMarkerEntry[];
+};
+
+export type QuotaMarkerEntry = {
+  kind: MarkerKind;
+  /** Suffix shared with the marker label, e.g. "weekly quota reached". */
+  label: string;
+  count: number;
+  /** Ascending; one instant per reach or applied reset. */
+  timestamps: number[];
 };
 
 type MarkerKind = "quota" | "weekly" | "reset";
@@ -16,6 +28,12 @@ type MarkerEvent = {
   timestamp: number;
   kind: MarkerKind;
   provider: MarkerProvider;
+};
+
+const kindLabels: Record<MarkerKind, string> = {
+  quota: "5h quota reached",
+  weekly: "weekly quota reached",
+  reset: "reset applied",
 };
 
 function events(history?: QuotaHistory): MarkerEvent[] {
@@ -40,42 +58,48 @@ function groupMarkers(
   bucketFor: (timestamp: number) => string | null,
   providerFilter: ProviderFilter,
 ): QuotaMarker[] {
-  const buckets = new Map<string, { quota: number; weekly: number; reset: number }>();
+  const buckets = new Map<string, Map<MarkerKind, number[]>>();
   for (const event of events(history)) {
     if (providerFilter !== null && event.provider !== providerFilter) continue;
     const x = bucketFor(event.timestamp);
     if (x === null) continue;
     const key = `${x}:${event.provider}`;
-    const bucket = buckets.get(key) ?? { quota: 0, weekly: 0, reset: 0 };
-    bucket[event.kind]++;
+    const bucket = buckets.get(key) ?? new Map<MarkerKind, number[]>();
+    bucket.set(event.kind, [...(bucket.get(event.kind) ?? []), event.timestamp]);
     buckets.set(key, bucket);
   }
-  return [...buckets.entries()].map(([bucketKey, counts]) => {
+  return [...buckets.entries()].map(([bucketKey, kinds]) => {
     const separator = bucketKey.lastIndexOf(":");
     const x = bucketKey.slice(0, separator);
     const provider = bucketKey.slice(separator + 1) as MarkerProvider;
     const name = provider === "anthropic" ? "Claude" : "Codex";
-    const present = (["quota", "weekly", "reset"] as const).filter((candidate) => counts[candidate]);
-    const kind = present.length > 1 ? "mixed" : present[0] ?? "quota";
-    const labels = [
-      counts.quota
-        ? `${name} 5h quota reached${counts.quota > 1 ? ` ×${counts.quota}` : ""}`
-        : "",
-      counts.weekly
-        ? `${name} weekly quota reached${counts.weekly > 1 ? ` ×${counts.weekly}` : ""}`
-        : "",
-      counts.reset
-        ? `${name} reset applied${counts.reset > 1 ? ` ×${counts.reset}` : ""}`
-        : "",
-    ].filter(Boolean);
+    const entries = (["quota", "weekly", "reset"] as const)
+      .filter((candidate) => kinds.get(candidate)?.length)
+      .map((candidate) => {
+        const timestamps = [...kinds.get(candidate)!].sort((left, right) => left - right);
+        return { kind: candidate, label: kindLabels[candidate], count: timestamps.length, timestamps };
+      });
+    const kind = entries.length > 1 ? "mixed" : entries[0]?.kind ?? "quota";
     return {
       key: `${x}:${provider}:${kind}`,
       x,
       kind,
       provider,
-      label: labels.join(" · "),
+      label: entries
+        .map((entry) => `${name} ${entry.label}${entry.count > 1 ? ` ×${entry.count}` : ""}`)
+        .join(" · "),
+      entries,
     };
   });
+}
+
+/** Markers sharing one chart x value, so a tooltip opened over that point can
+ * restate the marker labels its card covers. Claude first, then Codex. */
+export function quotaMarkersAt(markers: QuotaMarker[], x: string | number | undefined) {
+  if (x === undefined) return [];
+  return markers
+    .filter((marker) => marker.x === String(x))
+    .sort((left, right) => left.provider.localeCompare(right.provider));
 }
 
 export function dailyQuotaMarkers(

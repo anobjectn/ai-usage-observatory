@@ -150,6 +150,7 @@ import type {
 import {
   dailyQuotaMarkers,
   hourlyQuotaMarkers,
+  quotaMarkersAt,
   type QuotaMarker,
 } from "./quota-markers";
 import {
@@ -1062,20 +1063,22 @@ function ProviderChartTooltip({
   payload,
   label,
   coordinate,
-}: ChartTooltipProps) {
+  quotaMarkers = [],
+  timeZone = systemTimeZone(),
+}: ChartTooltipProps & { quotaMarkers?: QuotaMarker[]; timeZone?: string }) {
   const pinSource = useId();
   const liveRow = payload?.[0]?.payload as TimelineTooltipRow | undefined;
   // Days with no recorded activity still emit a zero-valued payload; showing a
-  // card with nothing but a date in it is noise, so treat them as no hover.
+  // card with nothing but a date in it is noise, so treat them as no hover —
+  // unless a quota marker stands there, which is worth reading on its own.
   const hasActivity = Boolean(
     payload?.some((item) => typeof item.value === "number" && item.value > 0),
   );
-  const claimKey =
-    active && payload?.length && hasActivity
-      ? (liveRow?.period ?? liveRow?.hour ?? String(label))
-      : null;
+  const point = liveRow?.period ?? liveRow?.hour ?? String(label);
+  const worthShowing = hasActivity || quotaMarkersAt(quotaMarkers, point).length > 0;
+  const claimKey = active && payload?.length && worthShowing ? point : null;
   const hold = useChartTooltipHold(
-    active && payload?.length && hasActivity
+    active && payload?.length && worthShowing
       ? { payload, label, coordinate }
       : null,
     claimKey,
@@ -1124,6 +1127,13 @@ function ProviderChartTooltip({
         <small>Tokens</small>
         <small>API $</small>
       </div>
+      <QuotaReachNotes
+        markers={quotaMarkersAt(
+          quotaMarkers,
+          timelineRow?.period ?? timelineRow?.hour ?? snapshotLabel,
+        )}
+        timeZone={timeZone}
+      />
       {providerSeries
         .map((provider) =>
           snapshotPayload.find((item) => item.dataKey === provider.key),
@@ -1656,6 +1666,45 @@ function QuotaMarkerLegend({ markers }: { markers: QuotaMarker[] }) {
   );
 }
 
+/** Restates the quota markers standing at one chart point inside the tooltip
+ * card, which opens directly over the marker's own rotated label and hides it. */
+function QuotaReachNotes({
+  markers,
+  timeZone,
+}: {
+  markers: QuotaMarker[];
+  timeZone: string;
+}) {
+  if (markers.length === 0) return null;
+  return (
+    <section className="tooltip-quota" aria-label="Quota events">
+      {markers.flatMap((marker) => {
+        const name = marker.provider === "anthropic" ? "Claude" : "Codex";
+        return marker.entries.map((entry) => (
+          <div className="tooltip-quota__row" key={`${marker.key}:${entry.kind}`}>
+            <i style={{ background: quotaMarkerColors[marker.provider] }} />
+            <span>
+              {name} {entry.label}
+              {entry.count > 1 ? ` ×${entry.count}` : ""}
+            </span>
+            <b>
+              {entry.timestamps
+                .map((timestamp) =>
+                  new Date(timestamp).toLocaleTimeString(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZone,
+                  }),
+                )
+                .join(", ")}
+            </b>
+          </div>
+        ));
+      })}
+    </section>
+  );
+}
+
 function QuotaReferenceLines({
   markers,
   yAxisId,
@@ -1897,7 +1946,12 @@ function ProviderTimeline({
               axisLine={false}
             />
             <Tooltip
-              content={<ProviderChartTooltip />}
+              content={
+                <ProviderChartTooltip
+                  quotaMarkers={quotaMarkers}
+                  timeZone={timeZone}
+                />
+              }
               cursor={{ stroke: "#71807b", strokeDasharray: "3 3" }}
               offset={0}
               isAnimationActive={false}
@@ -2136,7 +2190,12 @@ function HourlyProviderTimeline({
               axisLine={false}
             />
             <Tooltip
-              content={<ProviderChartTooltip />}
+              content={
+                <ProviderChartTooltip
+                  quotaMarkers={quotaMarkers}
+                  timeZone={timeZone}
+                />
+              }
               cursor={{ fill: "#15211d" }}
               offset={0}
               isAnimationActive={false}
@@ -5683,7 +5742,13 @@ export function projectSummaryInRange(
   };
 }
 
-function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
+function ProjectDayTooltip({
+  active,
+  payload,
+  coordinate,
+  quotaMarkers = [],
+  timeZone = systemTimeZone(),
+}: ChartTooltipProps & { quotaMarkers?: QuotaMarker[]; timeZone?: string }) {
   const pinSource = useId();
   const liveRow = payload?.[0]?.payload as
     | ReturnType<typeof projectDayRows>[number]
@@ -5725,6 +5790,10 @@ function ProjectDayTooltip({ active, payload, coordinate }: ChartTooltipProps) {
         <small>Tokens</small>
         <small>API $</small>
       </div>
+      <QuotaReachNotes
+        markers={quotaMarkersAt(quotaMarkers, row.date)}
+        timeZone={timeZone}
+      />
       <section className="tooltip-projects">
         <div className="tooltip-projects__head">
           <strong>Total</strong>
@@ -6373,7 +6442,12 @@ function ProjectDetails({
                   hide
                 />
                 <Tooltip
-                  content={<ProjectDayTooltip />}
+                  content={
+                    <ProjectDayTooltip
+                      quotaMarkers={quotaMarkers}
+                      timeZone={timeZone}
+                    />
+                  }
                   cursor={{ fill: "rgba(183,242,92,.05)" }}
                   offset={0}
                   isAnimationActive={false}
