@@ -4,26 +4,28 @@ import type { QuotaHistory } from "./types";
 
 const timeZone = "America/New_York";
 const quotaAt = Date.parse("2026-07-18T14:15:00.000Z");
+const weeklyAt = Date.parse("2026-07-18T18:20:00.000Z");
 const resetAt = Date.parse("2026-07-18T20:40:00.000Z");
 const history: QuotaHistory = {
   available: true,
   trackingSince: quotaAt,
   windows: [
     { provider: "codex", window: "fiveHour", reachedCount: 1, lastReachedAt: quotaAt, reachedAt: [quotaAt] },
-    { provider: "codex", window: "weekly", reachedCount: 1, lastReachedAt: quotaAt, reachedAt: [quotaAt] },
+    { provider: "codex", window: "weekly", reachedCount: 1, lastReachedAt: weeklyAt, reachedAt: [weeklyAt] },
   ],
   codexBankedResets: { usedCount: 1, used: [{ id: "reset-1", title: "Reset", usedAt: resetAt }] },
 };
 
-test("daily markers combine quota and reset events that share a day", () => {
+test("daily markers combine quota, weekly and reset events that share a day", () => {
   expect(dailyQuotaMarkers(history, ["2026-07-18"], null, timeZone)).toEqual([
-    { key: "2026-07-18:codex:mixed", x: "2026-07-18", kind: "mixed", provider: "codex", label: "Codex 5h quota reached · Codex reset applied" },
+    { key: "2026-07-18:codex:mixed", x: "2026-07-18", kind: "mixed", provider: "codex", label: "Codex 5h quota reached · Codex weekly quota reached · Codex reset applied" },
   ]);
 });
 
-test("hourly markers preserve separate event hours and ignore weekly limits", () => {
+test("hourly markers preserve separate event hours including weekly limits", () => {
   expect(hourlyQuotaMarkers(history, "2026-07-18", null, timeZone)).toEqual([
     { key: "10:codex:quota", x: "10", kind: "quota", provider: "codex", label: "Codex 5h quota reached" },
+    { key: "14:codex:weekly", x: "14", kind: "weekly", provider: "codex", label: "Codex weekly quota reached" },
     { key: "16:codex:reset", x: "16", kind: "reset", provider: "codex", label: "Codex reset applied" },
   ]);
 });

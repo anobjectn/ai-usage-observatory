@@ -4,30 +4,29 @@ import { dateKeyInTimeZone, hourInTimeZone, systemTimeZone } from "./reporting-t
 export type QuotaMarker = {
   key: string;
   x: string;
-  kind: "quota" | "reset" | "mixed";
+  kind: MarkerKind | "mixed";
   provider: "anthropic" | "codex";
   label: string;
 };
 
+type MarkerKind = "quota" | "weekly" | "reset";
 type MarkerProvider = "anthropic" | "codex";
 type ProviderFilter = MarkerProvider | "warp" | null;
 type MarkerEvent = {
   timestamp: number;
-  kind: "quota" | "reset";
+  kind: MarkerKind;
   provider: MarkerProvider;
 };
 
 function events(history?: QuotaHistory): MarkerEvent[] {
   if (!history?.available) return [];
-  const quotaEvents = history.windows
-    .filter((window) => window.window === "fiveHour")
-    .flatMap((window) =>
-      window.reachedAt.map((timestamp) => ({
-        timestamp,
-        kind: "quota" as const,
-        provider: window.provider,
-      })),
-    );
+  const quotaEvents = history.windows.flatMap((window) =>
+    window.reachedAt.map((timestamp) => ({
+      timestamp,
+      kind: window.window === "weekly" ? ("weekly" as const) : ("quota" as const),
+      provider: window.provider,
+    })),
+  );
   const resetEvents = history.codexBankedResets.used.map((reset) => ({
     timestamp: reset.usedAt,
     kind: "reset" as const,
@@ -41,13 +40,13 @@ function groupMarkers(
   bucketFor: (timestamp: number) => string | null,
   providerFilter: ProviderFilter,
 ): QuotaMarker[] {
-  const buckets = new Map<string, { quota: number; reset: number }>();
+  const buckets = new Map<string, { quota: number; weekly: number; reset: number }>();
   for (const event of events(history)) {
     if (providerFilter !== null && event.provider !== providerFilter) continue;
     const x = bucketFor(event.timestamp);
     if (x === null) continue;
     const key = `${x}:${event.provider}`;
-    const bucket = buckets.get(key) ?? { quota: 0, reset: 0 };
+    const bucket = buckets.get(key) ?? { quota: 0, weekly: 0, reset: 0 };
     bucket[event.kind]++;
     buckets.set(key, bucket);
   }
@@ -56,10 +55,14 @@ function groupMarkers(
     const x = bucketKey.slice(0, separator);
     const provider = bucketKey.slice(separator + 1) as MarkerProvider;
     const name = provider === "anthropic" ? "Claude" : "Codex";
-    const kind = counts.quota && counts.reset ? "mixed" : counts.quota ? "quota" : "reset";
+    const present = (["quota", "weekly", "reset"] as const).filter((candidate) => counts[candidate]);
+    const kind = present.length > 1 ? "mixed" : present[0] ?? "quota";
     const labels = [
       counts.quota
         ? `${name} 5h quota reached${counts.quota > 1 ? ` ×${counts.quota}` : ""}`
+        : "",
+      counts.weekly
+        ? `${name} weekly quota reached${counts.weekly > 1 ? ` ×${counts.weekly}` : ""}`
         : "",
       counts.reset
         ? `${name} reset applied${counts.reset > 1 ? ` ×${counts.reset}` : ""}`
