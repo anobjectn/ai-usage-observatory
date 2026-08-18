@@ -4377,6 +4377,9 @@ function WarpSessionDetailPanel({
 }) {
   const stats = session.warp!;
   const prompts = detail?.prompts ?? [];
+  // Warp records the most recent replies, so the newest sample is the last one shown.
+  const outputs = detail?.outputs ?? [];
+  const clippedOutputs = outputs.filter((output) => output.truncated).length;
   const toolEntries = Object.entries(stats.toolUsage).sort((left, right) => right[1] - left[1]);
   const categoryEntries = Object.entries(stats.tokensByCategory).sort((left, right) => right[1] - left[1]);
   return (
@@ -4398,34 +4401,70 @@ function WarpSessionDetailPanel({
         <div><span>AGENT TURNS</span><strong>{stats.turns}</strong></div>
         <div><span>STATUS</span><strong>{stats.status}</strong></div>
       </div>
-      <section className="warp-session-detail__card warp-session-prompts">
-        <span className="overline">YOUR PROMPTS</span>
-        <h4>Typed this session</h4>
-        {loading ? (
-          <p>Reading Warp's local query log…</p>
-        ) : prompts.length ? (
-          <ol className="session-transcript-list">
-            {prompts.map((prompt, index) => (
-              <li key={`${index}-${prompt.text.slice(0, 24)}`}>
-                <time
-                  className="session-prompt-time"
-                  dateTime={prompt.timestamp ?? undefined}
-                  title={prompt.timestamp ?? undefined}
-                >
-                  {formatPromptTimestamp(prompt.timestamp)}
-                </time>
-                <pre>{prompt.text}</pre>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p>
-            {detail?.available
-              ? "This conversation recorded no typed prompt of its own."
-              : "Warp's local query log could not be read."}
-          </p>
-        )}
-      </section>
+      <div className="warp-session-transcript">
+        <section className="warp-session-detail__card warp-session-prompts">
+          <span className="overline">YOUR PROMPTS</span>
+          <h4>Typed this session</h4>
+          {loading ? (
+            <p>Reading Warp's local record…</p>
+          ) : prompts.length ? (
+            <ol className="session-transcript-list">
+              {prompts.map((prompt, index) => (
+                <li key={`${index}-${prompt.text.slice(0, 24)}`}>
+                  <time
+                    className="session-prompt-time"
+                    dateTime={prompt.timestamp ?? undefined}
+                    title={prompt.timestamp ?? undefined}
+                  >
+                    {formatPromptTimestamp(prompt.timestamp)}
+                  </time>
+                  <pre>{prompt.text}</pre>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>
+              {detail?.available
+                ? "This conversation recorded no typed prompt of its own."
+                : "Warp's local record could not be read."}
+            </p>
+          )}
+        </section>
+        <section className="warp-session-detail__card warp-session-outputs">
+          <span className="overline">RESPONSES</span>
+          <h4>
+            What the agent said back
+            {clippedOutputs > 0 && <small> · {clippedOutputs} clipped</small>}
+          </h4>
+          {loading ? (
+            <p>Reading Warp's local record…</p>
+          ) : outputs.length ? (
+            <ol className="session-transcript-list">
+              {outputs.map((output, index) => (
+                <li key={`${index}-${output.text.slice(0, 24)}`}>
+                  <time
+                    className="session-prompt-time"
+                    dateTime={output.timestamp ?? undefined}
+                    title={output.timestamp ?? undefined}
+                  >
+                    {formatPromptTimestamp(output.timestamp)}
+                  </time>
+                  <pre>{output.text}</pre>
+                  {output.truncated && (
+                    <small className="session-output-clipped">Sample clipped</small>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>
+              {detail?.available
+                ? "Warp kept no local copy of this conversation's replies."
+                : "Warp's local record could not be read."}
+            </p>
+          )}
+        </section>
+      </div>
       <div className="warp-session-detail__grid">
         <section className="warp-session-detail__card">
           <span className="overline">TOKEN SOURCES</span>
@@ -4467,7 +4506,7 @@ function WarpSessionDetailPanel({
           ) : <p>No category breakdown was recorded.</p>}
         </section>
       </div>
-      <p className="scope-note"><Database /> Prompts are read from Warp's own query log on this computer. Assistant responses are not available locally: Warp keeps the message history on its server and stores only usage metadata here, so responses, command text, and transcript contents are not imported.</p>
+      <p className="scope-note"><Database /> Read from Warp's local database on this computer: prompts from its query log, replies from its stored agent runs. Reasoning summaries are counted but not imported, and raw command output is left out.</p>
     </div>
   );
 }
@@ -5390,7 +5429,7 @@ function Sessions({
       <PageTitle
         eyebrow="SESSION LEDGER"
         title="Trace sessions"
-        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Warp rows add the prompts you typed to their credit and tool summaries; Warp keeps no local copy of the responses."
+        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Warp rows add the prompts you typed and the replies you got back to their credit and tool summaries."
         actions={
           <div className="project-controls">
             <label className="search">
@@ -7755,7 +7794,7 @@ function Sources({
                 </ResponsiveContainer>
               </div>
             ) : <Empty text="No credit observations are available yet." />}
-            <p className="warp-machine-note"><Database /> Warp data is machine-specific. It comes from <code>{data.warp.sourceFile ?? "Warp's local database"}</code>, reflects this computer’s stored conversation snapshots, and is not a complete account-wide ledger across other devices. The app reads it read-only. Prompts you typed are read from Warp’s query log; responses, command text, and transcript contents stay out, because Warp keeps the message history on its server rather than here.</p>
+            <p className="warp-machine-note"><Database /> Warp data is machine-specific. It comes from <code>{data.warp.sourceFile ?? "Warp's local database"}</code>, reflects this computer’s stored conversation snapshots, and is not a complete account-wide ledger across other devices. The app reads it read-only. Prompts you typed and the replies you got back are read from Warp’s query log and its stored agent runs. Reasoning summaries and raw command output stay out.</p>
           </>
         ) : (
           <p className="scope-note"><Database /> {data.warp.error ?? "Warp’s local database is unavailable on this machine."}</p>

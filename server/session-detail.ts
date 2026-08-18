@@ -1,6 +1,4 @@
 import { getSessionSource } from "./path-indexer";
-import { warpDatabasePath } from "./warp";
-import { readWarpPrompts } from "./warp-prompts";
 import { stat } from "node:fs/promises";
 
 type JsonRecord = Record<string, unknown>;
@@ -338,23 +336,27 @@ export function parseSessionDetailJsonl(raw: string): SessionDetail {
 }
 
 /** Warp sessions have no JSONL transcript to index, so they are keyed by their
- * conversation id and read straight out of Warp's own SQLite database. Only
- * prompts come back; every other field stays at its empty value because Warp
- * keeps no local record of them. */
+ * conversation id and read out of Warp's own SQLite database instead.
+ *
+ * Every Warp module is loaded through a dynamic import reached only by this
+ * branch. A machine that never opens a Warp session never parses a byte of
+ * protobuf, never opens that database, and never even loads the code that
+ * would: the cost of the feature is one string prefix test. */
 const warpSessionPrefix = "warp-";
 
-function warpSessionDetail(sessionId: string): SessionDetail {
-  const prompts = readWarpPrompts(sessionId.slice(warpSessionPrefix.length));
-  if (!prompts) return detailUnavailable;
+async function warpSessionDetail(sessionId: string): Promise<SessionDetail> {
+  const { readWarpSession } = await import("./warp-session");
+  const record = readWarpSession(sessionId.slice(warpSessionPrefix.length));
+  if (!record) return detailUnavailable;
   return {
     available: true,
-    prompts,
-    outputs: [],
+    prompts: record.prompts,
+    outputs: record.outputs,
     tools: [],
     files: [],
     additions: 0,
     deletions: 0,
-    eventsRead: prompts.length,
+    eventsRead: record.eventsRead,
   };
 }
 
@@ -371,7 +373,7 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
   const source = warpSession ? null : getSessionSource(sessionId);
   if (!warpSession && !source) return detailUnavailable;
 
-  const sourceFile = source?.sourceFile ?? warpDatabasePath();
+  const sourceFile = source?.sourceFile ?? (await import("./warp")).warpDatabasePath();
   let mtimeMs: number;
   try {
     mtimeMs = (await stat(sourceFile)).mtimeMs;
@@ -381,9 +383,7 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
   const cached = detailCache.get(sessionId);
   if (cached?.mtimeMs === mtimeMs) return cached.detail;
 
-  const detail = warpSession
-    ? Promise.resolve(warpSessionDetail(sessionId))
-    : readSessionDetail(sessionId);
+  const detail = warpSession ? warpSessionDetail(sessionId) : readSessionDetail(sessionId);
   detailCache.set(sessionId, { mtimeMs, detail });
   void detail.catch(() => {
     if (detailCache.get(sessionId)?.detail === detail) detailCache.delete(sessionId);
