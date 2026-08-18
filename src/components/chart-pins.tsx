@@ -24,7 +24,10 @@ import {
   chartPinsReducer,
   clampChartPinPosition,
   isChartTooltipFrozen,
+  isChartTooltipInteractive,
+  isChartTooltipReach,
   isChartTooltipRetained,
+  chartTooltipReachMargin,
   tooltipHoldReducer,
   type ChartPinAction,
   type ChartPinDescriptor,
@@ -363,6 +366,41 @@ export function useChartTooltipHold<T>(
     return () => window.clearTimeout(timeout);
   }, [state.deadline]);
 
+  // Watching the pointer here rather than on the card itself: while the chart
+  // drives the tooltip the card is transparent to the pointer, so it never sees
+  // the approach that is meant to reach it.
+  useEffect(() => {
+    let last: { x: number; y: number } | null = null;
+    let engaged = false;
+    const onPointerMove = (event: PointerEvent) => {
+      const card = cardRef.current;
+      const previous = last;
+      last = { x: event.clientX, y: event.clientY };
+      if (!card) {
+        if (!engaged) return;
+        engaged = false;
+        dispatch({ type: "card-reach", inside: false, now: tooltipNow() });
+        return;
+      }
+      const rect = card.getBoundingClientRect();
+      const inside =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top - chartTooltipReachMargin &&
+        event.clientY <= rect.bottom;
+      const movement = previous
+        ? { dx: event.clientX - previous.x, dy: event.clientY - previous.y }
+        : { dx: 0, dy: 0 };
+      const reach = isChartTooltipReach(movement, inside, engaged);
+      if (reach === engaged) return;
+      engaged = reach;
+      dispatch({ type: "card-reach", inside: reach, now: tooltipNow() });
+    };
+    window.addEventListener("pointermove", onPointerMove, true);
+    return () =>
+      window.removeEventListener("pointermove", onPointerMove, true);
+  }, []);
+
   useEffect(() => {
     if (!retained) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -377,6 +415,7 @@ export function useChartTooltipHold<T>(
       const now = tooltipNow();
       dispatch({ type: "pin-pointer", inside: false, now });
       dispatch({ type: "card-pointer", inside: false, now });
+      dispatch({ type: "card-reach", inside: false, now });
     };
     const onPointerMove = (event: PointerEvent) => {
       const card = cardRef.current;
@@ -403,6 +442,10 @@ export function useChartTooltipHold<T>(
     };
   }, [retained]);
 
+  // Hovering the pin freezes the card while the pointer is still over the
+  // chart; that freeze, and the retained state after the pointer leaves, are
+  // the two moments the card is stable enough to accept clicks of its own.
+  const interactive = isChartTooltipInteractive(renderState, retained);
   const cardInteractionProps: ChartTooltipCardInteractionProps = {
     onPointerEnter: () =>
       dispatch({ type: "card-pointer", inside: true, now: tooltipNow() }),
@@ -421,7 +464,10 @@ export function useChartTooltipHold<T>(
         dispatch({ type: "card-focus", inside: false, now: tooltipNow() });
     },
     onMouseMove: (event) => {
-      if (retained) event.stopPropagation();
+      // Recharts reads mouse moves that reach the chart behind this card as a
+      // scrub to another point, which would swap the data out from under a
+      // pointer that is on its way to a control inside the card.
+      if (interactive) event.stopPropagation();
     },
   };
   const releasePin = useCallback(() => {
@@ -451,6 +497,7 @@ export function useChartTooltipHold<T>(
   return {
     snapshot,
     retained,
+    interactive,
     cardRef,
     cardInteractionProps,
     pinInteractionProps,
@@ -548,6 +595,8 @@ type PinnableChartTooltipProps = Omit<ChartPinDescriptor, "content"> & {
   forwardedRef?: Ref<HTMLDivElement>;
   interactionRef?: Ref<HTMLDivElement>;
   retained?: boolean;
+  /** Whether the card is stable enough to take pointer input of its own. */
+  interactive?: boolean;
   cardInteractionProps?: ChartTooltipCardInteractionProps;
   pinInteractionProps?: ChartTooltipPinInteractionProps;
   children: ReactNode;
@@ -564,6 +613,7 @@ export function PinnableChartTooltip({
   forwardedRef,
   interactionRef,
   retained = false,
+  interactive = false,
   cardInteractionProps,
   pinInteractionProps,
 }: PinnableChartTooltipProps) {
@@ -605,6 +655,7 @@ export function PinnableChartTooltip({
     <div
       className={`chart-tooltip pinnable-chart-tooltip ${className}`.trim()}
       data-tooltip-retained={retained ? "true" : undefined}
+      data-tooltip-interactive={interactive ? "true" : undefined}
       {...cardHandlers}
       onFocus={(event) => {
         event.stopPropagation();

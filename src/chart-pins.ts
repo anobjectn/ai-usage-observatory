@@ -4,6 +4,14 @@ const viewportGap = 8;
 
 export const chartTooltipExitGraceMs = 400;
 export const chartTooltipLeaveGraceMs = 180;
+/** How far a pointer must climb, and how much straighter than it travels
+ * sideways, before the move reads as a reach for the card. A ratio of 1 puts
+ * the cut at 45 degrees: anything steeper than a diagonal is a reach, and a
+ * diagonal itself still holds the card. */
+export const chartTooltipReachDistance = 5;
+export const chartTooltipReachRatio = 1;
+/** The pin sits astride the card's top edge, so the reach zone starts above it. */
+export const chartTooltipReachMargin = 12;
 
 export function chartTooltipDateLabel(value: string) {
   const date = new Date(`${value}T12:00:00`);
@@ -25,6 +33,8 @@ export type TooltipHoldState = {
   focusWithin: boolean;
   pinPointer: boolean;
   pinFocus: boolean;
+  /** The pointer is reaching into the card rather than scrubbing past it. */
+  cardReach: boolean;
   deadline: number | null;
 };
 
@@ -34,6 +44,7 @@ export type TooltipHoldAction =
   | { type: "card-focus"; inside: boolean; now: number }
   | { type: "pin-pointer"; inside: boolean; now: number }
   | { type: "pin-focus"; inside: boolean; now: number }
+  | { type: "card-reach"; inside: boolean; now: number }
   | { type: "timer"; now: number }
   | { type: "supersede" }
   | { type: "restore" }
@@ -49,6 +60,7 @@ export function createTooltipHoldState(
     focusWithin: false,
     pinPointer: false,
     pinFocus: false,
+    cardReach: false,
     deadline: null,
   };
 }
@@ -58,12 +70,33 @@ export function isChartTooltipHeld(state: TooltipHoldState) {
     state.cardPointer ||
     state.focusWithin ||
     state.pinPointer ||
-    state.pinFocus
+    state.pinFocus ||
+    state.cardReach
   );
 }
 
 export function isChartTooltipFrozen(state: TooltipHoldState) {
-  return state.pinPointer || state.pinFocus;
+  return state.pinPointer || state.pinFocus || state.cardReach;
+}
+
+/** A pointer scrubbing the chart travels along it; a pointer going for the pin
+ * or a control inside the card climbs toward it. Reading that climb hands the
+ * card the pointer before the chart can scrub a different point under it —
+ * without it, every control in the card sits behind a corridor of days that
+ * replace the card as the pointer crosses them. */
+export function isChartTooltipReach(
+  movement: { dx: number; dy: number },
+  insideCard: boolean,
+  engaged = false,
+) {
+  if (!insideCard) return false;
+  if (engaged) return true;
+  const across = Math.abs(movement.dx);
+  const along = Math.abs(movement.dy);
+  return (
+    along >= chartTooltipReachDistance &&
+    along >= across * chartTooltipReachRatio
+  );
 }
 
 export function isChartTooltipShown(state: TooltipHoldState, now: number) {
@@ -73,6 +106,18 @@ export function isChartTooltipShown(state: TooltipHoldState, now: number) {
       isChartTooltipHeld(state) ||
       (state.deadline !== null && now < state.deadline))
   );
+}
+
+/** The card can take pointer input of its own once something holds it steady:
+ * the pin freezing it while the pointer is still over the chart, a pointer or
+ * focus already inside it, or the grace period after the pointer left the
+ * chart. Until then it stays transparent to the pointer so the chart underneath
+ * keeps scrubbing. */
+export function isChartTooltipInteractive(
+  state: TooltipHoldState,
+  retained: boolean,
+) {
+  return retained || isChartTooltipHeld(state);
 }
 
 export function isChartTooltipRetained(
@@ -89,7 +134,7 @@ export function isChartTooltipRetained(
 
 function setTooltipHold(
   state: TooltipHoldState,
-  key: "cardPointer" | "focusWithin" | "pinPointer" | "pinFocus",
+  key: "cardPointer" | "focusWithin" | "pinPointer" | "pinFocus" | "cardReach",
   inside: boolean,
   now: number,
 ) {
@@ -129,6 +174,8 @@ export function tooltipHoldReducer(
     return setTooltipHold(state, "pinPointer", action.inside, action.now);
   if (action.type === "pin-focus")
     return setTooltipHold(state, "pinFocus", action.inside, action.now);
+  if (action.type === "card-reach")
+    return setTooltipHold(state, "cardReach", action.inside, action.now);
   if (action.type === "timer") {
     if (
       state.rechartsActive ||

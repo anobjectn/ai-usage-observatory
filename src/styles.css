@@ -269,7 +269,10 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
    treatment instead of cutting to it. */
 @keyframes pinned-tooltip-in{from{border-color:var(--line-bright);box-shadow:var(--shadow)}}
 .chart-tooltip__pin{pointer-events:auto}
+/* A 20px handle is a small target at the end of a long reach across the chart. */
+.chart-tooltip__pin::after{content:"";position:absolute;inset:-8px;border-radius:11px}
 .pinnable-chart-tooltip[data-tooltip-retained="true"]{visibility:visible;pointer-events:auto}
+.pinnable-chart-tooltip[data-tooltip-interactive="true"]{pointer-events:auto}
 .provider-tooltip { --tooltip-x:-50%;width:var(--tooltip-width,410px);transform:translate(var(--tooltip-x),-6px);animation:tooltip-rise .16s ease-out both; }
 .tooltip-provider+.tooltip-provider { border-top:1px solid var(--line);margin-top:8px;padding-top:7px; }
 .tooltip-columns,.tooltip-provider__head,.tooltip-projects__head,.tooltip-project-row,.tooltip-project-provider,.tooltip-provider-models li,.tooltip-project-models li { display:grid!important;grid-template-columns:minmax(0,1fr) 68px 64px;align-items:center;column-gap:10px; }
@@ -288,6 +291,24 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .tooltip-model-more { display:block;margin:5px 0 0 21px;font:9px var(--font-label);color:var(--dim); }
 .tooltip-more-row { display:grid!important;grid-template-columns:minmax(0,1fr) 68px 64px;column-gap:10px;align-items:center; }
 .tooltip-more-row b { color:var(--muted);font-weight:500;text-align:right;white-space:nowrap; }
+.tooltip-more-toggle { appearance:none;background:none;border:0;width:100%;padding:0;font:inherit;color:inherit;text-align:left;cursor:default; }
+/* The indent these rows carry as a margin would push a full-width button past
+   the card's right edge, so the button wears it as padding instead. */
+.tooltip-more-toggle.tooltip-model-more { margin-left:0;padding-left:21px; }
+.tooltip-more-toggle.tooltip-model-more.project { margin-left:0;padding-left:20px; }
+.tooltip-more-toggle.tooltip-project-more { margin-left:0;padding-left:12px; }
+.pinnable-chart-tooltip[data-tooltip-interactive="true"] .tooltip-more-toggle,.pinned-chart-tooltip .tooltip-more-toggle { cursor:pointer; }
+.tooltip-more-toggle span { display:inline-flex;align-items:center;gap:3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.tooltip-more-toggle svg { width:9px;height:9px;flex:none;margin-left:-12px;color:var(--dim);transition:transform .12s ease; }
+.tooltip-more-toggle:hover,.tooltip-more-toggle:focus-visible { color:var(--text); }
+.tooltip-more-toggle:hover svg,.tooltip-more-toggle:focus-visible svg { color:var(--text); }
+.tooltip-more-toggle:focus-visible { outline:1px solid var(--line-bright);outline-offset:2px;border-radius:3px; }
+.tooltip-more-toggle[aria-expanded="true"] svg { transform:rotate(90deg); }
+/* The card's generic `div` rule turns every wrapper into a flex row, which
+   would shrink the revealed rows away from the card's number columns. */
+.chart-tooltip .tooltip-more-panel { display:block;margin-top:0;gap:0; }
+.chart-tooltip .tooltip-more-panel:empty { display:none; }
+.tooltip-more-panel .tooltip-project-list { counter-reset:none;margin-top:9px; }
 .tooltip-quota { margin:0 0 8px;padding:6px 8px;border:1px solid var(--line-bright);border-radius:5px;background:color-mix(in srgb,var(--surface-3) 55%,transparent); }
 .tooltip-quota__row { margin-top:0!important; }
 .tooltip-quota__row+.tooltip-quota__row { margin-top:4px!important; }

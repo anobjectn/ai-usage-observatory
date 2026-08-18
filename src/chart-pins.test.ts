@@ -8,6 +8,8 @@ import {
   createTooltipHoldState,
   isChartTooltipFrozen,
   isChartTooltipHeld,
+  isChartTooltipInteractive,
+  isChartTooltipReach,
   isChartTooltipRetained,
   isChartTooltipShown,
   tooltipHoldReducer,
@@ -311,4 +313,63 @@ test("retained is limited to inactive tooltips with a cached snapshot", () => {
   expect(isChartTooltipRetained(activePin, true, 10)).toBe(false);
   expect(isChartTooltipRetained(inactive, false, 10)).toBe(false);
   expect(isChartTooltipRetained(inactive, true, 10)).toBe(true);
+});
+
+test("the card accepts pointer input while the pin freezes it over a live chart", () => {
+  const live = createTooltipHoldState(true);
+  const frozen = tooltipHoldReducer(live, {
+    type: "pin-pointer",
+    inside: true,
+    now: 0,
+  });
+  // Leaving the pin for the card body itself has to keep the card clickable,
+  // or a pointer travelling toward a control inside it falls through to the
+  // chart and scrubs to another day.
+  const insideCard = tooltipHoldReducer(
+    tooltipHoldReducer(frozen, { type: "card-pointer", inside: true, now: 0 }),
+    { type: "pin-pointer", inside: false, now: 0 },
+  );
+
+  expect(isChartTooltipInteractive(live, false)).toBe(false);
+  expect(isChartTooltipInteractive(frozen, false)).toBe(true);
+  expect(isChartTooltipInteractive(insideCard, false)).toBe(true);
+  expect(isChartTooltipInteractive(live, true)).toBe(true);
+});
+
+test("a climb into the card reads as a reach, a scrub across it does not", () => {
+  const scrub = { dx: 14, dy: 2 };
+  const climb = { dx: 2, dy: -14 };
+  const drift = { dx: 3, dy: -2 };
+  const diagonal = { dx: 10, dy: -10 };
+  const shallow = { dx: 14, dy: -11 };
+
+  expect(isChartTooltipReach(scrub, true)).toBe(false);
+  expect(isChartTooltipReach(drift, true)).toBe(false);
+  expect(isChartTooltipReach(shallow, true)).toBe(false);
+  expect(isChartTooltipReach(climb, true)).toBe(true);
+  expect(isChartTooltipReach(diagonal, true)).toBe(true);
+  // Outside the card nothing counts, and a reach already under way survives the
+  // sideways moves that follow it toward a control.
+  expect(isChartTooltipReach(climb, false)).toBe(false);
+  expect(isChartTooltipReach(scrub, true, true)).toBe(true);
+  expect(isChartTooltipReach(scrub, false, true)).toBe(false);
+});
+
+test("a reach holds and freezes the card while the chart is still live", () => {
+  const live = createTooltipHoldState(true);
+  const reaching = tooltipHoldReducer(live, {
+    type: "card-reach",
+    inside: true,
+    now: 0,
+  });
+  const left = tooltipHoldReducer(reaching, {
+    type: "card-reach",
+    inside: false,
+    now: 0,
+  });
+
+  expect(isChartTooltipFrozen(reaching)).toBe(true);
+  expect(isChartTooltipInteractive(reaching, false)).toBe(true);
+  expect(isChartTooltipFrozen(left)).toBe(false);
+  expect(isChartTooltipInteractive(left, false)).toBe(false);
 });

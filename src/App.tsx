@@ -196,6 +196,7 @@ import {
   PinnableChartTooltip,
   useChartTooltipHold,
 } from "./components/chart-pins";
+import { TooltipMoreDisclosure } from "./components/tooltip-disclosure";
 import { chartTooltipDateLabel } from "./chart-pins";
 
 type View =
@@ -914,6 +915,7 @@ function ModelSignalTooltip({
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
       retained={hold.retained}
+      interactive={hold.interactive}
       cardInteractionProps={hold.cardInteractionProps}
       pinInteractionProps={hold.pinInteractionProps}
     >
@@ -1058,6 +1060,90 @@ function tooltipProjects(row: unknown): TooltipProject[] {
     .sort((a, b) => b.tokens - a.tokens);
 }
 
+/** The models a tooltip list left out, folded behind a "+N more" toggle that
+ * carries their subtotals and opens to the rows themselves. */
+function TooltipModelTail({
+  models,
+  listClassName,
+  className,
+}: {
+  models: Array<{ name: string; tokens: number; cost: number }>;
+  listClassName: string;
+  className?: string;
+}) {
+  if (models.length === 0) return null;
+  return (
+    <TooltipMoreDisclosure
+      className={className}
+      label={`+${models.length} more`}
+      tokens={formatCompact(
+        models.reduce((sum, model) => sum + model.tokens, 0),
+      )}
+      cost={formatMoney(models.reduce((sum, model) => sum + model.cost, 0))}
+    >
+      <ul className={listClassName}>
+        {models.map((model) => (
+          <li key={model.name}>
+            <span>{model.name}</span>
+            <b>{formatCompact(model.tokens)}</b>
+            <b>{formatMoney(model.cost)}</b>
+          </li>
+        ))}
+      </ul>
+    </TooltipMoreDisclosure>
+  );
+}
+
+/** One project row inside the activity tooltip: its totals, then a provider and
+ * model breakdown under it. */
+function TooltipProjectEntry({ project }: { project: TooltipProject }) {
+  return (
+    <li>
+      <div className="tooltip-project-row">
+        <span>{project.projectName}</span>
+        <b>{formatCompact(project.tokens)}</b>
+        <b>{formatMoney(project.cost)}</b>
+      </div>
+      <div className="tooltip-project-providers">
+        {project.providers.map((providerActivity) => {
+          const provider = providerSeries.find(
+            (item) => item.key === providerActivity.provider,
+          )!;
+          const visibleModels = providerActivity.models.slice(0, 3);
+          return (
+            <section key={providerActivity.provider}>
+              <div className="tooltip-project-provider">
+                <i style={{ background: provider.color }} />
+                <span>{provider.label}</span>
+                <b>{formatCompact(providerActivity.tokens)}</b>
+                <b>{formatMoney(providerActivity.cost)}</b>
+              </div>
+              {visibleModels.length > 0 && (
+                <ul className="tooltip-project-models">
+                  {visibleModels.map((model) => (
+                    <li key={model.model}>
+                      <span>{model.model}</span>
+                      <b>{formatCompact(model.tokens)}</b>
+                      <b>{formatMoney(model.cost)}</b>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <TooltipModelTail
+                models={providerActivity.models
+                  .slice(visibleModels.length)
+                  .map((model) => ({ ...model, name: model.model }))}
+                listClassName="tooltip-project-models"
+                className="tooltip-model-more project"
+              />
+            </section>
+          );
+        })}
+      </div>
+    </li>
+  );
+}
+
 function ProviderChartTooltip({
   active,
   payload,
@@ -1112,6 +1198,7 @@ function ProviderChartTooltip({
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
       retained={hold.retained}
+      interactive={hold.interactive}
       cardInteractionProps={hold.cardInteractionProps}
       pinInteractionProps={hold.pinInteractionProps}
     >
@@ -1177,25 +1264,11 @@ function ProviderChartTooltip({
                   ))}
                 </ul>
               )}
-              {models.length > visibleModels.length && (
-                <small className="tooltip-more-row tooltip-model-more">
-                  <span>+{models.length - visibleModels.length} more</span>
-                  <b>
-                    {formatCompact(
-                      models
-                        .slice(3)
-                        .reduce((sum, model) => sum + model.tokens, 0),
-                    )}
-                  </b>
-                  <b>
-                    {formatMoney(
-                      models
-                        .slice(3)
-                        .reduce((sum, model) => sum + model.cost, 0),
-                    )}
-                  </b>
-                </small>
-              )}
+              <TooltipModelTail
+                models={models.slice(visibleModels.length)}
+                listClassName="tooltip-provider-models"
+                className="tooltip-model-more"
+              />
             </section>
           );
         })}
@@ -1208,92 +1281,33 @@ function ProviderChartTooltip({
           </div>
           <ol className="tooltip-project-list">
             {visibleProjects.map((project) => (
-              <li key={project.projectId}>
-                <div className="tooltip-project-row">
-                  <span>{project.projectName}</span>
-                  <b>{formatCompact(project.tokens)}</b>
-                  <b>{formatMoney(project.cost)}</b>
-                </div>
-                <div className="tooltip-project-providers">
-                  {project.providers.map((providerActivity) => {
-                    const provider = providerSeries.find(
-                      (item) => item.key === providerActivity.provider,
-                    )!;
-                    const visibleModels = providerActivity.models.slice(0, 3);
-                    return (
-                      <section key={providerActivity.provider}>
-                        <div className="tooltip-project-provider">
-                          <i style={{ background: provider.color }} />
-                          <span>{provider.label}</span>
-                          <b>{formatCompact(providerActivity.tokens)}</b>
-                          <b>{formatMoney(providerActivity.cost)}</b>
-                        </div>
-                        {visibleModels.length > 0 && (
-                          <ul className="tooltip-project-models">
-                            {visibleModels.map((model) => (
-                              <li key={model.model}>
-                                <span>{model.model}</span>
-                                <b>{formatCompact(model.tokens)}</b>
-                                <b>{formatMoney(model.cost)}</b>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {providerActivity.models.length >
-                          visibleModels.length && (
-                          <small className="tooltip-more-row tooltip-model-more project">
-                            <span>
-                              +
-                              {providerActivity.models.length -
-                                visibleModels.length}{" "}
-                              more
-                            </span>
-                            <b>
-                              {formatCompact(
-                                providerActivity.models
-                                  .slice(3)
-                                  .reduce(
-                                    (sum, model) => sum + model.tokens,
-                                    0,
-                                  ),
-                              )}
-                            </b>
-                            <b>
-                              {formatMoney(
-                                providerActivity.models
-                                  .slice(3)
-                                  .reduce((sum, model) => sum + model.cost, 0),
-                              )}
-                            </b>
-                          </small>
-                        )}
-                      </section>
-                    );
-                  })}
-                </div>
-              </li>
+              <TooltipProjectEntry key={project.projectId} project={project} />
             ))}
           </ol>
           {projects.length > visibleProjects.length && (
-            <small className="tooltip-more-row tooltip-project-more">
-              <span>
-                +{projects.length - visibleProjects.length} more projects
-              </span>
-              <b>
-                {formatCompact(
-                  projects
-                    .slice(4)
-                    .reduce((sum, project) => sum + project.tokens, 0),
-                )}
-              </b>
-              <b>
-                {formatMoney(
-                  projects
-                    .slice(4)
-                    .reduce((sum, project) => sum + project.cost, 0),
-                )}
-              </b>
-            </small>
+            <TooltipMoreDisclosure
+              className="tooltip-project-more"
+              label={`+${projects.length - visibleProjects.length} more projects`}
+              tokens={formatCompact(
+                projects
+                  .slice(visibleProjects.length)
+                  .reduce((sum, project) => sum + project.tokens, 0),
+              )}
+              cost={formatMoney(
+                projects
+                  .slice(visibleProjects.length)
+                  .reduce((sum, project) => sum + project.cost, 0),
+              )}
+            >
+              <ol className="tooltip-project-list">
+                {projects.slice(visibleProjects.length).map((project) => (
+                  <TooltipProjectEntry
+                    key={project.projectId}
+                    project={project}
+                  />
+                ))}
+              </ol>
+            </TooltipMoreDisclosure>
           )}
         </section>
       )}
@@ -3735,6 +3749,7 @@ function EffortDayTooltip({
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
       retained={hold.retained}
+      interactive={hold.interactive}
       cardInteractionProps={hold.cardInteractionProps}
       pinInteractionProps={hold.pinInteractionProps}
     >
@@ -5785,6 +5800,7 @@ function ProjectDayTooltip({
       forwardedRef={tooltipRef}
       interactionRef={hold.cardRef}
       retained={hold.retained}
+      interactive={hold.interactive}
       cardInteractionProps={hold.cardInteractionProps}
       pinInteractionProps={hold.pinInteractionProps}
     >
@@ -5835,27 +5851,13 @@ function ProjectDayTooltip({
                 ))}
               </ul>
             )}
-            {providerActivity.models.length > visibleModels.length && (
-              <small className="tooltip-more-row tooltip-model-more">
-                <span>
-                  +{providerActivity.models.length - visibleModels.length} more
-                </span>
-                <b>
-                  {formatCompact(
-                    providerActivity.models
-                      .slice(3)
-                      .reduce((sum, model) => sum + model.tokens, 0),
-                  )}
-                </b>
-                <b>
-                  {formatMoney(
-                    providerActivity.models
-                      .slice(3)
-                      .reduce((sum, model) => sum + model.cost, 0),
-                  )}
-                </b>
-              </small>
-            )}
+            <TooltipModelTail
+              models={providerActivity.models
+                .slice(visibleModels.length)
+                .map((model) => ({ ...model, name: model.model }))}
+              listClassName="tooltip-provider-models"
+              className="tooltip-model-more"
+            />
           </section>
         );
       })}
