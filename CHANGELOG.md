@@ -5,6 +5,29 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-08-18
+
+### Added
+
+- Add prev/next chevrons to the activity chart tooltip's date header, on both
+  the dashboard's Activity chart and Explorer's Activity by provider chart, so
+  the card's day can be stepped independently of the pointer. Providers,
+  models, quota notes, and projects all follow the stepped day, and a pinned
+  card keeps stepping after it detaches from the chart — useful when a card
+  gets pinned on the wrong date.
+- Turn each tooltip's "+N more" row into a disclosure that opens in place to
+  reveal the rows it summarizes, for truncated model lists and project lists
+  alike, instead of only reporting a hidden subtotal.
+
+### Fixed
+
+- Make the "+N more" row and the chart pin reachable by pointer. Both sat
+  behind a card that stayed transparent to the pointer while the chart was
+  live, so a click aimed at either fell through to the chart and scrubbed to
+  a different day before arriving. A pointer climbing toward the card — as
+  opposed to scrubbing sideways across it — now freezes the card and hands it
+  the pointer.
+
 ## [1.15.1] - 2026-08-17
 
 ### Fixed
@@ -482,6 +505,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.16.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.0...v1.14.1
