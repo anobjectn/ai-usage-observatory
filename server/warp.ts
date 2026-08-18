@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
+import { canonicalModelName } from "../src/model-name";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import type { ModelBreakdown, Session, WarpData, WarpSessionStats } from "../src/types";
 
@@ -84,6 +85,13 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/** Warp names a model by display string ("Claude Opus 5", "GPT-5.5 (high reasoning)") and, in
+ * older rows, by slug ("gpt-5-5-high"). Canonicalizing on the way in means one model is one
+ * card, one filter entry, and one effort row no matter which source recorded it. */
+function canonicalModel(value: string | null) {
+  return value === null ? null : canonicalModelName(value);
+}
+
 function jsonValue(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
@@ -132,7 +140,7 @@ function queryStats(rows: QueryRow[]) {
     const activity = warpTimestamp(row.start_ts);
     if (activity && (!current.firstActivity || activity < current.firstActivity)) current.firstActivity = activity;
     if (activity && (!current.lastActivity || activity > current.lastActivity)) current.lastActivity = activity;
-    const model = stringValue(row.model_id);
+    const model = canonicalModel(stringValue(row.model_id));
     if (model && !current.models.includes(model)) current.models.push(model);
     const status = statusOf(row);
     current[status] += 1;
@@ -182,7 +190,7 @@ function tokenStats(metadata: unknown) {
     warp += entryWarp;
     byok += entryByok;
     customEndpoint += entryCustom;
-    const model = stringValue(entry.model_id) ?? "Unknown model";
+    const model = canonicalModel(stringValue(entry.model_id)) ?? "Unknown model";
     const current = byModel.get(model) ?? { total: 0, warp: 0, byok: 0, customEndpoint: 0 };
     current.total += entryTotal;
     current.warp += entryWarp;
