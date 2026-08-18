@@ -1013,7 +1013,17 @@ type TimelineTooltipRow = {
     >
   >;
   projectGroups?: Record<string, ProjectActivity[]>;
-};
+} & Partial<Record<(typeof providerSeries)[number]["key"], number>>;
+
+/** The heading a timeline row reads under: its date, else the label the chart
+ * gave the point. */
+function timelineRowLabel(
+  row: TimelineTooltipRow | undefined,
+  fallback: string,
+) {
+  if (row?.period) return chartTooltipDateLabel(row.period);
+  return row?.label ?? fallback;
+}
 
 function tooltipModels(
   row: unknown,
@@ -1144,39 +1154,74 @@ function TooltipProjectEntry({ project }: { project: TooltipProject }) {
   );
 }
 
-function ProviderChartTooltip({
-  active,
-  payload,
+/** The providers a row actually recorded, in series order, limited to the
+ * series this chart draws. Stepping to another day has to read these off the
+ * row itself, since only the hovered point arrives with a Recharts payload. */
+function timelineProviderEntries(
+  row: TimelineTooltipRow | undefined,
+  keys: Array<(typeof providerSeries)[number]["key"]>,
+) {
+  return providerSeries
+    .filter((provider) => keys.includes(provider.key))
+    .map((provider) => ({
+      ...provider,
+      tokens: row?.[provider.key] ?? 0,
+      cost: row?.costs?.[provider.key] ?? 0,
+    }))
+    .filter((entry) => entry.tokens > 0);
+}
+
+function TooltipDateStep({
   label,
-  coordinate,
-  quotaMarkers = [],
-  timeZone = systemTimeZone(),
-}: ChartTooltipProps & { quotaMarkers?: QuotaMarker[]; timeZone?: string }) {
-  const pinSource = useId();
-  const liveRow = payload?.[0]?.payload as TimelineTooltipRow | undefined;
-  // Days with no recorded activity still emit a zero-valued payload; showing a
-  // card with nothing but a date in it is noise, so treat them as no hover —
-  // unless a quota marker stands there, which is worth reading on its own.
-  const hasActivity = Boolean(
-    payload?.some((item) => typeof item.value === "number" && item.value > 0),
+  disabled,
+  onStep,
+  children,
+}: {
+  label: string;
+  disabled: boolean;
+  onStep: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="tooltip-date-step"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onStep}
+    >
+      {children}
+    </button>
   );
-  const point = liveRow?.period ?? liveRow?.hour ?? String(label);
-  const worthShowing = hasActivity || quotaMarkersAt(quotaMarkers, point).length > 0;
-  const claimKey = active && payload?.length && worthShowing ? point : null;
-  const hold = useChartTooltipHold(
-    active && payload?.length && worthShowing
-      ? { payload, label, coordinate }
-      : null,
-    claimKey,
-  );
-  const tooltipRef = useClampedTooltip(
-    Boolean(hold.snapshot),
-    hold.snapshot?.coordinate,
-  );
-  if (!hold.snapshot) return null;
-  const { payload: snapshotPayload, label: snapshotLabel } = hold.snapshot;
-  const row = snapshotPayload[0]?.payload;
-  const timelineRow = row as TimelineTooltipRow | undefined;
+}
+
+/** The card's whole body, driven by whichever day it is currently showing.
+ * Holding that day here rather than in the tooltip is what lets a pinned copy —
+ * which renders the element captured at pin time, detached from the chart —
+ * keep stepping through days on its own. */
+function ActivityDayCard({
+  rows,
+  startIndex,
+  seriesKeys,
+  quotaMarkers,
+  timeZone,
+  fallbackLabel,
+  onStep,
+}: {
+  rows: TimelineTooltipRow[];
+  startIndex: number;
+  seriesKeys: Array<(typeof providerSeries)[number]["key"]>;
+  quotaMarkers: QuotaMarker[];
+  timeZone: string;
+  fallbackLabel: string;
+  onStep?: (index: number) => void;
+}) {
+  const [index, setIndex] = useState(startIndex);
+  const current = Math.min(Math.max(index, 0), Math.max(rows.length - 1, 0));
+  const row = rows[current];
+  const point = row?.period ?? row?.hour ?? fallbackLabel;
+  const dateLabel = timelineRowLabel(row, fallbackLabel);
+  const providers = timelineProviderEntries(row, seriesKeys);
   const projects = tooltipProjects(row);
   const visibleProjects = projects.slice(0, 4);
   const projectTotal = projects.reduce(
@@ -1184,27 +1229,35 @@ function ProviderChartTooltip({
     0,
   );
   const projectCost = projects.reduce((sum, project) => sum + project.cost, 0);
-  const tooltipLabel = timelineRow?.period
-    ? chartTooltipDateLabel(timelineRow.period)
-    : timelineRow?.label ?? snapshotLabel;
+  const step = (delta: number) => {
+    const next = current + delta;
+    if (next < 0 || next >= rows.length) return;
+    setIndex(next);
+    onStep?.(next);
+  };
   return (
-    <PinnableChartTooltip
-      id={`${pinSource}:${timelineRow?.period ?? timelineRow?.hour ?? String(snapshotLabel)}`}
-      ariaLabel={`activity details for ${tooltipLabel}`}
-      contextLabel="Activity"
-      contextDescription="Tokens and API cost grouped by provider, model, and project for this point in time."
-      contextPlacement="inline"
-      className="provider-tooltip"
-      forwardedRef={tooltipRef}
-      interactionRef={hold.cardRef}
-      retained={hold.retained}
-      interactive={hold.interactive}
-      cardInteractionProps={hold.cardInteractionProps}
-      pinInteractionProps={hold.pinInteractionProps}
-    >
+    <>
       <div className="tooltip-columns">
         <div className="tooltip-columns__date">
-          <span className="tooltip-date-label">{tooltipLabel}</span>
+          {rows.length > 1 && (
+            <TooltipDateStep
+              label={`Show ${timelineRowLabel(rows[current - 1], "the previous point")}`}
+              disabled={current === 0}
+              onStep={() => step(-1)}
+            >
+              <ChevronLeft aria-hidden="true" />
+            </TooltipDateStep>
+          )}
+          <span className="tooltip-date-label">{dateLabel}</span>
+          {rows.length > 1 && (
+            <TooltipDateStep
+              label={`Show ${timelineRowLabel(rows[current + 1], "the next point")}`}
+              disabled={current >= rows.length - 1}
+              onStep={() => step(1)}
+            >
+              <ChevronRight aria-hidden="true" />
+            </TooltipDateStep>
+          )}
           <ChartTooltipContext
             label="Activity"
             description="Tokens and API cost grouped by provider, model, and project for this point in time."
@@ -1215,63 +1268,42 @@ function ProviderChartTooltip({
         <small>API $</small>
       </div>
       <QuotaReachNotes
-        markers={quotaMarkersAt(
-          quotaMarkers,
-          timelineRow?.period ?? timelineRow?.hour ?? snapshotLabel,
-        )}
+        markers={quotaMarkersAt(quotaMarkers, point)}
         timeZone={timeZone}
       />
-      {providerSeries
-        .map((provider) =>
-          snapshotPayload.find((item) => item.dataKey === provider.key),
-        )
-        .filter(
-          (
-            item,
-          ): item is ChartTooltipPayload & { dataKey: string; value: number } =>
-            typeof item?.dataKey === "string" &&
-            typeof item.value === "number" &&
-            item.value > 0,
-        )
-        .map((item) => {
-          const models = tooltipModels(
-            row,
-            item.dataKey as (typeof providerSeries)[number]["key"],
-          );
-          const visibleModels = models.slice(0, 3);
-          return (
-            <section className="tooltip-provider" key={item.dataKey}>
-              <div className="tooltip-provider__head">
-                <i style={{ background: item.color }} />
-                <strong>{item.name}</strong>
-                <b>{formatCompact(item.value)}</b>
-                <b>
-                  {formatMoney(
-                    timelineRow?.costs?.[
-                      item.dataKey as (typeof providerSeries)[number]["key"]
-                    ] ?? 0,
-                  )}
-                </b>
-              </div>
-              {visibleModels.length > 0 && (
-                <ul className="tooltip-provider-models">
-                  {visibleModels.map((model) => (
-                    <li key={model.name}>
-                      <span>{model.name}</span>
-                      <b>{formatCompact(model.tokens)}</b>
-                      <b>{formatMoney(model.cost)}</b>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <TooltipModelTail
-                models={models.slice(visibleModels.length)}
-                listClassName="tooltip-provider-models"
-                className="tooltip-model-more"
-              />
-            </section>
-          );
-        })}
+      {providers.map((provider) => {
+        const models = tooltipModels(row, provider.key);
+        const visibleModels = models.slice(0, 3);
+        return (
+          <section className="tooltip-provider" key={provider.key}>
+            <div className="tooltip-provider__head">
+              <i style={{ background: provider.color }} />
+              <strong>{provider.label}</strong>
+              <b>{formatCompact(provider.tokens)}</b>
+              <b>{formatMoney(provider.cost)}</b>
+            </div>
+            {visibleModels.length > 0 && (
+              <ul className="tooltip-provider-models">
+                {visibleModels.map((model) => (
+                  <li key={model.name}>
+                    <span>{model.name}</span>
+                    <b>{formatCompact(model.tokens)}</b>
+                    <b>{formatMoney(model.cost)}</b>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <TooltipModelTail
+              models={models.slice(visibleModels.length)}
+              listClassName="tooltip-provider-models"
+              className="tooltip-model-more"
+            />
+          </section>
+        );
+      })}
+      {providers.length === 0 && (
+        <p className="tooltip-empty-day">No recorded activity.</p>
+      )}
       {visibleProjects.length > 0 && (
         <section className="tooltip-projects">
           <div className="tooltip-projects__head">
@@ -1311,6 +1343,93 @@ function ProviderChartTooltip({
           )}
         </section>
       )}
+    </>
+  );
+}
+
+function ProviderChartTooltip({
+  active,
+  payload,
+  label,
+  coordinate,
+  quotaMarkers = [],
+  timeZone = systemTimeZone(),
+  rows,
+}: ChartTooltipProps & {
+  quotaMarkers?: QuotaMarker[];
+  timeZone?: string;
+  /** Every point the chart drew, so the card can step off the hovered one. */
+  rows?: TimelineTooltipRow[];
+}) {
+  const pinSource = useId();
+  const [stepped, setStepped] = useState<{ point: string; index: number } | null>(
+    null,
+  );
+  const liveRow = payload?.[0]?.payload as TimelineTooltipRow | undefined;
+  // Days with no recorded activity still emit a zero-valued payload; showing a
+  // card with nothing but a date in it is noise, so treat them as no hover —
+  // unless a quota marker stands there, which is worth reading on its own.
+  const hasActivity = Boolean(
+    payload?.some((item) => typeof item.value === "number" && item.value > 0),
+  );
+  const point = liveRow?.period ?? liveRow?.hour ?? String(label);
+  const worthShowing = hasActivity || quotaMarkersAt(quotaMarkers, point).length > 0;
+  const claimKey = active && payload?.length && worthShowing ? point : null;
+  const hold = useChartTooltipHold(
+    active && payload?.length && worthShowing
+      ? { payload, label, coordinate }
+      : null,
+    claimKey,
+  );
+  const tooltipRef = useClampedTooltip(
+    Boolean(hold.snapshot),
+    hold.snapshot?.coordinate,
+  );
+  if (!hold.snapshot) return null;
+  const { payload: snapshotPayload, label: snapshotLabel } = hold.snapshot;
+  const row = snapshotPayload[0]?.payload as TimelineTooltipRow | undefined;
+  const fallbackLabel = String(snapshotLabel ?? "");
+  const hovered = row?.period ?? row?.hour ?? fallbackLabel;
+  const seriesKeys = snapshotPayload
+    .map((item) => item.dataKey)
+    .filter((key): key is (typeof providerSeries)[number]["key"] =>
+      providerSeries.some((provider) => provider.key === key),
+    );
+  const series = rows?.length ? rows : row ? [row] : [];
+  const hoveredIndex = Math.max(
+    series.findIndex((item) => (item.period ?? item.hour) === hovered),
+    0,
+  );
+  // A pinned copy renders the element captured here, so a day the card stepped
+  // to has to be part of that element rather than only of the card's own state.
+  const startIndex =
+    stepped?.point === hovered ? stepped.index : hoveredIndex;
+  const shownLabel = timelineRowLabel(series[startIndex], fallbackLabel);
+  return (
+    <PinnableChartTooltip
+      id={`${pinSource}:${hovered}`}
+      ariaLabel={`activity details for ${shownLabel}`}
+      contextLabel="Activity"
+      contextDescription="Tokens and API cost grouped by provider, model, and project for this point in time."
+      contextPlacement="inline"
+      className="provider-tooltip"
+      forwardedRef={tooltipRef}
+      interactionRef={hold.cardRef}
+      retained={hold.retained}
+      interactive={hold.interactive}
+      cardInteractionProps={hold.cardInteractionProps}
+      pinInteractionProps={hold.pinInteractionProps}
+    >
+      <ActivityDayCard
+        key={hovered}
+        rows={series}
+        startIndex={startIndex}
+        seriesKeys={seriesKeys}
+        quotaMarkers={quotaMarkers}
+        timeZone={timeZone}
+        fallbackLabel={fallbackLabel}
+        onStep={(index) => setStepped({ point: hovered, index })}
+      />
     </PinnableChartTooltip>
   );
 }
@@ -1962,6 +2081,7 @@ function ProviderTimeline({
             <Tooltip
               content={
                 <ProviderChartTooltip
+                  rows={data}
                   quotaMarkers={quotaMarkers}
                   timeZone={timeZone}
                 />

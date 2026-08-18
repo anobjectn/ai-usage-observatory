@@ -277,7 +277,17 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .tooltip-provider+.tooltip-provider { border-top:1px solid var(--line);margin-top:8px;padding-top:7px; }
 .tooltip-columns,.tooltip-provider__head,.tooltip-projects__head,.tooltip-project-row,.tooltip-project-provider,.tooltip-provider-models li,.tooltip-project-models li { display:grid!important;grid-template-columns:minmax(0,1fr) 68px 64px;align-items:center;column-gap:10px; }
 .tooltip-columns { margin:0 0 7px!important; }
-.tooltip-columns__date{display:flex!important;align-items:baseline;gap:9px;min-width:0;margin:0!important}.tooltip-columns__date>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0!important}.chart-tooltip .tooltip-date-label{color:var(--text);font:500 12px/1.2 var(--font-label);letter-spacing:0}.tooltip-columns__date .chart-tooltip__context--inline{flex:0 0 auto}.tooltip-columns>span { margin:0!important; }
+.tooltip-columns__date{display:flex!important;align-items:baseline;gap:9px;min-width:0;margin:0!important}.tooltip-columns__date>.tooltip-date-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0!important}.chart-tooltip .tooltip-date-label{color:var(--text);font:500 12px/1.2 var(--font-label);letter-spacing:0}.tooltip-columns__date .chart-tooltip__context--inline{flex:0 0 auto}.tooltip-columns>span { margin:0!important; }
+/* Stepping the card off the hovered point: reachable once the card takes the
+   pointer, the same as every other control inside it. */
+.tooltip-date-step{flex:0 0 auto;display:grid;place-items:center;width:16px;height:16px;padding:0;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--dim);cursor:pointer;align-self:center}
+.tooltip-date-step svg{width:11px;height:11px}
+.tooltip-date-step:is(:hover,:focus-visible){border-color:var(--line-bright);background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);outline:0}
+.tooltip-date-step:disabled{opacity:.3;cursor:default}
+.tooltip-date-step:disabled:is(:hover,:focus-visible){border-color:transparent;background:transparent;color:var(--dim)}
+.tooltip-columns__date:has(.tooltip-date-step){gap:5px!important}
+.tooltip-columns__date:has(.tooltip-date-step)>.tooltip-date-label{margin:0 4px!important}
+.tooltip-empty-day{margin:9px 0 0;color:var(--dim);font:10px var(--font-label)}
 .tooltip-columns small { color:var(--dim);font:9px var(--font-label);text-align:right;text-transform:uppercase;letter-spacing:.04em; }
 .tooltip-provider__head { margin:0!important; }
 .tooltip-provider__head i,.tooltip-project-provider i { grid-column:1;grid-row:1; }
