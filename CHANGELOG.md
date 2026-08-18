@@ -5,6 +5,22 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] - 2026-08-17
+
+### Fixed
+
+- Show one model card per model, whichever source named it. Warp records a
+  model under a display name carrying the effort it ran at ("GPT-5.6 Luna
+  (extra high reasoning)") and, in older rows, a slug for the same thing;
+  ccusage records the provider id. Nothing reconciled the three spellings, so
+  one model became up to three cards and only the ccusage card could carry a
+  rate card — the others read "Pricing unavailable" even for Opus 5 and Sonnet
+  5. Warp's model ids are now canonicalized on the way in, so cards, sessions,
+  filters, and effort rows name a model the same way. Recorded effort is
+  dropped from the name and never republished: effort still comes from the
+  effort pipeline and is never inferred from a model name. The Models view
+  goes from 80 cards to 32.
+
 ## [1.15.0] - 2026-08-17
 
 ### Added
@@ -466,6 +482,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.15.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.13.0...v1.14.0
