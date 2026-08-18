@@ -4070,12 +4070,14 @@ type SessionDetailColumnKey =
   | "files"
   | "tools"
   | "models"
-  | "effort";
+  | "effort"
+  | "credits";
 
 const initiallyCollapsedSessionColumns: SessionDetailColumnKey[] = [
   "tools",
   "models",
   "effort",
+  "credits",
 ];
 
 export function sessionModelNames(session: Session) {
@@ -4362,155 +4364,6 @@ function warpMetricLabel(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function WarpSessionDetailPanel({
-  session,
-  detail,
-  loading,
-  annotation,
-  onAnnotationChange,
-}: {
-  session: Session;
-  detail?: SessionDetail;
-  loading: boolean;
-  annotation?: SessionAnnotation;
-  onAnnotationChange?: (sessionId: string, annotation: SessionAnnotation) => void;
-}) {
-  const stats = session.warp!;
-  const prompts = detail?.prompts ?? [];
-  // Warp records the most recent replies, so the newest sample is the last one shown.
-  const outputs = detail?.outputs ?? [];
-  const clippedOutputs = outputs.filter((output) => output.truncated).length;
-  const toolEntries = Object.entries(stats.toolUsage).sort((left, right) => right[1] - left[1]);
-  const categoryEntries = Object.entries(stats.tokensByCategory).sort((left, right) => right[1] - left[1]);
-  return (
-    <div className="session-detail warp-session-detail">
-      <div className="session-detail__summary">
-        <div className="session-detail__verdict">
-          <span>YOUR VERDICT</span>
-          <strong>
-            <SessionVerdictControl
-              sessionId={session.sessionId}
-              verdict={(annotation ?? session.annotation).verdict}
-              onChange={onAnnotationChange ?? (() => {})}
-            />
-          </strong>
-        </div>
-        <div><span>WARP CREDITS</span><strong>{formatWarpCredits(stats.credits)}</strong></div>
-        <div><span>LAST TURN</span><strong>{stats.lastTurnCredits === null ? "—" : formatWarpCredits(stats.lastTurnCredits)}</strong></div>
-        <div><span>CONTEXT WINDOW</span><strong>{stats.contextWindowUsage === null ? "—" : `${Math.round(stats.contextWindowUsage * 100)}%`}</strong></div>
-        <div><span>AGENT TURNS</span><strong>{stats.turns}</strong></div>
-        <div><span>STATUS</span><strong>{stats.status}</strong></div>
-      </div>
-      <div className="warp-session-transcript">
-        <section className="warp-session-detail__card warp-session-prompts">
-          <span className="overline">YOUR PROMPTS</span>
-          <h4>Typed this session</h4>
-          {loading ? (
-            <p>Reading Warp's local record…</p>
-          ) : prompts.length ? (
-            <ol className="session-transcript-list">
-              {prompts.map((prompt, index) => (
-                <li key={`${index}-${prompt.text.slice(0, 24)}`}>
-                  <time
-                    className="session-prompt-time"
-                    dateTime={prompt.timestamp ?? undefined}
-                    title={prompt.timestamp ?? undefined}
-                  >
-                    {formatPromptTimestamp(prompt.timestamp)}
-                  </time>
-                  <pre>{prompt.text}</pre>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p>
-              {detail?.available
-                ? "This conversation recorded no typed prompt of its own."
-                : "Warp's local record could not be read."}
-            </p>
-          )}
-        </section>
-        <section className="warp-session-detail__card warp-session-outputs">
-          <span className="overline">RESPONSES</span>
-          <h4>
-            What the agent said back
-            {clippedOutputs > 0 && <small> · {clippedOutputs} clipped</small>}
-          </h4>
-          {loading ? (
-            <p>Reading Warp's local record…</p>
-          ) : outputs.length ? (
-            <ol className="session-transcript-list">
-              {outputs.map((output, index) => (
-                <li key={`${index}-${output.text.slice(0, 24)}`}>
-                  <time
-                    className="session-prompt-time"
-                    dateTime={output.timestamp ?? undefined}
-                    title={output.timestamp ?? undefined}
-                  >
-                    {formatPromptTimestamp(output.timestamp)}
-                  </time>
-                  <pre>{output.text}</pre>
-                  {output.truncated && (
-                    <small className="session-output-clipped">Sample clipped</small>
-                  )}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p>
-              {detail?.available
-                ? "Warp kept no local copy of this conversation's replies."
-                : "Warp's local record could not be read."}
-            </p>
-          )}
-        </section>
-      </div>
-      <div className="warp-session-detail__grid">
-        <section className="warp-session-detail__card">
-          <span className="overline">TOKEN SOURCES</span>
-          <h4>Recorded tokens</h4>
-          <dl>
-            <div><dt>Total</dt><dd>{formatCompact(stats.tokensBySource.total)}</dd></div>
-            <div><dt>Warp-managed</dt><dd>{formatCompact(stats.tokensBySource.warp)}</dd></div>
-            <div><dt>BYOK</dt><dd>{formatCompact(stats.tokensBySource.byok)}</dd></div>
-            <div><dt>Custom endpoint</dt><dd>{formatCompact(stats.tokensBySource.customEndpoint)}</dd></div>
-          </dl>
-        </section>
-        <section className="warp-session-detail__card">
-          <span className="overline">TOOL USE</span>
-          <h4>Observed categories</h4>
-          {toolEntries.length ? (
-            <ul className="tool-list">
-              {toolEntries.map(([name, count]) => <li key={name}><code>{warpMetricLabel(name)}</code><b>×{count}</b></li>)}
-            </ul>
-          ) : <p>No tool metadata was recorded.</p>}
-        </section>
-        <section className="warp-session-detail__card">
-          <span className="overline">WORK SHAPE</span>
-          <h4>Files, commands, and context</h4>
-          <dl>
-            <div><dt>Files changed</dt><dd>{stats.filesChanged}</dd></div>
-            <div><dt>Line diff</dt><dd><i>+{stats.linesAdded}</i> <em>−{stats.linesRemoved}</em></dd></div>
-            <div><dt>Commands executed</dt><dd>{stats.commandsExecuted}</dd></div>
-            <div><dt>Failed commands</dt><dd>{stats.failedCommands}</dd></div>
-            <div><dt>Compaction observed</dt><dd>{stats.wasSummarized ? "Yes" : "No"}</dd></div>
-          </dl>
-        </section>
-        <section className="warp-session-detail__card">
-          <span className="overline">TOKEN CATEGORIES</span>
-          <h4>Where the recorded tokens went</h4>
-          {categoryEntries.length ? (
-            <ul className="model-list">
-              {categoryEntries.map(([name, value]) => <li key={name}><span>{warpMetricLabel(name)}</span><b>{formatCompact(value)}</b></li>)}
-            </ul>
-          ) : <p>No category breakdown was recorded.</p>}
-        </section>
-      </div>
-      <p className="scope-note"><Database /> Read from Warp's local database on this computer: prompts from its query log, replies from its stored agent runs. Reasoning summaries are counted but not imported, and raw command output is left out.</p>
-    </div>
-  );
-}
-
 export function SessionDetailPanel({
   session,
   detail,
@@ -4617,24 +4470,17 @@ export function SessionDetailPanel({
       return next;
     });
   };
-  if (session.source === "warp" && session.warp) {
-    return (
-      <WarpSessionDetailPanel
-        session={session}
-        detail={detail}
-        loading={loading}
-        annotation={annotation}
-        onAnnotationChange={onAnnotationChange}
-      />
-    );
-  }
+  // Warp reaches the same panel through the same columns. What differs is where a
+  // column's numbers come from, and that Warp records no file paths and no
+  // transcript file to open — never the shape of the panel.
+  const warp = session.source === "warp" ? (session.warp ?? null) : null;
   if (loading)
     return (
       <div className="session-detail session-detail--loading">
         Reading the local session record…
       </div>
     );
-  if (!detail?.available)
+  if (!warp && !detail?.available)
     return (
       <div className="session-detail session-detail--empty">
         The indexed record is no longer available locally.
@@ -4651,10 +4497,23 @@ export function SessionDetailPanel({
       }))
     : session.modelsUsed.map((modelName) => ({ modelName, tokens: null }));
   const prompts =
-    promptOrder === "newest" ? [...detail.prompts].reverse() : detail.prompts;
-  const outputs = detail.outputs ?? [];
+    promptOrder === "newest" ? [...(detail?.prompts ?? [])].reverse() : (detail?.prompts ?? []);
+  const outputs = detail?.outputs ?? [];
   const clippedOutputs = outputs.filter((output) => output.truncated).length;
-  const toolCalls = detail.tools.reduce((total, tool) => total + tool.count, 0);
+  // Warp reports the same facts as a transcript, just already tallied: it counts tool
+  // calls and changed files itself rather than leaving them to be derived from events.
+  const tools = warp
+    ? Object.entries(warp.toolUsage)
+        .filter(([, count]) => count > 0)
+        .map(([name, count]) => ({ name: warpMetricLabel(name), count }))
+        .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
+    : (detail?.tools ?? []);
+  const files = detail?.files ?? [];
+  const fileCount = warp ? warp.filesChanged : files.length;
+  const additions = warp ? warp.linesAdded : (detail?.additions ?? 0);
+  const deletions = warp ? warp.linesRemoved : (detail?.deletions ?? 0);
+  const eventsRead = warp ? (detail?.eventsRead || warp.turns) : (detail?.eventsRead ?? 0);
+  const toolCalls = tools.reduce((total, tool) => total + tool.count, 0);
   const mixedModels = models.length > 1;
   const externalItems = (
     target: SessionExternalTarget,
@@ -4685,7 +4544,7 @@ export function SessionDetailPanel({
     },
   ];
   return (
-    <div className="session-detail">
+    <div className={`session-detail${warp ? " session-detail--warp" : ""}`}>
       <div className="session-detail__summary">
         <div className="session-detail__verdict">
           <span>YOUR VERDICT</span>
@@ -4698,8 +4557,8 @@ export function SessionDetailPanel({
           </strong>
         </div>
         <div>
-          <span>TRANSCRIPT EVENTS</span>
-          <strong>{detail.eventsRead}</strong>
+          <span>{warp ? "RECORDED EVENTS" : "TRANSCRIPT EVENTS"}</span>
+          <strong>{eventsRead}</strong>
         </div>
         <div>
           <span>TOOL CALLS</span>
@@ -4707,25 +4566,34 @@ export function SessionDetailPanel({
         </div>
         <div>
           <span>FILES TOUCHED</span>
-          <strong>{detail.files.length}</strong>
+          <strong>{fileCount}</strong>
         </div>
         <div className="diff-count">
           <span>PATCH SUMMARY</span>
           <strong>
-            <i>+{detail.additions}</i>
-            <em>−{detail.deletions}</em>
+            <i>+{additions}</i>
+            <em>−{deletions}</em>
           </strong>
         </div>
+        {warp && (
+          <>
+            <div><span>WARP CREDITS</span><strong>{formatWarpCredits(warp.credits)}</strong></div>
+            <div>
+              <span>CONTEXT WINDOW</span>
+              <strong>{warp.contextWindowUsage === null ? "—" : `${Math.round(warp.contextWindowUsage * 100)}%`}</strong>
+            </div>
+          </>
+        )}
       </div>
       <div className="session-detail__columns">
         <SessionDetailColumn
           column="prompt"
           label="Prompt"
           collapsed={collapsedColumns.has("prompt")}
-          collapsedMeta={`${detail.prompts.length} prompt${detail.prompts.length === 1 ? "" : "s"}`}
+          collapsedMeta={`${prompts.length} prompt${prompts.length === 1 ? "" : "s"}`}
           collapsedStats={[
             {
-              value: formatCompact(detail.prompts.length),
+              value: formatCompact(prompts.length),
               label: "prompts",
             },
           ]}
@@ -4734,7 +4602,7 @@ export function SessionDetailPanel({
           onToggle={() => toggleColumn("prompt")}
           aside={
             <div className="session-detail__head-actions">
-              {detail.prompts.length ? (
+              {prompts.length ? (
                 <button
                   type="button"
                   className="prompt-order"
@@ -4750,19 +4618,21 @@ export function SessionDetailPanel({
               ) : (
                 <small>No prompt events detected</small>
               )}
-              <CompactActionMenu
-                label="Open Prompt source actions"
-                title="Prompt source"
-                note="Shared session JSONL"
-                items={externalItems(
-                  { target: "transcript" },
-                  "the session transcript",
-                )}
-              />
+              {!warp && (
+                <CompactActionMenu
+                  label="Open Prompt source actions"
+                  title="Prompt source"
+                  note="Shared session JSONL"
+                  items={externalItems(
+                    { target: "transcript" },
+                    "the session transcript",
+                  )}
+                />
+              )}
             </div>
           }
         >
-          {detail.prompts.length ? (
+          {prompts.length ? (
             <ol className="session-transcript-list">
               {prompts.map((prompt, index) => (
                 <li key={`${index}-${prompt.text.slice(0, 24)}`}>
@@ -4778,7 +4648,11 @@ export function SessionDetailPanel({
               ))}
             </ol>
           ) : (
-            <p>Prompt text was not available in this session format.</p>
+            <p>
+              {warp
+                ? "This conversation recorded no typed prompt of its own."
+                : "Prompt text was not available in this session format."}
+            </p>
           )}
         </SessionDetailColumn>
         <SessionDetailColumn
@@ -4808,15 +4682,17 @@ export function SessionDetailPanel({
                   ? `${outputs.length} recent sample${outputs.length === 1 ? "" : "s"}${outputs.some((output) => output.truncated) ? " · clipped" : ""}`
                   : "No assistant text detected"}
               </small>
-              <CompactActionMenu
-                label="Open Output source actions"
-                title="Output source"
-                note="Shared session JSONL"
-                items={externalItems(
-                  { target: "transcript" },
-                  "the session transcript",
-                )}
-              />
+              {!warp && (
+                <CompactActionMenu
+                  label="Open Output source actions"
+                  title="Output source"
+                  note="Shared session JSONL"
+                  items={externalItems(
+                    { target: "transcript" },
+                    "the session transcript",
+                  )}
+                />
+              )}
             </div>
           }
         >
@@ -4841,31 +4717,35 @@ export function SessionDetailPanel({
               ))}
             </ol>
           ) : (
-            <p>Assistant-visible output text was not available in this session format.</p>
+            <p>
+              {warp
+                ? "Warp kept no local copy of this conversation's replies."
+                : "Assistant-visible output text was not available in this session format."}
+            </p>
           )}
         </SessionDetailColumn>
         <SessionDetailColumn
           column="files"
           label="Files & Patches"
           collapsed={collapsedColumns.has("files")}
-          collapsedMeta={`${detail.files.length} file${detail.files.length === 1 ? "" : "s"}, ${detail.additions} additions, ${detail.deletions} deletions`}
+          collapsedMeta={`${fileCount} file${fileCount === 1 ? "" : "s"}, ${additions} additions, ${deletions} deletions`}
           collapsedStats={[
-            { value: formatCompact(detail.files.length), label: "files" },
-            { value: `+${formatCompact(detail.additions)}`, tone: "positive" },
-            { value: `−${formatCompact(detail.deletions)}`, tone: "negative" },
+            { value: formatCompact(fileCount), label: "files" },
+            { value: `+${formatCompact(additions)}`, tone: "positive" },
+            { value: `−${formatCompact(deletions)}`, tone: "negative" },
           ]}
           onToggle={() => toggleColumn("files")}
           aside={
             <small>
-              {detail.files.length
-                ? `${detail.files.length} files · +${detail.additions} −${detail.deletions}`
+              {fileCount
+                ? `${fileCount} files · +${additions} −${deletions}`
                 : "No patch payload found"}
             </small>
           }
         >
-          {detail.files.length ? (
+          {files.length ? (
             <ul className="file-list">
-              {detail.files.map((file) => (
+              {files.map((file) => (
                 <li key={file.path}>
                   <span className={`file-status ${file.status}`}>
                     {file.status[0]}
@@ -4903,6 +4783,17 @@ export function SessionDetailPanel({
                 </li>
               ))}
             </ul>
+          ) : warp ? (
+            // Warp tallies its own edits but keeps no list of the paths, so the counts
+            // are shown without pretending a file list exists.
+            <ul className="model-list">
+              <li><span>Files changed</span><b>{warp.filesChanged}</b></li>
+              <li><span>Lines added</span><b>+{warp.linesAdded}</b></li>
+              <li><span>Lines removed</span><b>−{warp.linesRemoved}</b></li>
+              <li><span>Commands executed</span><b>{warp.commandsExecuted}</b></li>
+              <li><span>Failed commands</span><b>{warp.failedCommands}</b></li>
+              <li><span>Compaction observed</span><b>{warp.wasSummarized ? "Yes" : "No"}</b></li>
+            </ul>
           ) : (
             <p>File changes are detected from structured patch calls only.</p>
           )}
@@ -4911,23 +4802,23 @@ export function SessionDetailPanel({
           column="tools"
           label="Tools"
           collapsed={collapsedColumns.has("tools")}
-          collapsedMeta={`${toolCalls} call${toolCalls === 1 ? "" : "s"} across ${detail.tools.length} tool type${detail.tools.length === 1 ? "" : "s"}`}
+          collapsedMeta={`${toolCalls} call${toolCalls === 1 ? "" : "s"} across ${tools.length} tool type${tools.length === 1 ? "" : "s"}`}
           collapsedStats={[
             { value: formatCompact(toolCalls), label: "calls" },
-            { value: formatCompact(detail.tools.length), label: "types" },
+            { value: formatCompact(tools.length), label: "types" },
           ]}
           onToggle={() => toggleColumn("tools")}
           aside={
             <small>
-              {detail.tools.length
+              {tools.length
                 ? "Observed calls"
                 : "No tool calls detected"}
             </small>
           }
         >
-          {detail.tools.length ? (
+          {tools.length ? (
             <ul className="tool-list">
-              {detail.tools.map((tool) => (
+              {tools.map((tool) => (
                 <li key={tool.name}>
                   <code>{tool.name}</code>
                   <b>×{tool.count}</b>
@@ -4973,7 +4864,45 @@ export function SessionDetailPanel({
           collapsed={collapsedColumns.has("effort")}
           onToggle={() => toggleColumn("effort")}
         />
+        {warp && (
+          <SessionDetailColumn
+            column="credits"
+            label="Credits"
+            collapsed={collapsedColumns.has("credits")}
+            collapsedMeta={`${formatWarpCredits(warp.credits)} credits, ${formatCompact(warp.tokensBySource.total)} recorded tokens`}
+            collapsedStats={[
+              { value: formatWarpCredits(warp.credits), label: "credits" },
+              { value: formatCompact(warp.tokensBySource.total), label: "tokens" },
+            ]}
+            onToggle={() => toggleColumn("credits")}
+            aside={<small>{warp.status}</small>}
+          >
+            <ul className="model-list">
+              <li><span>Credits spent</span><b>{formatWarpCredits(warp.credits)}</b></li>
+              <li>
+                <span>Last turn</span>
+                <b>{warp.lastTurnCredits === null ? "—" : formatWarpCredits(warp.lastTurnCredits)}</b>
+              </li>
+              <li><span>Agent turns</span><b>{warp.turns}</b></li>
+              <li><span>Warp-managed tokens</span><b>{formatCompact(warp.tokensBySource.warp)}</b></li>
+              <li><span>BYOK tokens</span><b>{formatCompact(warp.tokensBySource.byok)}</b></li>
+              <li><span>Custom endpoint</span><b>{formatCompact(warp.tokensBySource.customEndpoint)}</b></li>
+              {Object.entries(warp.tokensByCategory)
+                .sort((left, right) => right[1] - left[1])
+                .map(([name, value]) => (
+                  <li key={name}><span>{warpMetricLabel(name)}</span><b>{formatCompact(value)}</b></li>
+                ))}
+            </ul>
+          </SessionDetailColumn>
+        )}
       </div>
+      {warp && (
+        <p className="scope-note">
+          <Database /> Read from Warp's local database on this computer: prompts from its
+          query log, replies from its stored agent runs. Reasoning summaries are counted
+          but not imported, and raw command output is left out.
+        </p>
+      )}
       {externalStatus && (
         <div
           className={`session-external-status is-${externalStatus.kind}`}
@@ -5000,12 +4929,12 @@ function SessionEffortSection({
   collapsed,
   onToggle,
 }: {
-  detail: SessionDetail;
+  detail: SessionDetail | undefined;
   status: EffortIndexStatus | null;
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const summary = detail.effort ?? null;
+  const summary = detail?.effort ?? null;
   const summaryAvailable = summary && summary.coverageState !== "unavailable";
   const collapsedStats: SessionDetailSpineStat[] = summaryAvailable
     ? summary.mixed
