@@ -5,6 +5,39 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-08-17
+
+### Added
+
+- Read the prompts typed in each Warp session from Warp's local database, so
+  expanding a Warp session shows the same prompt detail as Claude and Codex
+  instead of credit and tool metadata alone. Only user-authored turns count;
+  the same caps as the JSONL reader apply.
+- Read Warp's agent replies from its local run records, so Warp sessions now
+  show output as well as input. Reasoning summaries are counted and excluded,
+  and reply timestamps are reinterpreted in the local zone so each reply lands
+  beside the prompt it answers.
+- Restate quota reaches and applied resets inside the chart tooltip card, with
+  the instants behind them, so a marker's "×2" label is readable rather than
+  implied. A point whose only story is a quota reach now opens a card instead
+  of staying silent for want of token activity.
+
+### Changed
+
+- Render Warp sessions with the shared session detail layout — Prompt, Output,
+  Files & Patches, Tools, Model Mix, and Effort — instead of a Warp-only panel,
+  with Warp-specific credits and context-window cells alongside. Columns state
+  what Warp does not record rather than showing empty lists.
+- Correct the README and in-app copy that said Warp imports no prompts, to say
+  what is and is not available locally.
+- Refresh the README Overview screenshot for this release.
+
+### Fixed
+
+- Include weekly quota reaches in chart markers. Markers previously filtered
+  quota history to the five-hour window, so a weekly limit reach never appeared
+  on the daily or hourly charts even though the collector recorded it.
+
 ## [1.14.1] - 2026-08-16
 
 ### Changed
@@ -433,6 +466,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.15.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.12.0...v1.13.0
