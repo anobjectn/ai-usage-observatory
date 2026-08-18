@@ -22,8 +22,15 @@ export function sessionReportKeys(agent: string, nativeKey: string, sourceFile: 
   return [...keys];
 }
 
-async function parseHead(file: string, agent: "claude" | "codex") {
-  const text = await Bun.file(file).slice(0, 96_000).text();
+// An early message can carry an inline attachment (a base64 screenshot, say) that runs
+// hundreds of KB to a few MB on its own line. A tighter window would cut that line off
+// mid-JSON and never reach the smaller lines after it — and since this always re-reads
+// from byte zero, a session whose first real message is one of these stays unresolved
+// (blank cwd) for as long as it exists, not just until the next scan.
+const headScanBytes = 4_000_000;
+
+export async function parseHead(file: string, agent: "claude" | "codex") {
+  const text = await Bun.file(file).slice(0, headScanBytes).text();
   const lines = text.split("\n").slice(0, 80);
   let cwd: string | null = null;
   let nativeKey = basename(file, ".jsonl");
@@ -64,7 +71,11 @@ export type PathIndexResult = {
   removedSessionIds: string[];
 };
 
-const managedRoots = [".claude/projects/", ".codex/sessions/"];
+// Codex moves a session's transcript here once it ages the session out of
+// `.codex/sessions/`, without renaming it — ccusage still reports it (by its
+// bare `rollout-...` id, no date prefix) so a session must stay indexed after
+// the move or it silently drops out of `session_paths` and looks gone.
+const managedRoots = [".claude/projects/", ".codex/sessions/", ".codex/archived_sessions/"];
 
 async function indexGlob(agent: "claude" | "codex", pattern: string) {
   const root = homedir();
@@ -73,19 +84,29 @@ async function indexGlob(agent: "claude" | "codex", pattern: string) {
     (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size, indexed_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd, source_mtime = excluded.source_mtime, source_size = excluded.source_size, indexed_at = CURRENT_TIMESTAMP`);
-  const existingQuery = db.query("SELECT session_id, source_mtime, source_size FROM session_paths WHERE source_file = ?");
+  const existingQuery = db.query("SELECT session_id, source_mtime, source_size, cwd FROM session_paths WHERE source_file = ?");
   const touchSize = db.query("UPDATE session_paths SET source_size = ? WHERE session_id = ?");
+  const touchCwd = db.query("UPDATE session_paths SET cwd = ? WHERE session_id = ?");
   const catalog: SessionSource[] = [];
   const changed: SessionSource[] = [];
   for await (const sourceRelativePath of glob.scan({ cwd: root, absolute: false, onlyFiles: true, dot: true })) {
     const sourceFile = `${root}/${sourceRelativePath}`;
     const info = await stat(sourceFile);
     const identity = Number.isFinite(info.dev) && Number.isFinite(info.ino) ? `${info.dev}:${info.ino}` : null;
-    const existing = existingQuery.get(sourceFile) as { session_id: string; source_mtime: number; source_size: number } | null;
+    const existing = existingQuery.get(sourceFile) as { session_id: string; source_mtime: number; source_size: number; cwd: string | null } | null;
     let sessionId = existing?.session_id ?? "";
     if (existing?.source_mtime === info.mtimeMs) {
       // Backfills the size column for databases migrated from before it existed.
       if (existing.source_size !== info.size) touchSize.run(info.size, existing.session_id);
+      // A row can be left with cwd unresolved by a bug in an earlier version of the header
+      // parse (an early line too big for the window it used, say) rather than by the
+      // transcript genuinely never stating one. The mtime match above would otherwise skip
+      // this file forever, so a null cwd always gets one more try — cheap once it resolves,
+      // since this branch then stops running for it.
+      if (existing.cwd === null) {
+        const { cwd } = await parseHead(sourceFile, agent);
+        if (cwd) touchCwd.run(cwd, existing.session_id);
+      }
     } else {
       const { cwd, nativeKey } = await parseHead(sourceFile, agent);
       sessionId = stableSessionId(agent, sourceRelativePath, nativeKey);
@@ -99,14 +120,15 @@ async function indexGlob(agent: "claude" | "codex", pattern: string) {
 }
 
 export async function indexSessionPaths(): Promise<PathIndexResult & { indexed: number }> {
-  // A partial or failed scan must never look like "these transcripts disappeared", so both globs
+  // A partial or failed scan must never look like "these transcripts disappeared", so all globs
   // are awaited to completion before anything is pruned.
-  const [claude, codex] = await Promise.all([
+  const [claude, codex, codexArchived] = await Promise.all([
     indexGlob("claude", ".claude/projects/**/*.jsonl"),
     indexGlob("codex", ".codex/sessions/**/*.jsonl"),
+    indexGlob("codex", ".codex/archived_sessions/**/*.jsonl"),
   ]);
-  const catalog = [...claude.catalog, ...codex.catalog];
-  const changed = [...claude.changed, ...codex.changed];
+  const catalog = [...claude.catalog, ...codex.catalog, ...codexArchived.catalog];
+  const changed = [...claude.changed, ...codex.changed, ...codexArchived.changed];
   const seen = new Set(catalog.map((source) => source.sessionId));
   const root = homedir();
   const rows = db.query("SELECT session_id, source_file FROM session_paths").all() as Array<{ session_id: string; source_file: string }>;
