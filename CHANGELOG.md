@@ -5,6 +5,24 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] - 2026-08-18
+
+### Fixed
+
+- Index Codex sessions that Codex itself has archived. Codex moves an aged-out
+  session's transcript from `.codex/sessions/<date>/` into a flat
+  `.codex/archived_sessions/` rather than deleting it, but the path indexer only
+  watched the former, so an archived session dropped out of the local index and
+  its detail panel opened to "The indexed record is no longer available
+  locally."
+- Read a session's working directory past an oversized early line. The header
+  scan that reads a transcript's `cwd` stopped at a fixed 96KB, so a session
+  whose first real message carried a large inline attachment (a pasted
+  screenshot, say) could have that line cut off before `cwd` was ever reached —
+  leaving the Sessions table's Working directory column blank for that session
+  permanently, not just until the next scan. A row already left blank by the
+  old behavior is also given one more chance to resolve on the next index pass.
+
 ## [1.16.0] - 2026-08-18
 
 ### Added
@@ -505,6 +523,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.16.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.14.1...v1.15.0
