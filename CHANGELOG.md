@@ -5,6 +5,18 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] - 2026-08-19
+
+### Changed
+
+- Keep a chart's hover card clear of its x-axis. The card now lands no lower
+  than 30px above the axis baseline, so the day labels and a sliver of the
+  plotted activity stay readable underneath it, and it is capped at 470px tall
+  with any overflow scrolling inside the card. When the space above the axis is
+  smaller than that, the card gives up height rather than the gap and scrolls
+  what is left, instead of running off the top of the window. A card that grows
+  because a "+N more" row was opened is repositioned to hold the same gap.
+
 ## [1.16.1] - 2026-08-18
 
 ### Fixed
@@ -523,6 +535,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.16.2]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.16.1...v1.16.2
 [1.16.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.0...v1.15.1
