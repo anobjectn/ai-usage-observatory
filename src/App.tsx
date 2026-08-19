@@ -844,6 +844,11 @@ type ChartTooltipProps = {
   payload?: ChartTooltipPayload[];
 };
 
+/** Plot left visible below a hover card, in px, so the axis labels stay read. */
+const axisClearance = 30;
+const maxTooltipHeight = 470;
+const minTooltipHeight = 160;
+
 const chartTooltipWrapperStyle = {
   transition: "none",
 } as const;
@@ -968,31 +973,76 @@ function useClampedTooltip(active: boolean, coordinate?: { x?: number }) {
     )
       return;
 
-    const chartBounds = chart.getBoundingClientRect();
-    const edgePadding = 8;
-    tooltip.style.setProperty(
-      "--tooltip-width",
-      `${Math.max(0, Math.min(410, chartBounds.width - edgePadding * 2))}px`,
-    );
-    const wrapperBounds = wrapper.getBoundingClientRect();
-    const centeredOffset =
-      chartBounds.left +
-      coordinate.x -
-      wrapperBounds.left -
-      tooltip.offsetWidth / 2;
-    tooltip.style.setProperty("--tooltip-x", `${centeredOffset}px`);
+    const place = () => {
+      const chartBounds = chart.getBoundingClientRect();
+      const edgePadding = 8;
+      tooltip.style.setProperty(
+        "--tooltip-width",
+        `${Math.max(0, Math.min(410, chartBounds.width - edgePadding * 2))}px`,
+      );
+      const wrapperBounds = wrapper.getBoundingClientRect();
+      const centeredOffset =
+        chartBounds.left +
+        (coordinate.x ?? 0) -
+        wrapperBounds.left -
+        tooltip.offsetWidth / 2;
+      tooltip.style.setProperty("--tooltip-x", `${centeredOffset}px`);
 
-    const tooltipBounds = tooltip.getBoundingClientRect();
-    const leftBoundary = Math.max(chartBounds.left, 0) + edgePadding;
-    const rightBoundary =
-      Math.min(chartBounds.right, window.innerWidth) - edgePadding;
-    const shift =
-      tooltipBounds.left < leftBoundary
-        ? leftBoundary - tooltipBounds.left
-        : tooltipBounds.right > rightBoundary
-          ? rightBoundary - tooltipBounds.right
-          : 0;
-    tooltip.style.setProperty("--tooltip-x", `${centeredOffset + shift}px`);
+      const tooltipBounds = tooltip.getBoundingClientRect();
+      const leftBoundary = Math.max(chartBounds.left, 0) + edgePadding;
+      const rightBoundary =
+        Math.min(chartBounds.right, window.innerWidth) - edgePadding;
+      const shift =
+        tooltipBounds.left < leftBoundary
+          ? leftBoundary - tooltipBounds.left
+          : tooltipBounds.right > rightBoundary
+            ? rightBoundary - tooltipBounds.right
+            : 0;
+      tooltip.style.setProperty("--tooltip-x", `${centeredOffset + shift}px`);
+
+      // Keep the card clear of the x-axis so its labels and a sliver of the
+      // plot stay readable, even when that lifts the card past the top of the
+      // chart the way a pinned copy can sit.
+      const baseOffsetY = -6;
+      tooltip.style.setProperty("--tooltip-y", `${baseOffsetY}px`);
+      // The grid spans the plot area, so its bottom is the axis baseline: a
+      // chart can hide its x-axis, and the axis group measures as an empty box.
+      const gridBounds = chart
+        .querySelector(".recharts-cartesian-grid")
+        ?.getBoundingClientRect();
+      const axisBounds = chart
+        .querySelector(".recharts-xAxis")
+        ?.getBoundingClientRect();
+      const baselineY =
+        gridBounds && gridBounds.height > 0
+          ? gridBounds.bottom
+          : axisBounds && axisBounds.height > 0
+            ? axisBounds.top
+            : chartBounds.bottom;
+      const bottomBoundary = baselineY - axisClearance;
+      // A card that cannot fit between the top of the window and that boundary
+      // gives up height rather than the gap, and scrolls what is left over.
+      tooltip.style.setProperty(
+        "--tooltip-max-height",
+        `${Math.max(
+          minTooltipHeight,
+          Math.min(maxTooltipHeight, bottomBoundary - edgePadding),
+        )}px`,
+      );
+      const placed = tooltip.getBoundingClientRect();
+      const offsetY =
+        placed.bottom > bottomBoundary
+          ? baseOffsetY - (placed.bottom - bottomBoundary)
+          : baseOffsetY;
+      tooltip.style.setProperty("--tooltip-y", `${offsetY}px`);
+    };
+
+    place();
+    // Rows the card opens from a "+N more" toggle grow it downward, and that
+    // state lives inside the card, so only its own resize reports the change.
+    const observer = new ResizeObserver(place);
+    observer.observe(tooltip);
+    return () => observer.disconnect();
   });
   return ref;
 }
