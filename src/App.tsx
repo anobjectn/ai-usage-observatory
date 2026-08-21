@@ -4549,6 +4549,91 @@ function warpMetricLabel(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function SessionTranscriptEntry({
+  text,
+  timestamp,
+  label,
+  truncated = false,
+}: {
+  text: string;
+  timestamp: string | null;
+  label: "Prompt" | "Output";
+  truncated?: boolean;
+}) {
+  const [collapsible, setCollapsible] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const textRef = useRef<HTMLPreElement>(null);
+  const contentId = `session-transcript-${useId()}`;
+
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      const lineHeight = Number.parseFloat(window.getComputedStyle(element).lineHeight);
+      const nextCollapsible = Number.isFinite(lineHeight) && lineHeight > 0
+        ? element.scrollHeight > lineHeight * 1.25
+        : text.split(/\r?\n/).length > 1;
+      setCollapsible((current) => current === nextCollapsible ? current : nextCollapsible);
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text]);
+
+  useEffect(() => {
+    if (!collapsible) setExpanded(true);
+  }, [collapsible]);
+
+  const time = (
+    <time
+      className="session-prompt-time"
+      dateTime={timestamp ?? undefined}
+      title={timestamp ?? undefined}
+    >
+      {formatPromptTimestamp(timestamp)}
+    </time>
+  );
+
+  return (
+    <li className={collapsible ? "session-transcript-list__item--collapsible" : undefined}>
+      {collapsible ? (
+        <button
+          type="button"
+          className="session-transcript-toggle"
+          aria-controls={contentId}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${label.toLowerCase()} from ${formatPromptTimestamp(timestamp)}`}
+          title={`${expanded ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {time}
+          <ChevronRight aria-hidden="true" />
+        </button>
+      ) : (
+        <div className="session-transcript-header">{time}</div>
+      )}
+      <div
+        id={contentId}
+        className="session-transcript-content"
+        aria-hidden={collapsible ? !expanded : undefined}
+      >
+        <div className="session-transcript-content__inner">
+          <pre ref={textRef}>{text}</pre>
+          {truncated && (
+            <small className="session-output-clipped">
+              Sample clipped after 4,000 characters
+            </small>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
 export function SessionDetailPanel({
   session,
   detail,
@@ -4820,16 +4905,12 @@ export function SessionDetailPanel({
           {prompts.length ? (
             <ol className="session-transcript-list">
               {prompts.map((prompt, index) => (
-                <li key={`${index}-${prompt.text.slice(0, 24)}`}>
-                  <time
-                    className="session-prompt-time"
-                    dateTime={prompt.timestamp ?? undefined}
-                    title={prompt.timestamp ?? undefined}
-                  >
-                    {formatPromptTimestamp(prompt.timestamp)}
-                  </time>
-                  <pre>{prompt.text}</pre>
-                </li>
+                <SessionTranscriptEntry
+                  key={`${index}-${prompt.text.slice(0, 24)}`}
+                  text={prompt.text}
+                  timestamp={prompt.timestamp}
+                  label="Prompt"
+                />
               ))}
             </ol>
           ) : (
@@ -4884,21 +4965,13 @@ export function SessionDetailPanel({
           {outputs.length ? (
             <ol className="session-transcript-list">
               {outputs.map((output, index) => (
-                <li key={`${index}-${output.text.slice(0, 24)}`}>
-                  <time
-                    className="session-prompt-time"
-                    dateTime={output.timestamp ?? undefined}
-                    title={output.timestamp ?? undefined}
-                  >
-                    {formatPromptTimestamp(output.timestamp)}
-                  </time>
-                  <pre>{output.text}</pre>
-                  {output.truncated && (
-                    <small className="session-output-clipped">
-                      Sample clipped after 4,000 characters
-                    </small>
-                  )}
-                </li>
+                <SessionTranscriptEntry
+                  key={`${index}-${output.text.slice(0, 24)}`}
+                  text={output.text}
+                  timestamp={output.timestamp}
+                  label="Output"
+                  truncated={output.truncated}
+                />
               ))}
             </ol>
           ) : (
