@@ -12,6 +12,7 @@ import {
   projectSummaryInRange,
   projectTrendRowsInRange,
   sessionModelNames,
+  sessionQuotaImpactItems,
   sessionRangeLabel,
   withoutCacheMetricRow,
 } from "./App";
@@ -20,6 +21,7 @@ import type {
   ProjectActivity,
   ProjectTrendRow,
   Session,
+  SessionQuotaContext,
 } from "./types";
 
 function session(overrides: Partial<Session>): Session {
@@ -341,11 +343,31 @@ test("session quota context uses account-level, non-additive language", () => {
     }),
   );
 
-  expect(html).toContain("+49.3 pp");
+  expect(html).toContain("+49.3% of quota");
+  expect(html).toContain("not that it increased by 10% relative");
   expect(html).toContain("Up to 2 other local Codex sessions overlapped");
   expect(html).toContain("account or seat-level observations");
   expect(html).toContain("Overlapping session values are not additive");
   expect(html).not.toContain("this session consumed");
+});
+
+test("sessionQuotaImpactItems formats resolved account quota shares for table rows", () => {
+  const context = {
+    provider: "codex",
+    basis: "embedded_account_observation",
+    resources: [
+      { id: "fiveHour", deltaPercentagePoints: 12.5 },
+      { id: "weekly", deltaPercentagePoints: 3 },
+      { id: "unrecognized", deltaPercentagePoints: 9 },
+    ],
+    confidence: "high",
+  } as SessionQuotaContext;
+
+  expect(sessionQuotaImpactItems(context)).toEqual([
+    { id: "fiveHour", label: "5h", value: 12.5 },
+    { id: "weekly", label: "w", value: 3 },
+  ]);
+  expect(sessionQuotaImpactItems({ ...context, confidence: "insufficient" })).toEqual([]);
 });
 
 test("projectModelSessionRows keeps only sessions that touched the model, newest first", () => {

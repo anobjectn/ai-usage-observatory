@@ -169,8 +169,7 @@ function contrastSentence(contrast: EffortComboContrast) {
     return `${where}; its median session cost was ${ratio}× the project median (${money(contrast.cohortValue)} against ${money(contrast.baselineValue)}).`;
   }
   const points = Math.abs(contrast.value * 100);
-  const direction = contrast.value >= 0 ? "higher" : "lower";
-  return `${where}; its efficiency-rule flag rate was ${points.toFixed(0)} percentage points ${direction} than the project rate (${percentOf(contrast.cohortValue)} against ${percentOf(contrast.baselineValue)}).`;
+  return `${where}; its efficiency-rule flag rate was ${percentOf(contrast.cohortValue)} against the project's ${percentOf(contrast.baselineValue)}, a ${points.toFixed(0)}-point gap.`;
 }
 
 export function ReasoningEffortAnalysis({

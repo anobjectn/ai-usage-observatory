@@ -49,7 +49,6 @@ import {
   effortSearchText,
   effortSummaryLabel,
   matchesSessionEffortFilter,
-  sessionEffortSortValue,
   useEffortAggregate,
   useEffortComboDays,
   setSessionVerdict,
@@ -752,7 +751,7 @@ function MetricTrend({
   context = "previous equal span",
 }: {
   value: number;
-  unit?: "%" | "pp";
+  unit?: "%" | "% share";
   context?: string;
 }) {
   const direction = value >= 0 ? "up" : "down";
@@ -781,7 +780,7 @@ function MetricCard({
   value: string;
   detail: string;
   trend?: number;
-  trendUnit?: "%" | "pp";
+  trendUnit?: "%" | "% share";
   averages?: MetricCardAverage[];
   icon: typeof Orbit;
 }) {
@@ -3298,7 +3297,7 @@ function Overview({
                 ? cacheShare - previousCacheShare
                 : undefined
             }
-            trendUnit="pp"
+            trendUnit="% share"
             averages={metricAverageCardItems(
               cacheShareAverages,
               previousCacheShareAverages,
@@ -4646,6 +4645,57 @@ function quotaNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
+export type SessionQuotaImpact = {
+  id: string;
+  label: "5h" | "w" | "m";
+  value: number;
+};
+
+export function sessionQuotaImpactItems(context: SessionQuotaContext | null | undefined): SessionQuotaImpact[] {
+  if (!context || context.confidence === "insufficient") return [];
+  const labels = { fiveHour: "5h", weekly: "w", monthly: "m" } as const;
+  return context.resources.flatMap((resource) => {
+    const label = labels[resource.id as keyof typeof labels];
+    return label && resource.deltaPercentagePoints !== null
+      ? [{ id: resource.id, label, value: resource.deltaPercentagePoints }]
+      : [];
+  });
+}
+
+function SessionQuotaImpactCell({
+  context,
+  loading,
+}: {
+  context: SessionQuotaContext | null | undefined;
+  loading: boolean;
+}) {
+  const impacts = sessionQuotaImpactItems(context);
+  if (loading) return <span className="session-quota-impact is-loading" aria-label="Loading quota impact">•••</span>;
+  if (!impacts.length) {
+    return (
+      <span
+        className="session-quota-impact is-empty"
+        title={context?.reason ?? "No resolved quota impact is available for this session."}
+      >
+        —
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`session-quota-impact is-${context!.confidence}`}
+      title={`Absolute share of the account quota limit observed during this session. ${context!.confidence} confidence. Account activity is not attributable to this session alone.`}
+    >
+      {impacts.map((impact) => (
+        <span key={impact.id}>
+          <b>+{quotaNumber(impact.value)}%</b>
+          <i>{impact.label}</i>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function SessionQuotaContextPanel({ context }: { context: SessionQuotaContext }) {
   const providerLabel = context.provider === "anthropic" ? "Claude" : context.provider === "codex" ? "Codex" : "Warp";
   const sameProvider = context.concurrency.distinctOtherSameProviderSessions;
@@ -4665,14 +4715,14 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
             const movement = !resource.measurable
               ? "No measurable increase"
               : resource.kind === "pool" && resource.deltaUnits !== null
-                ? `+${quotaNumber(resource.deltaUnits)} credits${resource.deltaPercentagePoints === null ? "" : ` · +${quotaNumber(resource.deltaPercentagePoints)} pp`}`
+                ? `+${quotaNumber(resource.deltaUnits)} credits${resource.deltaPercentagePoints === null ? "" : ` · +${quotaNumber(resource.deltaPercentagePoints)}% of quota`}`
                 : resource.deltaPercentagePoints === null
                   ? "Movement unavailable"
-                  : `+${quotaNumber(resource.deltaPercentagePoints)} pp`;
+                  : `+${quotaNumber(resource.deltaPercentagePoints)}% of quota`;
             return (
               <div key={resource.id}>
                 <span>{quotaResourceLabel(resource.id)}</span>
-                <strong title={resource.deltaPercentagePoints === null ? undefined : `${resource.deltaPercentagePoints} percentage points`}>{movement}</strong>
+                <strong title={resource.deltaPercentagePoints === null ? undefined : `${resource.deltaPercentagePoints}% of the full quota limit`}>{movement}</strong>
                 <small>
                   {resource.cycleCount} resolved {resource.cycleCount === 1 ? "cycle" : "cycles"}
                   {resource.limitChanged ? " · pool limit changed" : ""}
@@ -4697,7 +4747,8 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
         <p>
           These are account or seat-level observations, not charges assigned to this thread. Provider web, mobile, cloud,
           another machine, or another local process may have contributed. Local concurrency is incomplete and external
-          activity is unknown. Overlapping session values are not additive.
+          activity is unknown. Overlapping session values are not additive. A value such as +10% means the account
+          counter moved by 10% of the full quota limit, not that it increased by 10% relative to its starting value.
         </p>
         {context.concurrency.distinctOtherProviderSessions > 0 && (
           <p>{context.concurrency.distinctOtherProviderSessions} local session on another provider also overlapped.</p>
@@ -5484,13 +5535,13 @@ function Sessions({
     | "agent"
     | "cwd"
     | "tokens"
-    | "cost"
-    | "effort";
+    | "cost";
   const [query, setQuery] = useState("");
   const [effortFilter, setEffortFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SessionDetail>>({});
+  const [quotaContexts, setQuotaContexts] = useState<Record<string, SessionQuotaContext | null>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>(
@@ -5558,11 +5609,6 @@ function Sessions({
       if (sort.key === "agent") return session.agent;
       if (sort.key === "cwd") return session.cwd ?? "";
       if (sort.key === "tokens") return session.totalTokens;
-      if (sort.key === "effort")
-        return sessionEffortSortValue(
-          effortBySession.get(session.sessionId),
-          effortRank,
-        );
       return session.totalCost;
     };
     const a = value(left),
@@ -5575,6 +5621,37 @@ function Sessions({
   }), [filtered, sort, effortBySession]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const pageQuotaKey = pageRows.map((session) => session.sessionId).join("\n");
+  useEffect(() => {
+    const sessionIds = pageQuotaKey ? pageQuotaKey.split("\n") : [];
+    const missing = sessionIds.filter((sessionId) => !Object.hasOwn(quotaContexts, sessionId));
+    if (!missing.length) return;
+    const controller = new AbortController();
+    void fetch("/api/session-quota-contexts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionIds: missing }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Quota impacts are unavailable");
+        return await response.json() as { items?: Record<string, SessionQuotaContext | null> };
+      })
+      .then((result) => {
+        setQuotaContexts((current) => ({
+          ...current,
+          ...Object.fromEntries(missing.map((sessionId) => [sessionId, result.items?.[sessionId] ?? null])),
+        }));
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setQuotaContexts((current) => ({
+          ...current,
+          ...Object.fromEntries(missing.map((sessionId) => [sessionId, null])),
+        }));
+      });
+    return () => controller.abort();
+  }, [pageQuotaKey]);
   useEffect(() => setPage(1), [query, effortFilter]);
   useEffect(() => setPage((current) => Math.min(current, pages)), [pages]);
   const sortBy = (key: SortKey) => {
@@ -5605,6 +5682,9 @@ function Sessions({
       if (!response.ok) throw new Error("Session details are unavailable");
       const detail = (await response.json()) as SessionDetail;
       setDetails((current) => ({ ...current, [session.sessionId]: detail }));
+      if (detail.quotaContext !== undefined) {
+        setQuotaContexts((current) => ({ ...current, [session.sessionId]: detail.quotaContext ?? null }));
+      }
     } catch {
       setDetails((current) => ({
         ...current,
@@ -5736,7 +5816,11 @@ function Sessions({
                 {header("cwd", "Working directory")}
                 {header("tokens", "Tokens")}
                 {header("cost", "Cost / credits")}
-                {header("effort", "Model \u00d7 effort")}
+                <th>
+                  <span title="Absolute share of the account quota limit observed during the session. Account activity is not attributable to one session alone.">
+                    Quota impact
+                  </span>
+                </th>
                 <th className="session-verdict-header">
                   <span title="Your own rating of the session. It is never inferred, and it is the only signal in this app that is user-supplied.">
                     Verdict
@@ -5794,6 +5878,12 @@ function Sessions({
                           )}
                         </span>
                         <small>{session.period.slice(0, 18)}</small>
+                        <span className="session-row__model-effort">
+                          <SessionEffortCell
+                            decoded={effortBySession.get(session.sessionId)}
+                            enabled={Boolean(effortStatus?.enabled)}
+                          />
+                        </span>
                       </span>
                     </td>
                     <td className="session-row__agent">
@@ -5837,10 +5927,10 @@ function Sessions({
                         </>
                       )}
                     </td>
-                    <td className="session-row__effort">
-                      <SessionEffortCell
-                        decoded={effortBySession.get(session.sessionId)}
-                        enabled={Boolean(effortStatus?.enabled)}
+                    <td className="session-row__quota">
+                      <SessionQuotaImpactCell
+                        context={quotaContexts[session.sessionId]}
+                        loading={!Object.hasOwn(quotaContexts, session.sessionId)}
                       />
                     </td>
                     <td

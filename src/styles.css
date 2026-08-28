@@ -376,8 +376,8 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 /* Fixed layout: every width below is positional, so a new column has to be added here too or the
  * following ones inherit a width meant for something else. Columns are
  * 1 activity, 2 model, 3 agent, 4 working directory (the one auto column), 5 tokens, 6 cost,
- * 7 model x effort, 8 verdict, 9 actions, 10 detail toggle. */
-.table-panel table{table-layout:fixed;min-width:1240px}.table-panel th:nth-child(1){width:180px;white-space:nowrap}.table-panel th:nth-child(2){width:190px}.table-panel th:nth-child(3){width:100px}.table-panel th:nth-child(5){width:110px}.table-panel th:nth-child(6){width:105px}.table-panel th:nth-child(7){width:172px}.table-panel th:nth-child(8){width:104px}.table-panel th:nth-child(9){width:88px}.table-panel th:nth-child(10){width:46px}.table-panel th{font-size:var(--data-text-secondary)}.table-panel td{font-size:var(--data-text-primary)}.table-panel td>small,.session-row td:nth-child(2) small{font-size:var(--data-text-secondary)}.session-row td:nth-child(2)>span,.session-row td:nth-child(2) b,.session-row td:nth-child(2) small{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.session-detail--loading,.session-detail--empty{font-size:var(--data-text-secondary)}.session-detail__summary span,.session-detail__head small{font-size:var(--data-text-compact)}.session-detail__summary strong{font-size:var(--data-text-strong)}.session-detail__section>p,.session-prompts pre,.tool-list code,.file-list code,.model-list span,.tool-list b,.model-list b{font-size:var(--data-text-secondary)}
+ * 7 quota impact, 8 verdict, 9 actions, 10 detail toggle. */
+.table-panel table{table-layout:fixed;min-width:1260px}.table-panel th:nth-child(1){width:180px;white-space:nowrap}.table-panel th:nth-child(2){width:250px}.table-panel th:nth-child(3){width:100px}.table-panel th:nth-child(5){width:110px}.table-panel th:nth-child(6){width:105px}.table-panel th:nth-child(7){width:126px}.table-panel th:nth-child(8){width:104px}.table-panel th:nth-child(9){width:88px}.table-panel th:nth-child(10){width:46px}.table-panel th{font-size:var(--data-text-secondary)}.table-panel td{font-size:var(--data-text-primary)}.table-panel td>small,.session-row td:nth-child(2) small{font-size:var(--data-text-secondary)}.session-row td:nth-child(2)>span,.session-row td:nth-child(2) b,.session-row td:nth-child(2) small{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.session-detail--loading,.session-detail--empty{font-size:var(--data-text-secondary)}.session-detail__summary span,.session-detail__head small{font-size:var(--data-text-compact)}.session-detail__summary strong{font-size:var(--data-text-strong)}.session-detail__section>p,.session-prompts pre,.tool-list code,.file-list code,.model-list span,.tool-list b,.model-list b{font-size:var(--data-text-secondary)}
 .card-list { display:flex;flex-direction:column;gap:8px; }.rank-card{display:grid;grid-template-columns:50px minmax(250px,1fr) 120px 120px 100px;align-items:center;gap:18px;padding:17px 22px}.rank{font:18px var(--font-label);color:var(--dim)}.rank-main{min-width:0}.rank-main h3{margin:0;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rank-main p{font:10px var(--font-label);color:var(--dim);margin:5px 0 0}.rank-stat{display:flex;flex-direction:column;gap:5px}.rank-stat span{font:10px var(--font-label);color:var(--dim)}.rank-stat b{font-size:15px}.micro-chart{display:flex;align-items:end;height:28px;gap:2px;margin-top:9px}.micro-chart i{width:5px;min-height:2px;background:var(--accent);opacity:.48;border-radius:2px 2px 0 0}
 .project-list .rank-main h3,.project-list .rank-stat b{font-size:var(--data-text-strong)}.project-list .rank-main p,.project-list .rank-stat span{font-size:var(--data-text-secondary)}
 .project-list{gap:10px}.project-card{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden;transition:border-color .2s ease,box-shadow .2s ease}.project-card:hover{border-color:var(--line-bright)}.project-card.open{border-color:color-mix(in srgb,var(--accent) 38%,var(--line));box-shadow:0 18px 55px rgba(0,0,0,.18)}.project-row{width:100%;grid-template-columns:50px minmax(250px,1fr) 120px 120px 100px 22px;border:0;background:transparent;color:var(--text);text-align:left;cursor:pointer}.project-row:hover{background:color-mix(in srgb,var(--accent) 3.5%,transparent)}.project-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.project-row__toggle{width:26px;height:26px;padding:6px;border:1px solid var(--line-bright);border-radius:50%;color:var(--dim);transition:transform .2s ease,border-color .2s ease,color .2s ease,background .2s ease}.project-row:hover .project-row__toggle{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent)}.project-card.open .project-row__toggle{transform:rotate(45deg);border-color:transparent;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
@@ -529,14 +529,20 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
   .effort-provenance { grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); }
 }
 
-/* Sessions gained an Effort column; the badge must not stretch the fixed-layout cell. */
-.session-row__effort{white-space:nowrap}
-/* The pill is a flex item, so it needs `min-width:0` to be allowed to shrink. Without it the
- * label overflows the fixed-width cell and paints over the verdict controls beside it. */
-/* A session can record several combos; they wrap instead of being truncated to the largest one. */
+/* Model and effort share one cell. Several recorded combinations wrap below the source model. */
+.session-row__model-effort{display:block!important;margin-top:6px;white-space:normal!important}
 .session-combo-cell{display:flex;flex-wrap:wrap;gap:3px;min-width:0;max-width:100%;overflow:hidden}
 .session-combo-cell .split-pill{min-width:0}
-.session-row:hover td.session-row__effort .split-pill,.session-row:focus-visible td.session-row__effort .split-pill{text-decoration-line:none}
+.session-row:hover .session-row__model-effort .split-pill,.session-row:focus-visible .session-row__model-effort .split-pill{text-decoration-line:none}
+.session-row__quota{padding-left:10px;padding-right:10px}
+.session-quota-impact{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-height:25px;justify-content:center;color:var(--dim);font:9px var(--font-label)}
+.session-quota-impact>span{display:flex;align-items:baseline;gap:4px;white-space:nowrap}
+.session-quota-impact b{color:var(--aqua);font:11px var(--font-label);font-weight:var(--font-weight-medium)}
+.session-quota-impact i{color:var(--dim);font:8px var(--font-label);font-style:normal;letter-spacing:.08em;text-transform:uppercase}
+.session-quota-impact.is-low b{color:var(--orange)}
+.session-quota-impact.is-loading{letter-spacing:.16em;animation:quota-impact-pulse 1.2s ease-in-out infinite}
+.session-quota-impact.is-empty{font-size:12px}
+@keyframes quota-impact-pulse{50%{opacity:.35}}
 /* Three states plus clear, one action each, reachable by keyboard and never colour-only. */
 .session-verdict{display:inline-flex;align-items:center;gap:3px}
 .session-verdict.is-busy{opacity:.55}
@@ -552,7 +558,7 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .session-verdict-header span{font:inherit}
 .session-row__verdict{white-space:nowrap;padding-left:8px;padding-right:8px}
 .session-detail__verdict strong{display:block;font-size:inherit;font-weight:400}
-.session-row:hover td.session-row__effort .effort-badge,.session-row:focus-visible td.session-row__effort .effort-badge{text-decoration-line:none}
+.session-row:hover .session-row__model-effort .effort-badge,.session-row:focus-visible .session-row__model-effort .effort-badge{text-decoration-line:none}
 
 /* Dashboard effort mix */
 .effort-panel{display:flex;flex-direction:column;gap:4px}

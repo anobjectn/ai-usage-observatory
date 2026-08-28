@@ -201,6 +201,16 @@ async function api(request: Request, url: URL) {
       quotaContext,
     });
   }
+  if (path === "/api/session-quota-contexts" && request.method === "POST") {
+    const input = await body(request);
+    const sessionIds = Array.isArray(input.sessionIds)
+      ? [...new Set(input.sessionIds.filter((value): value is string => typeof value === "string" && value.length > 0))].slice(0, 25)
+      : [];
+    const entries = await Promise.all(
+      sessionIds.map(async (sessionId) => [sessionId, await getSessionQuotaContext(sessionId)] as const),
+    );
+    return json({ items: Object.fromEntries(entries) });
+  }
   if (path === "/api/settings" && request.method === "GET") return json(getSettings());
   if (path === "/api/settings" && request.method === "PUT") { setSettings(await body(request) as Record<string, string>); return json(getSettings()); }
 
