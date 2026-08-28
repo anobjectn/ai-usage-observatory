@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { canonicalModelName } from "../src/model-name";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import type { ModelBreakdown, Session, WarpData, WarpSessionStats } from "../src/types";
+import { mergeActivityEpisodes, saveWarpEvidence, type ActivityEpisode } from "./session-evidence";
 
 const defaultDatabasePath = join(
   homedir(),
@@ -17,6 +18,8 @@ export function warpDatabasePath() {
   return process.env.WARP_DB_PATH || defaultDatabasePath;
 }
 const requiredTables = ["agent_conversations", "agent_tasks", "ai_queries", "blocks"];
+export const WARP_QUERY_ACTIVITY_SQL = "SELECT conversation_id, start_ts, working_directory, output_status, model_id FROM ai_queries WHERE conversation_id IS NOT NULL";
+export const WARP_TASK_ACTIVITY_SQL = "SELECT conversation_id, last_modified_at FROM agent_tasks WHERE conversation_id IS NOT NULL";
 
 type JsonRecord = Record<string, unknown>;
 type QueryRow = {
@@ -31,6 +34,7 @@ type ConversationRow = {
   last_modified_at: string | null;
   conversation_data: string | null;
 };
+type TaskActivityRow = { conversation_id: string | null; last_modified_at: string | null };
 type ConversationQueryStats = {
   turns: number;
   firstActivity: string | null;
@@ -250,6 +254,7 @@ function sessionFromConversation(
   queries: ConversationQueryStats,
   blocks: BlockStats | undefined,
   tasks: number,
+  activityIntervals: ActivityEpisode[],
 ): Session | null {
   const conversationId = stringValue(row.conversation_id);
   if (!conversationId) return null;
@@ -312,6 +317,7 @@ function sessionFromConversation(
     modelBreakdowns,
     metadata: { lastActivity: sourceDate },
     warp: stats,
+    activityIntervals,
   };
 }
 
@@ -353,7 +359,10 @@ export async function collectWarp(timeZone = systemTimeZone()): Promise<WarpColl
         result.schema.missing = missing;
         return result;
       }
-      const queries = database.query("SELECT conversation_id, start_ts, working_directory, output_status, model_id FROM ai_queries WHERE conversation_id IS NOT NULL").all() as QueryRow[];
+      const queries = database.query(WARP_QUERY_ACTIVITY_SQL).all() as QueryRow[];
+      const taskActivity = tables.has("agent_tasks")
+        ? database.query(WARP_TASK_ACTIVITY_SQL).all() as TaskActivityRow[]
+        : [];
       const queryByConversation = queryStats(queries);
       const conversations = database.query("SELECT conversation_id, last_modified_at, conversation_data FROM agent_conversations WHERE conversation_id IS NOT NULL AND conversation_data IS NOT NULL").all() as ConversationRow[];
       const latest = new Map<string, ConversationRow>();
@@ -365,15 +374,42 @@ export async function collectWarp(timeZone = systemTimeZone()): Promise<WarpColl
       }
       const blocks = blockStats(database, tables);
       const tasks = taskCounts(database, tables);
+      const sourceStat = statSync(databasePath);
+      const activityByConversation = new Map<string, number[]>();
+      const addActivity = (conversationId: string | null, value: unknown) => {
+        const id = stringValue(conversationId);
+        const timestamp = warpTimestamp(value);
+        if (!id || !timestamp) return;
+        const values = activityByConversation.get(id) ?? [];
+        values.push(Date.parse(timestamp));
+        activityByConversation.set(id, values);
+      };
+      for (const row of queries) addActivity(row.conversation_id, row.start_ts);
+      for (const row of taskActivity) addActivity(row.conversation_id, row.last_modified_at);
+      const sourceIdentity = `${sourceStat.dev}:${sourceStat.ino}`;
+      for (const [id, activityTimestamps] of activityByConversation) {
+        saveWarpEvidence({
+          sessionId: `warp-${id}`,
+          sourceIdentity,
+          sourceMtime: sourceStat.mtimeMs,
+          activityTimestamps,
+        });
+      }
       const sessions = [...latest.values()]
         .map((row) => {
           const id = stringValue(row.conversation_id)!;
           const stats = queryByConversation.get(id) ?? { turns: 0, firstActivity: null, lastActivity: null, cwd: null, models: [], completed: 0, cancelled: 0, pending: 0, failed: 0 };
-          return sessionFromConversation(row, stats, blocks.get(id), tasks.get(id) ?? 0);
+          return sessionFromConversation(
+            row,
+            stats,
+            blocks.get(id),
+            tasks.get(id) ?? 0,
+            mergeActivityEpisodes(activityByConversation.get(id) ?? []),
+          );
         })
         .filter(Boolean) as Session[];
       const linkedQueryCount = queries.filter((row) => row.conversation_id && latest.has(row.conversation_id)).length;
-      const modifiedAt = statSync(databasePath).mtime.toISOString();
+      const modifiedAt = sourceStat.mtime.toISOString();
       return summaryOf({
         available: true,
         sourceFile,

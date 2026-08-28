@@ -284,6 +284,9 @@ async function commitSpan(
     contextGaps: accumulator.contextGaps,
     skippedBytes: accumulator.skippedBytes,
     coverageState: coverageOf(totals),
+    provider: source.agent === "claude" ? "anthropic" : "codex",
+    activityTimestamps: accumulator.activityTimestamps,
+    quotaObservations: accumulator.quotaObservations,
   });
 }
 

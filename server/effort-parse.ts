@@ -3,7 +3,7 @@ import { dateKeyInTimeZone } from "../src/reporting-time";
 
 /** Bumping this rebuilds every session from byte zero. The constant lives in code, never in the
  * database, so a checkout can never disagree with the rows it is reading. */
-export const PARSER_VERSION = 4;
+export const PARSER_VERSION = 5;
 
 /** A single line is buffered only up to this size. Crossing it records a gap and a skipped-byte
  * count; no transcript fragment is ever persisted. */
@@ -49,6 +49,18 @@ export type EffortAccumulator = {
   parseErrors: number;
   contextGaps: number;
   skippedBytes: number;
+  activityTimestamps: number[];
+  quotaObservations: EmbeddedQuotaObservation[];
+};
+
+export type EmbeddedQuotaObservation = {
+  observedAt: number;
+  resourceId: "fiveHour" | "weekly";
+  usedPercent: number;
+  resetsAt: number | null;
+  cycleId: string;
+  planId: string | null;
+  planSource: "provider" | "unknown";
 };
 
 export const emptyState = (): EffortParserState => ({
@@ -70,6 +82,8 @@ export function createAccumulator(): EffortAccumulator {
     parseErrors: 0,
     contextGaps: 0,
     skippedBytes: 0,
+    activityTimestamps: [],
+    quotaObservations: [],
   };
 }
 
@@ -79,6 +93,21 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function count(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function epochMs(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 100_000_000_000 ? value * 1000 : value;
+  }
+  if (typeof value !== "string") return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function recordActivity(accumulator: EffortAccumulator, row: Record<string, unknown>, payload?: Record<string, unknown>) {
+  const timestamp = epochMs(row.timestamp ?? payload?.timestamp);
+  if (timestamp !== null) accumulator.activityTimestamps.push(timestamp);
+  return timestamp;
 }
 
 function bucket(accumulator: EffortAccumulator, occurredOn: string, model: string, effort: string) {
@@ -159,6 +188,7 @@ function claudeLine(row: Record<string, unknown>, accumulator: EffortAccumulator
   // already been counted.
   if (usageKey !== "" && usageKey === state.lastUsageKey) return true;
   state.lastUsageKey = usageKey === "" ? null : usageKey;
+  recordActivity(accumulator, row, row.message);
 
   const occurredOn = dateKeyInTimeZone(row.timestamp) ?? "";
   const model = typeof row.message.model === "string" ? row.message.model : "";
@@ -174,6 +204,7 @@ function claudeLine(row: Record<string, unknown>, accumulator: EffortAccumulator
 
 function codexTurnContext(row: Record<string, unknown>, payload: Record<string, unknown>, accumulator: EffortAccumulator, state: EffortParserState) {
   if (state.codexReplaying) return;
+  recordActivity(accumulator, row, payload);
   state.effort = normalizeEffort(payload.effort);
   state.model = typeof payload.model === "string" ? payload.model : "";
   state.active = true;
@@ -183,6 +214,37 @@ function codexTurnContext(row: Record<string, unknown>, payload: Record<string, 
 
 function codexTokenCount(row: Record<string, unknown>, payload: Record<string, unknown>, accumulator: EffortAccumulator, state: EffortParserState) {
   if (state.codexReplaying) return;
+  const observedAt = recordActivity(accumulator, row, payload);
+  const rateLimits = record(payload.rate_limits) ? payload.rate_limits : null;
+  if (observedAt !== null && rateLimits) {
+    const planId = typeof rateLimits.plan_type === "string" && rateLimits.plan_type.trim()
+      ? rateLimits.plan_type.trim()
+      : null;
+    for (const value of [rateLimits.primary, rateLimits.secondary]) {
+      if (!record(value)) continue;
+      const windowMinutes = count(value.window_minutes);
+      const usedPercent = count(value.used_percent);
+      if (windowMinutes === null || usedPercent === null || usedPercent > 100) continue;
+      const resourceId = windowMinutes * 60 <= 6 * 60 * 60
+        ? "fiveHour" as const
+        : windowMinutes * 60 >= 3 * 24 * 60 * 60
+          ? "weekly" as const
+          : null;
+      if (!resourceId) continue;
+      const resetsAt = epochMs(value.resets_at);
+      accumulator.quotaObservations.push({
+        observedAt,
+        resourceId,
+        usedPercent,
+        resetsAt,
+        cycleId: resetsAt === null
+          ? `observed:${observedAt}`
+          : `reset:${Math.floor(resetsAt / 60_000) * 60_000}`,
+        planId,
+        planSource: planId ? "provider" : "unknown",
+      });
+    }
+  }
   const info = payload.info;
   if (!record(info)) return;
   // Never `total_token_usage`: it is cumulative and would multiply every session's totals.

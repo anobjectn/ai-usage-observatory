@@ -102,4 +102,4 @@ the dashboard ETag and the combo-scoreboard ETag.
 
 ## Quota integration
 
-[`quota-service`](https://github.com/anobjectn/quota-service) remains an optional, separate localhost dependency. The adapter reads `/usage`, `/resets`, and `/status`. It does not supply analytical cost, so two cost methodologies cannot appear for the same activity.
+[`quota-service`](https://github.com/anobjectn/quota-service) remains an optional, separate localhost dependency. The adapter reads `/usage`, `/resets`, `/status`, bounded `/history` pages, and optional Claude lifecycle markers. Endpoint failures are independent. A recognized local SQLite database provides a read-only history fallback for older service versions. Session quota context joins that account-level evidence to locally indexed activity episodes and never allocates provider movement to a thread. It does not supply analytical cost, so two cost methodologies cannot appear for the same activity.

@@ -132,6 +132,52 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 5,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_evidence_meta (
+          session_id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          source_identity TEXT,
+          source_mtime REAL NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS session_activity_events (
+          session_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          occurred_at INTEGER NOT NULL,
+          PRIMARY KEY (session_id, provider, occurred_at)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS session_activity_events_provider_time
+          ON session_activity_events(provider, occurred_at, session_id);
+        CREATE TABLE IF NOT EXISTS session_quota_observations (
+          session_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          observed_at INTEGER NOT NULL,
+          resource_id TEXT NOT NULL,
+          used_percent REAL NOT NULL,
+          resets_at INTEGER,
+          cycle_id TEXT NOT NULL,
+          PRIMARY KEY (session_id, provider, observed_at, resource_id, cycle_id)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS session_quota_observations_provider_time
+          ON session_quota_observations(provider, observed_at, session_id);
+      `);
+    },
+  },
+  {
+    id: 6,
+    up(db) {
+      const columns = db.query("PRAGMA table_info(session_quota_observations)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "plan_id")) {
+        db.exec("ALTER TABLE session_quota_observations ADD COLUMN plan_id TEXT");
+      }
+      if (!columns.some((column) => column.name === "plan_source")) {
+        db.exec("ALTER TABLE session_quota_observations ADD COLUMN plan_source TEXT NOT NULL DEFAULT 'unknown'");
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database, applied: Migration[] = migrations) {

@@ -4,6 +4,8 @@ import { getSnapshot, refresh } from "./collector";
 import { buildInsights, resolveScope } from "./insights";
 import { importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
+import { getSessionQuotaContext } from "./session-quota-context";
+import { collectAllowanceComparisonReport } from "./quota-comparisons";
 import { ExternalOpenError, externalOpenOriginAllowed, isExternalOpenAction, openSessionExternalTarget } from "./external-open";
 import { buildEffortAggregate, buildEffortComboBoard, buildEffortComboDays, buildEffortSessionDigest, buildEffortStatus, buildSessionEffortSummary, clearEffortMemo, effortEtag, memoizedBody, resolveEffortGroup, resolveEffortScope, scopeKey } from "./effort-api";
 import { scheduleEffortIndexing } from "./effort-index";
@@ -192,7 +194,12 @@ async function api(request: Request, url: URL) {
   if (detailMatch && request.method === "GET") {
     const sessionId = decodeURIComponent(detailMatch[1]);
     const [detail, snapshot] = await Promise.all([getSessionDetail(sessionId), getSnapshot()]);
-    return json({ ...detail, effort: buildSessionEffortSummary(snapshot as unknown as import("../src/types").DashboardData, sessionId) });
+    const quotaContext = await getSessionQuotaContext(sessionId);
+    return json({
+      ...detail,
+      effort: buildSessionEffortSummary(snapshot as unknown as import("../src/types").DashboardData, sessionId),
+      quotaContext,
+    });
   }
   if (path === "/api/settings" && request.method === "GET") return json(getSettings());
   if (path === "/api/settings" && request.method === "PUT") { setSettings(await body(request) as Record<string, string>); return json(getSettings()); }
@@ -204,6 +211,9 @@ async function api(request: Request, url: URL) {
     const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? 25)));
     return json({ items: snapshot.sessions.slice((page - 1) * limit, page * limit), total: snapshot.sessions.length, page, limit });
+  }
+  if (request.method === "GET" && path === "/api/quota-comparisons") {
+    return json(await collectAllowanceComparisonReport(snapshot.sessions as import("../src/types").Session[]));
   }
   if (request.method === "GET" && path === "/api/projects") return json(snapshot.projects);
   if (request.method === "GET" && path === "/api/models") return json(snapshot.models);

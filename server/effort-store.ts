@@ -1,5 +1,5 @@
 import { db } from "./store";
-import type { EffortUsageRow } from "./effort-parse";
+import type { EffortUsageRow, EmbeddedQuotaObservation } from "./effort-parse";
 
 /** This module is the only place internal empty-string sentinels ('' date / '' model / ''
  * effort) become typed nulls. Nothing above it should ever compare against ''. */
@@ -179,6 +179,20 @@ const upsertState = db.query(`INSERT INTO session_effort_state
     coverage_state = excluded.coverage_state,
     last_indexed_at = CURRENT_TIMESTAMP`);
 
+const upsertEvidenceMeta = db.query(`INSERT INTO session_evidence_meta
+  (session_id, provider, source_identity, source_mtime, updated_at)
+  VALUES ($session, $provider, $sourceIdentity, $sourceMtime, CURRENT_TIMESTAMP)
+  ON CONFLICT(session_id) DO UPDATE SET
+    provider = excluded.provider,
+    source_identity = excluded.source_identity,
+    source_mtime = excluded.source_mtime,
+    updated_at = CURRENT_TIMESTAMP`);
+const insertActivity = db.query(`INSERT OR IGNORE INTO session_activity_events
+  (session_id, provider, occurred_at) VALUES (?, ?, ?)`);
+const insertQuotaObservation = db.query(`INSERT OR IGNORE INTO session_quota_observations
+  (session_id, provider, observed_at, resource_id, used_percent, resets_at, cycle_id, plan_id, plan_source)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
 export type EffortSpanCommit = {
   sessionId: string;
   parserVersion: number;
@@ -201,6 +215,9 @@ export type EffortSpanCommit = {
   contextGaps: number;
   skippedBytes: number;
   coverageState: string;
+  provider: "anthropic" | "codex";
+  activityTimestamps: number[];
+  quotaObservations: EmbeddedQuotaObservation[];
 };
 
 /** One parsed byte span becomes exactly one transaction: grouped rows, counters, resume hash,
@@ -245,12 +262,37 @@ export const commitEffortSpan = db.transaction((commit: EffortSpanCommit) => {
       $total: row.totalTokens,
     });
   }
+  upsertEvidenceMeta.run({
+    $session: commit.sessionId,
+    $provider: commit.provider,
+    $sourceIdentity: commit.sourceIdentity,
+    $sourceMtime: commit.sourceMtime,
+  });
+  for (const occurredAt of commit.activityTimestamps) {
+    insertActivity.run(commit.sessionId, commit.provider, occurredAt);
+  }
+  for (const observation of commit.quotaObservations) {
+    insertQuotaObservation.run(
+      commit.sessionId,
+      commit.provider,
+      observation.observedAt,
+      observation.resourceId,
+      observation.usedPercent,
+      observation.resetsAt,
+      observation.cycleId,
+      observation.planId,
+      observation.planSource,
+    );
+  }
   db.query("UPDATE effort_index_meta SET index_version = index_version + 1 WHERE id = 1").run();
 });
 
 /** A rebuild clears one session's derived rows and state in the same transaction that precedes
  * reading it again from byte zero. */
 export const resetEffortSession = db.transaction((sessionId: string) => {
+  db.query("DELETE FROM session_activity_events WHERE session_id = ?").run(sessionId);
+  db.query("DELETE FROM session_quota_observations WHERE session_id = ?").run(sessionId);
+  db.query("DELETE FROM session_evidence_meta WHERE session_id = ?").run(sessionId);
   db.query("DELETE FROM session_effort_usage WHERE session_id = ?").run(sessionId);
   db.query("DELETE FROM session_effort_state WHERE session_id = ?").run(sessionId);
   db.query("UPDATE effort_index_meta SET index_version = index_version + 1 WHERE id = 1").run();
@@ -259,6 +301,9 @@ export const resetEffortSession = db.transaction((sessionId: string) => {
 /** Removes every derived row. Transcripts, path metadata, annotations, and usage snapshots are
  * untouched. */
 export const deleteEffortDerived = db.transaction(() => {
+  db.query("DELETE FROM session_activity_events").run();
+  db.query("DELETE FROM session_quota_observations").run();
+  db.query("DELETE FROM session_evidence_meta").run();
   db.query("DELETE FROM session_effort_usage").run();
   db.query("DELETE FROM session_effort_state").run();
   db.query("UPDATE effort_index_meta SET enabled = 0, index_version = index_version + 1, indexed_at = NULL, last_error = NULL WHERE id = 1").run();

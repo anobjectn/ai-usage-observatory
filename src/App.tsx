@@ -143,6 +143,7 @@ import type {
   ProjectTrendRow,
   Session,
   SessionDetail,
+  SessionQuotaContext,
   AnthropicWebCredits,
   QuotaProvider,
   WarpSessionStats,
@@ -4634,6 +4635,78 @@ function SessionTranscriptEntry({
   );
 }
 
+function quotaResourceLabel(id: string) {
+  if (id === "fiveHour") return "5-hour window";
+  if (id === "weekly") return "Weekly window";
+  if (id === "monthly") return "Monthly pool";
+  return id;
+}
+
+function quotaNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
+}
+
+export function SessionQuotaContextPanel({ context }: { context: SessionQuotaContext }) {
+  const providerLabel = context.provider === "anthropic" ? "Claude" : context.provider === "codex" ? "Codex" : "Warp";
+  const sameProvider = context.concurrency.distinctOtherSameProviderSessions;
+  const evidence = context.basis === "embedded_account_observation" ? "Embedded snapshots" : "Bracketed snapshots";
+  return (
+    <section className={`session-quota-context is-${context.confidence}`} aria-labelledby="session-quota-context-title">
+      <header>
+        <div>
+          <span className="overline">Account quota context</span>
+          <h4 id="session-quota-context-title">Observed during this active session</h4>
+        </div>
+        <span className="session-quota-context__confidence">{context.confidence} confidence</span>
+      </header>
+      {context.resources.length > 0 && context.confidence !== "insufficient" ? (
+        <div className="session-quota-context__resources">
+          {context.resources.map((resource) => {
+            const movement = !resource.measurable
+              ? "No measurable increase"
+              : resource.kind === "pool" && resource.deltaUnits !== null
+                ? `+${quotaNumber(resource.deltaUnits)} credits${resource.deltaPercentagePoints === null ? "" : ` · +${quotaNumber(resource.deltaPercentagePoints)} pp`}`
+                : resource.deltaPercentagePoints === null
+                  ? "Movement unavailable"
+                  : `+${quotaNumber(resource.deltaPercentagePoints)} pp`;
+            return (
+              <div key={resource.id}>
+                <span>{quotaResourceLabel(resource.id)}</span>
+                <strong title={resource.deltaPercentagePoints === null ? undefined : `${resource.deltaPercentagePoints} percentage points`}>{movement}</strong>
+                <small>
+                  {resource.cycleCount} resolved {resource.cycleCount === 1 ? "cycle" : "cycles"}
+                  {resource.limitChanged ? " · pool limit changed" : ""}
+                </small>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="session-quota-context__empty">{context.reason ?? "The available observations cannot resolve account movement for this session."}</p>
+      )}
+      <div className="session-quota-context__evidence">
+        <span>{evidence} · {context.confidence} confidence</span>
+        <span>
+          {sameProvider > 0
+            ? `Up to ${context.concurrency.maxOtherSameProviderSessions} other local ${providerLabel} ${context.concurrency.maxOtherSameProviderSessions === 1 ? "session" : "sessions"} overlapped`
+            : `No other local ${providerLabel} session overlap detected`}
+        </span>
+      </div>
+      <details>
+        <summary>How to read this</summary>
+        <p>
+          These are account or seat-level observations, not charges assigned to this thread. Provider web, mobile, cloud,
+          another machine, or another local process may have contributed. Local concurrency is incomplete and external
+          activity is unknown. Overlapping session values are not additive.
+        </p>
+        {context.concurrency.distinctOtherProviderSessions > 0 && (
+          <p>{context.concurrency.distinctOtherProviderSessions} local session on another provider also overlapped.</p>
+        )}
+      </details>
+    </section>
+  );
+}
+
 export function SessionDetailPanel({
   session,
   detail,
@@ -4855,6 +4928,7 @@ export function SessionDetailPanel({
           </>
         )}
       </div>
+      {detail?.quotaContext && <SessionQuotaContextPanel context={detail.quotaContext} />}
       <div className="session-detail__columns">
         <SessionDetailColumn
           column="prompt"
@@ -7692,6 +7766,9 @@ function QuotaProvenance({
             <a href="/api/quotas" target="_blank" rel="noreferrer" className="text-link">
               Raw normalized quota JSON <ExternalLink />
             </a>
+            <a href="/api/quota-comparisons" target="_blank" rel="noreferrer" className="text-link">
+              Observed tier cohorts <ExternalLink />
+            </a>
           </div>
           {Array.isArray(snapshot?.extra?.rawLimits) && snapshot!.extra!.rawLimits!.length > 0 && (
             <details className="raw-evidence">
@@ -7875,11 +7952,22 @@ function Sources({
             <Gauge />
           </span>
           <span className="overline">PROVIDER QUOTA</span>
-          <h2>{data.quotas.available ? "Connected" : "Not connected"}</h2>
+          <h2>
+            {data.quotas.sourceState === "disabled" ? "Not enabled"
+              : data.quotas.sourceState === "history_only" ? "History only"
+                : data.quotas.sourceState === "degraded" ? "Partially connected"
+                  : data.quotas.available ? "Connected" : "Not connected"}
+          </h2>
           <p>
-            {data.quotas.available
-              ? "Authoritative allowance data from quota-service."
-              : "quota-service is optional and currently unavailable. Analytics continue normally."}
+            {data.quotas.sourceState === "disabled"
+              ? "Optional provider allowance collection is off."
+              : data.quotas.sourceState === "history_only"
+                ? "Recognized read-only history is available. Live collection is off."
+                : data.quotas.sourceState === "degraded"
+                  ? "Valid provider data remains available, but one or more quota sources failed."
+                  : data.quotas.available
+                    ? "Authoritative allowance data from quota-service."
+                    : "Configured quota-service is unreachable. Analytics continue normally."}
           </p>
           <span className="method-chip">
             <i /> provider reported

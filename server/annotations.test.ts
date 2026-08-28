@@ -64,7 +64,7 @@ describe("migration 4", () => {
 
     runMigrations(legacy, migrations);
 
-    expect(Number((legacy.query("PRAGMA user_version").get() as { user_version: number }).user_version)).toBe(4);
+    expect(Number((legacy.query("PRAGMA user_version").get() as { user_version: number }).user_version)).toBe(6);
     const row = legacy.query("SELECT tags, note, verdict FROM annotations WHERE session_id = 'legacy'").get() as
       { tags: string; note: string; verdict: string | null };
     expect(row).toEqual({ tags: JSON.stringify(["keep"]), note: "still here", verdict: null });

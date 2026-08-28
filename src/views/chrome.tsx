@@ -439,9 +439,13 @@ export function InformationSources({ data }: { data: DashboardData }) {
             quota-service
           </a>
           <span>
-            {data.quotas.available
-              ? "Provider-reported allowance data"
-              : "Optional provider allowance service unavailable; no quota estimate is substituted"}
+            {data.quotas.sourceState === "disabled"
+              ? "Optional provider allowance collection is off"
+              : data.quotas.sourceState === "history_only"
+                ? "Read-only local allowance history; live collection is off"
+                : data.quotas.available
+                  ? "Provider-reported allowance data"
+                  : "Configured provider allowance service is unavailable; no quota estimate is substituted"}
           </span>
         </li>
       </ul>

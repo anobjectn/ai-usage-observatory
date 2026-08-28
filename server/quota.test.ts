@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { collectQuota, importAnthropicWebCredits, summarizeQuotaHistory } from "./quota";
+import { collectQuota, collectRawQuotaHistory, importAnthropicWebCredits, summarizeQuotaHistory } from "./quota";
 
 const realFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = realFetch; });
+const realEnabled = process.env.QUOTA_SERVICE_ENABLED;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  if (realEnabled === undefined) delete process.env.QUOTA_SERVICE_ENABLED;
+  else process.env.QUOTA_SERVICE_ENABLED = realEnabled;
+});
 
 function stubFetch(handler: (url: string, init?: RequestInit) => { status?: number; body: unknown }) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -50,6 +55,54 @@ describe("collectQuota field preservation", () => {
     expect(provider.snapshot.extra.rawLimits).toEqual([{ kind: "weekly", percent: 10 }]);
     expect(provider.anthropicWebCredits.nextExpiresOn).toBe("2026-09-19");
   });
+
+  test("keeps successful endpoints and the last valid provider when usage later fails", async () => {
+    stubFetch((url) => {
+      if (url.endsWith("/usage")) return { status: 503, body: {} };
+      if (url.endsWith("/resets")) return { body: { codexBankedResetCredits: { credits: [] } } };
+      return { body: { ok: true } };
+    });
+    const result = await collectQuota();
+    expect(result.available).toBe(true);
+    expect(result.sourceState).toBe("degraded");
+    expect(result.resets).toBeDefined();
+    expect((result.usage as { providers: unknown[] }).providers).toHaveLength(1);
+    expect(result.error).toContain("/usage returned 503");
+  });
+
+  test("stays quiet when optional quota collection is explicitly disabled", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; return new Response("{}"); }) as unknown as typeof fetch;
+    process.env.QUOTA_SERVICE_ENABLED = "0";
+    const result = await collectQuota();
+    expect(result.sourceState).toBe("disabled");
+    expect(calls).toBe(0);
+  });
+});
+
+test("raw history adapter prefers the paginated normalized API", async () => {
+  stubFetch((url) => {
+    expect(url).toContain("/history?");
+    return { body: {
+      provider: "anthropic",
+      earliestObservationAt: 100,
+      historyVersion: 7,
+      retentionDays: null,
+      retentionMode: "forever",
+      nextCursor: null,
+      observations: [{
+        schemaVersion: 1, provider: "anthropic", capturedAt: 200, observedAt: 150,
+        timeSource: "provider", status: "ok", source: "anthropic_api",
+        plan: { id: null, label: null, source: "unknown", effectiveFrom: null },
+        quota: { kind: "windows", windows: [{ id: "fiveHour", usedPercent: 20, resetsAt: 500, cycleId: "reset:480" }] },
+      }],
+    } };
+  });
+  const result = await collectRawQuotaHistory("anthropic", 0, 1_000);
+  expect(result).toMatchObject({
+    available: true, sourceState: "connected", historyVersion: 7, earliestObservationAt: 100,
+  });
+  expect(result.observations[0]?.observedAt).toBe(150);
 });
 
 describe("importAnthropicWebCredits proxy", () => {

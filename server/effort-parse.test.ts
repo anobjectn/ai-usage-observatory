@@ -130,6 +130,59 @@ describe("Claude attribution contract", () => {
 });
 
 describe("Codex attribution contract", () => {
+  test("classifies embedded quota windows by duration and converts reset seconds to milliseconds", () => {
+    const line = JSON.stringify({
+      timestamp: "2026-07-01T15:01:00.000Z",
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        rate_limits: {
+          primary: { used_percent: 25.5, window_minutes: 10_080, resets_at: 1_788_460_725 },
+          secondary: { used_percent: 49.25, window_minutes: 300, resets_at: 1_787_940_980 },
+        },
+      },
+    });
+    const { accumulator } = run([line], "codex");
+    expect(accumulator.quotaObservations).toEqual([
+      {
+        observedAt: Date.parse("2026-07-01T15:01:00.000Z"),
+        resourceId: "weekly",
+        usedPercent: 25.5,
+        resetsAt: 1_788_460_725_000,
+        cycleId: "reset:1788460680000",
+        planId: null,
+        planSource: "unknown",
+      },
+      {
+        observedAt: Date.parse("2026-07-01T15:01:00.000Z"),
+        resourceId: "fiveHour",
+        usedPercent: 49.25,
+        resetsAt: 1_787_940_980_000,
+        cycleId: "reset:1787940960000",
+        planId: null,
+        planSource: "unknown",
+      },
+    ]);
+  });
+
+  test("accepts one embedded quota window and ignores replayed parent quota history", () => {
+    const quota = (percent: number) => JSON.stringify({
+      timestamp: "2026-07-01T15:01:00.000Z",
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        rate_limits: { primary: { used_percent: percent, window_minutes: 300, resets_at: 1_787_940_980 } },
+      },
+    });
+    const { accumulator } = run([
+      JSON.stringify({ type: "session_meta", payload: { id: "child" } }),
+      quota(10.5),
+      JSON.stringify({ type: "session_meta", payload: { id: "parent" } }),
+      quota(99),
+    ], "codex");
+    expect(accumulator.quotaObservations.map((row) => row.usedPercent)).toEqual([10.5]);
+  });
+
   test("turn_context establishes state and counts one observation even with no later usage", () => {
     const { accumulator, rows } = run([codexTurnContext({ effort: "high" })], "codex");
     expect(rows).toHaveLength(1);

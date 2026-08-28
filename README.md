@@ -299,10 +299,19 @@ by the user to that local database; it receives no browser cookies or account
 credentials and does not contact Claude Web on the user's behalf.
 
 The Observatory reads `~/.quota-service/quota.db` directly and read-only for
-historical quota percentages, observed reaches, and inferred reset-credit use.
-The provided service retains 90 days of history by default while always keeping
-the latest row for each provider. Changing its `QUOTA_RETENTION_DAYS` setting
-changes how much historical analysis is available.
+historical quota percentages, observed reaches, inferred reset-credit use, and
+session quota context when the history API is unavailable. The documented
+quota-service setup uses `QUOTA_RETENTION_DAYS=forever`. A positive value opts
+into destructive pruning on the next service poll, which shortens the history
+available to this app.
+
+Session detail can show account allowance movement observed during one active
+session. It never labels account movement as consumption by that thread. The
+view reports coverage, confidence, resolved quota cycles, same-provider local
+overlap, and the fact that external activity is unknown. Codex uses embedded
+account observations from the incremental transcript index. Claude uses
+bracketed quota history. Warp uses its monthly pool history and local query and
+task-update timestamps. Values from overlapping sessions are not additive.
 
 <details>
 <summary><strong>BYOQS — Bring Your Own Quota Service</strong> (advanced compatibility contract)</summary>
@@ -314,10 +323,9 @@ derived usage totals.
 **Connection requirements**
 
 The Observatory requests `/usage`, `/resets`, and `/status` concurrently with a
-four-second timeout per request. Each endpoint must return a successful response
-containing valid JSON; otherwise the live quota source is marked unavailable.
-`/status` participates in that connection-health check and may return any JSON
-value.
+four-second timeout per request. Each endpoint fails independently. A failure
+does not discard valid data from the other endpoints or the last valid provider
+observation. `/status` may return any JSON value.
 
 **`GET /usage`**
 
@@ -439,16 +447,23 @@ result and refreshes quota data after success. This endpoint is not required for
 the three-GET live quota connection; without it, only the manual Claude Web
 credit workflow is unavailable.
 
-**Optional local history**
+**Normalized history**
 
-History is not fetched through the HTTP contract. The Observatory opens a
-compatible SQLite database at `QUOTA_DB_PATH`; when the quota URL hostname is
+Implement `GET /history?provider=<id>&from=<ms>&to=<ms>`. A request names one
+provider, spans at most 31 days, and uses stable cursor pagination. The response
+contains chronological version-1 normalized observations, the earliest
+available observation, retention mode, a row-ID-based `historyVersion`, and an
+optional `nextCursor`. History reads must not trigger collection.
+
+For compatibility with older local services, the Observatory can open a
+recognized SQLite database at `QUOTA_DB_PATH`. When the quota URL hostname is
 `127.0.0.1` or `localhost` and that variable is unset, it uses
-`~/.quota-service/quota.db`. For any other hostname, history stays disabled
-unless `QUOTA_DB_PATH` is set explicitly.
+`~/.quota-service/quota.db`. For any other hostname, the fallback stays disabled
+unless `QUOTA_DB_PATH` is set explicitly. The fallback is read-only and never
+migrates the quota database.
 
-Compatibility requires the `snapshots` table fields `provider`, `status`,
-`captured_at`, and `snapshot_json`, plus the `reset_credits` fields `status`,
+Fallback compatibility requires the `snapshots` table fields `id`, `provider`,
+`status`, `source`, `data_as_of`, `captured_at`, and `snapshot_json`, plus the `reset_credits` fields `status`,
 `captured_at`, and `credits_json`. `snapshot_json` must contain the window shape
 described above, and `credits_json` must contain an array of reset-credit
 objects. Only `ok` and `stale` rows are analyzed. A quota reach is counted once

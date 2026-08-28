@@ -277,7 +277,18 @@ async function buildSnapshot() {
           : warp.error ?? "Warp's local session database is unavailable",
         kind: "local metadata",
       },
-      { name: "quota-service", status: quota.available ? "healthy" : "unavailable", detail: quota.available ? "Provider-reported limits connected" : quota.error, kind: "provider quota" },
+      {
+        name: "quota-service",
+        status: quota.sourceState === "connected" ? "healthy"
+          : quota.sourceState === "degraded" || quota.sourceState === "history_only" ? "degraded"
+            : quota.sourceState === "disabled" ? "disabled" : "unavailable",
+        detail: quota.sourceState === "connected" ? "Provider-reported limits connected"
+          : quota.sourceState === "history_only" ? "Read-only local history available; live collection is off"
+            : quota.sourceState === "degraded" ? `Some quota sources failed; valid provider data was preserved${quota.error ? ` · ${quota.error}` : ""}`
+              : quota.sourceState === "disabled" ? "Optional quota collection is off"
+                : quota.error ?? "Configured quota-service could not be reached",
+        kind: "provider quota",
+      },
     ],
   };
 }

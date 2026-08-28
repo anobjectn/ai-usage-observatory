@@ -306,6 +306,48 @@ test("session detail columns render in the requested order and default state", (
   expect(sessionModelNames(mixedSession)).toEqual(["gpt-test", "gpt-second"]);
 });
 
+test("session quota context uses account-level, non-additive language", () => {
+  const html = renderToStaticMarkup(
+    createElement(SessionDetailPanel, {
+      session: session({}),
+      loading: false,
+      effortStatus: null,
+      detail: {
+        available: true,
+        prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 2,
+        quotaContext: {
+          provider: "codex",
+          basis: "embedded_account_observation",
+          resources: [{
+            id: "fiveHour", kind: "window", unit: "percentage_points",
+            deltaPercentagePoints: 49.25, deltaUnits: null, cycleCount: 1,
+            measurable: true, limitChanged: false,
+            episodes: [{
+              cycleId: "reset:1", startUsedPercent: 50.5, endUsedPercent: 99.75,
+              deltaPercentagePoints: 49.25, startUsedUnits: null, endUsedUnits: null, deltaUnits: null,
+            }],
+          }],
+          concurrency: {
+            distinctOtherSameProviderSessions: 2, maxOtherSameProviderSessions: 2,
+            distinctOtherProviderSessions: 1, maxOtherProviderSessions: 1, externalActivity: "unknown",
+          },
+          coverage: {
+            startGapMs: 1_000, endGapMs: 1_000, activeDurationCoveredPercent: 95,
+            snapshotCount: 2, historyReachesSession: true,
+          },
+          confidence: "high", additive: false, reason: null, sourceState: "connected",
+        },
+      },
+    }),
+  );
+
+  expect(html).toContain("+49.3 pp");
+  expect(html).toContain("Up to 2 other local Codex sessions overlapped");
+  expect(html).toContain("account or seat-level observations");
+  expect(html).toContain("Overlapping session values are not additive");
+  expect(html).not.toContain("this session consumed");
+});
+
 test("projectModelSessionRows keeps only sessions that touched the model, newest first", () => {
   const rows = projectModelSessionRows(
     [

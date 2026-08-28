@@ -60,6 +60,7 @@ export type Session = MetricRow & {
   annotation: SessionAnnotation;
   source?: "ccusage" | "warp";
   warp?: WarpSessionStats;
+  activityIntervals?: Array<{ startAt: number; endAt: number }>;
 };
 export type SessionDetail = {
   available: boolean;
@@ -77,6 +78,7 @@ export type SessionDetail = {
   eventsRead: number;
   /** Null when transcript-derived indexing is disabled or this session has no derived rows. */
   effort?: EffortSummary | null;
+  quotaContext?: SessionQuotaContext | null;
 };
 /** Orthogonal status fields. One enum must not try to represent combinations such as
  * "indexing with partial coverage and stale rows". */
@@ -364,6 +366,86 @@ export type QuotaHistory = {
   series?: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";capturedAt:number;usedPercent:number;resetsAt:number|null;cycleId:string}>;
   codexBankedResets: {usedCount:number;used:Array<{id:string;title:string;usedAt:number}>};
 };
+export type QuotaObservation = {
+  schemaVersion: 1;
+  provider: "anthropic" | "codex" | "warp";
+  capturedAt: number;
+  observedAt: number;
+  timeSource: "provider" | "source_mtime" | "collector";
+  status: "ok" | "stale";
+  source: string;
+  plan: {
+    id: string | null;
+    label: string | null;
+    source: "provider" | "configured" | "unknown";
+    effectiveFrom: number | null;
+  };
+  quota:
+    | {
+        kind: "windows";
+        windows: Array<{
+          id: "fiveHour" | "weekly" | string;
+          usedPercent: number;
+          resetsAt: number | null;
+          cycleId: string;
+        }>;
+      }
+    | {
+        kind: "pool";
+        pool: {
+          id: "monthly" | string;
+          usedUnits: number;
+          limitUnits: number;
+          unit: "warp_credit" | "unknown";
+          unitSource: "provider_docs_and_local_schema" | "local_schema" | "unknown";
+          usedPercent: number;
+          refreshesAt: number | null;
+          cadence: string | null;
+          cycleId: string;
+        };
+      };
+};
+export type SessionQuotaContext = {
+  provider: "anthropic" | "codex" | "warp";
+  basis: "embedded_account_observation" | "bracketed_account_delta";
+  resources: Array<{
+    id: "fiveHour" | "weekly" | "monthly" | string;
+    kind: "window" | "pool";
+    unit: "percentage_points" | "warp_credit" | "unknown";
+    deltaPercentagePoints: number | null;
+    deltaUnits: number | null;
+    cycleCount: number;
+    measurable: boolean;
+    limitChanged: boolean;
+    episodes: Array<{
+      cycleId: string;
+      startUsedPercent: number;
+      endUsedPercent: number;
+      deltaPercentagePoints: number | null;
+      startUsedUnits: number | null;
+      endUsedUnits: number | null;
+      deltaUnits: number | null;
+    }>;
+  }>;
+  concurrency: {
+    distinctOtherSameProviderSessions: number;
+    maxOtherSameProviderSessions: number;
+    distinctOtherProviderSessions: number;
+    maxOtherProviderSessions: number;
+    externalActivity: "unknown";
+  };
+  coverage: {
+    startGapMs: number | null;
+    endGapMs: number | null;
+    activeDurationCoveredPercent: number;
+    snapshotCount: number;
+    historyReachesSession: boolean;
+  };
+  confidence: "high" | "medium" | "low" | "insufficient";
+  additive: false;
+  reason: string | null;
+  sourceState: "disabled" | "history_only" | "connected" | "degraded" | "unreachable";
+};
 export type WarpDailyUsage = {
   date: string;
   sessions: number;
@@ -401,7 +483,7 @@ export type DashboardData = {
   models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:string[];priced:boolean;warpCredits?:number}>;
   /** Models ccusage had no rate card for; their tokens are real but excluded from every cost total. */
   unpricedModels: string[];
-  quotas: {available:boolean;usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;history?:QuotaHistory;status?:unknown;error?:string;collectedAt:string};
+  quotas: {available:boolean;sourceState?:"disabled"|"history_only"|"connected"|"degraded"|"unreachable";usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;history?:QuotaHistory;status?:unknown;error?:string;collectedAt:string};
   warp: WarpData;
   rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;
   settings: Record<string,string>;
