@@ -353,7 +353,7 @@ export function headroomOrbitRate(percent: number | null): number {
   return MIN_ORBIT_RATE + (MAX_ORBIT_RATE - MIN_ORBIT_RATE) * eased;
 }
 
-export function HeadroomOrrery({ accent, effects, providerColors, headroom }: { accent: string; effects: SceneEffects; providerColors: ProviderColors; headroom: ProviderHeadroom[] }) {
+export function HeadroomOrrery({ accent, effects, providerColors, headroom, interactive = true }: { accent: string; effects: SceneEffects; providerColors: ProviderColors; headroom: ProviderHeadroom[]; interactive?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const propsRef = useRef({ accent, effects, providerColors, headroom });
   const dirtyRef = useRef(true);
@@ -584,10 +584,14 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom }: { 
       if (now - moveTime > 120) { camera.vyaw = 0; camera.vpitch = 0; }
       camera.lastInput = now;
     };
-    canvas.addEventListener("pointerdown", down);
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    // A second mounted orrery must not also feed the shared camera — window-level
+    // move handlers from every instance would each apply the same drag delta.
+    if (interactive) {
+      canvas.addEventListener("pointerdown", down);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+    }
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
@@ -597,7 +601,7 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom }: { 
       window.removeEventListener("pointercancel", up);
     };
   }, []);
-  return <div className="headroom-orrery">
+  return <div className={interactive ? "headroom-orrery" : "headroom-orrery headroom-orrery--static"}>
     <canvas ref={canvasRef} aria-hidden="true" />
     {!effects.tesseract && <div className="scene-icon" aria-hidden="true"><TelescopeIcon /></div>}
     <div className="headroom-orrery__legend" aria-label="Provider quota headroom">

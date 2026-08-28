@@ -80,6 +80,7 @@ import {
   Copy,
   Gauge,
   Layers3,
+  LayoutGrid,
   Menu,
   Orbit,
   Palette,
@@ -239,6 +240,7 @@ const providerColorsStorageKey = "usage-observatory:provider-colors";
 const favoriteAccentsStorageKey = "usage-observatory:favorite-accents";
 const dataTextScaleStorageKey = "usage-observatory:data-text-scale";
 const sidebarCollapsedStorageKey = "usage-observatory:sidebar-collapsed";
+const quickOverviewModeStorageKey = "usage-observatory:quick-overview-mode";
 const defaultDataTextScale = 125;
 
 function faviconHref(accent: string) {
@@ -313,6 +315,18 @@ function savedSidebarCollapsed() {
     return localStorage.getItem(sidebarCollapsedStorageKey) === "true";
   } catch {
     return false;
+  }
+}
+
+export type QuickOverviewMode = "gauges" | "grid";
+
+export function savedQuickOverviewMode(): QuickOverviewMode {
+  try {
+    return localStorage.getItem(quickOverviewModeStorageKey) === "grid"
+      ? "grid"
+      : "gauges";
+  } catch {
+    return "gauges";
   }
 }
 
@@ -9094,6 +9108,271 @@ function BenchmarkModal({ onClose, initialSiteId }: { onClose: () => void; initi
   );
 }
 
+// Only providers that never report (unconfigured) are dropped from the (up to
+// three) sets. A stale provider still appears — its windows may carry no values
+// (e.g. an expired token), but hiding it would misread as "no Anthropic here".
+export function quickOverviewCards(
+  quotas: DashboardData["quotas"],
+): QuotaCard[] {
+  return quotaCards(quotas).filter(
+    (card) =>
+      card.state !== "unavailable" ||
+      card.buckets.some((bucket) => bucket.usedPercent !== null),
+  );
+}
+
+// Countdown ("3h 12m 10s") plus a condensed local stamp ("8/28 7:40p"), or
+// null once the reset moment has passed.
+export function resetCountdownParts(
+  resetAt: number,
+  now: number,
+  withSeconds: boolean,
+): { countdown: string; stamp: string } | null {
+  const remaining = Math.floor((resetAt - now) / 1000);
+  if (remaining <= 0) return null;
+  const days = Math.floor(remaining / 86400);
+  const hours = Math.floor((remaining % 86400) / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (days || hours) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  if (withSeconds) parts.push(`${remaining % 60}s`);
+  const date = new Date(resetAt);
+  const stamp = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours() % 12 || 12}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`;
+  return { countdown: parts.join(" "), stamp };
+}
+
+export function condensedResetCopy(
+  resetAt: number,
+  verb: "resets" | "renews",
+  now: number,
+  withSeconds: boolean,
+) {
+  const parts = resetCountdownParts(resetAt, now, withSeconds);
+  if (!parts) return `${verb} now`;
+  return `${verb} -${parts.countdown} · ${parts.stamp}`;
+}
+
+function ResetCountdown({
+  resetAt,
+  verb,
+  suspended,
+  layout = "inline",
+}: {
+  resetAt: number | null;
+  verb: "resets" | "renews";
+  suspended: boolean;
+  layout?: "inline" | "stacked";
+}) {
+  // Reduced motion drops the ticking seconds; the minute countdown still updates.
+  const reducedMotion = usePrefersReducedMotion();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+  if (suspended)
+    return <small className="quick-overview__reset">suspended</small>;
+  if (resetAt === null) return null;
+  if (layout === "stacked") {
+    const parts = resetCountdownParts(resetAt, now, !reducedMotion);
+    return (
+      <small className="quick-overview__reset quick-overview__reset--stacked">
+        {parts === null ? (
+          `${verb} now`
+        ) : (
+          <>
+            <span>{verb === "renews" ? "renew in" : "reset in"}</span>
+            <b>{parts.countdown}</b>
+            <span>{parts.stamp}</span>
+          </>
+        )}
+      </small>
+    );
+  }
+  return (
+    <small className="quick-overview__reset">
+      {condensedResetCopy(resetAt, verb, now, !reducedMotion)}
+    </small>
+  );
+}
+
+export function QuickOverviewModal({
+  quotas,
+  mode,
+  onModeChange,
+  accent,
+  providerColors,
+  sceneEffects,
+  onClose,
+}: {
+  quotas: DashboardData["quotas"];
+  mode: QuickOverviewMode;
+  onModeChange: (mode: QuickOverviewMode) => void;
+  accent: string;
+  providerColors: ProviderColors;
+  sceneEffects: SceneEffects;
+  onClose: () => void;
+}) {
+  const dialogRef = useModalFocusTrap(onClose);
+  const cards = quickOverviewCards(quotas);
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        className="modal quick-overview-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Quick quota overview"
+        tabIndex={-1}
+      >
+        <button
+          type="button"
+          className="modal-close"
+          onClick={onClose}
+          aria-label="Close quick overview"
+        >
+          <X />
+        </button>
+        {/* The tesseract preference only swaps the orrery's core (hypercube vs
+            telescope), matching the hero orrery; the orrery itself always shows. */}
+        <div className="quick-overview__orrery">
+          <HeadroomOrrery
+            accent={accent}
+            effects={sceneEffects}
+            providerColors={providerColors}
+            headroom={providerHeadroom(quotas)}
+            interactive={false}
+          />
+        </div>
+        {cards.length === 0 ? (
+          <p className="quick-overview__empty">
+            No provider quota windows are currently reported.
+          </p>
+        ) : mode === "gauges" ? (
+          <div className="quick-overview__providers">
+            {cards.map((card) => (
+              <section
+                className={`quick-overview__provider ${card.provider} ${card.state}`}
+                key={card.provider}
+              >
+                <header>
+                  <span>{card.providerLabel}</span>
+                  <i>{card.state === "ok" ? "current" : card.state}</i>
+                </header>
+                <div className="quick-overview__dials">
+                  {card.buckets.map((bucket) => {
+                    const percent =
+                      bucket.usedPercent === null
+                        ? null
+                        : Math.max(0, Math.min(100, bucket.usedPercent));
+                    return (
+                      <div
+                        className={`quick-overview__dial ${bucket.state}`}
+                        key={bucket.id}
+                        aria-label={`${card.providerLabel} ${bucket.windowLabel}: ${percent === null ? bucket.state : `${percent.toFixed(0)}% used`}`}
+                      >
+                        <div
+                          className="quota-dial"
+                          style={
+                            {
+                              "--used": `${percent ?? 0}%`,
+                            } as React.CSSProperties
+                          }
+                        >
+                          <div>
+                            <strong>
+                              {percent === null ? "—" : `${percent.toFixed(0)}%`}
+                            </strong>
+                            <span>
+                              {percent === null ? bucket.state : "used"}
+                            </span>
+                          </div>
+                        </div>
+                        <small>{bucket.windowLabel}</small>
+                        <ResetCountdown
+                          resetAt={bucket.resetAt}
+                          verb={bucket.resetVerb}
+                          suspended={bucket.state === "suspended"}
+                          layout="stacked"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="quick-overview__groups">
+            {cards.map((card) => (
+              <section
+                className={`quick-overview__group ${card.provider} ${card.state}`}
+                key={card.provider}
+              >
+                <header>
+                  <span>{card.providerLabel}</span>
+                  <i>{card.state === "ok" ? "current" : card.state}</i>
+                </header>
+                {card.buckets.map((bucket) => {
+                  const percent =
+                    bucket.usedPercent === null
+                      ? null
+                      : Math.max(0, Math.min(100, bucket.usedPercent));
+                  return (
+                    <div
+                      className={`quick-overview__row ${bucket.state}`}
+                      key={bucket.id}
+                    >
+                      <b>{bucket.windowLabel}</b>
+                      <strong>
+                        {percent === null ? "—" : `${percent.toFixed(0)}%`}
+                      </strong>
+                      <ResetCountdown
+                        resetAt={bucket.resetAt}
+                        verb={bucket.resetVerb}
+                        suspended={bucket.state === "suspended"}
+                      />
+                    </div>
+                  );
+                })}
+              </section>
+            ))}
+          </div>
+        )}
+        <div
+          className="quick-overview__mode"
+          role="group"
+          aria-label="Overview layout"
+        >
+          <button
+            type="button"
+            className="accent-icon-button"
+            aria-pressed={mode === "gauges"}
+            onClick={() => onModeChange("gauges")}
+          >
+            <Gauge /> Gauges
+          </button>
+          <button
+            type="button"
+            className="accent-icon-button"
+            aria-pressed={mode === "grid"}
+            onClick={() => onModeChange("grid")}
+          >
+            <LayoutGrid /> Grid
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RulesModal({
   data,
   onClose,
@@ -9229,6 +9508,10 @@ export function App() {
   const [appearance, setAppearance] = useState(false);
   const [webImport, setWebImport] = useState(false);
   const [benchmarkSite, setBenchmarkSite] = useState<BenchmarkSiteId | null>(null);
+  const [quickOverview, setQuickOverview] = useState(false);
+  const [quickOverviewMode, setQuickOverviewMode] = useState<QuickOverviewMode>(
+    savedQuickOverviewMode,
+  );
   const [accent, setAccent] = useState(savedAccent);
   const [providerColors, setProviderColors] =
     useState<ProviderColors>(savedProviderColors);
@@ -9254,6 +9537,11 @@ export function App() {
       localStorage.setItem(sidebarCollapsedStorageKey, String(sidebarCollapsed));
     } catch {}
   }, [sidebarCollapsed]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(quickOverviewModeStorageKey, quickOverviewMode);
+    } catch {}
+  }, [quickOverviewMode]);
   useEffect(() => {
     if (!sidebarCollapsed) cancelSidebarHover();
   }, [cancelSidebarHover, sidebarCollapsed]);
@@ -9612,6 +9900,15 @@ export function App() {
             <b>{current.label}</b>
           </div>
           <div className="global-controls">
+            <button
+              type="button"
+              className="quick-overview-button"
+              onClick={() => setQuickOverview(true)}
+              title="Quick quota overview"
+              aria-label="Open quick quota overview"
+            >
+              <Gauge />
+            </button>
             <BenchmarkSplitLauncher onOpen={setBenchmarkSite} />
             {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
                 label would forward stray clicks into the first of them. */}
@@ -9824,6 +10121,17 @@ export function App() {
         <BenchmarkModal
           initialSiteId={benchmarkSite}
           onClose={() => setBenchmarkSite(null)}
+        />
+      )}
+      {quickOverview && (
+        <QuickOverviewModal
+          quotas={data.quotas}
+          mode={quickOverviewMode}
+          onModeChange={setQuickOverviewMode}
+          accent={accent}
+          providerColors={providerColors}
+          sceneEffects={sceneEffects}
+          onClose={() => setQuickOverview(false)}
         />
       )}
       {sidebar && <div className="scrim" onClick={() => setSidebar(false)} />}
