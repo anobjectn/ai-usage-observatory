@@ -10,6 +10,7 @@ import { ExternalOpenError, externalOpenOriginAllowed, isExternalOpenAction, ope
 import { buildEffortAggregate, buildEffortComboBoard, buildEffortComboDays, buildEffortSessionDigest, buildEffortStatus, buildSessionEffortSummary, clearEffortMemo, effortEtag, memoizedBody, resolveEffortGroup, resolveEffortScope, scopeKey } from "./effort-api";
 import { scheduleEffortIndexing } from "./effort-index";
 import { deleteEffortDerived, setEffortEnabled } from "./effort-store";
+import { requestHostAllowed } from "./request-host";
 import { createRule, deleteRule, getAnnotationVersion, getSettings, isVerdict, listAdvice, listRules, setAnnotationText, setSettings, setVerdict, updateAdviceState, updateRule } from "./store";
 
 const port = Number(process.env.PORT ?? 4318);
@@ -44,12 +45,6 @@ async function body(request: Request) {
 
 function errorResponse(error: unknown, status = 500) {
   return json({ error: error instanceof Error ? error.message : String(error) }, status);
-}
-
-function isLoopbackHost(host: string | null) {
-  if (!host) return false;
-  try { return ["127.0.0.1", "::1", "localhost"].includes(new URL(`http://${host}`).hostname); }
-  catch { return false; }
 }
 
 function isWithin(directory: string, target: string) {
@@ -172,7 +167,7 @@ async function api(request: Request, url: URL) {
   const externalOpenMatch = path.match(/^\/api\/sessions\/([^/]+)\/external-open$/);
   if (externalOpenMatch && request.method === "POST") {
     if (!externalOpenOriginAllowed(request.headers))
-      return errorResponse("External-open requests must come from this local app.", 403);
+      return errorResponse("External-open requests must come from an allowed app origin.", 403);
     const input = await body(request);
     if (!isExternalOpenAction(input.action))
       return errorResponse("A valid external-open action is required.", 400);
@@ -240,7 +235,7 @@ const server = Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
     try {
-      if (!isLoopbackHost(request.headers.get("host"))) return errorResponse("Forbidden host", 403);
+      if (!requestHostAllowed(request.headers.get("host"))) return errorResponse("Forbidden host", 403);
       if (url.pathname.startsWith("/api/")) return await api(request, url);
       const dist = resolve(process.cwd(), "dist");
       if (existsSync(dist)) {

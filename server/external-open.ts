@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { getSessionDetail } from "./session-detail";
 import { getSessionSource } from "./path-indexer";
+import { hostnameAllowed, parseAllowedHosts, requestHostIsLoopback } from "./request-host";
 
 export const externalOpenActions = [
   "reveal",
@@ -30,17 +31,17 @@ export function isExternalOpenAction(
   return externalOpenActions.includes(value as ExternalOpenAction);
 }
 
-/** Browser POSTs carry Origin. Reject cross-site callers before allowing a localhost request to
- * launch a desktop app; origin-less local clients such as curl remain usable. */
-export function externalOpenOriginAllowed(headers: Headers) {
+/** Browser POSTs carry Origin. Reject cross-site callers before allowing an approved app origin
+ * to launch a desktop app; origin-less local clients such as curl remain usable. */
+export function externalOpenOriginAllowed(headers: Headers, allowedHosts = parseAllowedHosts()) {
   if (headers.get("sec-fetch-site") === "cross-site") return false;
   const origin = headers.get("origin");
-  if (!origin) return true;
+  if (!origin) return requestHostIsLoopback(headers.get("host"));
   try {
     const url = new URL(origin);
     return (
       ["http:", "https:"].includes(url.protocol) &&
-      ["127.0.0.1", "::1", "localhost"].includes(url.hostname)
+      hostnameAllowed(url.hostname, allowedHosts)
     );
   } catch {
     return false;

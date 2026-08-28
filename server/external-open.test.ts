@@ -18,6 +18,21 @@ describe("external-open request boundary", () => {
     ).toBe(true);
     expect(
       externalOpenOriginAllowed(
+        new Headers({ origin: "https://mac.tailnet.ts.net" }),
+        ["mac.tailnet.ts.net"],
+      ),
+    ).toBe(true);
+    expect(
+      externalOpenOriginAllowed(new Headers({ host: "127.0.0.1:4318" })),
+    ).toBe(true);
+    expect(
+      externalOpenOriginAllowed(
+        new Headers({ host: "mac.tailnet.ts.net" }),
+        ["mac.tailnet.ts.net"],
+      ),
+    ).toBe(false);
+    expect(
+      externalOpenOriginAllowed(
         new Headers({
           origin: "https://example.com",
           "sec-fetch-site": "cross-site",

@@ -51,6 +51,39 @@ bun run start
 
 Open `http://127.0.0.1:4318`.
 
+### Private remote access with Tailscale
+
+Remote access is disabled by default. AI Usage Observatory stays bound to
+localhost unless you explicitly allow a remote hostname. To expose it privately
+through [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve),
+add the Mac's exact Tailscale DNS name to an ignored `.env.local` file without a
+scheme or port:
+
+```dotenv
+USAGE_OBSERVATORY_ALLOWED_HOSTS=your-mac.your-tailnet.ts.net
+```
+
+For the development server, run AIUO normally and proxy its frontend:
+
+```bash
+bun run dev
+tailscale serve --bg http://127.0.0.1:5173
+```
+
+For a production build, proxy the combined server instead:
+
+```bash
+bun run build
+bun run start
+tailscale serve --bg http://127.0.0.1:4318
+```
+
+Open the HTTPS URL printed by Tailscale on another device in the same tailnet.
+Multiple exact hostnames may be separated with commas. Wildcards are rejected.
+Do not use Tailscale Funnel. Observatory responses can include private session
+details. Browser actions that open local files accept an approved remote browser
+origin, but originless requests for those actions remain restricted to localhost.
+
 To update a clone, run `git pull` followed by `bun install`. A downloaded copy
 must be replaced with a newer one.
 
