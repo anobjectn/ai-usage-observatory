@@ -1,6 +1,6 @@
 import type { MetricRow } from "./types";
 
-export type PresetMetricRange = "1" | "7" | "14" | "30" | "120" | "all";
+export type PresetMetricRange = "1" | "3" | "7" | "14" | "30" | "120" | "all";
 export type MetricRange = PresetMetricRange | "custom";
 export type DateRange = { from: string; to: string };
 

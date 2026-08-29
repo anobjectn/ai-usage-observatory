@@ -61,13 +61,14 @@ export function Segmented({
 }
 
 const timeOptions = [
-  { value: "1", short: "1d", long: "1 day" },
-  { value: "7", short: "7d", long: "7 days" },
-  { value: "14", short: "14d", long: "14 days" },
-  { value: "30", short: "30d", long: "30 days" },
-  { value: "120", short: "120d", long: "120 days" },
-  { value: "all", short: "All", long: "All time" },
-] satisfies Array<{ value: MetricRange; short: string; long: string }>;
+  { value: "1", short: "1d" },
+  { value: "3", short: "3d" },
+  { value: "7", short: "7d" },
+  { value: "14", short: "14d" },
+  { value: "30", short: "30d" },
+  { value: "120", short: "120d" },
+  { value: "all", short: "All" },
+] satisfies Array<{ value: MetricRange; short: string }>;
 
 export function TimeRangeControl({
   value,
@@ -75,7 +76,6 @@ export function TimeRangeControl({
   availableRange,
   resolvedRange,
   onChange,
-  expandedLabels = false,
   label = "Dashboard time span",
 }: {
   value: MetricRange;
@@ -83,7 +83,6 @@ export function TimeRangeControl({
   availableRange: DateRange | null;
   resolvedRange: DateRange | null;
   onChange: (value: MetricRange, customRange?: DateRange) => void;
-  expandedLabels?: boolean;
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -133,7 +132,7 @@ export function TimeRangeControl({
               onChange(option.value);
             }}
           >
-            {expandedLabels ? option.long : option.short}
+            {option.short}
           </button>
         ))}
         <button
@@ -152,7 +151,6 @@ export function TimeRangeControl({
           onClick={() => setOpen((current) => !current)}
         >
           <CalendarRange aria-hidden="true" />
-          <span>{expandedLabels ? "Custom" : "Dates"}</span>
         </button>
       </div>
       {open && (

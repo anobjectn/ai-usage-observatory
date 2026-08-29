@@ -3260,7 +3260,6 @@ function Overview({
               customRange={customRange}
               availableRange={availableRange}
               resolvedRange={dateRange}
-              expandedLabels
               onChange={onMetricRangeChange}
             />
           </div>
