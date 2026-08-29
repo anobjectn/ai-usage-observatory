@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aggregateProjectActivity, aggregateProjects } from "./collector";
+import { aggregateProjectActivity, aggregateProjects, mergeWarp, monthKey, weekKey } from "./collector";
 import { sessionReportKeys, stableSessionId } from "./path-indexer";
 import { blocksReportSchema, unifiedReportSchema } from "./schema";
 
@@ -207,5 +207,65 @@ describe("cross-agent project activity", () => {
     expect(
       projects[0].trend[0].modelBreakdowns.map((model) => model.modelName),
     ).toEqual(["gpt-test", "claude-test"]);
+  });
+});
+
+describe("warp usage in period rows", () => {
+  const warpSession = (lastActivity: string, tokens: number) => ({
+    agent: "warp",
+    period: `warp-${lastActivity}`,
+    inputTokens: tokens,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalTokens: tokens,
+    totalCost: 0,
+    cwd: "/work/observatory",
+    metadata: { lastActivity },
+    modelBreakdowns: [],
+  });
+  const ccusageRow = (period: string) => ({
+    agent: "all",
+    period,
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 20,
+    cacheCreationTokens: 0,
+    totalTokens: 35,
+    totalCost: 0.02,
+    modelsUsed: [],
+    modelBreakdowns: [],
+  });
+
+  test("weekKey buckets any day onto its Monday, matching ccusage weeks", () => {
+    expect(weekKey("2026-08-24")).toBe("2026-08-24");
+    expect(weekKey("2026-08-29")).toBe("2026-08-24");
+    expect(weekKey("2026-08-30")).toBe("2026-08-24");
+    expect(weekKey("2026-01-01")).toBe("2025-12-29");
+    expect(monthKey("2026-08-29")).toBe("2026-08");
+  });
+
+  test("merges warp days into the matching ccusage week and keeps warp-only weeks", () => {
+    const weekly = mergeWarp(
+      [ccusageRow("2026-08-24")],
+      [warpSession("2026-08-25T12:00:00Z", 100), warpSession("2026-08-29T12:00:00Z", 40), warpSession("2026-09-01T12:00:00Z", 7)],
+      "UTC",
+      weekKey,
+    );
+    expect(weekly.map((row) => row.period)).toEqual(["2026-08-24", "2026-08-31"]);
+    expect(weekly[0]).toMatchObject({ agent: "all", inputTokens: 150, totalTokens: 175 });
+    expect(weekly[0].agents?.find((agent) => agent.agent === "warp")?.totalTokens).toBe(140);
+    expect(weekly[1]).toMatchObject({ agent: "warp", inputTokens: 7, totalTokens: 7 });
+  });
+
+  test("merges warp days into the matching ccusage month", () => {
+    const monthly = mergeWarp(
+      [ccusageRow("2026-08")],
+      [warpSession("2026-08-25T12:00:00Z", 100), warpSession("2026-08-29T12:00:00Z", 40)],
+      "UTC",
+      monthKey,
+    );
+    expect(monthly).toHaveLength(1);
+    expect(monthly[0]).toMatchObject({ agent: "all", period: "2026-08", inputTokens: 150, totalTokens: 175 });
   });
 });

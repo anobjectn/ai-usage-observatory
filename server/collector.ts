@@ -136,12 +136,13 @@ export function aggregateProjectActivity(sessions: ProjectActivitySession[], tim
   })).sort((a, b) => a.date.localeCompare(b.date) || b.tokens - a.tokens);
 }
 
-function warpDailyRows(sessions: ProjectActivitySession[], timeZone: string) {
+function warpRows(sessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string) {
   const byDate = new Map<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; totalTokens: number; totalCost: number; models: Map<string, ModelBreakdown> }>();
   for (const session of sessions) {
     if (activityProvider(session.agent) !== "warp") continue;
-    const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
-    if (!date) continue;
+    const rawDate = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
+    if (!rawDate) continue;
+    const date = bucket(rawDate);
     const day = byDate.get(date) ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, totalCost: 0, models: new Map() };
     day.inputTokens += session.inputTokens ?? session.modelBreakdowns.reduce((sum, model) => sum + model.inputTokens, 0);
     day.outputTokens += session.outputTokens ?? session.modelBreakdowns.reduce((sum, model) => sum + model.outputTokens, 0);
@@ -204,9 +205,22 @@ function mergeRows(left: MetricRow, right: MetricRow): MetricRow {
   };
 }
 
-function mergeWarpDaily(base: MetricRow[], warpSessions: ProjectActivitySession[], timeZone: string) {
+// Weekly and monthly buckets must match the calendar ccusage uses for its own
+// weekly/monthly sections: Monday-start weeks and YYYY-MM months in the reporting timezone.
+export function weekKey(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const monday = new Date(Date.UTC(year, month - 1, day));
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  return monday.toISOString().slice(0, 10);
+}
+
+export function monthKey(date: string) {
+  return date.slice(0, 7);
+}
+
+export function mergeWarp(base: MetricRow[], warpSessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date) {
   const rows = new Map(base.map((row) => [row.period, row]));
-  for (const warp of warpDailyRows(warpSessions, timeZone)) {
+  for (const warp of warpRows(warpSessions, timeZone, bucket)) {
     const current = rows.get(warp.period);
     rows.set(warp.period, current ? mergeRows(current, warp) : { ...warp, agents: [warp] });
   }
@@ -237,7 +251,7 @@ async function buildSnapshot() {
     annotation: annotations[session.sessionId] ?? emptyAnnotation(),
   }));
   const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
-  const daily = mergeWarpDaily(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
+  const daily = mergeWarp(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
   const { sessions: _warpSessions, ...warp } = warpCollection;
   return {
     collectedAt: new Date().toISOString(),
@@ -246,8 +260,8 @@ async function buildSnapshot() {
     costMethodology: "ccusage",
     blockScope: "Claude Code",
     daily,
-    weekly: ccusage.unified.weekly,
-    monthly: ccusage.unified.monthly,
+    weekly: mergeWarp(ccusage.unified.weekly as unknown as MetricRow[], sessions, timeZone, weekKey),
+    monthly: mergeWarp(ccusage.unified.monthly as unknown as MetricRow[], sessions, timeZone, monthKey),
     totals: totalsWithWarp(ccusage.unified.totals, warp.totals),
     sessions,
     projectActivity: aggregateProjectActivity(sessions, timeZone),
