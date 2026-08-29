@@ -78,7 +78,22 @@ export type SessionDetail = {
   eventsRead: number;
   /** Null when transcript-derived indexing is disabled or this session has no derived rows. */
   effort?: EffortSummary | null;
+  /** The same derived rows split by model as well as effort. Null in exactly the cases `effort`
+   * is null. */
+  effortCombos?: SessionEffortCombo[] | null;
   quotaContext?: SessionQuotaContext | null;
+};
+
+/** One model × provider-recorded effort inside a single session. `model` is the raw name the
+ * transcript recorded, so it lines up with the session's own model breakdown; `family` is the
+ * collapsed form used for colour and labels. An empty `effort` means the transcript recorded
+ * none — never that the effort was low. */
+export type SessionEffortCombo = {
+  model: string;
+  family: string;
+  effort: string;
+  observations: number;
+  tokens: number;
 };
 /** Orthogonal status fields. One enum must not try to represent combinations such as
  * "indexing with partial coverage and stale rows". */

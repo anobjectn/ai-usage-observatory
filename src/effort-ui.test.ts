@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   decodeEffortDigest,
   effortScopeParams,
@@ -9,7 +11,7 @@ import {
   type DecodedSessionEffort,
 } from "./hooks/use-effort";
 import { comboKey, encodeComboFacet, type Combo } from "./combo";
-import { effortColor, effortLabel, familyColor, familyLabel, sharePercent } from "./components/effort";
+import { EffortCoverage, effortColor, effortLabel, familyColor, familyLabel, sharePercent } from "./components/effort";
 import { effortRank } from "./effort-model";
 import type { EffortSessionDigest } from "./types";
 
@@ -187,5 +189,30 @@ describe("share formatting", () => {
     expect(sharePercent(0, 114_000_000)).toBe("0%");
     expect(sharePercent(113_800_000, 114_000_000)).toBe("100%");
     expect(sharePercent(1, 0)).toBe("—");
+  });
+});
+
+describe("coverage wording", () => {
+  // Every observation carried an effort, but the five of them reach 7% of the session's tokens.
+  // Read as percentages alone that is "100% of 5 observations", which looks like full coverage.
+  const summary = {
+    observedObservations: 5,
+    unknownObservations: 0,
+    observationCoverage: 1,
+    eligibleTokens: 2_772_328,
+    attributedTokens: 197_180,
+    unknownTokens: 2_575_148,
+    tokenCoverage: 0.0711,
+  };
+
+  test("the detailed form gives both percentages their counts", () => {
+    const html = renderToStaticMarkup(createElement(EffortCoverage, { summary, detail: true }));
+    expect(html).toContain("197.2K of 2.8M tokens have a recorded effort (7%)");
+    expect(html).toContain("5 of 5 recorded observations carried one");
+  });
+
+  test("the compact form is unchanged for the views that only have one line", () => {
+    const html = renderToStaticMarkup(createElement(EffortCoverage, { summary }));
+    expect(html).toContain("7% of tokens have a recorded effort · 100% of 5 observations");
   });
 });

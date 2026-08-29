@@ -26,6 +26,7 @@ import {
   EffortStack,
   EffortState,
   EFFORT_HELP,
+  comboColor,
   effortColor,
   effortLabel,
   familyLabel,
@@ -37,12 +38,13 @@ import {
   comboLabel,
   compareComboKeys,
   comboOf,
+  type Combo,
   comboSeriesColor,
   comboSeriesLabel,
   parseComboFacet,
   parseComboKey,
 } from "./combo";
-import { providerFromAgent } from "./provider";
+import { providerFromAgent, providerFromModel, type ActivityProvider } from "./provider";
 import { PageJump } from "./components/page-jump";
 import {
   decodeEffortDigest,
@@ -143,6 +145,7 @@ import type {
   ProjectTrendRow,
   Session,
   SessionDetail,
+  SessionEffortCombo,
   SessionQuotaContext,
   AnthropicWebCredits,
   QuotaProvider,
@@ -5052,7 +5055,6 @@ export function SessionDetailPanel({
   const deletions = warp ? warp.linesRemoved : (detail?.deletions ?? 0);
   const eventsRead = warp ? (detail?.eventsRead || warp.turns) : (detail?.eventsRead ?? 0);
   const toolCalls = tools.reduce((total, tool) => total + tool.count, 0);
-  const mixedModels = models.length > 1;
   const externalItems = (
     target: SessionExternalTarget,
     label: string,
@@ -5356,40 +5358,13 @@ export function SessionDetailPanel({
             <p>No structured tool calls were found.</p>
           )}
         </SessionDetailColumn>
-        <SessionDetailColumn
-          column="models"
-          label="Model Mix"
-          collapsed={collapsedColumns.has("models")}
-          collapsedMeta={mixedModels ? `Mixed, ${models.length} models` : `${models.length} model`}
-          collapsedStats={[
-            { value: formatCompact(models.length), label: "models" },
-            ...(mixedModels
-              ? [{ value: "mixed", tone: "accent" as const }]
-              : []),
-          ]}
-          onToggle={() => toggleColumn("models")}
-          aside={
-            <small>
-              {mixedModels ? `Mixed · ${models.length} models` : `${models.length} model`}
-            </small>
-          }
-        >
-          <ul className="model-list">
-            {models.map((model) => (
-              <li key={model.modelName}>
-                <span>{model.modelName}</span>
-                <b>
-                  {model.tokens === null ? "—" : formatCompact(model.tokens)}
-                </b>
-              </li>
-            ))}
-          </ul>
-        </SessionDetailColumn>
-        <SessionEffortSection
+        <SessionModelEffortSection
+          models={models}
           detail={detail}
+          agent={session.agent}
           status={effortStatus}
-          collapsed={collapsedColumns.has("effort")}
-          onToggle={() => toggleColumn("effort")}
+          collapsed={collapsedColumns.has("models")}
+          onToggle={() => toggleColumn("models")}
         />
         {warp && (
           <SessionDetailColumn
@@ -5448,92 +5423,329 @@ export function SessionDetailPanel({
   );
 }
 
+const sessionProviderLabels: Record<ActivityProvider, string> = {
+  anthropic: "Anthropic",
+  codex: "OpenAI",
+  warp: "Warp",
+};
+
+const sessionProviderColors: Record<ActivityProvider, string> = {
+  anthropic: "var(--anthropic-color)",
+  codex: "var(--openai-color)",
+  warp: "var(--warp-color)",
+};
+
+export type SessionMixCombo = Combo & { tokens: number; observations: number };
+
+export type SessionMixGroup = {
+  provider: ActivityProvider | "unknown";
+  label: string;
+  color: string;
+  /** Null when the usage records carried no token total for one of this provider's models. */
+  tokens: number | null;
+  combos: SessionMixCombo[];
+  attributed: number;
+  /** Provider tokens no model × effort row accounts for. Coverage, not a combo of its own. */
+  unattributed: number;
+};
+
+/** One session's spend as provider totals with model × effort subtotals. A provider total is the
+ * decision-sized number; `High` alone is not a unit, so every subtotal names the model that
+ * recorded it.
+ *
+ * The two levels come from different places and are never summed: a provider total is the
+ * session's own usage record, while the combos under it are read from the transcript. Whatever
+ * the combos do not account for stays visible as `unattributed` rather than being dropped or
+ * folded into the smallest combo. */
+export function sessionProviderMix(
+  models: Array<{ modelName: string; tokens: number | null }>,
+  combos: SessionEffortCombo[],
+  fallbackProvider: ActivityProvider | null,
+) {
+  const groups = new Map<string, SessionMixGroup>();
+  const groupFor = (model: string) => {
+    const provider = providerFromModel(model) ?? fallbackProvider ?? "unknown";
+    const existing = groups.get(provider);
+    if (existing) return existing;
+    const created: SessionMixGroup = {
+      provider,
+      label: provider === "unknown" ? "Unknown provider" : sessionProviderLabels[provider],
+      color: provider === "unknown" ? "var(--line-bright)" : sessionProviderColors[provider],
+      tokens: null,
+      combos: [],
+      attributed: 0,
+      unattributed: 0,
+    };
+    groups.set(provider, created);
+    return created;
+  };
+
+  // A model with no recorded token total leaves its provider total null: a partial sum presented
+  // as a total would understate the provider without saying so.
+  const incomplete = new Set<string>();
+  for (const model of models) {
+    const group = groupFor(model.modelName);
+    if (model.tokens === null) incomplete.add(group.provider);
+    else group.tokens = (group.tokens ?? 0) + model.tokens;
+  }
+  for (const combo of combos) {
+    // The raw name is tried first; a family carries the vendor only when the transcript recorded
+    // a name this app cannot read a provider from.
+    const group = groupFor(providerFromModel(combo.model) ? combo.model : combo.family);
+    const key = comboKey(combo);
+    const existing = group.combos.find((entry) => comboKey(entry) === key);
+    if (existing) {
+      existing.tokens += combo.tokens;
+      existing.observations += combo.observations;
+    } else {
+      group.combos.push({
+        family: combo.family,
+        effort: combo.effort,
+        tokens: combo.tokens,
+        observations: combo.observations,
+      });
+    }
+    group.attributed += combo.tokens;
+  }
+
+  const ordered = [...groups.values()].map((group) => ({
+    ...group,
+    tokens: incomplete.has(group.provider) ? null : group.tokens,
+    combos: group.combos.sort((left, right) =>
+      right.tokens - left.tokens || compareComboKeys(comboKey(left), comboKey(right))),
+    unattributed: incomplete.has(group.provider) || group.tokens === null
+      ? 0
+      : Math.max(0, group.tokens - group.attributed),
+  }));
+  ordered.sort((left, right) =>
+    (right.tokens ?? right.attributed) - (left.tokens ?? left.attributed)
+    || left.label.localeCompare(right.label));
+
+  return {
+    groups: ordered,
+    comboCount: ordered.reduce((count, group) => count + group.combos.length, 0),
+    /** Session total on the usage-record basis, so it matches the provider totals above it. */
+    tokens: ordered.reduce<number | null>(
+      (sum, group) => (sum === null || group.tokens === null ? null : sum + group.tokens),
+      ordered.length ? 0 : null,
+    ),
+  };
+}
+
+/** One provider's total, the combos that made it up, and whatever the combos leave unaccounted
+ * for. Colour is never the only label: each combo names its model and effort as text. */
+export function SessionMixGroupBreakdown({
+  label,
+  title,
+  color,
+  tokens,
+  combos,
+  unattributed = 0,
+}: {
+  label: string;
+  title?: string;
+  color?: string;
+  tokens: number | null;
+  combos: SessionMixCombo[];
+  unattributed?: number;
+}) {
+  const attributed = combos.reduce((sum, combo) => sum + combo.tokens, 0);
+  const basis = attributed + unattributed;
+  const shareText = [
+    ...combos.map((combo) => `${comboLabel(combo)} ${sharePercent(combo.tokens, basis)}`),
+    ...(unattributed > 0 ? [`unattributed ${sharePercent(unattributed, basis)}`] : []),
+  ].join(", ");
+  return (
+    <>
+      <div className="session-mix__head">
+        {color && <i className="session-mix__dot" style={{ background: color }} aria-hidden="true" />}
+        <span title={title ?? label}>{label}</span>
+        <b>{tokens === null ? "—" : formatCompact(tokens)}</b>
+      </div>
+      {basis > 0 && (
+        <div
+          className="session-mix__bar"
+          role="img"
+          aria-label={`${label} by model and effort: ${shareText}`}
+        >
+          {combos
+            .filter((combo) => combo.tokens > 0)
+            .map((combo) => (
+              <i
+                key={comboKey(combo)}
+                style={{ width: `${(combo.tokens / basis) * 100}%`, background: comboColor(combo) }}
+                title={`${comboLabel(combo)} · ${formatCompact(combo.tokens)} tokens · ${sharePercent(combo.tokens, basis)}`}
+              />
+            ))}
+          {unattributed > 0 && (
+            <i
+              className="is-unattributed"
+              style={{ width: `${(unattributed / basis) * 100}%` }}
+              title={`No model × effort recorded · ${formatCompact(unattributed)} tokens · ${sharePercent(unattributed, basis)}`}
+            />
+          )}
+        </div>
+      )}
+      {(combos.length > 0 || unattributed > 0) && (
+        <ul className="session-mix__combos">
+          {combos.map((combo) => (
+            <li
+              key={comboKey(combo)}
+              title={`${comboLabel(combo)} · ${formatCompact(combo.tokens)} tokens · ${formatCompact(combo.observations)} observations · ${sharePercent(combo.tokens, basis)} of ${label}`}
+            >
+              <ComboPill combo={combo} />
+              <b>{formatCompact(combo.tokens)}</b>
+              <small>
+                {sharePercent(combo.tokens, basis)} · {formatCompact(combo.observations)} obs
+              </small>
+            </li>
+          ))}
+          {/* The untagged share is measured the same way as the tagged one. Reporting it as a
+              share and an observation count is what keeps a high observation coverage from
+              reading as full coverage when those observations reach few of the tokens. */}
+          {unattributed > 0 && (
+            <li
+              className="session-mix__unattributed"
+              title={`${formatCompact(unattributed)} ${label} tokens (${sharePercent(unattributed, basis)}) that no recorded observation accounts for, so no effort could be read for them. They stay in the provider total.`}
+            >
+              {/* One neutral slot, not a model × effort pair: neither was recorded for these
+                  tokens. It keeps the pill shape so it reads as part of the same list. */}
+              <span className="split-pill">
+                <span>No effort recorded</span>
+              </span>
+              <b>{formatCompact(unattributed)}</b>
+              <small>{sharePercent(unattributed, basis)} · no observations</small>
+            </li>
+          )}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /** Every known value stays visible for a mixed session; Unknown activity and coverage are never
  * hidden, and provenance says where the numbers came from. */
-function SessionEffortSection({
+function SessionModelEffortSection({
+  models,
   detail,
+  agent,
   status,
   collapsed,
   onToggle,
 }: {
+  models: Array<{ modelName: string; tokens: number | null }>;
   detail: SessionDetail | undefined;
+  agent: string;
   status: EffortIndexStatus | null;
   collapsed: boolean;
   onToggle: () => void;
 }) {
   const summary = detail?.effort ?? null;
   const summaryAvailable = summary && summary.coverageState !== "unavailable";
-  const collapsedStats: SessionDetailSpineStat[] = summaryAvailable
-    ? summary.mixed
-      ? [
-          { value: formatCompact(summary.levels.length), label: "values" },
-          { value: "mixed", tone: "accent" },
-        ]
-      : [{ value: effortLabel(summary.dominant), label: "dominant" }]
-    : [{ value: "—", label: "effort" }];
+  const { groups, comboCount, tokens } = sessionProviderMix(
+    models,
+    detail?.effortCombos ?? [],
+    providerFromAgent(agent),
+  );
+  const providerText = groups.length === 1
+    ? groups[0].label
+    : `${groups.length} provider${groups.length === 1 ? "" : "s"}`;
+  const comboText = summaryAvailable
+    ? `${comboCount} model × effort combo${comboCount === 1 ? "" : "s"}`
+    : "effort unknown";
+  // Partial coverage is named on the rail too. A collapsed column that shows only a dominant
+  // effort would present a 7%-tagged session exactly like a fully tagged one.
+  const partialCoverage = summaryAvailable
+    && summary.tokenCoverage !== null
+    && summary.tokenCoverage < 1;
+  const collapsedStats: SessionDetailSpineStat[] = [
+    summaryAvailable
+      ? { value: formatCompact(comboCount), label: comboCount === 1 ? "combo" : "combos" }
+      : { value: formatCompact(models.length), label: models.length === 1 ? "model" : "models" },
+    summaryAvailable
+      ? summary.mixed
+        ? { value: "mixed", tone: "accent" }
+        : { value: effortLabel(summary.dominant), label: "effort" }
+      : { value: "—", label: "effort" },
+    ...(partialCoverage
+      ? [{
+          value: sharePercent(summary.attributedTokens, summary.eligibleTokens),
+          label: "tagged",
+          tone: "warning" as const,
+        }]
+      : []),
+  ];
   return (
     <SessionDetailColumn
-      column="effort"
-      label="Effort"
+      column="models"
+      label="Models & Effort"
       collapsed={collapsed}
-      collapsedMeta={
-        summaryAvailable
-          ? summary.mixed
-            ? `Mixed, ${summary.levels.length} values`
-            : effortLabel(summary.dominant)
-          : "Unknown"
-      }
+      collapsedMeta={`${providerText}, ${comboText}${partialCoverage ? `, ${sharePercent(summary.attributedTokens, summary.eligibleTokens)} of tokens tagged` : ""}`}
       collapsedStats={collapsedStats}
       onToggle={onToggle}
       title={EFFORT_HELP}
+      // Pills carry a model, an effort, and a value on one line, so this column needs the wider
+      // basis to spell them out rather than ellipsize them.
+      wide
+      className="session-mix"
       aside={
-        summaryAvailable && (
-          <small>
-            {summary.mixed
-              ? `mixed · ${summary.levels.length} values`
-              : `dominant by ${summary.dominantBasis ?? "observations"}`}
-          </small>
-        )
+        <small>
+          {`${providerText} · ${
+            summaryAvailable
+              ? `${comboCount} combo${comboCount === 1 ? "" : "s"}${partialCoverage ? `, ${sharePercent(summary.attributedTokens, summary.eligibleTokens)} tagged` : ""}`
+              : "effort unknown"
+          }`}
+        </small>
       }
     >
+      <ul className="session-mix__providers">
+        {groups.map((group) => (
+          <li key={group.provider}>
+            <SessionMixGroupBreakdown
+              label={group.label}
+              title={
+                group.tokens === null
+                  ? `${group.label} · no token total in this session's usage records`
+                  : `${group.label} · ${formatCompact(group.tokens)} tokens in this session's usage records`
+              }
+              color={group.color}
+              tokens={group.tokens}
+              combos={group.combos}
+              unattributed={group.unattributed}
+            />
+          </li>
+        ))}
+      </ul>
       <EffortState status={status} summary={summary}>
         {summary && (
           <>
-            <EffortStack summary={summary} showLegend={false} />
-            <ul className="model-list">
-              {summary.levels.map((level) => (
-                <li key={level.effort}>
-                  <span>{effortLabel(level.effort)}</span>
-                  <b>
-                    {formatCompact(level.tokens)} ·{" "}
-                    {formatCompact(level.observations)} obs
-                  </b>
-                </li>
-              ))}
-              {(summary.unknownTokens ?? 0) > 0 ||
-              summary.unknownObservations > 0 ? (
-                <li>
-                  <span>Unknown</span>
-                  <b>
-                    {summary.unknownTokens === null
-                      ? "—"
-                      : formatCompact(summary.unknownTokens)}{" "}
-                    · {formatCompact(summary.unknownObservations)} obs
-                  </b>
-                </li>
-              ) : null}
-            </ul>
+            {groups.length > 1 && (
+              <div className="session-mix__totals">
+                <SessionMixGroupBreakdown
+                  label="All providers"
+                  title="Every provider this session recorded, by model and effort"
+                  tokens={tokens}
+                  combos={groups.flatMap((group) => group.combos)}
+                  unattributed={groups.reduce((sum, group) => sum + group.unattributed, 0)}
+                />
+              </div>
+            )}
             <EffortCoverage
               summary={summary}
               indexing={status?.phase === "indexing"}
+              detail
             />
-            <p className="effort-coverage">
-              Read from this session's own transcript · parser v
-              {status?.parserVersion ?? "—"}
-            </p>
           </>
         )}
       </EffortState>
+      <details className="session-mix__about">
+        <summary>What effort means here</summary>
+        <p>{EFFORT_HELP}</p>
+        <p>
+          Provider totals come from this session's usage records. Each model × effort subtotal is
+          read from the session's own transcript · parser v{status?.parserVersion ?? "—"}
+        </p>
+      </details>
     </SessionDetailColumn>
   );
 }

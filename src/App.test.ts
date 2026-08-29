@@ -5,18 +5,21 @@ import {
   averageMetricSlices,
   metricRowCacheShare,
   SessionDetailPanel,
+  SessionMixGroupBreakdown,
   pathFilteredRows,
   periodTickLabel,
   projectDayRows,
   projectModelSessionRows,
   projectSummaryInRange,
   projectTrendRowsInRange,
+  sessionProviderMix,
   sessionModelNames,
   sessionQuotaImpactItems,
   sessionRangeLabel,
   withoutCacheMetricRow,
 } from "./App";
 import type {
+  EffortSummary,
   MetricRow,
   ProjectActivity,
   ProjectTrendRow,
@@ -289,16 +292,18 @@ test("session detail columns render in the requested order and default state", (
     }),
   );
 
-  const columns = ["prompt", "output", "files", "tools", "models", "effort"];
+  const columns = ["prompt", "output", "files", "tools", "models"];
   expect(columns.map((column) => html.indexOf(`data-detail-column="${column}"`)))
     .toEqual([...columns.keys()].map((index) => html.indexOf(`data-detail-column="${columns[index]}"`)).sort((a, b) => a - b));
   for (const column of ["prompt", "output", "files"]) {
     expect(html).toContain(`data-detail-column="${column}" data-state="expanded"`);
   }
-  for (const column of ["tools", "models", "effort"]) {
+  for (const column of ["tools", "models"]) {
     expect(html).toContain(`data-detail-column="${column}" data-state="collapsed"`);
   }
-  expect(html).toContain("Expand Model Mix, Mixed, 2 models");
+  // Models and effort share one column, so the rail names both and effort never gets its own.
+  expect(html).not.toContain('data-detail-column="effort"');
+  expect(html).toContain("Expand Models &amp; Effort, OpenAI, effort unknown");
   expect(html).toContain("file-diff");
   expect(html).toContain("1 addition and 0 deletions");
   expect(html).toContain('aria-label="Open Prompt source actions"');
@@ -306,6 +311,146 @@ test("session detail columns render in the requested order and default state", (
   expect(html).toContain('aria-label="Open actions for src/App.tsx"');
   expect(html).toContain('class="file-path-tail"');
   expect(sessionModelNames(mixedSession)).toEqual(["gpt-test", "gpt-second"]);
+});
+
+test("provider totals carry model \u00d7 effort subtotals and keep the remainder visible", () => {
+  const { groups, comboCount, tokens } = sessionProviderMix(
+    [
+      { modelName: "claude-opus-5", tokens: 900 },
+      { modelName: "claude-sonnet-5", tokens: 100 },
+    ],
+    [
+      // Two transcript spellings of one family at one effort are one combo, not two.
+      { model: "claude-opus-5[1m]", family: "claude-opus-5", effort: "high", observations: 2, tokens: 600 },
+      { model: "claude-opus-5", family: "claude-opus-5", effort: "high", observations: 1, tokens: 40 },
+      { model: "claude-sonnet-5", family: "claude-sonnet-5", effort: "low", observations: 1, tokens: 90 },
+    ],
+    "anthropic",
+  );
+
+  expect(groups.map((group) => [group.label, group.tokens, group.attributed])).toEqual([
+    ["Anthropic", 1_000, 730],
+  ]);
+  expect(groups[0].combos).toEqual([
+    { family: "claude-opus-5", effort: "high", tokens: 640, observations: 3 },
+    { family: "claude-sonnet-5", effort: "low", tokens: 90, observations: 1 },
+  ]);
+  // The provider total is authoritative, so what the combos miss is reported, never absorbed.
+  expect(groups[0].unattributed).toBe(270);
+  expect(comboCount).toBe(2);
+  expect(tokens).toBe(1_000);
+});
+
+test("each provider keeps its own total and its own combos", () => {
+  const { groups, tokens } = sessionProviderMix(
+    [
+      { modelName: "claude-opus-5", tokens: 600 },
+      { modelName: "gpt-5.6-sol", tokens: 400 },
+    ],
+    [
+      { model: "gpt-5.6-sol", family: "gpt-5.6-sol", effort: "max", observations: 2, tokens: 400 },
+      { model: "claude-opus-5", family: "claude-opus-5", effort: "high", observations: 1, tokens: 600 },
+    ],
+    "anthropic",
+  );
+
+  expect(groups.map((group) => [group.label, group.tokens, group.unattributed])).toEqual([
+    ["Anthropic", 600, 0],
+    ["OpenAI", 400, 0],
+  ]);
+  expect(groups[1].combos).toEqual([
+    { family: "gpt-5.6-sol", effort: "max", tokens: 400, observations: 2 },
+  ]);
+  expect(tokens).toBe(1_000);
+});
+
+test("a provider with no recorded token total reports none rather than a partial sum", () => {
+  const { groups, tokens } = sessionProviderMix(
+    [{ modelName: "claude-opus-5", tokens: null }],
+    [{ model: "claude-haiku-4-5", family: "claude-haiku-4-5", effort: "medium", observations: 1, tokens: 20 }],
+    "anthropic",
+  );
+
+  expect(groups[0].tokens).toBeNull();
+  // Without a total there is nothing to take the attributed tokens away from.
+  expect(groups[0].unattributed).toBe(0);
+  expect(groups[0].combos).toEqual([
+    { family: "claude-haiku-4-5", effort: "medium", tokens: 20, observations: 1 },
+  ]);
+  expect(tokens).toBeNull();
+});
+
+test("the collapsed rail names the provider and its combos, not effort alone", () => {
+  const effort: EffortSummary = {
+    coverageState: "partial",
+    quality: "ok",
+    dominant: "high",
+    dominantBasis: "tokens",
+    mixed: true,
+    levels: [
+      { effort: "low", observations: 1, tokens: 100, tokenShare: 0.1 },
+      { effort: "high", observations: 2, tokens: 600, tokenShare: 0.6 },
+    ],
+    reconciliationDeltaTokens: 0,
+    observedObservations: 3,
+    unknownObservations: 1,
+    observationCoverage: 0.75,
+    eligibleTokens: 1_000,
+    attributedTokens: 700,
+    unknownTokens: 300,
+    tokenCoverage: 0.7,
+  };
+  const html = renderToStaticMarkup(
+    createElement(SessionDetailPanel, {
+      session: session({}),
+      loading: false,
+      effortStatus: null,
+      detail: {
+        available: true,
+        prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 1,
+        effort,
+        effortCombos: [
+          { model: "gpt-test", family: "gpt-test", effort: "high", observations: 2, tokens: 600 },
+          { model: "gpt-test", family: "gpt-test", effort: "low", observations: 1, tokens: 100 },
+        ],
+      },
+    }),
+  );
+
+  // 70% of the tokens carry an effort, so the collapsed rail says so rather than showing only a
+  // dominant value.
+  expect(html).toContain("Expand Models &amp; Effort, OpenAI, 2 model \u00d7 effort combos, 70% of tokens tagged");
+  expect(html).toContain("mixed");
+  expect(html).toContain("tagged");
+});
+
+test("every subtotal is a model \u00d7 effort pill, and the remainder is labelled", () => {
+  const html = renderToStaticMarkup(
+    createElement(SessionMixGroupBreakdown, {
+      label: "Anthropic",
+      color: "var(--anthropic-color)",
+      tokens: 1_000,
+      combos: [
+        { family: "claude-opus-5", effort: "high", tokens: 640, observations: 3 },
+        { family: "claude-sonnet-5", effort: "", tokens: 90, observations: 1 },
+      ],
+      unattributed: 270,
+    }),
+  );
+
+  expect(html).toContain("split-pill");
+  // Effort is never shown without the model that recorded it.
+  expect(html).toContain("Opus 5");
+  expect(html).toContain("High");
+  expect(html).toContain("Sonnet 5");
+  expect(html).toContain("Unknown");
+  // Every subtotal carries the same two metrics, so the untagged share can be compared with the
+  // tagged one instead of being read as a footnote.
+  expect(html).toContain("64% · 3 obs");
+  expect(html).toContain("9% · 1 obs");
+  expect(html).toContain("No effort recorded");
+  expect(html).toContain("27% · no observations");
+  expect(html).toContain("Anthropic by model and effort: Opus 5 · High 64%, Sonnet 5 · Unknown 9%, unattributed 27%");
 });
 
 test("session quota context uses account-level, non-additive language", () => {

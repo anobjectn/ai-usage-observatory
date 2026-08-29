@@ -146,11 +146,32 @@ export function EffortStack({
 }
 
 /** Token coverage is always displayed; observation coverage only when the source supplied a
- * supported observation boundary. */
-export function EffortCoverage({ summary, indexing = false }: { summary: EffortCoverageFields; indexing?: boolean }) {
-  const parts = [`${percent(summary.tokenCoverage)} of tokens have a recorded effort`];
+ * supported observation boundary.
+ *
+ * `detail` adds the counts behind both percentages. A high observation coverage over a low token
+ * coverage — every observation carried an effort, but the observations reach only a fraction of
+ * the tokens — otherwise reads as full coverage. */
+export function EffortCoverage({
+  summary,
+  indexing = false,
+  detail = false,
+}: {
+  summary: EffortCoverageFields;
+  indexing?: boolean;
+  detail?: boolean;
+}) {
+  const observations = summary.observedObservations + summary.unknownObservations;
+  const parts = [
+    detail
+      ? `${compact(summary.attributedTokens)} of ${compact(summary.eligibleTokens)} tokens have a recorded effort (${percent(summary.tokenCoverage)})`
+      : `${percent(summary.tokenCoverage)} of tokens have a recorded effort`,
+  ];
   if (summary.observationCoverage !== null) {
-    parts.push(`${percent(summary.observationCoverage)} of ${compact(summary.observedObservations + summary.unknownObservations)} observations`);
+    parts.push(
+      detail
+        ? `${compact(summary.observedObservations)} of ${compact(observations)} recorded observations carried one`
+        : `${percent(summary.observationCoverage)} of ${compact(observations)} observations`,
+    );
   }
   return (
     <p className="effort-coverage">

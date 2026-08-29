@@ -14,6 +14,7 @@ import type {
   EffortSummary,
   MetricRow,
   Session,
+  SessionEffortCombo,
 } from "../src/types";
 import { LED_SESSION_FLOOR, RATED_SESSION_FLOOR } from "../src/types";
 import { comboKey, comboKind, comboOf, parseComboFacet, parseComboKey, type Combo } from "../src/combo";
@@ -809,6 +810,27 @@ export function buildSessionEffortSummary(snapshot: DashboardData, sessionId: st
     unknownObservations,
     quality: status.quality === "degraded" ? "degraded" : "ok",
   });
+}
+
+/** The same session's derived rows kept split by model, so the detail panel can show model × effort
+ * without re-deriving a pairing. Rows with no recorded effort are returned with an empty `effort`
+ * rather than dropped: unrecorded activity stays visible next to the recorded kind. */
+export function buildSessionEffortCombos(sessionId: string): SessionEffortCombo[] | null {
+  if (!analysisAvailable(buildEffortStatus())) return null;
+  const rows = queryEffortCombosBySession({ sessionIds: [sessionId], fromDate: null, toDate: null, agents: null, project: null, model: null });
+  if (rows.length === 0) return null;
+  return rows
+    .map((row) => ({
+      model: row.model,
+      family: comboOf(row.model, row.effort).family,
+      effort: row.effort ?? "",
+      observations: row.observations,
+      tokens: row.tokens,
+    }))
+    .sort((left, right) =>
+      right.tokens - left.tokens
+      || left.model.localeCompare(right.model)
+      || compareEffort(left.effort, right.effort));
 }
 
 /** Session ids matching the Data-only effort facet. Selection is by session: a combo selection

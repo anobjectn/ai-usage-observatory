@@ -636,6 +636,23 @@ describe("session digest and detail", () => {
     const snapshot = snapshotOf([session({ sessionId: "s1" })]);
     expect(api.buildSessionEffortSummary(snapshot, "s1")).toBeNull();
   });
+
+  test("session combos keep model and effort together, including unrecorded effort", () => {
+    snapshotOf([session({ sessionId: "s1" })]);
+    seed("s1", "claude", "/fixture/alpha", [
+      { day: today, model: "claude-opus-5", effort: "high", observations: 2, tokens: 600 },
+      { day: today, model: "claude-opus-5", effort: "", observations: 1, tokens: 40 },
+      { day: today, model: "claude-sonnet-5", effort: "low", observations: 1, tokens: 100 },
+    ]);
+    const combos = api.buildSessionEffortCombos("s1")!;
+    expect(combos.map((combo) => [combo.model, combo.effort, combo.tokens, combo.observations])).toEqual([
+      ["claude-opus-5", "high", 600, 2],
+      ["claude-sonnet-5", "low", 100, 1],
+      ["claude-opus-5", "", 40, 1],
+    ]);
+    expect(combos[0].family).toBe("claude-opus-5");
+    expect(api.buildSessionEffortCombos("missing")).toBeNull();
+  });
 });
 
 describe("the Data effort facet", () => {

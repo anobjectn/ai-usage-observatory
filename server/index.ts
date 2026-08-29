@@ -7,7 +7,7 @@ import { getSessionDetail } from "./session-detail";
 import { getSessionQuotaContext } from "./session-quota-context";
 import { collectAllowanceComparisonReport } from "./quota-comparisons";
 import { ExternalOpenError, externalOpenOriginAllowed, isExternalOpenAction, openSessionExternalTarget } from "./external-open";
-import { buildEffortAggregate, buildEffortComboBoard, buildEffortComboDays, buildEffortSessionDigest, buildEffortStatus, buildSessionEffortSummary, clearEffortMemo, effortEtag, memoizedBody, resolveEffortGroup, resolveEffortScope, scopeKey } from "./effort-api";
+import { buildEffortAggregate, buildEffortComboBoard, buildEffortComboDays, buildEffortSessionDigest, buildEffortStatus, buildSessionEffortCombos, buildSessionEffortSummary, clearEffortMemo, effortEtag, memoizedBody, resolveEffortGroup, resolveEffortScope, scopeKey } from "./effort-api";
 import { scheduleEffortIndexing } from "./effort-index";
 import { deleteEffortDerived, setEffortEnabled } from "./effort-store";
 import { requestHostAllowed } from "./request-host";
@@ -193,6 +193,7 @@ async function api(request: Request, url: URL) {
     return json({
       ...detail,
       effort: buildSessionEffortSummary(snapshot as unknown as import("../src/types").DashboardData, sessionId),
+      effortCombos: buildSessionEffortCombos(sessionId),
       quotaContext,
     });
   }
