@@ -108,7 +108,8 @@ export function EfficiencyFindings({
                 })()}
                 <span className="finding__meta">
                   <i style={{ background: providerColor(finding.provider) }} />
-                  {providerLabel(finding.provider)} · {finding.project} · {shortDate(finding.date)}
+                  {providerLabel(finding.provider)} · {finding.project} ·{" "}
+                  {finding.date ? <time dateTime={finding.date}>{shortDate(finding.date)}</time> : shortDate(finding.date)}
                 </span>
                 <a
                   className="finding__open"

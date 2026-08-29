@@ -16,7 +16,7 @@ export const chartTooltipReachMargin = 12;
 export function chartTooltipDateLabel(value: string) {
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = new Intl.DateTimeFormat(undefined, {
     weekday: "short",
     month: "long",
     day: "numeric",

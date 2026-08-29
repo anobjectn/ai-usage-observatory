@@ -55,7 +55,9 @@ export function OutlierSessions({ insights, onOpenSession }: { insights: Insight
                   <i style={{ background: providerColor(row.provider) }} />
                   {providerLabel(row.provider)} · {row.project}
                 </span>
-                <span className="outlier-list__when">{shortDate(row.date)}</span>
+                <span className="outlier-list__when">
+                  {row.date ? <time dateTime={row.date}>{shortDate(row.date)}</time> : shortDate(row.date)}
+                </span>
                 <a
                   href={sessionHref(row.sessionId)}
                   onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); onOpenSession(row.sessionId); }}

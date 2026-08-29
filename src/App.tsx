@@ -563,6 +563,11 @@ const formatDate = (value: string, timeZone?: string) =>
     minute: "2-digit",
     ...(timeZone ? { timeZone, timeZoneName: "short" as const } : {}),
   });
+/** `formatDate`'s locale text wrapped in a `<time dateTime>` so the instant survives even when
+ * the display is rendered in a non-local `timeZone`. */
+function DateStamp({ value, timeZone }: { value: string; timeZone?: string }) {
+  return <time dateTime={value}>{formatDate(value, timeZone)}</time>;
+}
 const formatPromptTimestamp = (value: string | null) =>
   value
     ? new Date(value).toLocaleString(undefined, {
@@ -2282,9 +2287,7 @@ function ProviderTimeline({
 
 export function periodTickLabel(value: string) {
   const date = new Date(`${value}T12:00:00`);
-  const weekday = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][
-    date.getDay()
-  ];
+  const weekday = date.toLocaleDateString(undefined, { weekday: "short" });
   const period = date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -3135,13 +3138,16 @@ function QuotaDials({
                     </div>
                     {card.usedResets.map((reset) => (
                       <small key={reset.id}>
-                        <Sparkles /> {reset.title} · used {new Date(reset.usedAt).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
+                        <Sparkles /> {reset.title} · used{" "}
+                        <time dateTime={new Date(reset.usedAt).toISOString()}>
+                          {new Date(reset.usedAt).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </time>
                       </small>
                     ))}
                   </div>
@@ -3516,8 +3522,8 @@ function Overview({
                 </div>
               </div>
               <p className="scope-note">
-                <Clock3 /> {formatDate(activeBlock.startTime)} →{" "}
-                {formatDate(activeBlock.endTime)} · ring shows{" "}
+                <Clock3 /> <DateStamp value={activeBlock.startTime} /> →{" "}
+                <DateStamp value={activeBlock.endTime} /> · ring shows{" "}
                 {activeBlock.isActive
                   ? `${Math.round(blockElapsed)}% of the window elapsed`
                   : "a completed window"}
@@ -5995,7 +6001,7 @@ function Sessions({
                     <td>
                       <span className="session-activity">
                         {session.metadata?.lastActivity
-                          ? formatDate(session.metadata.lastActivity)
+                          ? <DateStamp value={session.metadata.lastActivity} />
                           : "—"}
                       </span>
                     </td>
@@ -6890,9 +6896,19 @@ function ProjectDetails({
     0,
   );
   const dateCopy =
-    first && last
-      ? `${new Date(`${first}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} — ${new Date(`${last}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-      : "No dated activity";
+    first && last ? (
+      <>
+        <time dateTime={first}>
+          {new Date(`${first}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+        </time>{" "}
+        —{" "}
+        <time dateTime={last}>
+          {new Date(`${last}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+        </time>
+      </>
+    ) : (
+      "No dated activity"
+    );
   return (
     <div
       className="project-detail"
@@ -7177,7 +7193,7 @@ function ProjectDetails({
                     <b>{session.modelsUsed[0] ?? "Unknown model"}</b>
                     <small>
                       {session.metadata?.lastActivity
-                        ? formatDate(session.metadata.lastActivity)
+                        ? <DateStamp value={session.metadata.lastActivity} />
                         : session.period}
                     </small>
                   </div>
@@ -7806,7 +7822,7 @@ function Models({
                               </b>
                               <small>
                                 {session.metadata?.lastActivity
-                                  ? formatDate(session.metadata.lastActivity)
+                                  ? <DateStamp value={session.metadata.lastActivity} />
                                   : session.period}
                               </small>
                             </span>
@@ -7954,7 +7970,7 @@ function QuotaProvenance({
           <dl className="evidence-facts">
             <div>
               <dt>Captured</dt>
-              <dd>{anthropic?.capturedAt ? formatDate(new Date(anthropic.capturedAt).toISOString()) : "—"}</dd>
+              <dd>{anthropic?.capturedAt ? <DateStamp value={new Date(anthropic.capturedAt).toISOString()} /> : "—"}</dd>
             </div>
             <div>
               <dt>Data age</dt>
@@ -8029,11 +8045,11 @@ function QuotaProvenance({
               <dl className="evidence-facts">
                 <div>
                   <dt>Observed</dt>
-                  <dd>{formatDate(new Date(credits.capturedAt).toISOString())}</dd>
+                  <dd><DateStamp value={new Date(credits.capturedAt).toISOString()} /></dd>
                 </div>
                 <div>
                   <dt>Stored</dt>
-                  <dd>{formatDate(new Date(credits.updatedAt).toISOString())}</dd>
+                  <dd><DateStamp value={new Date(credits.updatedAt).toISOString()} /></dd>
                 </div>
                 {view.prepaid && (
                   <div>
@@ -8104,7 +8120,7 @@ function QuotaProvenance({
               <dt>Tracking since</dt>
               <dd>
                 {history?.trackingSince
-                  ? formatDate(new Date(history.trackingSince).toISOString())
+                  ? <DateStamp value={new Date(history.trackingSince).toISOString()} />
                   : "—"}
               </dd>
             </div>
@@ -8223,7 +8239,7 @@ function Sources({
             <span className="overline">DATA SOURCE HEALTH</span>
             <h2>Collection boundaries</h2>
           </div>
-          <span>Updated {formatDate(data.collectedAt, data.timeZone)} · {data.timeZone} calendar</span>
+          <span>Updated <DateStamp value={data.collectedAt} timeZone={data.timeZone} /> · {data.timeZone} calendar</span>
         </div>
         <div className="source-list">
           {data.sources.map((source) => (
@@ -8258,7 +8274,7 @@ function Sources({
               <div><span>Conversation snapshots</span><b>{data.warp.sessionCount}</b></div>
               <div><span>Recorded credits</span><b>{formatWarpCredits(data.warp.totals.credits)}</b></div>
               <div><span>Query coverage</span><b>{Math.round(data.warp.queryCoverage * 100)}%</b></div>
-              <div><span>Last observed</span><b>{formatDate(data.warp.observedAt)}</b></div>
+              <div><span>Last observed</span><b><DateStamp value={data.warp.observedAt} /></b></div>
             </div>
             {warpDays.length ? (
               <div className="warp-credit-chart" role="img" aria-label="Warp credits recorded by day">
@@ -9245,8 +9261,11 @@ export function quickOverviewCards(
   );
 }
 
-// Countdown ("3h 12m 10s") plus a condensed local stamp ("8/28 7:40p"), or
-// null once the reset moment has passed.
+// Countdown ("3h 12m 10s") plus a condensed local stamp (e.g. "8/28 7:40p" in
+// en-US, "28.8. 19:40" in a 24-hour locale), or null once the reset moment
+// has passed. The stamp defers to the browser's locale for field order and
+// 12- vs 24-hour clock, trimming the day-period to a single lowercase letter
+// where the locale uses one, to stay compact.
 export function resetCountdownParts(
   resetAt: number,
   now: number,
@@ -9263,7 +9282,10 @@ export function resetCountdownParts(
   parts.push(`${minutes}m`);
   if (withSeconds) parts.push(`${remaining % 60}s`);
   const date = new Date(resetAt);
-  const stamp = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours() % 12 || 12}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`;
+  const datePart = date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+  const timeParts = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    .replace(/\s*([AaPp])\.?[Mm]\.?$/, (_, letter) => letter.toLowerCase());
+  const stamp = `${datePart} ${timeParts}`;
   return { countdown: parts.join(" "), stamp };
 }
 

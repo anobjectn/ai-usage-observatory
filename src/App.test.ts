@@ -225,10 +225,10 @@ test("projectDayRows exposes provider token segments", () => {
   });
 });
 
-test("periodTickLabel prepends an unambiguous weekday code", () => {
-  expect(periodTickLabel("2026-07-20")).toBe("Mo Jul 20");
-  expect(periodTickLabel("2026-07-21")).toBe("Tu Jul 21");
-  expect(periodTickLabel("2026-07-26")).toBe("Su Jul 26");
+test("periodTickLabel prepends a locale-aware weekday abbreviation", () => {
+  expect(periodTickLabel("2026-07-20")).toBe("Mon Jul 20");
+  expect(periodTickLabel("2026-07-21")).toBe("Tue Jul 21");
+  expect(periodTickLabel("2026-07-26")).toBe("Sun Jul 26");
 });
 
 test("withoutCacheMetricRow removes cache from totals and model breakdowns", () => {
