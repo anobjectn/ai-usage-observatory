@@ -184,6 +184,8 @@ import {
   dateRangeLabel,
   metricRangeLabel,
   metricRangeRows,
+  metricRangeSpanDays,
+  numericDate,
   resolvedDateRange,
   type DateRange,
   type MetricRange,
@@ -3204,16 +3206,18 @@ function Overview({
     ? Math.round((previousTotals.cache / previousTotals.traffic) * 100)
     : 0;
   const rangeLabel = metricRangeLabel(metricRange, customRange);
+  const spanDays = metricRangeSpanDays(metricRange, customRange);
   const periodLabel =
-    daily.length === 1
-      ? new Date(`${daily[0].period}T12:00:00`).toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
-      : daily.length > 1
-        ? `${new Date(`${daily[0].period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}–${new Date(`${daily.at(-1)!.period}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-        : "No activity in this span";
+    daily.length === 1 ? (
+      <time dateTime={daily[0].period}>{numericDate(daily[0].period, true)}</time>
+    ) : daily.length > 1 ? (
+      <>
+        <time dateTime={daily[0].period}>{numericDate(daily[0].period)}</time>–
+        <time dateTime={daily.at(-1)!.period}>{numericDate(daily.at(-1)!.period, true)}</time>
+      </>
+    ) : (
+      "No activity in this span"
+    );
   return (
     <div className="view-stack page-enter">
       <section className="hero-grid">
@@ -3248,8 +3252,8 @@ function Overview({
             <p>
               {periodLabel}
               {metricRange === "all" && " · totals across all collected history"}
-              {metricRange !== "all" &&
-                " · card trends compare with the previous equal span"}
+              {metricRange !== "all" && spanDays !== null &&
+                ` · trends vs the prev ${spanDays === 1 ? "day" : `${spanDays} days`}`}
             </p>
           </div>
           <div className="metric-range">

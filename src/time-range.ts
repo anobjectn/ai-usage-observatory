@@ -71,12 +71,18 @@ export function metricRangeRows(
   return sorted.filter((row) => row.period >= bounds.from && row.period <= bounds.to);
 }
 
-function readableDate(value: string, includeYear = false) {
+function readableDate(value: string, includeYear = false, style: "short" | "numeric" = "short") {
   return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
-    month: "short",
+    month: style,
     day: "numeric",
     ...(includeYear ? { year: "numeric" as const } : {}),
   });
+}
+
+/** Locale-aware numeric date (e.g. "7/31" in en-US, "31/7" in fr-FR) for compact display
+ * alongside a machine-readable `<time dateTime>` value, which callers should set to `value`. */
+export function numericDate(value: string, includeYear = false) {
+  return readableDate(value, includeYear, "numeric");
 }
 
 export function dateRangeLabel(range: DateRange | null) {
@@ -90,4 +96,12 @@ export function metricRangeLabel(range: MetricRange, customRange: DateRange | nu
   if (range === "custom") return dateRangeLabel(customRange);
   if (range === "1") return "Latest day";
   return `Last ${range} days`;
+}
+
+/** Day count of the resolved span, for "prev N days" comparison copy. Mirrors the length
+ * `resolvedDateRange(..., offset: 1)` uses for the preceding slice, so the two stay in sync. */
+export function metricRangeSpanDays(range: MetricRange, customRange: DateRange | null) {
+  if (range === "all") return null;
+  if (range === "custom") return validDateRange(customRange) ? rangeLength(customRange) : null;
+  return Number(range);
 }
