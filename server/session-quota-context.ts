@@ -34,6 +34,7 @@ export type ContextPolicyInput = {
   earliestObservationAt: number | null;
   sourceState: SessionQuotaContext["sourceState"];
   initialReason?: string | null;
+  now?: number;
 };
 
 function pointsFromHistory(observations: QuotaObservation[]): ResourcePoint[] {
@@ -108,15 +109,44 @@ function tolerance(provider: Provider, kind: "window" | "pool") {
   return provider === "anthropic" ? 1 : 0.01;
 }
 
+type Confidence = SessionQuotaContext["confidence"];
+const CONFIDENCE_RANK: Record<Confidence, number> = { insufficient: 0, low: 1, medium: 2, high: 3 };
+
+/** The cadence the collector actually achieved, measured rather than assumed: a fixed 60s
+ * threshold called nothing "high" on a service polling every three to four minutes. */
+function observedCadenceMs(points: ResourcePoint[]): number | null {
+  const times = [...new Set(points.map((point) => point.observedAt))].sort((a, b) => a - b);
+  if (times.length < 2) return null;
+  const gaps = times.slice(1).map((time, index) => time - times[index]!).sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)] ?? null;
+}
+
+function confidenceFor(input: {
+  basis: SessionQuotaContext["basis"];
+  coveredPercent: number;
+  startGapMs: number | null;
+  endGapMs: number | null;
+  cadenceMs: number | null;
+}): Confidence {
+  if (input.basis === "embedded_account_observation" && input.coveredPercent >= 90) return "high";
+  if (input.startGapMs === null || input.endGapMs === null) return "insufficient";
+  const widest = Math.max(input.startGapMs, input.endGapMs);
+  const cadence = input.cadenceMs ?? 0;
+  if (widest <= Math.max(60_000, cadence * 1.5)) return "high";
+  if (widest <= Math.max(5 * 60_000, cadence * 3)) return "medium";
+  return "low";
+}
+
 export function calculateSessionQuotaContext(input: ContextPolicyInput): SessionQuotaContext {
+  const now = input.now ?? Date.now();
   const resources: SessionQuotaContext["resources"] = [];
   const resourceIds = [...new Set(input.points.map((point) => point.id))];
-  const startGaps: number[] = [];
-  const endGaps: number[] = [];
   const snapshotKeys = new Set<string>();
-  let coveredMs = 0;
+  const cadenceMs = observedCadenceMs(input.points);
+  const panelStartGaps: number[] = [];
+  const panelEndGaps: number[] = [];
+  let bestCoveredPercent = 0;
   let activeMs = 0;
-  let reason = input.initialReason ?? null;
   let inconsistent = false;
 
   for (const episode of input.episodes) {
@@ -126,8 +156,12 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
   for (const id of resourceIds) {
     const points = input.points.filter((point) => point.id === id).sort((a, b) => a.observedAt - b.observedAt);
     const segments: SessionQuotaContext["resources"][number]["episodes"] = [];
+    const startGaps: number[] = [];
+    const endGaps: number[] = [];
+    let coveredMs = 0;
     let limitChanged = false;
     let unresolved = false;
+    let awaitingSnapshot = false;
     for (const episode of input.episodes) {
       const before = [...points].reverse().find((point) => point.observedAt <= episode.startAt) ?? null;
       const after = points.find((point) => point.observedAt >= episode.endAt) ?? null;
@@ -138,6 +172,10 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
       if (input.basis === "bracketed_account_delta") {
         if (!before || !after) {
           unresolved = true;
+          // A session that is still running has no closing snapshot yet. That is a schedule
+          // which has not caught up, not evidence that is missing, and it reads very
+          // differently to someone watching the panel live.
+          if (before && !after && now - episode.endAt <= SESSION_IDLE_GAP_MS) awaitingSnapshot = true;
           continue;
         }
         if (episode.startAt - before.observedAt > SESSION_IDLE_GAP_MS || after.observedAt - episode.endAt > SESSION_IDLE_GAP_MS) {
@@ -208,11 +246,36 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
         });
       }
     }
+
+    const kind = points[0]!.kind;
+    const startGapMs = startGaps.length ? Math.max(...startGaps) : null;
+    const endGapMs = endGaps.length ? Math.max(...endGaps) : null;
+    const coveredPercent = activeMs > 0 ? Math.min(100, coveredMs / activeMs * 100) : 0;
+
     if (!segments.length) {
-      if (unresolved && !reason) reason = "Quota observations do not resolve both sides of this session.";
+      resources.push({
+        id,
+        kind,
+        unit: points[0]!.unit,
+        deltaPercentagePoints: null,
+        deltaUnits: null,
+        cycleCount: 0,
+        measurable: false,
+        limitChanged,
+        confidence: "insufficient",
+        reason: awaitingSnapshot
+          ? "Waiting for the first snapshot after this session's last activity."
+          : unresolved
+            ? "Quota observations do not resolve both sides of this session."
+            : "No quota observations cover this session.",
+        episodes: [],
+      });
       continue;
     }
-    const kind = points[0]!.kind;
+
+    panelStartGaps.push(...startGaps);
+    panelEndGaps.push(...endGaps);
+    bestCoveredPercent = Math.max(bestCoveredPercent, coveredPercent);
     const percentSegments = segments.map((segment) => segment.deltaPercentagePoints).filter((value): value is number => value !== null);
     const unitSegments = segments.map((segment) => segment.deltaUnits).filter((value): value is number => value !== null);
     const deltaPercentagePoints = percentSegments.length === segments.length
@@ -230,30 +293,42 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
       cycleCount: new Set(segments.map((segment) => segment.cycleId)).size,
       measurable: (deltaPercentagePoints ?? 0) > tolerance(input.provider, kind) || (deltaUnits ?? 0) > 0,
       limitChanged,
+      confidence: confidenceFor({ basis: input.basis, coveredPercent, startGapMs, endGapMs, cadenceMs }),
+      // A resource that resolved some episodes but not others still carries a caveat; it just
+      // no longer silences the resources beside it. A running session's open end is the
+      // common case, so it gets named rather than folded into the generic boundary text.
+      reason: awaitingSnapshot
+        ? "The reading closes at the last snapshot; this session is still running."
+        : unresolved
+          ? "Part of the session crosses an unresolved quota cycle boundary."
+          : null,
       episodes: segments,
     });
-    if (unresolved && !reason) reason = "Part of the session crosses an unresolved quota cycle boundary.";
   }
 
-  if (inconsistent) reason = "The account counter decreased inside one quota cycle.";
-  const startGapMs = startGaps.length ? Math.max(...startGaps) : null;
-  const endGapMs = endGaps.length ? Math.max(...endGaps) : null;
-  const coveredPercent = activeMs > 0 ? Math.min(100, coveredMs / activeMs * 100) : 0;
+  const resolved = resources.filter((resource) => resource.episodes.length > 0);
+  const startGapMs = panelStartGaps.length ? Math.max(...panelStartGaps) : null;
+  const endGapMs = panelEndGaps.length ? Math.max(...panelEndGaps) : null;
   const historyReachesSession = input.basis === "embedded_account_observation"
     ? input.points.length > 0
-    : input.earliestObservationAt !== null && input.earliestObservationAt <= Math.min(...input.episodes.map((episode) => episode.startAt));
-  let confidence: SessionQuotaContext["confidence"] = "insufficient";
-  if (!reason && resources.length) {
-    if (input.basis === "embedded_account_observation" && coveredPercent >= 90) confidence = "high";
-    else if (startGapMs !== null && endGapMs !== null && startGapMs <= 60_000 && endGapMs <= 60_000) confidence = "high";
-    else if (startGapMs !== null && endGapMs !== null && startGapMs <= 5 * 60_000 && endGapMs <= 5 * 60_000) confidence = "medium";
-    else if (startGapMs !== null && endGapMs !== null) confidence = "low";
-  }
+    : input.earliestObservationAt !== null && input.episodes.length > 0
+      && input.earliestObservationAt <= Math.min(...input.episodes.map((episode) => episode.startAt));
+
+  let confidence: Confidence = resolved.reduce<Confidence>(
+    (best, resource) => CONFIDENCE_RANK[resource.confidence] > CONFIDENCE_RANK[best] ? resource.confidence : best,
+    "insufficient",
+  );
+  let reason = input.initialReason ?? null;
+  if (!resolved.length && !reason) reason = resources[0]?.reason ?? null;
+
   if (!historyReachesSession && input.basis === "bracketed_account_delta") {
     confidence = "insufficient";
     reason = reason ?? "Retained quota history does not reach this session.";
   }
-  if (inconsistent) confidence = "insufficient";
+  if (inconsistent) {
+    confidence = "insufficient";
+    reason = "The account counter decreased inside one quota cycle.";
+  }
 
   return {
     provider: input.provider,
@@ -263,9 +338,10 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
     coverage: {
       startGapMs,
       endGapMs,
-      activeDurationCoveredPercent: coveredPercent,
+      activeDurationCoveredPercent: bestCoveredPercent,
       snapshotCount: snapshotKeys.size,
       historyReachesSession,
+      observationCadenceMs: cadenceMs,
     },
     confidence,
     additive: false,

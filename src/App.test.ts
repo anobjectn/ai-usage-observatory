@@ -469,6 +469,7 @@ test("session quota context uses account-level, non-additive language", () => {
             id: "fiveHour", kind: "window", unit: "percentage_points",
             deltaPercentagePoints: 49.25, deltaUnits: null, cycleCount: 1,
             measurable: true, limitChanged: false,
+            confidence: "high", reason: null,
             episodes: [{
               cycleId: "reset:1", startUsedPercent: 50.5, endUsedPercent: 99.75,
               deltaPercentagePoints: 49.25, startUsedUnits: null, endUsedUnits: null, deltaUnits: null,
@@ -480,7 +481,7 @@ test("session quota context uses account-level, non-additive language", () => {
           },
           coverage: {
             startGapMs: 1_000, endGapMs: 1_000, activeDurationCoveredPercent: 95,
-            snapshotCount: 2, historyReachesSession: true,
+            snapshotCount: 2, historyReachesSession: true, observationCadenceMs: 60_000,
           },
           confidence: "high", additive: false, reason: null, sourceState: "connected",
         },
@@ -496,14 +497,66 @@ test("session quota context uses account-level, non-additive language", () => {
   expect(html).not.toContain("this session consumed");
 });
 
+test("session quota context panel shows a resolved resource beside an unresolved one", () => {
+  type QuotaResource = SessionQuotaContext["resources"][number];
+  const resource = (over: Partial<QuotaResource>): QuotaResource => ({
+    id: "weekly", kind: "window", unit: "percentage_points",
+    deltaPercentagePoints: 3, deltaUnits: null, cycleCount: 1,
+    measurable: true, limitChanged: false, confidence: "medium", reason: null,
+    episodes: [{
+      cycleId: "reset:2", startUsedPercent: 40, endUsedPercent: 43,
+      deltaPercentagePoints: 3, startUsedUnits: null, endUsedUnits: null, deltaUnits: null,
+    }],
+    ...over,
+  });
+  const html = renderToStaticMarkup(
+    createElement(SessionDetailPanel, {
+      session: session({}),
+      loading: false,
+      effortStatus: null,
+      detail: {
+        available: true,
+        prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 2,
+        quotaContext: {
+          provider: "anthropic",
+          basis: "bracketed_account_delta",
+          resources: [
+            resource({
+              id: "fiveHour", deltaPercentagePoints: null, measurable: false, cycleCount: 0,
+              confidence: "insufficient", episodes: [],
+              reason: "Waiting for the first snapshot after this session's last activity.",
+            }),
+            resource({}),
+          ],
+          concurrency: {
+            distinctOtherSameProviderSessions: 0, maxOtherSameProviderSessions: 0,
+            distinctOtherProviderSessions: 0, maxOtherProviderSessions: 0, externalActivity: "unknown",
+          },
+          coverage: {
+            startGapMs: 200_000, endGapMs: 180_000, activeDurationCoveredPercent: 40,
+            snapshotCount: 6, historyReachesSession: true, observationCadenceMs: 200_000,
+          },
+          confidence: "medium", additive: false, reason: null, sourceState: "connected",
+        },
+      },
+    }),
+  );
+
+  expect(html).toContain("+3% of quota");
+  expect(html).toContain("Unresolved");
+  expect(html).toContain("Waiting for the first snapshot");
+  expect(html).toContain("1 resolved cycle · medium confidence");
+  expect(html).toContain("200s snapshot cadence");
+});
+
 test("sessionQuotaImpactItems formats resolved account quota shares for table rows", () => {
   const context = {
     provider: "codex",
     basis: "embedded_account_observation",
     resources: [
-      { id: "fiveHour", deltaPercentagePoints: 12.5 },
-      { id: "weekly", deltaPercentagePoints: 3 },
-      { id: "unrecognized", deltaPercentagePoints: 9 },
+      { id: "fiveHour", deltaPercentagePoints: 12.5, confidence: "high" },
+      { id: "weekly", deltaPercentagePoints: 3, confidence: "low" },
+      { id: "unrecognized", deltaPercentagePoints: 9, confidence: "high" },
     ],
     confidence: "high",
   } as SessionQuotaContext;
@@ -512,7 +565,16 @@ test("sessionQuotaImpactItems formats resolved account quota shares for table ro
     { id: "fiveHour", label: "5h", value: 12.5 },
     { id: "weekly", label: "w", value: 3 },
   ]);
-  expect(sessionQuotaImpactItems({ ...context, confidence: "insufficient" })).toEqual([]);
+  // Filtering is per resource: an unreadable five-hour window drops itself, not the
+  // weekly window that resolved beside it.
+  const mixed = {
+    ...context,
+    resources: [
+      { ...context.resources[0]!, confidence: "insufficient" as const, deltaPercentagePoints: null },
+      context.resources[1]!,
+    ],
+  };
+  expect(sessionQuotaImpactItems(mixed)).toEqual([{ id: "weekly", label: "w", value: 3 }]);
 });
 
 test("projectModelSessionRows keeps only sessions that touched the model, newest first", () => {

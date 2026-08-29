@@ -432,6 +432,10 @@ export type SessionQuotaContext = {
     cycleCount: number;
     measurable: boolean;
     limitChanged: boolean;
+    /** Per resource, because one unreadable window must not blank a sibling that resolved
+     * cleanly. `reason` is set exactly when this resource could not be resolved. */
+    confidence: "high" | "medium" | "low" | "insufficient";
+    reason: string | null;
     episodes: Array<{
       cycleId: string;
       startUsedPercent: number;
@@ -455,6 +459,9 @@ export type SessionQuotaContext = {
     activeDurationCoveredPercent: number;
     snapshotCount: number;
     historyReachesSession: boolean;
+    /** Median interval actually observed between snapshots. Confidence thresholds scale to
+     * this rather than to a constant no local collector cadence meets. */
+    observationCadenceMs: number | null;
   };
   confidence: "high" | "medium" | "low" | "insufficient";
   additive: false;

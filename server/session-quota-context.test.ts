@@ -88,7 +88,9 @@ describe("session quota policy", () => {
         windowPoint(21 * 60_000, 20, "observed:1260000"),
       ],
     }));
-    expect(result.resources).toEqual([]);
+    expect(result.resources[0]).toMatchObject({
+      id: "fiveHour", confidence: "insufficient", deltaPercentagePoints: null,
+    });
     expect(result.confidence).toBe("insufficient");
     expect(result.reason).toContain("do not resolve both sides");
   });
@@ -120,8 +122,49 @@ describe("session quota policy", () => {
     const result = calculateSessionQuotaContext(input({
       points: [windowPoint(9 * 60_000, 10), windowPoint(80 * 60_000, 50)],
     }));
-    expect(result.resources).toEqual([]);
+    expect(result.resources[0]).toMatchObject({ confidence: "insufficient", deltaPercentagePoints: null });
     expect(result.confidence).toBe("insufficient");
+    expect(result.reason).toContain("do not resolve both sides");
+  });
+
+  test("names the missing closing snapshot when the session is still running", () => {
+    const endAt = 20 * 60_000;
+    const result = calculateSessionQuotaContext(input({
+      points: [windowPoint(9 * 60_000, 10)],
+      now: endAt + 90_000,
+    }));
+    expect(result.resources[0]?.reason).toBe("Waiting for the first snapshot after this session's last activity.");
+    expect(result.reason).toBe("Waiting for the first snapshot after this session's last activity.");
+  });
+
+  test("scales the confidence tiers to the cadence the collector actually achieved", () => {
+    // Snapshots every 3.5 minutes: a bracket one poll wide is as tight as this service gets.
+    const points = [0, 210_000, 420_000, 630_000, 840_000, 1_050_000, 1_260_000]
+      .map((observedAt, index) => windowPoint(observedAt, index));
+    const result = calculateSessionQuotaContext(input({ points }));
+    expect(result.coverage.observationCadenceMs).toBe(210_000);
+    expect(result.confidence).toBe("high");
+    expect(result.resources[0]?.confidence).toBe("high");
+  });
+
+  test("reports a resolved sibling beside an unresolved one", () => {
+    const weekly = (observedAt: number, usedPercent: number) => ({
+      ...windowPoint(observedAt, usedPercent, "reset:7200000"), id: "weekly",
+    });
+    const result = calculateSessionQuotaContext(input({
+      points: [
+        windowPoint(9 * 60_000, 12, "observed:540000"),
+        windowPoint(21 * 60_000, 20, "observed:1260000"),
+        weekly(9 * 60_000, 40),
+        weekly(21 * 60_000, 43),
+      ],
+    }));
+    expect(result.resources.find((resource) => resource.id === "weekly")).toMatchObject({
+      deltaPercentagePoints: 3, confidence: "high",
+    });
+    expect(result.resources.find((resource) => resource.id === "fiveHour")?.confidence).toBe("insufficient");
+    expect(result.confidence).toBe("high");
+    expect(result.reason).toBeNull();
   });
 
   test("counts same-provider and cross-provider overlap separately", () => {

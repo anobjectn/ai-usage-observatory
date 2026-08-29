@@ -4799,11 +4799,13 @@ export type SessionQuotaImpact = {
 };
 
 export function sessionQuotaImpactItems(context: SessionQuotaContext | null | undefined): SessionQuotaImpact[] {
-  if (!context || context.confidence === "insufficient") return [];
+  if (!context) return [];
   const labels = { fiveHour: "5h", weekly: "w", monthly: "m" } as const;
+  // Filtered per resource: a five-hour window nobody can read must not hide a weekly
+  // window that resolved cleanly in the same session.
   return context.resources.flatMap((resource) => {
     const label = labels[resource.id as keyof typeof labels];
-    return label && resource.deltaPercentagePoints !== null
+    return label && resource.confidence !== "insufficient" && resource.deltaPercentagePoints !== null
       ? [{ id: resource.id, label, value: resource.deltaPercentagePoints }]
       : [];
   });
@@ -4856,24 +4858,31 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
         </div>
         <span className="session-quota-context__confidence">{context.confidence} confidence</span>
       </header>
-      {context.resources.length > 0 && context.confidence !== "insufficient" ? (
+      {context.resources.length > 0 ? (
         <div className="session-quota-context__resources">
           {context.resources.map((resource) => {
-            const movement = !resource.measurable
-              ? "No measurable increase"
-              : resource.kind === "pool" && resource.deltaUnits !== null
-                ? `+${quotaNumber(resource.deltaUnits)} credits${resource.deltaPercentagePoints === null ? "" : ` · +${quotaNumber(resource.deltaPercentagePoints)}% of quota`}`
-                : resource.deltaPercentagePoints === null
-                  ? "Movement unavailable"
-                  : `+${quotaNumber(resource.deltaPercentagePoints)}% of quota`;
+            const movement = resource.confidence === "insufficient"
+              ? "Unresolved"
+              : !resource.measurable
+                ? "No measurable increase"
+                : resource.kind === "pool" && resource.deltaUnits !== null
+                  ? `+${quotaNumber(resource.deltaUnits)} credits${resource.deltaPercentagePoints === null ? "" : ` · +${quotaNumber(resource.deltaPercentagePoints)}% of quota`}`
+                  : resource.deltaPercentagePoints === null
+                    ? "Movement unavailable"
+                    : `+${quotaNumber(resource.deltaPercentagePoints)}% of quota`;
             return (
-              <div key={resource.id}>
+              <div key={resource.id} className={`is-${resource.confidence}`}>
                 <span>{quotaResourceLabel(resource.id)}</span>
                 <strong title={resource.deltaPercentagePoints === null ? undefined : `${resource.deltaPercentagePoints}% of the full quota limit`}>{movement}</strong>
                 <small>
-                  {resource.cycleCount} resolved {resource.cycleCount === 1 ? "cycle" : "cycles"}
+                  {resource.confidence === "insufficient"
+                    ? resource.reason
+                    : `${resource.cycleCount} resolved ${resource.cycleCount === 1 ? "cycle" : "cycles"} · ${resource.confidence} confidence`}
                   {resource.limitChanged ? " · pool limit changed" : ""}
                 </small>
+                {resource.confidence !== "insufficient" && resource.reason ? (
+                  <small className="session-quota-context__caveat">{resource.reason}</small>
+                ) : null}
               </div>
             );
           })}
@@ -4882,7 +4891,12 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
         <p className="session-quota-context__empty">{context.reason ?? "The available observations cannot resolve account movement for this session."}</p>
       )}
       <div className="session-quota-context__evidence">
-        <span>{evidence} · {context.confidence} confidence</span>
+        <span>
+          {evidence} · {context.confidence} confidence
+          {context.coverage.observationCadenceMs === null
+            ? ""
+            : ` · ${Math.round(context.coverage.observationCadenceMs / 1000)}s snapshot cadence`}
+        </span>
         <span>
           {sameProvider > 0
             ? `Up to ${context.concurrency.maxOtherSameProviderSessions} other local ${providerLabel} ${context.concurrency.maxOtherSameProviderSessions === 1 ? "session" : "sessions"} overlapped`
