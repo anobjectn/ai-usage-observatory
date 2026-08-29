@@ -5,12 +5,32 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.0] - 2026-08-28
 
 ### Added
 
 - Make multi-line prompts and outputs in Sessions collapsible from their
   timestamp headers, with a glyph showing whether each entry is open or closed.
+- Add session quota context and a Quota impact column to Sessions. Show
+  observed account allowance movement with coverage, confidence, resolved quota
+  cycles, concurrent local sessions, and unknown external activity without
+  attributing account movement to the thread.
+- Add a quick quota overview to the top bar with gauge and grid layouts, live
+  reset countdowns, a persistent layout choice, and a non-interactive
+  headroom orrery.
+- Allow opt-in private remote access through exact hostnames in
+  `USAGE_OBSERVATORY_ALLOWED_HOSTS`, including Tailscale Serve setups.
+
+### Changed
+
+- Preserve valid quota data when individual provider endpoints fail and use a
+  read-only local history fallback for older quota-service setups.
+
+### Fixed
+
+- Left-truncate long working-directory paths only when the Sessions column is
+  too narrow, keeping the path tail visible. The full path remains available
+  on hover.
 
 ## [1.16.2] - 2026-08-19
 
@@ -542,6 +562,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Correct path- and date-filtered totals, session extraction, navigation and
   modal behavior, project controls, and accessibility focus states.
 
+[1.17.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.16.2...v1.17.0
 [1.16.2]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.16.1...v1.16.2
 [1.16.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.15.1...v1.16.0
