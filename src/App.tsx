@@ -3282,18 +3282,6 @@ function Overview({
             icon={Zap}
           />
           <MetricCard
-            eyebrow="API-EQUIVALENT COST"
-            value={formatMoney(totals.cost)}
-            detail="ccusage · offline pricing"
-            trend={percentChange(totals.cost, previousTotals.cost)}
-            averages={metricAverageCardItems(
-              costAverages,
-              previousCostAverages,
-              formatMoney,
-            )}
-            icon={CircleDollarSign}
-          />
-          <MetricCard
             eyebrow="OUTPUT TOKENS"
             value={formatCompact(totals.output)}
             detail={`${totals.tokens ? Math.round((totals.output / totals.tokens) * 100) : 0}% of period tokens`}
@@ -3322,6 +3310,18 @@ function Overview({
               percentagePointChange,
             )}
             icon={Database}
+          />
+          <MetricCard
+            eyebrow="API-EQUIVALENT COST"
+            value={formatMoney(totals.cost)}
+            detail="ccusage · offline pricing"
+            trend={percentChange(totals.cost, previousTotals.cost)}
+            averages={metricAverageCardItems(
+              costAverages,
+              previousCostAverages,
+              formatMoney,
+            )}
+            icon={CircleDollarSign}
           />
         </div>
         <article className="panel usage-trajectory-panel">
