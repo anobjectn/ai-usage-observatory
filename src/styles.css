@@ -217,6 +217,23 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .metric-card__average :is(.trend-up,.trend-down) { justify-content:flex-end;gap:2px;min-width:0;font-size:8px;white-space:nowrap; }
 .metric-card__average :is(.trend-up,.trend-down) svg { width:10px;height:10px; }
 .metric-card__average-trend--empty { color:var(--dim);font:8px var(--font-label);text-align:right; }
+.metric-card--wide { grid-column:span 2; }
+.metric-token-table-scroll { overflow-x:auto;margin-top:12px; }
+.metric-token-table { width:100%;min-width:380px;border-collapse:collapse; }
+.metric-token-table th[scope="col"] { text-align:left;padding:0 14px 8px 0;font:10px var(--font-label);letter-spacing:.08em;color:var(--dim);border-bottom:1px solid var(--line);white-space:nowrap; }
+.metric-token-table td { padding:12px 14px 12px 0;vertical-align:top; }
+.metric-token-table__value-row strong { display:block;font-size:24px;letter-spacing:-.04em;font-weight:600;margin-bottom:6px; }
+.metric-token-table .metric-detail { display:flex;flex-direction:column;align-items:flex-start;gap:3px;color:var(--dim);font-size:10px; }
+.metric-token-table__divider td { padding:11px 0 7px;border-top:1px solid var(--line); }
+.metric-token-table__divider span { color:var(--aqua);font:500 8px var(--font-label);letter-spacing:.11em; }
+.metric-token-table__divider small { color:var(--dim);font:8px var(--font-label);margin-left:8px; }
+.metric-token-table__average-row { border-top:1px dashed color-mix(in srgb,var(--line-bright) 62%,transparent); }
+.metric-token-table__average-row th { padding:5px 14px 5px 0;color:var(--dim);font:8px var(--font-label);letter-spacing:.06em;text-align:left;font-weight:400;white-space:nowrap; }
+.metric-token-table__average-row td { padding:5px 14px 5px 0; }
+.metric-token-table__average-row td strong { color:var(--text);font:500 var(--data-text-compact) var(--font-label);letter-spacing:-.03em;font-weight:500;margin-right:6px; }
+.metric-token-table__average-row :is(.trend-up,.trend-down) { gap:2px;font-size:8px;white-space:nowrap; }
+.metric-token-table__average-row :is(.trend-up,.trend-down) svg { width:10px;height:10px; }
+.metric-token-table__empty-trend { color:var(--dim);font:8px var(--font-label); }
 .trend-up,.trend-down { display:flex;align-items:center;color:var(--accent);font:10px var(--font-label); }.trend-down{color:var(--orange)}.trend-up svg,.trend-down svg{width:12px;height:12px}
 .quota-panel { padding:20px; }
 .quota-heading-meta { display:flex;align-items:center;gap:9px;color:var(--dim);font:10px var(--font-label); }

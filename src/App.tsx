@@ -845,6 +845,103 @@ function MetricCard({
   );
 }
 
+type TokenTableColumn = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  trend?: number;
+  averages: MetricCardAverage[];
+};
+
+/** The Total/Output pair reads as one traffic story, so it merges into a single wide card with
+ * Total, In, and Out as columns of one table rather than two side-by-side single-metric cards. */
+function TokenTableCard({
+  eyebrow,
+  icon: Icon,
+  columns,
+}: {
+  eyebrow: string;
+  icon: typeof Orbit;
+  columns: TokenTableColumn[];
+}) {
+  const averageRows = columns[0]?.averages ?? [];
+  return (
+    <article className="metric-card metric-card--wide">
+      <div className="metric-card__top">
+        <span>{eyebrow}</span>
+        <Icon size={16} />
+      </div>
+      <div className="metric-token-table-scroll">
+        <table className="metric-token-table">
+          <thead>
+            <tr>
+              <th scope="col" />
+              {columns.map((column) => (
+                <th scope="col" key={column.key}>
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="metric-token-table__value-row">
+              <th scope="row" className="sr-only">
+                Value
+              </th>
+              {columns.map((column) => (
+                <td key={column.key}>
+                  <strong aria-live="polite">{column.value}</strong>
+                  <div className="metric-detail">
+                    <span>{column.detail}</span>
+                    {column.trend !== undefined && (
+                      <MetricTrend value={column.trend} />
+                    )}
+                  </div>
+                </td>
+              ))}
+            </tr>
+            {averageRows.length > 0 && (
+              <tr className="metric-token-table__divider">
+                <td colSpan={columns.length + 1}>
+                  <span>AVERAGES</span>
+                  <small>active days · vs prior span</small>
+                </td>
+              </tr>
+            )}
+            {averageRows.map((row, index) => (
+              <tr key={row.label} className="metric-token-table__average-row">
+                <th scope="row">{row.label}</th>
+                {columns.map((column) => {
+                  const cell = column.averages[index];
+                  return (
+                    <td key={column.key}>
+                      <strong>{cell.value}</strong>
+                      {cell.trend === undefined ? (
+                        <span
+                          className="metric-token-table__empty-trend"
+                          aria-label="No previous matching slice"
+                        >
+                          —
+                        </span>
+                      ) : (
+                        <MetricTrend
+                          value={cell.trend}
+                          context="previous matching slice"
+                        />
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
 type ChartTooltipPayload = {
   color?: string;
   dataKey?: string;
@@ -1625,11 +1722,12 @@ function metricTotals(rows: MetricRow[]) {
     (sum, row) => ({
       tokens: sum.tokens + row.totalTokens,
       cost: sum.cost + row.totalCost,
+      input: sum.input + row.inputTokens,
       output: sum.output + row.outputTokens,
       cache: sum.cache + row.cacheReadTokens,
       traffic: sum.traffic + metricRowTraffic(row),
     }),
-    { tokens: 0, cost: 0, output: 0, cache: 0, traffic: 0 },
+    { tokens: 0, cost: 0, input: 0, output: 0, cache: 0, traffic: 0 },
   );
 }
 
@@ -3150,6 +3248,11 @@ function Overview({
     previousDaily,
     (row) => row.totalCost,
   );
+  const inputAverages = averageMetricSlices(daily, (row) => row.inputTokens);
+  const previousInputAverages = averageMetricSlices(
+    previousDaily,
+    (row) => row.inputTokens,
+  );
   const outputAverages = averageMetricSlices(daily, (row) => row.outputTokens);
   const previousOutputAverages = averageMetricSlices(
     previousDaily,
@@ -3269,29 +3372,47 @@ function Overview({
           </div>
         </div>
         <div className="metric-grid">
-          <MetricCard
-            eyebrow="TOTAL TOKENS"
-            value={formatCompact(totals.tokens)}
-            detail={`${daily.length} active ${daily.length === 1 ? "day" : "days"}`}
-            trend={percentChange(totals.tokens, previousTotals.tokens)}
-            averages={metricAverageCardItems(
-              tokenAverages,
-              previousTokenAverages,
-              formatCompact,
-            )}
+          <TokenTableCard
+            eyebrow="TOKENS"
             icon={Zap}
-          />
-          <MetricCard
-            eyebrow="OUTPUT TOKENS"
-            value={formatCompact(totals.output)}
-            detail={`${totals.tokens ? Math.round((totals.output / totals.tokens) * 100) : 0}% of period tokens`}
-            trend={percentChange(totals.output, previousTotals.output)}
-            averages={metricAverageCardItems(
-              outputAverages,
-              previousOutputAverages,
-              formatCompact,
-            )}
-            icon={Sparkles}
+            columns={[
+              {
+                key: "total",
+                label: "TOTAL",
+                value: formatCompact(totals.tokens),
+                detail: `${daily.length} active ${daily.length === 1 ? "day" : "days"}`,
+                trend: percentChange(totals.tokens, previousTotals.tokens),
+                averages: metricAverageCardItems(
+                  tokenAverages,
+                  previousTokenAverages,
+                  formatCompact,
+                ),
+              },
+              {
+                key: "input",
+                label: "IN",
+                value: formatCompact(totals.input),
+                detail: `${totals.tokens ? Math.round((totals.input / totals.tokens) * 100) : 0}% of period tokens`,
+                trend: percentChange(totals.input, previousTotals.input),
+                averages: metricAverageCardItems(
+                  inputAverages,
+                  previousInputAverages,
+                  formatCompact,
+                ),
+              },
+              {
+                key: "output",
+                label: "OUT",
+                value: formatCompact(totals.output),
+                detail: `${totals.tokens ? Math.round((totals.output / totals.tokens) * 100) : 0}% of period tokens`,
+                trend: percentChange(totals.output, previousTotals.output),
+                averages: metricAverageCardItems(
+                  outputAverages,
+                  previousOutputAverages,
+                  formatCompact,
+                ),
+              },
+            ]}
           />
           <MetricCard
             eyebrow="CACHE SHARE"
