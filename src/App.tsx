@@ -5910,7 +5910,7 @@ function Sessions({
                         className="cwd"
                         title={session.cwd ?? "Unavailable"}
                       >
-                        {session.cwd ?? "Path unavailable"}
+                        <span dir="ltr">{session.cwd ?? "Path unavailable"}</span>
                       </span>
                       <span className="mini-tags">
                         {[...session.pathTags, ...annotationOf(session).tags]
