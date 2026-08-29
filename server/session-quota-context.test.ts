@@ -56,6 +56,43 @@ describe("session quota policy", () => {
     expect(result.resources[0]?.episodes).toHaveLength(2);
   });
 
+  test("anchors a fresh cycle to the unstarted window that preceded it", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [
+        windowPoint(9 * 60_000, 0, "observed:540000"),
+        windowPoint(21 * 60_000, 8, "reset:3600000"),
+      ],
+    }));
+    expect(result.resources[0]).toMatchObject({
+      deltaPercentagePoints: 8, cycleCount: 1, measurable: true,
+    });
+    expect(result.reason).toBeNull();
+    expect(result.confidence).toBe("high");
+  });
+
+  test("resolves a session that never started the window as zero movement", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [
+        windowPoint(9 * 60_000, 0, "observed:540000"),
+        windowPoint(21 * 60_000, 0, "observed:1260000"),
+      ],
+    }));
+    expect(result.resources[0]).toMatchObject({ deltaPercentagePoints: 0, measurable: false });
+    expect(result.reason).toBeNull();
+  });
+
+  test("still reports an unreadable cycle when the window carries usage without a reset", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [
+        windowPoint(9 * 60_000, 12, "observed:540000"),
+        windowPoint(21 * 60_000, 20, "observed:1260000"),
+      ],
+    }));
+    expect(result.resources).toEqual([]);
+    expect(result.confidence).toBe("insufficient");
+    expect(result.reason).toContain("do not resolve both sides");
+  });
+
   test("rejects a counter decrease inside one cycle", () => {
     const result = calculateSessionQuotaContext(input({
       points: [windowPoint(9 * 60_000, 70), windowPoint(21 * 60_000, 60)],

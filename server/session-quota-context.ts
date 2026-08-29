@@ -155,12 +155,30 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
         coveredMs += Math.max(0, last.observedAt - first.observedAt);
       }
       for (const point of selected) snapshotKeys.add(`${point.observedAt}:${point.id}:${point.cycleId}`);
+      // A window reported at 0% with no reset instant is a window that has not started yet,
+      // which is an unambiguous zero baseline rather than an unreadable cycle. Anthropic
+      // reports its five-hour window that way roughly half the time, so rejecting those
+      // points left every session that opened a fresh window unresolvable.
+      const idle: ResourcePoint[] = [];
       const cycles = new Map<string, ResourcePoint[]>();
       for (const point of selected) {
+        if (point.kind === "window" && point.cycleId.startsWith("observed:") && point.usedPercent === 0) {
+          idle.push(point);
+          continue;
+        }
         const values = cycles.get(point.cycleId) ?? [];
         values.push(point);
         cycles.set(point.cycleId, values);
       }
+      idle.sort((a, b) => a.observedAt - b.observedAt);
+      for (const values of cycles.values()) {
+        values.sort((a, b) => a.observedAt - b.observedAt);
+        const anchor = [...idle].reverse().find((point) => point.observedAt <= values[0]!.observedAt);
+        if (anchor) values.unshift({ ...anchor, cycleId: values[0]!.cycleId });
+      }
+      // Every observation across the bracket showed an unstarted window: the session moved
+      // this resource by nothing, which is a resolved answer rather than a missing one.
+      if (!cycles.size && idle.length > 1) cycles.set(`idle:${idle[0]!.observedAt}`, idle);
       for (const [cycleId, values] of cycles) {
         values.sort((a, b) => a.observedAt - b.observedAt);
         if (cycleId.startsWith("observed:") || values.length < 2) {

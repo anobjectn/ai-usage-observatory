@@ -177,7 +177,10 @@ function normalizeLocalObservation(database: Database, row: {
     source: row.source,
     plan,
   };
-  const cycle = (at: number | null) => at === null ? `observed:${observedAt}` : `reset:${Math.floor(at / 60_000) * 60_000}`;
+  // Providers repeat one reset instant with sub-second jitter, and those instants sit on a
+  // round minute, so flooring splits a single cycle across two ids every time the jitter
+  // crosses the boundary. Rounding folds the jitter back onto the instant it belongs to.
+  const cycle = (at: number | null) => at === null ? `observed:${observedAt}` : `reset:${Math.round(at / 60_000) * 60_000}`;
   if (snapshot.kind === "window") {
     const windows = (["fiveHour", "weekly"] as const).flatMap((id) => {
       const value = snapshot[id] as { usedPercent?: unknown; resetsAt?: unknown } | null;
