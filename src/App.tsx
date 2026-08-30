@@ -7952,13 +7952,21 @@ function Models({
   dateRange: DateRange | null;
   onOpenSession: (sessionId: string) => void;
 }) {
+  type ModelOrder =
+    | "total-desc"
+    | "total-asc"
+    | "output-desc"
+    | "output-asc"
+    | "input-desc"
+    | "input-asc"
+    | "cost-desc"
+    | "cost-asc";
   const [openModels, setOpenModels] = useState<Set<string>>(
     () => new Set(modelIdsFromUrl()),
   );
   const [pages, setPages] = useState<Record<string, number>>({});
   const [query, setQuery] = useState("");
-  const [usageOrder, setUsageOrder] = useState<"most" | "least">("most");
-  const [benchmarkModal, setBenchmarkModal] = useState(false);
+  const [usageOrder, setUsageOrder] = useState<ModelOrder>("output-desc");
   const modelGridRef = useRef<HTMLElement | null>(null);
   const pendingScrollModel = useRef<string | null>(modelIdsFromUrl().at(-1) ?? null);
   const lastUserScrollAt = useUserScrollIntent();
@@ -8009,6 +8017,10 @@ function Models({
   const max = Math.max(...models.map((model) => model.cost), 1);
   const visibleModels = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const [metric, direction] = usageOrder.split("-") as [
+      "total" | "output" | "input" | "cost",
+      "asc" | "desc",
+    ];
     const matches = models
       .map((model, index) => ({ model, index }))
       .filter(({ model }) =>
@@ -8017,8 +8029,39 @@ function Models({
           .includes(normalizedQuery),
       );
     return matches.sort((left, right) => {
-      const comparison = left.model.tokens - right.model.tokens;
-      return usageOrder === "most" ? -comparison : comparison;
+      const leftWarpOnly =
+        left.model.agents.length > 0 &&
+        left.model.agents.every((agent) => providerKey(agent) === "warp");
+      const rightWarpOnly =
+        right.model.agents.length > 0 &&
+        right.model.agents.every((agent) => providerKey(agent) === "warp");
+      const leftUnavailable = metric === "cost" && !left.model.priced;
+      const rightUnavailable = metric === "cost" && !right.model.priced;
+      if (leftUnavailable !== rightUnavailable)
+        return leftUnavailable ? 1 : -1;
+      const leftValue =
+        metric === "total"
+          ? left.model.tokens
+          : metric === "output"
+          ? leftWarpOnly
+            ? left.model.tokens
+            : left.model.outputTokens
+          : metric === "input"
+            ? left.model.inputTokens
+            : left.model.cost;
+      const rightValue =
+        metric === "total"
+          ? right.model.tokens
+          : metric === "output"
+          ? rightWarpOnly
+            ? right.model.tokens
+            : right.model.outputTokens
+          : metric === "input"
+            ? right.model.inputTokens
+            : right.model.cost;
+      const comparison = leftValue - rightValue;
+      if (comparison !== 0) return direction === "asc" ? comparison : -comparison;
+      return left.model.model.localeCompare(right.model.model);
     });
   }, [models, query, usageOrder]);
   useEffect(() => {
@@ -8089,31 +8132,28 @@ function Models({
                 </button>
               )}
             </label>
-            <div className="model-quick-links" aria-label="Model usage order">
-              <button
-                type="button"
-                className={usageOrder === "most" ? "active" : undefined}
-                aria-pressed={usageOrder === "most"}
-                onClick={() => setUsageOrder("most")}
+            <label className="model-sort">
+              <span>Order</span>
+              <select
+                aria-label="Model usage order"
+                value={usageOrder}
+                onChange={(event) =>
+                  setUsageOrder(event.target.value as ModelOrder)
+                }
               >
-                <ArrowUpRight aria-hidden="true" /> Most used
-              </button>
-              <button
-                type="button"
-                className={usageOrder === "least" ? "active" : undefined}
-                aria-pressed={usageOrder === "least"}
-                onClick={() => setUsageOrder("least")}
-              >
-                <ArrowDownRight aria-hidden="true" /> Least used
-              </button>
-            </div>
-            <button type="button" className="secondary-button benchmark-trigger" onClick={() => setBenchmarkModal(true)}>
-              <BenchmarkTriggerIcons /> Compare benchmarks
-            </button>
+                <option value="total-desc">Total tokens - DESC</option>
+                <option value="total-asc">Total tokens - ASC</option>
+                <option value="output-desc">Output tokens - DESC</option>
+                <option value="output-asc">Output tokens - ASC</option>
+                <option value="input-desc">Input tokens - DESC</option>
+                <option value="input-asc">Input tokens - ASC</option>
+                <option value="cost-desc">API-equivalent cost - DESC</option>
+                <option value="cost-asc">API-equivalent cost - ASC</option>
+              </select>
+            </label>
           </div>
         }
       />
-      {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
       <section className="model-grid" ref={modelGridRef}>
         {visibleModels.map(({ model, index }) => {
           const warpOnly = model.agents.length > 0 && model.agents.every((agent) => providerKey(agent) === "warp");
