@@ -6,6 +6,7 @@ import {
   currentAndPreviousFiveHourWindows,
   currentFiveHourWindows,
   currentWindowSessions,
+  effortAbsenceReason,
   metricRowCacheShare,
   SessionDetailPanel,
   SessionMixGroupBreakdown,
@@ -25,6 +26,7 @@ import {
   withoutCacheMetricRow,
 } from "./App";
 import type {
+  EffortIndexStatus,
   EffortSummary,
   DashboardData,
   MetricRow,
@@ -859,4 +861,69 @@ test("sessionRangeLabel collapses a single-day range and reports empty sets", ()
   expect(sessionRangeLabel(rows)).toBe("Jul 16, 2026 — Jul 18, 2026");
   expect(sessionRangeLabel(rows.slice(0, 1))).toBe("Jul 18, 2026");
   expect(sessionRangeLabel([])).toBe("No dated sessions");
+});
+
+const effortIndexStatus = (
+  overrides: Partial<EffortIndexStatus> = {},
+): EffortIndexStatus => ({
+  enabled: true,
+  phase: "ready",
+  quality: "ok",
+  parserVersion: 5,
+  indexVersion: 1,
+  indexedAt: "2026-08-30 14:20:25",
+  error: null,
+  progress: null,
+  parseErrors: 0,
+  contextGaps: 0,
+  skippedBytes: 0,
+  ...overrides,
+});
+
+const unattributedSummary = (unknownObservations: number): EffortSummary => ({
+  coverageState: "unavailable",
+  quality: "ok",
+  dominant: null,
+  dominantBasis: null,
+  mixed: false,
+  levels: [],
+  reconciliationDeltaTokens: 0,
+  observedObservations: 0,
+  unknownObservations,
+  observationCoverage: 0,
+  eligibleTokens: 30_530_826,
+  attributedTokens: 0,
+  unknownTokens: 30_530_826,
+  tokenCoverage: 0,
+});
+
+test("a model with no effort levels says why, instead of leaving only a token count", () => {
+  // The bar is real usage either way, so every case names a cause the Data view can act on.
+  expect(
+    effortAbsenceReason(unattributedSummary(455), effortIndexStatus()),
+  ).toBe("455 observations, none recording an effort value.");
+  expect(
+    effortAbsenceReason(unattributedSummary(0), effortIndexStatus()),
+  ).toBe("No effort metadata recorded for this model.");
+  expect(effortAbsenceReason(null, effortIndexStatus())).toBe(
+    "No indexed transcripts for this model in this scope.",
+  );
+});
+
+test("an incomplete or switched-off index is named as the reason, not the model", () => {
+  expect(
+    effortAbsenceReason(null, effortIndexStatus({ phase: "indexing" })),
+  ).toBe("No indexed transcripts yet; indexing is still running.");
+  expect(
+    effortAbsenceReason(unattributedSummary(0), effortIndexStatus({ phase: "indexing" })),
+  ).toBe("No effort recorded yet; indexing is still running.");
+  expect(
+    effortAbsenceReason(
+      unattributedSummary(455),
+      effortIndexStatus({ enabled: false, phase: "disabled" }),
+    ),
+  ).toBe("Effort indexing is off; enable it in Data.");
+  expect(
+    effortAbsenceReason(null, effortIndexStatus({ phase: "error", error: "boom" })),
+  ).toBe("Effort indexing reported an error.");
 });

@@ -1121,16 +1121,39 @@ type ModelSignalRow = ReturnType<typeof modelDistribution>[number] & {
   effort: EffortSummary | null;
 };
 
+/** Why a model has no effort levels to break down. The bar is real usage either way, so the
+ * tooltip states the reason instead of dropping the section and leaving only a token count. */
+export function effortAbsenceReason(
+  summary: EffortSummary | null,
+  status: EffortIndexStatus | null,
+) {
+  if (status && !status.enabled) return "Effort indexing is off; enable it in Data.";
+  if (status?.phase === "error") return "Effort indexing reported an error.";
+  if (!summary) {
+    return status?.phase === "indexing"
+      ? "No indexed transcripts yet; indexing is still running."
+      : "No indexed transcripts for this model in this scope.";
+  }
+  if (summary.unknownObservations > 0) {
+    return `${formatCompact(summary.unknownObservations)} observations, none recording an effort value.`;
+  }
+  return status?.phase === "indexing"
+    ? "No effort recorded yet; indexing is still running."
+    : "No effort metadata recorded for this model.";
+}
+
 function ModelSignalTooltip({
   active,
   payload,
   coordinate,
   metric,
+  status,
 }: {
   active?: boolean;
   payload?: Array<{ payload: ModelSignalRow; color?: string; value?: number }>;
   coordinate?: { x?: number };
   metric: Metric;
+  status: EffortIndexStatus | null;
 }) {
   const pinSource = useId();
   const liveRow = payload?.[0]?.payload;
@@ -1149,6 +1172,43 @@ function ModelSignalTooltip({
   if (!hold.snapshot) return null;
   const { row, metric: snapshotMetric } = hold.snapshot;
   const summary = row.effort;
+  const family = familyOf(row.rawName);
+  const levels = summary?.levels ?? [];
+  // A fold that could only rank by observations leaves every token count at zero. Those levels
+  // are still observed values, so they are listed by observation count rather than dropped.
+  const attributed = levels.filter((level) => level.tokens > 0);
+  const observed =
+    attributed.length > 0
+      ? attributed
+      : levels.filter((level) => level.observations > 0);
+  // Unattributed tokens stay in the denominator so the listed shares add up to the model's own
+  // token total rather than to the attributed slice alone. A degraded fold reports null here,
+  // and then only the attributed side can be shared out.
+  const unattributedTokens = summary?.unknownTokens ?? null;
+  const breakdownTotal =
+    (summary?.attributedTokens ?? 0) + (unattributedTokens ?? 0);
+  // Every row of the breakdown is one combo, including the unattributed remainder, which is the
+  // same model with no recorded value. Rows rank by size rather than by canonical effort order:
+  // the question this tooltip answers is where the model's tokens went. Observation counts break
+  // the tie for a fold that could not attribute tokens at all.
+  const breakdown = [
+    ...observed.map((level) => ({
+      effort: level.effort,
+      tokens: level.tokens,
+      observations: level.observations,
+    })),
+    ...(summary && unattributedTokens !== null && unattributedTokens > 0
+      ? [
+          {
+            effort: "",
+            tokens: unattributedTokens,
+            observations: summary.unknownObservations,
+          },
+        ]
+      : []),
+  ].sort(
+    (a, b) => b.tokens - a.tokens || b.observations - a.observations,
+  );
   return (
     <PinnableChartTooltip
       id={`${pinSource}:${row.provider ?? "unknown"}:${row.rawName}:${snapshotMetric}`}
@@ -1173,26 +1233,41 @@ function ModelSignalTooltip({
             : formatCompact(row.value)}
         </b>
       </div>
-      {summary?.dominant && (
-        <div className="model-signal-tooltip__effort">
-          {/* The model is known here, so the dominant value is shown as the combo it actually
-           * is. An effort label on its own would invite comparison across families. */}
-          <ComboPill combo={{ family: familyOf(row.rawName), effort: summary.dominant }} />
-          <small>
-            {summary.tokenCoverage === null
-              ? "Token coverage unavailable"
-              : `${Math.round(summary.tokenCoverage * 100)}% token coverage`}
-          </small>
-          {summary.levels
-            .filter((level) => level.tokens > 0)
-            .map((level) => (
-              <span key={level.effort}>
-                {effortLabel(level.effort)}{" "}
-                {sharePercent(level.tokens, summary.attributedTokens)}
-              </span>
-            ))}
-        </div>
-      )}
+      <div className="model-signal-tooltip__effort">
+        {/* Every row is the model and its recorded value together, dominant or not: an effort
+         * label on its own would invite comparison across families, and a pill for one row and
+         * bare text for the rest would read as two different kinds of fact. */}
+        {breakdown.map((entry) => (
+          <Fragment key={entry.effort || "unknown"}>
+            <ComboPill combo={{ family, effort: entry.effort }} />
+            <b>
+              {entry.tokens > 0
+                ? formatCompact(entry.tokens)
+                : `${formatCompact(entry.observations)} obs`}
+            </b>
+            <em>
+              {entry.tokens > 0
+                ? sharePercent(entry.tokens, breakdownTotal)
+                : "—"}
+            </em>
+          </Fragment>
+        ))}
+        {breakdown.length === 0 && (
+          <>
+            <ComboPill combo={{ family, effort: "" }} />
+            <b>—</b>
+            <em>—</em>
+          </>
+        )}
+        <small>
+          {!summary || summary.tokenCoverage === null
+            ? "Token coverage unavailable"
+            : `${Math.round(summary.tokenCoverage * 100)}% token coverage`}
+        </small>
+        {observed.length === 0 && (
+          <small>{effortAbsenceReason(summary, status)}</small>
+        )}
+      </div>
     </PinnableChartTooltip>
   );
 }
@@ -4352,7 +4427,12 @@ function Explorer({
                   tickLine={false}
                 />
                 <Tooltip
-                  content={<ModelSignalTooltip metric={metric} />}
+                  content={
+                    <ModelSignalTooltip
+                      metric={metric}
+                      status={modelEffortStatus.data}
+                    />
+                  }
                   cursor={{ fill: "#15211d" }}
                   isAnimationActive={false}
                   wrapperStyle={chartTooltipWrapperStyle}
