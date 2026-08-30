@@ -14,7 +14,9 @@ import {
   projectTrendRowsInRange,
   sessionProviderMix,
   sessionModelNames,
-  sessionQuotaImpactItems,
+  sessionQuotaBalanceItems,
+  quotaRemainingRanges,
+  quotaResetBoundaries,
   sessionRangeLabel,
   withoutCacheMetricRow,
 } from "./App";
@@ -470,6 +472,8 @@ test("session quota context uses account-level, non-additive language", () => {
             deltaPercentagePoints: 49.25, deltaUnits: null, cycleCount: 1,
             measurable: true, limitChanged: false,
             confidence: "high", reason: null,
+            endUsedPercent: 99.75, endUsedUnits: null, limitUnits: null,
+            endObservedAt: 1, endCycleId: "reset:1", endGapMs: 1_000,
             episodes: [{
               cycleId: "reset:1", startUsedPercent: 50.5, endUsedPercent: 99.75,
               deltaPercentagePoints: 49.25, startUsedUnits: null, endUsedUnits: null, deltaUnits: null,
@@ -489,11 +493,16 @@ test("session quota context uses account-level, non-additive language", () => {
     }),
   );
 
-  expect(html).toContain("+49.3% of quota");
-  expect(html).toContain("not that it increased by 10% relative");
+  // Movement reads as a remaining-quota range, not a summed attribution.
+  expect(html).toContain("49.5→0.3% remaining");
+  expect(html).not.toContain("+49.3% of quota");
+  expect(html).toContain("Closing reading: 0.3% (5h) remaining.");
   expect(html).toContain("Up to 2 other local Codex sessions overlapped");
   expect(html).toContain("account or seat-level observations");
-  expect(html).toContain("Overlapping session values are not additive");
+  expect(html).toContain("never additive");
+  expect(html).toContain("the window reset, then fell from 100% to 75%");
+  expect(html).toContain("last embedded account reading during this session&#x27;s activity");
+  expect(html).not.toContain("first account snapshot after");
   expect(html).not.toContain("this session consumed");
 });
 
@@ -503,6 +512,8 @@ test("session quota context panel shows a resolved resource beside an unresolved
     id: "weekly", kind: "window", unit: "percentage_points",
     deltaPercentagePoints: 3, deltaUnits: null, cycleCount: 1,
     measurable: true, limitChanged: false, confidence: "medium", reason: null,
+    endUsedPercent: 43, endUsedUnits: null, limitUnits: null,
+    endObservedAt: 2, endCycleId: "reset:2", endGapMs: 180_000,
     episodes: [{
       cycleId: "reset:2", startUsedPercent: 40, endUsedPercent: 43,
       deltaPercentagePoints: 3, startUsedUnits: null, endUsedUnits: null, deltaUnits: null,
@@ -524,6 +535,7 @@ test("session quota context panel shows a resolved resource beside an unresolved
             resource({
               id: "fiveHour", deltaPercentagePoints: null, measurable: false, cycleCount: 0,
               confidence: "insufficient", episodes: [],
+              endUsedPercent: null, endObservedAt: null, endCycleId: null, endGapMs: null,
               reason: "Waiting for the first snapshot after this session's last activity.",
             }),
             resource({}),
@@ -542,39 +554,109 @@ test("session quota context panel shows a resolved resource beside an unresolved
     }),
   );
 
-  expect(html).toContain("+3% of quota");
+  expect(html).toContain("60→57% remaining");
   expect(html).toContain("Unresolved");
   expect(html).toContain("Waiting for the first snapshot");
   expect(html).toContain("1 resolved cycle · medium confidence");
   expect(html).toContain("200s snapshot cadence");
+  // The detail summary names only balances backed by a closing reading.
+  expect(html).toContain("Closing reading: 57% (w) remaining.");
 });
 
-test("sessionQuotaImpactItems formats resolved account quota shares for table rows", () => {
+test("sessionQuotaBalanceItems reads remaining quota from closing balances", () => {
   const context = {
-    provider: "codex",
-    basis: "embedded_account_observation",
+    provider: "anthropic",
+    coverage: { observationCadenceMs: 60_000 },
     resources: [
-      { id: "fiveHour", deltaPercentagePoints: 12.5, confidence: "high" },
-      { id: "weekly", deltaPercentagePoints: 3, confidence: "low" },
-      { id: "unrecognized", deltaPercentagePoints: 9, confidence: "high" },
+      { id: "fiveHour", kind: "window", endUsedPercent: 29, endUsedUnits: null, limitUnits: null, endGapMs: 1_000 },
+      { id: "weekly", kind: "window", endUsedPercent: 24, endUsedUnits: null, limitUnits: null, endGapMs: 700_000 },
+      { id: "unrecognized", kind: "window", endUsedPercent: 9, endUsedUnits: null, limitUnits: null, endGapMs: 0 },
+      { id: "monthly", kind: "pool", endUsedPercent: 10, endUsedUnits: 150, limitUnits: 1_500, endGapMs: 0 },
     ],
-    confidence: "high",
   } as SessionQuotaContext;
 
-  expect(sessionQuotaImpactItems(context)).toEqual([
-    { id: "fiveHour", label: "5h", value: 12.5 },
-    { id: "weekly", label: "w", value: 3 },
+  expect(sessionQuotaBalanceItems(context)).toEqual([
+    { id: "fiveHour", label: "5h", remainingPercent: 71, remainingUnits: null, reason: null, stale: false },
+    // A closing snapshot far beyond the movement-confidence threshold is flagged stale.
+    { id: "weekly", label: "w", remainingPercent: 76, remainingUnits: null, reason: null, stale: true },
+    { id: "monthly", label: "m", remainingPercent: null, remainingUnits: 1_350, reason: null, stale: false },
   ]);
-  // Filtering is per resource: an unreadable five-hour window drops itself, not the
-  // weekly window that resolved beside it.
+  // A standard resource without a closing balance keeps its labelled slot beside its siblings.
   const mixed = {
     ...context,
     resources: [
-      { ...context.resources[0]!, confidence: "insufficient" as const, deltaPercentagePoints: null },
+      { ...context.resources[0]!, endUsedPercent: null },
       context.resources[1]!,
     ],
-  };
-  expect(sessionQuotaImpactItems(mixed)).toEqual([{ id: "weekly", label: "w", value: 3 }]);
+  } as SessionQuotaContext;
+  expect(sessionQuotaBalanceItems(mixed).map((balance) => [balance.id, balance.remainingPercent])).toEqual([
+    ["fiveHour", null],
+    ["weekly", 76],
+  ]);
+});
+
+test("a model window earns a balance row only while it diverges from the weekly reading", () => {
+  const context = (modelUsedPercent: number) => ({
+    provider: "anthropic",
+    coverage: { observationCadenceMs: 60_000 },
+    resources: [
+      { id: "weekly", kind: "window", endUsedPercent: 24, endUsedUnits: null, limitUnits: null, endGapMs: 0 },
+      { id: "model:Fable", kind: "window", endUsedPercent: modelUsedPercent, endUsedUnits: null, limitUnits: null, endGapMs: 0 },
+    ],
+  }) as SessionQuotaContext;
+
+  expect(sessionQuotaBalanceItems(context(38))).toEqual([
+    { id: "weekly", label: "w", remainingPercent: 76, remainingUnits: null, reason: null, stale: false },
+    { id: "model:Fable", label: "Fable", remainingPercent: 62, remainingUnits: null, reason: null, stale: false },
+  ]);
+  expect(sessionQuotaBalanceItems(context(24)).map((balance) => balance.id)).toEqual(["weekly"]);
+});
+
+test("quotaRemainingRanges splits at resets and collapses episodes inside one cycle", () => {
+  const episode = (cycleId: string, startUsedPercent: number, endUsedPercent: number) => ({
+    cycleId, startUsedPercent, endUsedPercent,
+    deltaPercentagePoints: endUsedPercent - startUsedPercent,
+    startUsedUnits: null, endUsedUnits: null, deltaUnits: null,
+  });
+  const resource = {
+    kind: "window", limitUnits: null, limitChanged: false,
+    episodes: [episode("reset:a", 75, 100), episode("reset:b", 0, 12), episode("reset:b", 14, 25)],
+  } as SessionQuotaContext["resources"][number];
+
+  // A session that ran a window to exhaustion, crossed the reset, and kept going: nothing is
+  // summed across the two cycles.
+  expect(quotaRemainingRanges(resource)).toEqual(["25→0%", "100→75%"]);
+});
+
+test("quotaRemainingRanges reports pool movement only when remaining units can be calculated", () => {
+  const resource = (limitChanged: boolean) => ({
+    kind: "pool", limitUnits: 1_500, limitChanged,
+    episodes: [{
+      cycleId: "reset:monthly", startUsedPercent: 10, endUsedPercent: 20,
+      deltaPercentagePoints: 10, startUsedUnits: 150, endUsedUnits: 300, deltaUnits: 150,
+    }],
+  }) as SessionQuotaContext["resources"][number];
+
+  expect(quotaRemainingRanges(resource(false))).toEqual(["1,350→1,200 credits"]);
+  expect(quotaRemainingRanges(resource(true))).toEqual([]);
+});
+
+test("quotaResetBoundaries reports the window that reset between two adjacent sessions", () => {
+  const context = (fiveHourCycle: string) => ({
+    provider: "anthropic",
+    resources: [
+      { id: "fiveHour", endCycleId: fiveHourCycle },
+      { id: "weekly", endCycleId: "reset:7000" },
+    ],
+  }) as SessionQuotaContext;
+
+  expect(quotaResetBoundaries(context("reset:2000"), context("reset:1000"))).toEqual([
+    { provider: "anthropic", id: "fiveHour", label: "5-hour", at: 1000 },
+  ]);
+  expect(quotaResetBoundaries(context("reset:2000"), context("reset:2000"))).toEqual([]);
+  // Cross-provider neighbours share no counter, so no boundary is drawn between them.
+  const codex = { ...context("reset:1000"), provider: "codex" } as SessionQuotaContext;
+  expect(quotaResetBoundaries(context("reset:2000"), codex)).toEqual([]);
 });
 
 test("projectModelSessionRows keeps only sessions that touched the model, newest first", () => {

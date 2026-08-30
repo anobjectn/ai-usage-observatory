@@ -94,6 +94,8 @@ import {
   Plus,
   Sparkles,
   Tag,
+  TrendingDown,
+  TrendingUp,
   Trash2,
   X,
   Zap,
@@ -570,6 +572,20 @@ const formatDate = (value: string, timeZone?: string) =>
  * the display is rendered in a non-local `timeZone`. */
 function DateStamp({ value, timeZone }: { value: string; timeZone?: string }) {
   return <time dateTime={value}>{formatDate(value, timeZone)}</time>;
+}
+const formatSessionDate = (value: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((valuePart) => valuePart.type === type)?.value ?? "";
+  return `${part("month")} ${part("day")} ${part("hour")}:${part("minute")}${part("dayPeriod").slice(0, 1).toLowerCase()}`;
+};
+function SessionDateStamp({ value }: { value: string }) {
+  return <time dateTime={value}>{formatSessionDate(value)}</time>;
 }
 const formatPromptTimestamp = (value: string | null) =>
   value
@@ -4785,6 +4801,7 @@ function quotaResourceLabel(id: string) {
   if (id === "fiveHour") return "5-hour window";
   if (id === "weekly") return "Weekly window";
   if (id === "monthly") return "Monthly pool";
+  if (id.startsWith("model:")) return `${id.slice(6)} model window`;
   return id;
 }
 
@@ -4792,39 +4809,73 @@ function quotaNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
-export type SessionQuotaImpact = {
+export type SessionQuotaBalance = {
   id: string;
-  label: "5h" | "w" | "m";
-  value: number;
+  label: string;
+  remainingPercent: number | null;
+  remainingUnits: number | null;
+  reason: string | null;
+  /** The closing snapshot arrived well after the session's last activity, so the balance may
+   * already include later account movement. */
+  stale: boolean;
 };
 
-export function sessionQuotaImpactItems(context: SessionQuotaContext | null | undefined): SessionQuotaImpact[] {
+/** Account quota remaining at the closing reading of each resource. An observation of the shared
+ * account counter, not a charge to this session; still valid when movement could not resolve. */
+export function sessionQuotaBalanceItems(context: SessionQuotaContext | null | undefined): SessionQuotaBalance[] {
   if (!context) return [];
   const labels = { fiveHour: "5h", weekly: "w", monthly: "m" } as const;
-  // Filtered per resource: a five-hour window nobody can read must not hide a weekly
-  // window that resolved cleanly in the same session.
+  // The same threshold that separates medium from low confidence for movement brackets.
+  const staleAfterMs = Math.max(5 * 60_000, (context.coverage.observationCadenceMs ?? 0) * 3);
+  const weeklyEnd = context.resources.find((resource) => resource.id === "weekly")?.endUsedPercent ?? null;
   return context.resources.flatMap((resource) => {
-    const label = labels[resource.id as keyof typeof labels];
-    return label && resource.confidence !== "insufficient" && resource.deltaPercentagePoints !== null
-      ? [{ id: resource.id, label, value: resource.deltaPercentagePoints }]
-      : [];
+    let label: string | undefined = labels[resource.id as keyof typeof labels];
+    if (!label) {
+      // A model-specific window is a stricter sub-limit of the weekly one; it earns a row only
+      // while its reading diverges from the generic weekly reading.
+      if (!resource.id.startsWith("model:")) return [];
+      if (resource.endUsedPercent === null) return [];
+      if (weeklyEnd !== null && Math.abs(resource.endUsedPercent - weeklyEnd) <= 1) return [];
+      label = resource.id.slice(6);
+    }
+    if (resource.endUsedPercent === null) {
+      return [{
+        id: resource.id,
+        label,
+        remainingPercent: null,
+        remainingUnits: null,
+        reason: resource.reason ?? null,
+        stale: false,
+      }];
+    }
+    const remainingUnits = resource.kind === "pool" && resource.endUsedUnits !== null && resource.limitUnits !== null
+      ? resource.limitUnits - resource.endUsedUnits
+      : null;
+    return [{
+      id: resource.id,
+      label,
+      remainingPercent: remainingUnits !== null ? null : Math.max(0, 100 - resource.endUsedPercent),
+      remainingUnits,
+      reason: resource.reason ?? null,
+      stale: (resource.endGapMs ?? 0) > staleAfterMs,
+    }];
   });
 }
 
-function SessionQuotaImpactCell({
+function SessionQuotaBalanceCell({
   context,
   loading,
 }: {
   context: SessionQuotaContext | null | undefined;
   loading: boolean;
 }) {
-  const impacts = sessionQuotaImpactItems(context);
-  if (loading) return <span className="session-quota-impact is-loading" aria-label="Loading quota impact">•••</span>;
-  if (!impacts.length) {
+  const balances = sessionQuotaBalanceItems(context);
+  if (loading) return <span className="session-quota-balance is-loading" aria-label="Loading remaining quota">•••</span>;
+  if (!balances.length) {
     return (
       <span
-        className="session-quota-impact is-empty"
-        title={context?.reason ?? "No resolved quota impact is available for this session."}
+        className="session-quota-balance is-empty"
+        title={context?.reason ?? "No account quota reading is available near this session's end."}
       >
         —
       </span>
@@ -4832,23 +4883,97 @@ function SessionQuotaImpactCell({
   }
   return (
     <span
-      className={`session-quota-impact is-${context!.confidence}`}
-      title={`Absolute share of the account quota limit observed during this session. ${context!.confidence} confidence. Account activity is not attributable to this session alone.`}
+      className="session-quota-balance"
+      title={`${context!.basis === "embedded_account_observation"
+        ? "Account quota remaining at the last embedded reading during this session's activity."
+        : "Account quota remaining at the first reading after this session's last activity."} The account is shared: other sessions, devices, and surfaces move the same counter.`}
     >
-      {impacts.map((impact) => (
-        <span key={impact.id}>
-          <b>+{quotaNumber(impact.value)}%</b>
-          <i>{impact.label}</i>
+      {balances.map((balance) => (
+        <span
+          key={balance.id}
+          className={`${balance.remainingUnits !== null ? "is-pool" : ""} ${balance.stale ? "is-low" : ""} ${balance.remainingPercent === null && balance.remainingUnits === null ? "is-unavailable" : ""}`.trim() || undefined}
+          title={balance.remainingPercent === null && balance.remainingUnits === null
+            ? balance.reason ?? `No closing ${balance.label} reading is available.`
+            : undefined}
+        >
+          {balance.remainingPercent === null && balance.remainingUnits === null ? (
+            <>
+              <i>{balance.label}</i>
+              <b>--</b>
+            </>
+          ) : balance.remainingUnits !== null ? (
+            <>
+              <b
+                className="session-quota-balance__credits"
+                aria-label={`${formatWarpCredits(balance.remainingUnits)} credits`}
+              >
+                <span aria-hidden="true">{formatWarpCredits(balance.remainingUnits)}</span>
+                <span aria-hidden="true">credits</span>
+              </b>
+              <i>remaining</i>
+            </>
+          ) : (
+            <>
+              <i>{balance.label}</i>
+              <b>{quotaNumber(balance.remainingPercent ?? 0)}%</b>
+            </>
+          )}
         </span>
       ))}
     </span>
   );
 }
 
+/** Quota windows that reset between two adjacent sessions' closing readings. Order-insensitive:
+ * the boundary instant is the earlier of the two reset times. */
+export function quotaResetBoundaries(
+  left: SessionQuotaContext | null | undefined,
+  right: SessionQuotaContext | null | undefined,
+): Array<{ provider: SessionQuotaContext["provider"]; id: string; label: string; at: number }> {
+  if (!left || !right || left.provider !== right.provider) return [];
+  const labels = { fiveHour: "5-hour", weekly: "Weekly" } as const;
+  return (["fiveHour", "weekly"] as const).flatMap((id) => {
+    const a = left.resources.find((resource) => resource.id === id)?.endCycleId;
+    const b = right.resources.find((resource) => resource.id === id)?.endCycleId;
+    if (!a || !b || a === b || !a.startsWith("reset:") || !b.startsWith("reset:")) return [];
+    const at = Math.min(Number(a.slice("reset:".length)), Number(b.slice("reset:".length)));
+    return Number.isFinite(at) ? [{ provider: left.provider, id, label: labels[id], at }] : [];
+  });
+}
+
+/** One range per quota cycle, in remaining terms, oldest first: a session that spanned a reset
+ * reads `25→0, 100→75`. Episodes inside one cycle collapse to first start → last end. */
+export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][number]): string[] {
+  const cycles = new Map<string, { start: number; end: number; startUnits: number | null; endUnits: number | null }>();
+  for (const episode of resource.episodes) {
+    const existing = cycles.get(episode.cycleId);
+    if (!existing) {
+      cycles.set(episode.cycleId, {
+        start: episode.startUsedPercent,
+        end: episode.endUsedPercent,
+        startUnits: episode.startUsedUnits,
+        endUnits: episode.endUsedUnits,
+      });
+    } else {
+      existing.end = episode.endUsedPercent;
+      existing.endUnits = episode.endUsedUnits;
+    }
+  }
+  return [...cycles.values()].map((cycle) => {
+    if (resource.kind === "pool" && cycle.startUnits !== null && cycle.endUnits !== null) {
+      if (resource.limitUnits === null || resource.limitChanged) return null;
+      return `${formatWarpCredits(resource.limitUnits - cycle.startUnits)}→${formatWarpCredits(resource.limitUnits - cycle.endUnits)} credits`;
+    }
+    return `${quotaNumber(Math.max(0, 100 - cycle.start))}→${quotaNumber(Math.max(0, 100 - cycle.end))}%`;
+  }).filter((range): range is string => range !== null);
+}
+
 export function SessionQuotaContextPanel({ context }: { context: SessionQuotaContext }) {
   const providerLabel = context.provider === "anthropic" ? "Claude" : context.provider === "codex" ? "Codex" : "Warp";
   const sameProvider = context.concurrency.distinctOtherSameProviderSessions;
   const evidence = context.basis === "embedded_account_observation" ? "Embedded snapshots" : "Bracketed snapshots";
+  const balances = sessionQuotaBalanceItems(context);
+  const availableBalances = balances.filter((balance) => balance.remainingPercent !== null || balance.remainingUnits !== null);
   return (
     <section className={`session-quota-context is-${context.confidence}`} aria-labelledby="session-quota-context-title">
       <header>
@@ -4861,27 +4986,27 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
       {context.resources.length > 0 ? (
         <div className="session-quota-context__resources">
           {context.resources.map((resource) => {
+            const ranges = quotaRemainingRanges(resource);
+            const blanked = resource.deltaPercentagePoints === null && resource.deltaUnits === null;
             const movement = resource.confidence === "insufficient"
               ? "Unresolved"
-              : !resource.measurable
-                ? "No measurable increase"
-                : resource.kind === "pool" && resource.deltaUnits !== null
-                  ? `+${quotaNumber(resource.deltaUnits)} credits${resource.deltaPercentagePoints === null ? "" : ` · +${quotaNumber(resource.deltaPercentagePoints)}% of quota`}`
-                  : resource.deltaPercentagePoints === null
-                    ? "Movement unavailable"
-                    : `+${quotaNumber(resource.deltaPercentagePoints)}% of quota`;
+              : blanked || !ranges.length
+                ? "Movement unavailable"
+                : !resource.measurable
+                  ? "No measurable movement"
+                  : `${ranges.join(", ")}${resource.kind === "pool" ? "" : " remaining"}`;
             return (
               <div key={resource.id} className={`is-${resource.confidence}`}>
                 <span>{quotaResourceLabel(resource.id)}</span>
-                <strong title={resource.deltaPercentagePoints === null ? undefined : `${resource.deltaPercentagePoints}% of the full quota limit`}>{movement}</strong>
+                <strong title={resource.confidence === "insufficient" || blanked ? undefined : "Remaining account quota while this session was active, oldest cycle first. A jump back up is a window reset; nothing is summed across resets."}>{movement}</strong>
                 <small>
                   {resource.confidence === "insufficient"
                     ? resource.reason
-                    : `${resource.cycleCount} resolved ${resource.cycleCount === 1 ? "cycle" : "cycles"} · ${resource.confidence} confidence`}
+                    : `${resource.cycleCount} resolved ${resource.cycleCount === 1 ? "cycle" : "cycles"}${resource.episodes.length > resource.cycleCount ? ` · ${resource.episodes.length} active episodes` : ""} · ${resource.confidence} confidence`}
                   {resource.limitChanged ? " · pool limit changed" : ""}
                 </small>
-                {resource.confidence !== "insufficient" && resource.reason ? (
-                  <small className="session-quota-context__caveat">{resource.reason}</small>
+                {resource.confidence !== "insufficient" && (resource.reason ?? (blanked ? context.reason : null)) ? (
+                  <small className="session-quota-context__caveat">{resource.reason ?? context.reason}</small>
                 ) : null}
               </div>
             );
@@ -4889,6 +5014,13 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
         </div>
       ) : (
         <p className="session-quota-context__empty">{context.reason ?? "The available observations cannot resolve account movement for this session."}</p>
+      )}
+      {availableBalances.length > 0 && (
+        <p className="session-quota-context__balance">
+          Closing reading: {availableBalances.map((balance) => balance.remainingUnits !== null
+            ? `${formatWarpCredits(balance.remainingUnits)} credits`
+            : `${quotaNumber(balance.remainingPercent ?? 0)}% (${balance.label})`).join(" · ")} remaining.
+        </p>
       )}
       <div className="session-quota-context__evidence">
         <span>
@@ -4908,8 +5040,12 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
         <p>
           These are account or seat-level observations, not charges assigned to this thread. Provider web, mobile, cloud,
           another machine, or another local process may have contributed. Local concurrency is incomplete and external
-          activity is unknown. Overlapping session values are not additive. A value such as +10% means the account
-          counter moved by 10% of the full quota limit, not that it increased by 10% relative to its starting value.
+          activity is unknown; overlapping sessions observe the same shared counter, so values are never additive.
+          Ranges show remaining quota, oldest cycle first: 25→0%, 100→75% means the account counter fell from 25% to 0%
+          remaining, the window reset, then fell from 100% to 75% while this session was active. Nothing is summed
+          across resets. {context.basis === "embedded_account_observation"
+            ? "The closing balance uses the last embedded account reading during this session's activity."
+            : "The closing balance uses the first account snapshot after this session's last activity."}
         </p>
         {context.concurrency.distinctOtherProviderSessions > 0 && (
           <p>{context.concurrency.distinctOtherProviderSessions} local session on another provider also overlapped.</p>
@@ -5902,7 +6038,6 @@ function Sessions({
   type SortKey =
     | "activity"
     | "session"
-    | "agent"
     | "cwd"
     | "tokens"
     | "cost";
@@ -5975,10 +6110,11 @@ function Sessions({
     const value = (session: Session): string | number => {
       if (sort.key === "activity")
         return Date.parse(String(session.metadata?.lastActivity ?? "")) || 0;
-      if (sort.key === "session") return session.modelsUsed[0] ?? "";
-      if (sort.key === "agent") return session.agent;
+      if (sort.key === "session") {
+        return `${providerFromAgent(session.agent) ?? "unknown"}\0${session.modelsUsed[0] ?? ""}`;
+      }
       if (sort.key === "cwd") return session.cwd ?? "";
-      if (sort.key === "tokens") return session.totalTokens;
+      if (sort.key === "tokens") return session.outputTokens;
       return session.totalCost;
     };
     const a = value(left),
@@ -5991,6 +6127,10 @@ function Sessions({
   }), [filtered, sort, effortBySession]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
+  // The remaining-quota column reads like a bank statement's balance column, which only holds
+  // when rows are in end-time order: any other sort turns it into a column of random numbers.
+  const showQuotaBalance = sort.key === "activity";
+  const columnCount = 9;
   const pageQuotaKey = pageRows.map((session) => session.sessionId).join("\n");
   useEffect(() => {
     const sessionIds = pageQuotaKey ? pageQuotaKey.split("\n") : [];
@@ -6004,7 +6144,7 @@ function Sessions({
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Quota impacts are unavailable");
+        if (!response.ok) throw new Error("Quota closing readings are unavailable");
         return await response.json() as { items?: Record<string, SessionQuotaContext | null> };
       })
       .then((result) => {
@@ -6113,8 +6253,9 @@ function Sessions({
     }, autoScrollDelayMs);
     return () => window.clearTimeout(timeout);
   }, [focusSessionId, page, expanded]);
-  const header = (key: SortKey, label: string) => (
+  const header = (key: SortKey, label: string, columnClass: string) => (
     <th
+      className={`session-col ${columnClass}`}
       aria-sort={
         sort.key === key
           ? sort.direction === "asc"
@@ -6177,32 +6318,108 @@ function Sessions({
       />
       <section className="panel table-panel">
         <div className="table-scroll">
-          <table>
+          <table className="session-table">
+            <colgroup>
+              <col className="session-col--quota" />
+              <col className="session-col--activity" />
+              <col className="session-col--model" />
+              <col className="session-col--pwd" />
+              <col className="session-col--tokens" />
+              <col className="session-col--cost" />
+              <col className="session-col--verdict" />
+              <col className="session-col--actions" />
+              <col className="session-col--toggle" />
+            </colgroup>
             <thead>
               <tr>
-                {header("activity", "Last activity")}
-                {header("session", "Model")}
-                {header("agent", "Agent")}
-                {header("cwd", "Working directory")}
-                {header("tokens", "Tokens")}
-                {header("cost", "Cost / credits")}
-                <th>
-                  <span title="Absolute share of the account quota limit observed during the session. Account activity is not attributable to one session alone.">
-                    Quota impact
+                <th className="session-col session-col--quota">
+                  <span
+                    className={`session-quota-balance-header${showQuotaBalance ? "" : " is-dormant"}`}
+                    title={showQuotaBalance
+                      ? `Account quota remaining at each session's closing reading. Rows run ${sort.direction === "asc" ? "oldest to newest" : "newest to oldest"}.`
+                      : "Quota balances are hidden until the table is sorted by last activity."}
+                  >
+                    {sort.direction === "asc"
+                      ? <TrendingUp aria-hidden="true" />
+                      : <TrendingDown aria-hidden="true" />}
+                    <span className="sr-only">
+                      {showQuotaBalance
+                        ? `Quota remaining, activity sorted ${sort.direction === "asc" ? "ascending" : "descending"}`
+                        : "Quota remaining, values hidden because the table is not sorted by last activity"}
+                    </span>
                   </span>
                 </th>
-                <th className="session-verdict-header">
+                {header("activity", "Last activity", "session-col--activity")}
+                {header("session", "Provider & Model", "session-col--model")}
+                {header("cwd", "pwd", "session-col--pwd")}
+                {header("tokens", "out T", "session-col--tokens")}
+                {header("cost", "cost", "session-col--cost")}
+                <th className="session-col session-col--verdict session-verdict-header">
                   <span title="Your own rating of the session. It is never inferred, and it is the only signal in this app that is user-supplied.">
                     Verdict
                   </span>
                 </th>
-                <th></th>
-                <th></th>
+                <th
+                  className="session-col session-col--header-pagination"
+                  colSpan={2}
+                  scope="colgroup"
+                >
+                  <div className="session-header-pagination" aria-label="Session table pagination">
+                    <button
+                      type="button"
+                      disabled={page === 1}
+                      onClick={() => setPage((p) => p - 1)}
+                      aria-label="Previous session page"
+                    >
+                      <ChevronLeft aria-hidden="true" />
+                    </button>
+                    <PageJump
+                      page={page}
+                      pages={pages}
+                      label="session page"
+                      onChange={setPage}
+                    />
+                    <button
+                      type="button"
+                      disabled={page === pages}
+                      onClick={() => setPage((p) => p + 1)}
+                      aria-label="Next session page"
+                    >
+                      <ChevronRight aria-hidden="true" />
+                    </button>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((session) => (
+              {pageRows.map((session, index) => {
+                const boundaries = showQuotaBalance && index > 0
+                  ? quotaResetBoundaries(quotaContexts[pageRows[index - 1]!.sessionId], quotaContexts[session.sessionId])
+                  : [];
+                const sessionProvider = providerFromAgent(session.agent);
+                const sessionProviderLabel = sessionProvider
+                  ? sessionProviderLabels[sessionProvider]
+                  : session.agent;
+                return (
                 <Fragment key={session.sessionId}>
+                  {boundaries.length > 0 && (
+                    <tr className="session-reset-divider">
+                      <td colSpan={columnCount}>
+                        <span className="session-reset-divider__provider">
+                          <i
+                            style={{ background: sessionProviderColors[boundaries[0]!.provider] }}
+                            aria-hidden="true"
+                          />
+                          {sessionProviderLabels[boundaries[0]!.provider]}
+                        </span>
+                        {boundaries.map((boundary) => (
+                          <span key={boundary.id} className="session-reset-divider__window">
+                            {boundary.label} window reset · <DateStamp value={new Date(boundary.at).toISOString()} />
+                          </span>
+                        ))}
+                      </td>
+                    </tr>
+                  )}
                   <tr
                     ref={
                       session.sessionId === focusSessionId
@@ -6224,16 +6441,27 @@ function Sessions({
                       }
                     }}
                   >
-                    <td>
+                    <td className={`session-col session-col--quota session-row__quota-left${showQuotaBalance ? "" : " is-dormant"}`}>
+                      {showQuotaBalance && (
+                        <SessionQuotaBalanceCell
+                          context={quotaContexts[session.sessionId]}
+                          loading={!Object.hasOwn(quotaContexts, session.sessionId)}
+                        />
+                      )}
+                    </td>
+                    <td className="session-col session-col--activity">
                       <span className="session-activity">
                         {session.metadata?.lastActivity
-                          ? <DateStamp value={session.metadata.lastActivity} />
+                          ? <SessionDateStamp value={session.metadata.lastActivity} />
                           : "—"}
                       </span>
                     </td>
-                    <td>
+                    <td className="session-col session-col--model">
                       <span>
                         <span className="session-row__model-title">
+                          <span className={`agent-pill ${sessionProvider ?? "unknown"}`}>
+                            {sessionProviderLabel}
+                          </span>
                           <b>{session.modelsUsed[0] ?? "Unknown"}</b>
                           {sessionModelNames(session).length > 1 && (
                             <i
@@ -6256,12 +6484,7 @@ function Sessions({
                         </span>
                       </span>
                     </td>
-                    <td className="session-row__agent">
-                      <span className={`agent-pill ${session.agent}`}>
-                        {session.agent}
-                      </span>
-                    </td>
-                    <td>
+                    <td className="session-col session-col--pwd">
                       <span
                         className="cwd"
                         title={session.cwd ?? "Unavailable"}
@@ -6276,15 +6499,15 @@ function Sessions({
                           ))}
                       </span>
                     </td>
-                    <td>
-                      <b>{formatCompact(session.totalTokens)}</b>
+                    <td className="session-col session-col--tokens">
+                      <b>{formatCompact(session.outputTokens)}</b>
                       <small>
                         {session.source === "warp"
-                          ? "recorded tokens"
-                          : `${formatCompact(session.outputTokens)} output`}
+                          ? "output tokens"
+                          : `${formatCompact(session.totalTokens)} total`}
                       </small>
                     </td>
-                    <td>
+                    <td className="session-col session-col--cost">
                       {session.source === "warp" ? (
                         <>
                           <b>{formatWarpCredits(session.warp?.credits ?? 0)}</b>
@@ -6297,14 +6520,8 @@ function Sessions({
                         </>
                       )}
                     </td>
-                    <td className="session-row__quota">
-                      <SessionQuotaImpactCell
-                        context={quotaContexts[session.sessionId]}
-                        loading={!Object.hasOwn(quotaContexts, session.sessionId)}
-                      />
-                    </td>
                     <td
-                      className="session-row__verdict"
+                      className="session-col session-col--verdict session-row__verdict"
                       onClick={(event) => event.stopPropagation()}
                     >
                       <SessionVerdictControl
@@ -6314,7 +6531,7 @@ function Sessions({
                       />
                     </td>
                     <td
-                      className="session-row__actions"
+                      className="session-col session-col--actions session-row__actions"
                       onClick={(event) => event.stopPropagation()}
                     >
                       <button
@@ -6345,7 +6562,7 @@ function Sessions({
                       </button>
                     </td>
                     <td
-                      className="session-row__toggle"
+                      className="session-col session-col--toggle session-row__toggle"
                       onClick={(event) => event.stopPropagation()}
                     >
                       <button
@@ -6365,7 +6582,7 @@ function Sessions({
                   </tr>
                   {expanded === session.sessionId && (
                     <tr className="session-detail-row">
-                      <td colSpan={10}>
+                      <td colSpan={columnCount}>
                         <SessionDetailPanel
                           session={session}
                           detail={details[session.sessionId]}
@@ -6378,7 +6595,8 @@ function Sessions({
                     </tr>
                   )}
                 </Fragment>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -6394,8 +6612,13 @@ function Sessions({
         <div className="pagination">
           <span>{filtered.length} sessions</span>
           <div>
-            <button disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
-              <ChevronLeft />
+            <button
+              type="button"
+              disabled={page === 1}
+              onClick={() => setPage((p) => p - 1)}
+              aria-label="Previous session page"
+            >
+              <ChevronLeft aria-hidden="true" />
             </button>
             <PageJump
               page={page}
@@ -6404,10 +6627,12 @@ function Sessions({
               onChange={setPage}
             />
             <button
+              type="button"
               disabled={page === pages}
               onClick={() => setPage((p) => p + 1)}
+              aria-label="Next session page"
             >
-              <ChevronRight />
+              <ChevronRight aria-hidden="true" />
             </button>
           </div>
         </div>
