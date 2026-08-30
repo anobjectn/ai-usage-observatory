@@ -4915,19 +4915,22 @@ export function sessionQuotaBalanceItems(context: SessionQuotaContext | null | u
   });
 }
 
-function SessionQuotaBalanceCell({
+export function SessionQuotaBalanceCell({
   context,
   loading,
+  provider,
 }: {
   context: SessionQuotaContext | null | undefined;
   loading: boolean;
+  provider: ActivityProvider | null;
 }) {
   const balances = sessionQuotaBalanceItems(context);
-  if (loading) return <span className="session-quota-balance is-loading" aria-label="Loading remaining quota">•••</span>;
+  const providerClass = provider ?? "unknown";
+  if (loading) return <span className={`session-quota-balance ${providerClass} is-loading`} aria-label="Loading remaining quota">•••</span>;
   if (!balances.length) {
     return (
       <span
-        className="session-quota-balance is-empty"
+        className={`session-quota-balance ${providerClass} is-empty`}
         title={context?.reason ?? "No account quota reading is available near this session's end."}
       >
         —
@@ -4936,7 +4939,7 @@ function SessionQuotaBalanceCell({
   }
   return (
     <span
-      className="session-quota-balance"
+      className={`session-quota-balance ${providerClass}`}
       title={`${context!.basis === "embedded_account_observation"
         ? "Account quota remaining at the last embedded reading during this session's activity."
         : "Account quota remaining at the first reading after this session's last activity."} The account is shared: other sessions, devices, and surfaces move the same counter.`}
@@ -6499,6 +6502,7 @@ function Sessions({
                         <SessionQuotaBalanceCell
                           context={quotaContexts[session.sessionId]}
                           loading={!Object.hasOwn(quotaContexts, session.sessionId)}
+                          provider={sessionProvider ?? quotaContexts[session.sessionId]?.provider ?? null}
                         />
                       )}
                     </td>

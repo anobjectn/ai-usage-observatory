@@ -5,6 +5,39 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] - 2026-08-30
+
+### Added
+
+- Add a remaining-quota ledger to Sessions, including per-window ranges, reset
+  boundaries, and closing balances.
+- Show provider totals broken down by model × effort, with confidence based on
+  the quota evidence available for each resource.
+- Expand Overview's five-hour session coverage to include the previous windows.
+
+### Changed
+
+- Compact and anchor the Quick Quota Status panel, including support for the
+  visible mobile viewport.
+- Color Sessions closing quota values by provider, with stale readings shown in
+  the dim color.
+- Merge Overview total and output token reporting into one table, shorten the
+  date-range controls, and localize date and reset labels.
+- Merge Warp usage into matching weekly and monthly totals and refine Models
+  sorting controls.
+- Refresh the README screenshot gallery and add a Quick Quota Status capture.
+  Preserve the reviewed Data capture at
+  [docs/screenshots/releases/v1.18.0/6.data-intelligence.png](docs/screenshots/releases/v1.18.0/6.data-intelligence.png).
+
+### Fixed
+
+- Deduplicate quota movement within one reset cycle and resolve session cycles
+  across reset jitter and unstarted windows.
+- Fix date-range control spacing and hover behavior.
+- Prevent page-level horizontal overflow.
+
+[1.18.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.17.0...v1.18.0
+
 ## [1.17.0] - 2026-08-28
 
 ### Added

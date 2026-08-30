@@ -17,6 +17,7 @@ import {
   projectTrendRowsInRange,
   sessionProviderMix,
   sessionModelNames,
+  SessionQuotaBalanceCell,
   sessionQuotaBalanceItems,
   quotaRemainingRanges,
   quotaResetBoundaries,
@@ -688,6 +689,28 @@ test("sessionQuotaBalanceItems reads remaining quota from closing balances", () 
     ["fiveHour", null],
     ["weekly", 76],
   ]);
+});
+
+test("session quota balance values carry the session provider class", () => {
+  const context = {
+    provider: "codex",
+    basis: "embedded_account_observation",
+    coverage: { observationCadenceMs: 60_000 },
+    resources: [
+      { id: "fiveHour", kind: "window", endUsedPercent: 29, endUsedUnits: null, limitUnits: null, endGapMs: 1_000 },
+    ],
+  } as SessionQuotaContext;
+
+  const html = renderToStaticMarkup(
+    createElement(SessionQuotaBalanceCell, {
+      context,
+      loading: false,
+      provider: "codex",
+    }),
+  );
+
+  expect(html).toContain('class="session-quota-balance codex"');
+  expect(html).toContain(">71%</b>");
 });
 
 test("a model window earns a balance row only while it diverges from the weekly reading", () => {

@@ -131,6 +131,12 @@ application; release changelogs preserve version-specific captures.
 
 <sub>Overview — provider allowance, headroom, reset timing, and usage trajectory</sub>
 
+<a href="docs/screenshots/8.quick-quota-status.png">
+  <img src="docs/screenshots/8.quick-quota-status.png" width="100%" alt="Quick Quota Status panel with provider allowance gauges and reset timing">
+</a>
+
+<sub>Quick Quota Status — provider allowance gauges and reset timing</sub>
+
 <table>
   <tr>
     <td width="50%">
@@ -141,9 +147,9 @@ application; release changelogs preserve version-specific captures.
     </td>
     <td width="50%">
       <a href="docs/screenshots/3.sessions.png">
-        <img src="docs/screenshots/3.sessions.png" width="100%" alt="Session ledger with transcript context, tool activity, and patch details">
+        <img src="docs/screenshots/3.sessions.png" width="100%" alt="Session ledger with provider-colored closing quota values, transcript context, tool activity, and patch details">
       </a>
-      <sub>Sessions — transcript context, tool activity, and patch detail</sub>
+      <sub>Sessions — provider-colored quota balances, transcript context, tool activity, and patch detail</sub>
     </td>
   </tr>
   <tr>

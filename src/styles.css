@@ -578,11 +578,12 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .session-quota-balance-header svg{width:15px;height:15px}
 .session-quota-balance-header.is-dormant{color:var(--line-bright);opacity:.55}
 /* Vertical mini table: one row per window, label then remaining value, falling toward zero. */
-.session-quota-balance{display:flex;flex-direction:column;align-items:center;gap:3px;min-height:25px;justify-content:center;color:var(--dim);font:9px var(--font-label)}
+.session-quota-balance{--quota-value-color:var(--aqua);display:flex;flex-direction:column;align-items:center;gap:3px;min-height:25px;justify-content:center;color:var(--dim);font:9px var(--font-label)}
+.session-quota-balance.anthropic{--quota-value-color:var(--anthropic-color)}.session-quota-balance.codex{--quota-value-color:var(--openai-color)}.session-quota-balance.warp{--quota-value-color:var(--warp-color)}
 .session-quota-balance>span{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
-.session-quota-balance b{color:var(--aqua);font:11px var(--font-label);font-weight:var(--font-weight-medium)}
+.session-quota-balance b{color:var(--quota-value-color);font:11px var(--font-label);font-weight:var(--font-weight-medium)}
 .session-quota-balance i{color:var(--dim);font:8px var(--font-label);font-style:normal;letter-spacing:.08em;text-transform:uppercase;min-width:14px}
-.session-quota-balance>span.is-low b{color:var(--orange)}
+.session-quota-balance>span.is-low b{color:var(--dim)}
 .session-quota-balance>span.is-unavailable b{color:var(--dim)}
 .session-quota-balance>span.is-pool{flex-direction:column;align-items:center;gap:1px}
 .session-quota-balance__credits{display:flex;flex-direction:column;line-height:1}
