@@ -51,7 +51,7 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); }
 button, input, select, textarea { font: inherit; }
 button { color:inherit; }
 svg { width: 18px; height: 18px; }
-.app-shell { display:grid; grid-template-columns:230px minmax(0,1fr); min-height:100vh; position:relative; transition:grid-template-columns var(--duration-sidebar) var(--ease-sidebar); will-change:grid-template-columns; }
+.app-shell { display:grid;grid-template-columns:230px minmax(0,1fr);min-height:100vh;position:relative;overflow-x:clip;transition:grid-template-columns var(--duration-sidebar) var(--ease-sidebar);will-change:grid-template-columns; }
 .app-shell.sidebar-collapsed { grid-template-columns:76px minmax(0,1fr); }
 aside { border-right:1px solid var(--line); background:rgba(7,16,15,.92); backdrop-filter:blur(28px); padding:26px 13px 20px; position:sticky; height:100vh; top:0; z-index:20; display:flex; flex-direction:column; }
 .brand { display:flex; align-items:center; padding:0 7px 31px; }
