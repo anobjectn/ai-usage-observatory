@@ -26,10 +26,25 @@ cloud account or telemetry service is required.
 | How are model and effort choices shifting? | Token composition, API-equivalent cost, model mix, and provider-recorded reasoning effort beside the model family that recorded it, where available. |
 | How much provider capacity remains? | Optional provider-reported allowance windows, headroom, resets, credits, and locally observed quota history. |
 | Which activity deserves closer review? | Outlier sessions, allowance-capture and efficiency signals, transcript context, tool activity, and patch summaries. |
+| What model should I use for my next task? | Remaining provider quota, published cost/performance benchmarks, and how past sessions with each model actually went. |
 
 The Observatory does not treat higher or lower usage as inherently better. It
 provides a consistent record so you can establish a baseline, change how you
 work, and evaluate the result over time.
+
+## Features
+
+- Local-first: your data never leaves your machine, and nothing is telemetered.
+- Cross-provider attribution — Claude Code and Codex sessions, projects, and
+  models in one place.
+- Live provider quota headroom, resets, and credits, backed by locally
+  observed quota history.
+- Model and effort history, alongside published cost/performance benchmarks,
+  is available to inform your next choice.
+- Outlier sessions and efficiency signals are surfaced automatically, so you
+  know what's actually worth a second look.
+- Will not rm -rf your data.
+- Not your momma's or daddy's AI meter.
 
 ## Run locally
 
@@ -339,12 +354,21 @@ into destructive pruning on the next service poll, which shortens the history
 available to this app.
 
 Session detail can show account allowance movement observed during one active
-session. It never labels account movement as consumption by that thread. The
-view reports coverage, confidence, resolved quota cycles, same-provider local
+session, rendered as remaining-quota ranges per resolved quota cycle (a session
+that spanned a reset reads `25→0%, 100→75%`; nothing is summed across resets).
+It never labels account movement as consumption by that thread. The view
+reports coverage, confidence, resolved quota cycles, same-provider local
 overlap, and the fact that external activity is unknown. Codex uses embedded
 account observations from the incremental transcript index. Claude uses
-bracketed quota history. Warp uses its monthly pool history and local query and
+bracketed quota history, including model-specific windows recovered from the
+local snapshot store. Warp uses its monthly pool history and local query and
 task-update timestamps. Values from overlapping sessions are not additive.
+
+When the session table is ordered by activity, a "Quota left" column shows the
+account quota remaining at the closing reading after each session — a balance
+observation in the bank-statement sense, not that session's consumption — with
+divider rows marking window resets between adjacent sessions. The column hides
+itself under any other sort order, where end-time balances would read as noise.
 
 <details>
 <summary><strong>BYOQS — Bring Your Own Quota Service</strong> (advanced compatibility contract)</summary>
