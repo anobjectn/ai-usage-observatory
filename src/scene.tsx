@@ -602,8 +602,10 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
     };
   }, []);
   return <div className={interactive ? "headroom-orrery" : "headroom-orrery headroom-orrery--static"}>
-    <canvas ref={canvasRef} aria-hidden="true" />
-    {!effects.tesseract && <div className="scene-icon" aria-hidden="true"><TelescopeIcon /></div>}
+    <div className="headroom-orrery__visual">
+      <canvas ref={canvasRef} aria-hidden="true" />
+      {!effects.tesseract && <div className="scene-icon" aria-hidden="true"><TelescopeIcon /></div>}
+    </div>
     <div className="headroom-orrery__legend" aria-label="Provider quota headroom">
       {headroom.map((signal) => {
         const label = signal.provider === "openai" ? "OpenAI" : signal.provider === "anthropic" ? "Anthropic" : "Warp";

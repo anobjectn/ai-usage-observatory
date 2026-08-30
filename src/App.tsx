@@ -9598,7 +9598,7 @@ export function QuickOverviewModal({
     >
       <div
         ref={dialogRef}
-        className="modal quick-overview-modal"
+        className={`modal quick-overview-modal quick-overview-modal--${mode}`}
         role="dialog"
         aria-modal="true"
         aria-label="Quick quota overview"
