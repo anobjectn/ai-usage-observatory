@@ -59,6 +59,11 @@ companion described below.
 - Per-session quota movement and closing balances, down to the resolved quota
   cycle.
 
+The history and per-session bullets need `quota-service` v1.3.0 or newer,
+which introduced the connected `/history` API; older services and other
+collectors can supply the same data through the SQLite compatibility path
+described in [BYOQS — Bring Your Own Quota Service](#byoqs) below.
+
 ## Run locally
 
 Requires Bun 1.3 or newer.
@@ -383,7 +388,7 @@ observation in the bank-statement sense, not that session's consumption — with
 divider rows marking window resets between adjacent sessions. The column hides
 itself under any other sort order, where end-time balances would read as noise.
 
-<details>
+<details id="byoqs">
 <summary><strong>BYOQS — Bring Your Own Quota Service</strong> (advanced compatibility contract)</summary>
 
 If you are building or adapting a different collector, set `QUOTA_SERVICE_URL`
