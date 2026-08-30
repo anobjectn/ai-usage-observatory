@@ -252,6 +252,34 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
     const endGapMs = endGaps.length ? Math.max(...endGaps) : null;
     const coveredPercent = activeMs > 0 ? Math.min(100, coveredMs / activeMs * 100) : 0;
 
+    // The closing balance is an observation rather than a delta, so it stays valid when a
+    // cycle's movement is discarded as inconsistent or falls under rounding tolerance.
+    let endPoint: ResourcePoint | null = null;
+    let endPointGapMs: number | null = null;
+    for (const episode of input.episodes) {
+      if (input.basis === "embedded_account_observation") {
+        const last = [...points].reverse().find((point) => point.observedAt >= episode.startAt && point.observedAt <= episode.endAt);
+        if (last) {
+          endPoint = last;
+          endPointGapMs = Math.max(0, episode.endAt - last.observedAt);
+        }
+      } else {
+        const after = points.find((point) => point.observedAt >= episode.endAt);
+        if (after && after.observedAt - episode.endAt <= SESSION_IDLE_GAP_MS) {
+          endPoint = after;
+          endPointGapMs = after.observedAt - episode.endAt;
+        }
+      }
+    }
+    const endFields = {
+      endUsedPercent: endPoint?.usedPercent ?? null,
+      endUsedUnits: endPoint?.usedUnits ?? null,
+      limitUnits: endPoint?.limitUnits ?? null,
+      endObservedAt: endPoint?.observedAt ?? null,
+      endCycleId: endPoint?.cycleId ?? null,
+      endGapMs: endPointGapMs,
+    };
+
     if (!segments.length) {
       resources.push({
         id,
@@ -268,6 +296,7 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
           : unresolved
             ? "Quota observations do not resolve both sides of this session."
             : "No quota observations cover this session.",
+        ...endFields,
         episodes: [],
       });
       continue;
@@ -302,6 +331,7 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
         : unresolved
           ? "Part of the session crosses an unresolved quota cycle boundary."
           : null,
+      ...endFields,
       episodes: segments,
     });
   }

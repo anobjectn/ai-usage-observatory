@@ -182,8 +182,18 @@ function normalizeLocalObservation(database: Database, row: {
   // crosses the boundary. Rounding folds the jitter back onto the instant it belongs to.
   const cycle = (at: number | null) => at === null ? `observed:${observedAt}` : `reset:${Math.round(at / 60_000) * 60_000}`;
   if (snapshot.kind === "window") {
-    const windows = (["fiveHour", "weekly"] as const).flatMap((id) => {
-      const value = snapshot[id] as { usedPercent?: unknown; resetsAt?: unknown } | null;
+    // Model-specific windows (e.g. Anthropic's per-model weekly cap) survive only in the raw
+    // snapshot: quota-service's /history normalization drops them, so the local read is the one
+    // place they can be recovered from.
+    const modelWindows = snapshot.modelWindows && typeof snapshot.modelWindows === "object"
+      ? Object.entries(snapshot.modelWindows as Record<string, unknown>)
+        .map(([name, value]) => [`model:${name}`, value] as const)
+      : [];
+    const windows = [
+      ...(["fiveHour", "weekly"] as const).map((id) => [id, snapshot[id]] as const),
+      ...modelWindows,
+    ].flatMap(([id, raw]) => {
+      const value = raw as { usedPercent?: unknown; resetsAt?: unknown } | null;
       const usedPercent = Number(value?.usedPercent);
       if (!value || !Number.isFinite(usedPercent)) return [];
       const resetsAt = Number.isFinite(Number(value.resetsAt)) ? Number(value.resetsAt) : null;
@@ -273,6 +283,22 @@ function readLocalRawHistory(
   }
 }
 
+/** Only the model-specific windows from the local snapshot store, as standalone observations
+ * ready to merge with the /history contract that lacks them. */
+function readLocalModelWindowObservations(
+  provider: RawHistoryResult["provider"],
+  from: number,
+  to: number,
+): QuotaObservation[] {
+  const local = readLocalRawHistory(provider, from, to);
+  if (!local.available) return [];
+  return local.observations.flatMap((row) => {
+    if (row.quota.kind !== "windows") return [];
+    const windows = row.quota.windows.filter((window) => window.id.startsWith("model:"));
+    return windows.length ? [{ ...row, quota: { kind: "windows" as const, windows } }] : [];
+  });
+}
+
 export async function collectRawQuotaHistory(
   provider: RawHistoryResult["provider"],
   from: number,
@@ -302,9 +328,12 @@ export async function collectRawQuotaHistory(
       observations.push(...page.observations);
       cursor = page.nextCursor;
     } while (cursor);
+    // The service's /history contract carries no model-specific windows; its raw local database
+    // does. Reading them back keeps the connected path as informative as the fallback path.
+    const modelObservations = readLocalModelWindowObservations(provider, from, to);
     const result: RawHistoryResult = {
-      available: observations.length > 0,
-      observations,
+      available: observations.length > 0 || modelObservations.length > 0,
+      observations: [...observations, ...modelObservations],
       sourceState: "connected",
       ...metadata!,
     };

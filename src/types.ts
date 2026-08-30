@@ -436,6 +436,16 @@ export type SessionQuotaContext = {
      * cleanly. `reason` is set exactly when this resource could not be resolved. */
     confidence: "high" | "medium" | "low" | "insufficient";
     reason: string | null;
+    /** Account gauge reading at the closing bracket of the last covered episode. An observation
+     * rather than a delta: it stays populated when movement is blanked as inconsistent or falls
+     * under rounding tolerance, and is null only when no closing snapshot exists within the
+     * idle-gap tolerance. */
+    endUsedPercent: number | null;
+    endUsedUnits: number | null;
+    limitUnits: number | null;
+    endObservedAt: number | null;
+    endCycleId: string | null;
+    endGapMs: number | null;
     episodes: Array<{
       cycleId: string;
       startUsedPercent: number;

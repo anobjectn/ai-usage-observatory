@@ -167,6 +167,74 @@ describe("session quota policy", () => {
     expect(result.reason).toBeNull();
   });
 
+  test("reports the closing balance beside the movement", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [windowPoint(9 * 60_000, 51), windowPoint(21 * 60_000, 100)],
+    }));
+    expect(result.resources[0]).toMatchObject({
+      endUsedPercent: 100,
+      endObservedAt: 21 * 60_000,
+      endCycleId: "reset:3600000",
+      endGapMs: 60_000,
+    });
+  });
+
+  test("closing balance comes from the newest cycle when the session spans a reset", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [
+        windowPoint(9 * 60_000, 10, "reset:a"),
+        windowPoint(14 * 60_000, 20, "reset:a"),
+        windowPoint(16 * 60_000, 1, "reset:b"),
+        windowPoint(21 * 60_000, 5, "reset:b"),
+      ],
+    }));
+    expect(result.resources[0]).toMatchObject({ endUsedPercent: 5, endCycleId: "reset:b" });
+  });
+
+  test("closing balance survives the counter decrease that blanks movement", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [windowPoint(9 * 60_000, 70), windowPoint(21 * 60_000, 60)],
+    }));
+    expect(result.confidence).toBe("insufficient");
+    expect(result.resources[0]).toMatchObject({
+      deltaPercentagePoints: null,
+      endUsedPercent: 60,
+      endObservedAt: 21 * 60_000,
+    });
+  });
+
+  test("closing balance is null when no snapshot follows the session within tolerance", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [windowPoint(9 * 60_000, 10), windowPoint(80 * 60_000, 50)],
+    }));
+    expect(result.resources[0]).toMatchObject({ endUsedPercent: null, endObservedAt: null, endGapMs: null });
+  });
+
+  test("closing balance reports pool units and the pool limit", () => {
+    const pool = (observedAt: number, usedUnits: number, limitUnits: number) => ({
+      id: "monthly", kind: "pool" as const, observedAt,
+      usedPercent: usedUnits / limitUnits * 100, usedUnits, limitUnits,
+      cycleId: "reset:monthly", unit: "warp_credit" as const,
+    });
+    const result = calculateSessionQuotaContext(input({
+      provider: "warp",
+      points: [pool(9 * 60_000, 100, 1_500), pool(21 * 60_000, 142, 1_500)],
+    }));
+    expect(result.resources[0]).toMatchObject({ endUsedUnits: 142, limitUnits: 1_500 });
+  });
+
+  test("embedded basis closes at the last observation inside the session", () => {
+    const result = calculateSessionQuotaContext(input({
+      basis: "embedded_account_observation",
+      points: [windowPoint(11 * 60_000, 12), windowPoint(18 * 60_000, 30)],
+    }));
+    expect(result.resources[0]).toMatchObject({
+      endUsedPercent: 30,
+      endObservedAt: 18 * 60_000,
+      endGapMs: 2 * 60_000,
+    });
+  });
+
   test("counts same-provider and cross-provider overlap separately", () => {
     const result = calculateSessionQuotaContext(input({
       points: [windowPoint(9 * 60_000, 10), windowPoint(21 * 60_000, 15)],
