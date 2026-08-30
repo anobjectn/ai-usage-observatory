@@ -63,7 +63,6 @@ import {
 } from "./hooks/use-effort";
 import {
   Activity,
-  AlarmClock,
   ArrowDownRight,
   ArrowUpRight,
   Atom,
@@ -683,6 +682,86 @@ function providerKey(agent: string) {
   if (normalized.includes("codex")) return "codex";
   if (normalized.includes("warp")) return "warp";
   return null;
+}
+
+const fiveHoursMs = 5 * 60 * 60 * 1_000;
+
+type CurrentFiveHourWindow = {
+  provider: "anthropic" | "codex";
+  startAt: number;
+  endAt: number;
+};
+
+/** Each provider's reported reset marks the end of its independently timed five-hour window. */
+export function currentFiveHourWindows(
+  quotas: DashboardData["quotas"],
+  now = Date.now(),
+): CurrentFiveHourWindow[] {
+  return (quotas.usage?.providers ?? []).flatMap((provider) => {
+    if (provider.provider !== "anthropic" && provider.provider !== "codex")
+      return [];
+    const resetAt =
+      provider.snapshot?.kind === "window"
+        ? provider.snapshot.fiveHour?.resetsAt
+        : null;
+    if (typeof resetAt !== "number" || !Number.isFinite(resetAt) || resetAt <= now)
+      return [];
+    return [{ provider: provider.provider, startAt: resetAt - fiveHoursMs, endAt: resetAt }];
+  });
+}
+
+export function currentAndPreviousFiveHourWindows(
+  quotas: DashboardData["quotas"],
+  now = Date.now(),
+) {
+  const currentWindows = currentFiveHourWindows(quotas, now);
+  return [
+    ...currentWindows,
+    ...currentWindows.map((window) => ({
+      ...window,
+      startAt: window.startAt - fiveHoursMs,
+      endAt: window.startAt,
+    })),
+  ];
+}
+
+function sessionOverlapsWindow(
+  session: Session,
+  windows: CurrentFiveHourWindow[],
+) {
+  const overlaps = (startAt: number, endAt: number) =>
+    windows.some((window) => startAt < window.endAt && endAt >= window.startAt);
+  const activityIntervals = session.activityIntervals ?? [];
+  if (activityIntervals.length) {
+    return activityIntervals.some((interval) =>
+      Number.isFinite(interval.startAt) &&
+      Number.isFinite(interval.endAt) &&
+      overlaps(interval.startAt, interval.endAt),
+    );
+  }
+  const activityAt = Date.parse(String(session.metadata?.lastActivity ?? ""));
+  return Number.isFinite(activityAt) && overlaps(activityAt, activityAt);
+}
+
+export function currentWindowSessions(
+  sessions: Session[],
+  quotas: DashboardData["quotas"],
+  now = Date.now(),
+) {
+  const warpWindows = currentAndPreviousFiveHourWindows(quotas, now);
+  return sessions
+    .filter((session) => {
+      const provider = providerKey(session.agent);
+      // Claude and Codex record their sessions on separate schedules, and Claude can omit a
+      // live reset instant altogether. Keep both providers visible regardless of that timing.
+      if (provider === "anthropic" || provider === "codex") return true;
+      return provider === "warp" && sessionOverlapsWindow(session, warpWindows);
+    })
+    .sort(
+      (left, right) =>
+        Date.parse(String(right.metadata?.lastActivity ?? "")) -
+        Date.parse(String(left.metadata?.lastActivity ?? "")),
+    );
 }
 
 function resetCopy(timestamp: number | null, verb = "resets") {
@@ -3207,6 +3286,7 @@ function Overview({
   data,
   daily,
   sessions,
+  windowSessions,
   agent,
   pathTag,
   metricRange,
@@ -3215,6 +3295,7 @@ function Overview({
   availableRange,
   onMetricRangeChange,
   onOpenSession,
+  onOpenSessions,
   onTagSession,
   onUpdateWebCredits,
   accent,
@@ -3224,6 +3305,7 @@ function Overview({
   data: DashboardData;
   daily: MetricRow[];
   sessions: Session[];
+  windowSessions: Session[];
   agent: AgentSelection;
   pathTag: string;
   metricRange: MetricRange;
@@ -3232,6 +3314,7 @@ function Overview({
   availableRange: DateRange | null;
   onMetricRangeChange: (range: MetricRange, customRange?: DateRange) => void;
   onOpenSession: (sessionId: string) => void;
+  onOpenSessions: () => void;
   onTagSession: (session: Session) => void;
   onUpdateWebCredits: () => void;
   accent: string;
@@ -3311,22 +3394,6 @@ function Overview({
     previousDaily,
     metricRowCacheShare,
   );
-  const activeBlock =
-    data.blocks.find((block) => block.isActive) ?? data.blocks.at(-1);
-  const blockStart = activeBlock ? Date.parse(activeBlock.startTime) : 0;
-  const blockEnd = activeBlock ? Date.parse(activeBlock.endTime) : 0;
-  const blockElapsed = !activeBlock
-    ? 0
-    : activeBlock.isActive
-      ? Math.min(
-          100,
-          Math.max(
-            0,
-            ((Date.now() - blockStart) / Math.max(1, blockEnd - blockStart)) *
-              100,
-          ),
-        )
-      : 100;
   const agentTotals = new Map<string, number>();
   daily.forEach((row) =>
     (row.agents ?? [row]).forEach((item) =>
@@ -3349,7 +3416,7 @@ function Overview({
     return { name, value, color };
   });
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
-  const recent = sessions.slice(0, 5);
+  const recent = currentWindowSessions(windowSessions, data.quotas);
   const cacheShare = totals.traffic
     ? Math.round((totals.cache / totals.traffic) * 100)
     : 0;
@@ -3528,53 +3595,6 @@ function Overview({
         </article>
       </section>
       <section className="dashboard-grid">
-        <article className="panel block-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="overline">RECENT WINDOW</span>
-              <h2>Five-hour block</h2>
-            </div>
-            <AlarmClock />
-          </div>
-          {activeBlock ? (
-            <>
-              <div
-                className="block-ring"
-                role="img"
-                aria-label={`${Math.round(blockElapsed)}% of the five-hour window elapsed; ${formatCompact(activeBlock.totalTokens)} tokens used`}
-                style={{ "--progress": `${blockElapsed}%` } as any}
-              >
-                <div>
-                  <strong>{formatCompact(activeBlock.totalTokens)}</strong>
-                  <span>tokens</span>
-                </div>
-              </div>
-              <div className="block-stats">
-                <div>
-                  <span>Cost</span>
-                  <b>{formatMoney(activeBlock.costUSD)}</b>
-                </div>
-                <div>
-                  <span>Entries</span>
-                  <b>{activeBlock.entries}</b>
-                </div>
-                <div>
-                  <span>Scope</span>
-                  <b>{data.blockScope}</b>
-                </div>
-              </div>
-              <p className="scope-note">
-                <Clock3 /> <DateStamp value={activeBlock.startTime} /> →{" "}
-                <DateStamp value={activeBlock.endTime} /> · ring shows{" "}
-                {activeBlock.isActive
-                  ? `${Math.round(blockElapsed)}% of the window elapsed`
-                  : "a completed window"}
-              </p>
-            </>
-          ) : (
-            <Empty text="No reconstructed blocks found." />
-          )}
-        </article>
         <article className="panel agent-panel">
           <div className="panel-heading">
             <div>
@@ -3698,13 +3718,23 @@ function Overview({
         <article className="panel panel-wide recent-panel">
           <div className="panel-heading">
             <div>
-              <span className="overline">RECENT SIGNALS</span>
+              <span className="overline">CURRENT + PREVIOUS FIVE-HOUR WINDOWS</span>
               <h2>Latest sessions</h2>
+              <p>Claude and Codex sessions · Warp activity inside either window</p>
             </div>
-            <span>{data.sessions.length} indexed</span>
+            <a
+              className="text-link"
+              href={viewHref("sessions")}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenSessions();
+              }}
+            >
+              All sessions <ChevronRight aria-hidden="true" />
+            </a>
           </div>
           <div className="recent-list">
-            {recent.map((session, index) => {
+            {recent.length ? recent.map((session, index) => {
               const modelName =
                 session.modelsUsed.join(", ") || "Unknown model";
               const tooltipId = `recent-session-tag-tooltip-${index}`;
@@ -3768,7 +3798,7 @@ function Overview({
                   </button>
                 </div>
               );
-            })}
+            }) : <Empty text="No Claude, Codex, or Warp sessions in the current five-hour windows." />}
           </div>
         </article>
       </section>
@@ -10659,6 +10689,7 @@ export function App() {
               data={data}
               daily={daily}
               sessions={datedSessions}
+              windowSessions={sessions}
               agent={agent}
               pathTag={pathTag}
               metricRange={days}
@@ -10667,6 +10698,7 @@ export function App() {
               availableRange={availableRange}
               onMetricRangeChange={changeTimeRange}
               onOpenSession={openSession}
+              onOpenSessions={() => navigateToView("sessions")}
               onTagSession={setSession}
               onUpdateWebCredits={() => setWebImport(true)}
               accent={accent}

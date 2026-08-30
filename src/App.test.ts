@@ -3,6 +3,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   averageMetricSlices,
+  currentAndPreviousFiveHourWindows,
+  currentFiveHourWindows,
+  currentWindowSessions,
   metricRowCacheShare,
   SessionDetailPanel,
   SessionMixGroupBreakdown,
@@ -22,6 +25,7 @@ import {
 } from "./App";
 import type {
   EffortSummary,
+  DashboardData,
   MetricRow,
   ProjectActivity,
   ProjectTrendRow,
@@ -57,6 +61,97 @@ function session(overrides: Partial<Session>): Session {
     ...overrides,
   };
 }
+
+test("current five-hour sessions use each provider window and Warp overlap", () => {
+  const hour = 60 * 60 * 1_000;
+  const now = 10 * hour;
+  const quotas: DashboardData["quotas"] = {
+    available: true,
+    collectedAt: new Date(now).toISOString(),
+    usage: {
+      generatedAt: now,
+      providers: [
+        {
+          provider: "anthropic",
+          status: "ok",
+          source: "test",
+          snapshot: {
+            kind: "window",
+            fiveHour: { usedPercent: 30, resetsAt: 13 * hour },
+            weekly: null,
+          },
+        },
+        {
+          provider: "codex",
+          status: "ok",
+          source: "test",
+          snapshot: {
+            kind: "window",
+            fiveHour: { usedPercent: 40, resetsAt: 14 * hour },
+            weekly: null,
+          },
+        },
+      ],
+    },
+  };
+  const at = (milliseconds: number) => new Date(milliseconds).toISOString();
+
+  expect(currentFiveHourWindows(quotas, now)).toEqual([
+    { provider: "anthropic", startAt: 8 * hour, endAt: 13 * hour },
+    { provider: "codex", startAt: 9 * hour, endAt: 14 * hour },
+  ]);
+  expect(currentAndPreviousFiveHourWindows(quotas, now)).toEqual([
+    { provider: "anthropic", startAt: 8 * hour, endAt: 13 * hour },
+    { provider: "codex", startAt: 9 * hour, endAt: 14 * hour },
+    { provider: "anthropic", startAt: 3 * hour, endAt: 8 * hour },
+    { provider: "codex", startAt: 4 * hour, endAt: 9 * hour },
+  ]);
+  expect(
+    currentWindowSessions(
+      [
+        session({
+          sessionId: "claude-current",
+          agent: "claude",
+          metadata: { lastActivity: at(9 * hour) },
+        }),
+        session({
+          sessionId: "codex-current",
+          metadata: { lastActivity: at(12 * hour) },
+        }),
+        session({
+          sessionId: "claude-before-window",
+          agent: "claude",
+          metadata: { lastActivity: at(7 * hour) },
+        }),
+        session({
+          sessionId: "warp-overlap",
+          agent: "warp",
+          metadata: { lastActivity: at(7 * hour) },
+          activityIntervals: [{ startAt: 8.5 * hour, endAt: 9 * hour }],
+        }),
+        session({
+          sessionId: "warp-outside",
+          agent: "warp",
+          metadata: { lastActivity: at(7 * hour) },
+          activityIntervals: [{ startAt: 1 * hour, endAt: 2 * hour }],
+        }),
+        session({
+          sessionId: "warp-previous",
+          agent: "warp",
+          metadata: { lastActivity: at(5 * hour) },
+        }),
+      ],
+      quotas,
+      now,
+    ).map((item) => item.sessionId),
+  ).toEqual([
+    "codex-current",
+    "claude-current",
+    "claude-before-window",
+    "warp-overlap",
+    "warp-previous",
+  ]);
+});
 
 test("pathFilteredRows combines matching sessions only within the selected periods", () => {
   const rows = pathFilteredRows(
