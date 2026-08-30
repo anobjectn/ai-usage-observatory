@@ -34,17 +34,30 @@ work, and evaluate the result over time.
 
 ## Features
 
+### Features as standalone
+
+No provider quota connection required.
+
 - Local-first: your data never leaves your machine, and nothing is telemetered.
 - Cross-provider attribution — Claude Code and Codex sessions, projects, and
   models in one place.
-- Live provider quota headroom, resets, and credits, backed by locally
-  observed quota history.
 - Model and effort history, alongside published cost/performance benchmarks,
   is available to inform your next choice.
 - Outlier sessions and efficiency signals are surfaced automatically, so you
   know what's actually worth a second look.
 - Will not rm -rf your data.
 - Not your momma's or daddy's AI meter.
+
+### Features with optional companion quota-service setup
+
+Requires the [`quota-service`](https://github.com/anobjectn/quota-service)
+companion described below.
+
+- Live provider quota headroom, resets, and credits across Claude, Codex, and
+  Warp.
+- Locally observed quota history, for trend and reach analysis over time.
+- Per-session quota movement and closing balances, down to the resolved quota
+  cycle.
 
 ## Run locally
 
