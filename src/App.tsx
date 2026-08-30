@@ -887,6 +887,12 @@ type MetricCardAverage = {
   trend?: number;
 };
 
+type MetricCardSplit = {
+  label: string;
+  value: string;
+  share: string;
+};
+
 function MetricTrend({
   value,
   unit = "%",
@@ -919,6 +925,8 @@ function MetricCard({
   trend,
   trendUnit = "%",
   baseline,
+  split,
+  splitNote,
   averages,
   icon: Icon,
 }: {
@@ -929,6 +937,11 @@ function MetricCard({
   trendUnit?: "%" | "% share";
   /** The prior-span figure the change was measured against, in the metric's own units. */
   baseline?: string;
+  /** The parts the headline figure is made of, each with its share of the same denominator. */
+  split?: MetricCardSplit[];
+  /** Names a coverage limit of the split. It is shown in every filter state, because the
+   * default filter is the one where the limit bites. */
+  splitNote?: string;
   averages?: MetricCardAverage[];
   icon: typeof Orbit;
 }) {
@@ -947,6 +960,18 @@ function MetricCard({
       </div>
       {trend !== undefined && baseline && (
         <p className="metric-baseline">vs {baseline} prior span</p>
+      )}
+      {split && split.length > 0 && (
+        <div className="metric-card__split">
+          {split.map((part) => (
+            <div className="metric-card__split-row" key={part.label}>
+              <span>{part.label}</span>
+              <strong>{part.value}</strong>
+              <em>{part.share}</em>
+            </div>
+          ))}
+          {splitNote && <small>{splitNote}</small>}
+        </div>
       )}
       {averages && (
         <div className="metric-card__averages" aria-label={`${eyebrow} averages`}>
@@ -1944,9 +1969,10 @@ function metricTotals(rows: MetricRow[]) {
       input: sum.input + row.inputTokens,
       output: sum.output + row.outputTokens,
       cache: sum.cache + row.cacheReadTokens,
+      cacheWrite: sum.cacheWrite + row.cacheCreationTokens,
       traffic: sum.traffic + metricRowTraffic(row),
     }),
-    { tokens: 0, cost: 0, input: 0, output: 0, cache: 0, traffic: 0 },
+    { tokens: 0, cost: 0, input: 0, output: 0, cache: 0, cacheWrite: 0, traffic: 0 },
   );
 }
 
@@ -3636,6 +3662,19 @@ function Overview({
             }
             trendUnit="% share"
             baseline={`${previousCacheShare}%`}
+            split={[
+              {
+                label: "Cache read",
+                value: formatCompact(totals.cache),
+                share: sharePercent(totals.cache, totals.traffic),
+              },
+              {
+                label: "Cache write",
+                value: formatCompact(totals.cacheWrite),
+                share: sharePercent(totals.cacheWrite, totals.traffic),
+              },
+            ]}
+            splitNote="Only Claude Code reports cache writes"
             averages={metricAverageCardItems(
               cacheShareAverages,
               previousCacheShareAverages,
