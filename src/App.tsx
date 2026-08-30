@@ -9591,7 +9591,7 @@ export function QuickOverviewModal({
   const cards = quickOverviewCards(quotas);
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop quick-overview-backdrop"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
