@@ -236,6 +236,10 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .metric-token-table__average-row :is(.trend-up,.trend-down) svg { width:10px;height:10px; }
 .metric-token-table__empty-trend { color:var(--dim);font:8px var(--font-label); }
 .trend-up,.trend-down { display:flex;align-items:center;color:var(--accent);font:10px var(--font-label); }.trend-down{color:var(--orange)}.trend-up svg,.trend-down svg{width:12px;height:12px}
+.trend--lead { gap:3px;flex-shrink:0;font:500 15px var(--font-label);letter-spacing:-.02em;white-space:nowrap; }
+.trend--lead svg { width:17px;height:17px;stroke-width:2.4; }
+.metric-baseline { color:var(--dim);font:9px var(--font-label);letter-spacing:.02em;white-space:nowrap; }
+.metric-card>.metric-baseline { margin-top:5px; }
 .quota-panel { padding:20px; }
 .quota-heading-meta { display:flex;align-items:center;gap:9px;color:var(--dim);font:10px var(--font-label); }
 .quota-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px;align-items:stretch; }

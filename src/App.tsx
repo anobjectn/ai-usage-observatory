@@ -891,15 +891,18 @@ function MetricTrend({
   value,
   unit = "%",
   context = "previous equal span",
+  size = "compact",
 }: {
   value: number;
   unit?: "%" | "% share";
   context?: string;
+  /** `lead` is the headline change of a card, sized to be read before its averages. */
+  size?: "compact" | "lead";
 }) {
   const direction = value >= 0 ? "up" : "down";
   return (
     <span
-      className={direction === "up" ? "trend-up" : "trend-down"}
+      className={`${direction === "up" ? "trend-up" : "trend-down"}${size === "lead" ? " trend--lead" : ""}`}
       aria-label={`${direction === "up" ? "Up" : "Down"} ${Math.abs(value)}${unit}, ${context}`}
     >
       {direction === "up" ? <ArrowUpRight /> : <ArrowDownRight />}
@@ -915,6 +918,7 @@ function MetricCard({
   detail,
   trend,
   trendUnit = "%",
+  baseline,
   averages,
   icon: Icon,
 }: {
@@ -923,6 +927,8 @@ function MetricCard({
   detail: string;
   trend?: number;
   trendUnit?: "%" | "% share";
+  /** The prior-span figure the change was measured against, in the metric's own units. */
+  baseline?: string;
   averages?: MetricCardAverage[];
   icon: typeof Orbit;
 }) {
@@ -935,8 +941,13 @@ function MetricCard({
       <strong aria-live="polite">{value}</strong>
       <div className="metric-detail">
         <span>{detail}</span>
-        {trend !== undefined && <MetricTrend value={trend} unit={trendUnit} />}
+        {trend !== undefined && (
+          <MetricTrend value={trend} unit={trendUnit} size="lead" />
+        )}
       </div>
+      {trend !== undefined && baseline && (
+        <p className="metric-baseline">vs {baseline} prior span</p>
+      )}
       {averages && (
         <div className="metric-card__averages" aria-label={`${eyebrow} averages`}>
           <div className="metric-card__averages-heading">
@@ -977,6 +988,8 @@ type TokenTableColumn = {
   value: string;
   detail: string;
   trend?: number;
+  /** The prior-span figure the change was measured against, in the column's own units. */
+  baseline?: string;
   averages: MetricCardAverage[];
 };
 
@@ -1021,7 +1034,12 @@ function TokenTableCard({
                   <div className="metric-detail">
                     <span>{column.detail}</span>
                     {column.trend !== undefined && (
-                      <MetricTrend value={column.trend} />
+                      <MetricTrend value={column.trend} size="lead" />
+                    )}
+                    {column.trend !== undefined && column.baseline && (
+                      <span className="metric-baseline">
+                        vs {column.baseline} prior span
+                      </span>
                     )}
                   </div>
                 </td>
@@ -3572,6 +3590,7 @@ function Overview({
                 value: formatCompact(totals.tokens),
                 detail: `${daily.length} active ${daily.length === 1 ? "day" : "days"}`,
                 trend: percentChange(totals.tokens, previousTotals.tokens),
+                baseline: formatCompact(previousTotals.tokens),
                 averages: metricAverageCardItems(
                   tokenAverages,
                   previousTokenAverages,
@@ -3584,6 +3603,7 @@ function Overview({
                 value: formatCompact(totals.input),
                 detail: `${totals.tokens ? Math.round((totals.input / totals.tokens) * 100) : 0}% of period tokens`,
                 trend: percentChange(totals.input, previousTotals.input),
+                baseline: formatCompact(previousTotals.input),
                 averages: metricAverageCardItems(
                   inputAverages,
                   previousInputAverages,
@@ -3596,6 +3616,7 @@ function Overview({
                 value: formatCompact(totals.output),
                 detail: `${totals.tokens ? Math.round((totals.output / totals.tokens) * 100) : 0}% of period tokens`,
                 trend: percentChange(totals.output, previousTotals.output),
+                baseline: formatCompact(previousTotals.output),
                 averages: metricAverageCardItems(
                   outputAverages,
                   previousOutputAverages,
@@ -3614,6 +3635,7 @@ function Overview({
                 : undefined
             }
             trendUnit="% share"
+            baseline={`${previousCacheShare}%`}
             averages={metricAverageCardItems(
               cacheShareAverages,
               previousCacheShareAverages,
@@ -3627,6 +3649,7 @@ function Overview({
             value={formatMoney(totals.cost)}
             detail="ccusage · offline pricing"
             trend={percentChange(totals.cost, previousTotals.cost)}
+            baseline={formatMoney(previousTotals.cost)}
             averages={metricAverageCardItems(
               costAverages,
               previousCostAverages,
