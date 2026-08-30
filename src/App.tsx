@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -501,6 +502,28 @@ function useModalFocusTrap(onEscape: () => void) {
   }, []);
 
   return dialogRef;
+}
+
+function useVisibleViewportHeight() {
+  const [height, setHeight] = useState<number | null>(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return null;
+    return Math.round(window.visualViewport.height);
+  });
+
+  useLayoutEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => setHeight(Math.round(viewport.height));
+    update();
+    viewport.addEventListener("resize", update);
+    window.addEventListener("resize", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return height;
 }
 
 const sceneEffectsStorageKey = "usage-observatory:scene-effects";
@@ -9853,10 +9876,14 @@ export function QuickOverviewModal({
   onClose: () => void;
 }) {
   const dialogRef = useModalFocusTrap(onClose);
+  const visibleViewportHeight = useVisibleViewportHeight();
   const cards = quickOverviewCards(quotas);
   return (
     <div
       className="modal-backdrop quick-overview-backdrop"
+      style={visibleViewportHeight === null ? undefined : {
+        "--quick-overview-visible-height": `${visibleViewportHeight}px`,
+      } as CSSProperties}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
