@@ -30,8 +30,10 @@ function session(provider: "codex" | "warp", index: number): Session {
   };
 }
 
-function context(provider: "codex" | "warp"): SessionQuotaContext {
+function context(provider: "codex" | "warp", index = 0): SessionQuotaContext {
   const warp = provider === "warp";
+  // Each sample moves its own quota cycle: independent sessions whose movement must sum.
+  const cycleId = `reset:${provider}-${index}`;
   return {
     provider,
     basis: warp ? "bracketed_account_delta" : "embedded_account_observation",
@@ -46,7 +48,21 @@ function context(provider: "codex" | "warp"): SessionQuotaContext {
       limitChanged: false,
       confidence: "high",
       reason: null,
-      episodes: [],
+      endUsedPercent: 50,
+      endUsedUnits: warp ? 105 : null,
+      limitUnits: warp ? 1_500 : null,
+      endObservedAt: 0,
+      endCycleId: cycleId,
+      endGapMs: 0,
+      episodes: [{
+        cycleId,
+        startUsedPercent: 40,
+        endUsedPercent: 50,
+        deltaPercentagePoints: 10,
+        startUsedUnits: warp ? 100 : null,
+        endUsedUnits: warp ? 105 : null,
+        deltaUnits: warp ? 5 : null,
+      }],
     }],
     concurrency: {
       distinctOtherSameProviderSessions: 0, maxOtherSameProviderSessions: 0,
@@ -63,7 +79,7 @@ function context(provider: "codex" | "warp"): SessionQuotaContext {
 function sample(provider: "codex" | "warp", index: number): AllowanceComparisonSample {
   return {
     session: session(provider, index),
-    context: context(provider),
+    context: context(provider, index),
     meta: {
       planId: provider === "warp" ? "warp-pro" : "plus",
       planLabel: provider === "warp" ? "Warp Pro" : "Codex Plus",
@@ -100,4 +116,58 @@ test("allowance comparisons reject unknown tiers and under-sized cohorts", () =>
   const report = buildAllowanceComparisonReport([unknown, ...Array.from({ length: 4 }, (_, index) => sample("codex", index + 2))]);
   expect(report.excluded.unknownTier).toBe(1);
   expect(report.cohorts).toEqual([]);
+});
+
+test("overlapping sessions in one quota cycle contribute the cycle's union of movement, not the sum", () => {
+  const shared = (episodes: Array<[number, number]>, index: number) => {
+    const value = sample("codex", index);
+    value.context.resources[0]!.episodes = episodes.map(([startUsedPercent, endUsedPercent]) => ({
+      cycleId: "reset:shared",
+      startUsedPercent,
+      endUsedPercent,
+      deltaPercentagePoints: endUsedPercent - startUsedPercent,
+      startUsedUnits: null,
+      endUsedUnits: null,
+      deltaUnits: null,
+    }));
+    value.context.resources[0]!.deltaPercentagePoints = episodes
+      .reduce((sum, [startUsedPercent, endUsedPercent]) => sum + endUsedPercent - startUsedPercent, 0);
+    value.context.concurrency.maxOtherSameProviderSessions = 1;
+    return value;
+  };
+  // The observed contradiction: two concurrent sessions claimed 23pp and 20pp of one
+  // five-hour window whose counter only moved 0 -> 28.
+  const report = buildAllowanceComparisonReport([
+    shared([[0, 12], [14, 25]], 0),
+    shared([[6, 10], [12, 28]], 1),
+    ...Array.from({ length: 3 }, (_, index) => sample("codex", index + 2)),
+  ]);
+  const cohort = report.cohorts[0]!;
+  // 28 from the shared cycle's union plus 10 from each of the three solo cycles.
+  expect(cohort.metrics.observedPercentagePoints).toBe(58);
+  expect(cohort.resolvedCycles).toBe(4);
+  expect(cohort.overlappedSamples).toBe(2);
+  expect(cohort.sampleSize).toBe(5);
+  expect(report.note).toContain("de-duplicated per quota cycle");
+});
+
+test("synthetic cycle ids never merge across sessions", () => {
+  const values = Array.from({ length: 5 }, (_, index) => {
+    const value = sample("codex", index);
+    value.context.resources[0]!.episodes = [{
+      cycleId: "idle:0",
+      startUsedPercent: 0,
+      endUsedPercent: 10,
+      deltaPercentagePoints: 10,
+      startUsedUnits: null,
+      endUsedUnits: null,
+      deltaUnits: null,
+    }];
+    return value;
+  });
+  const report = buildAllowanceComparisonReport(values);
+  // Five sessions, five per-session cycles: without a reset instant the cycles cannot be
+  // proven shared, so each keeps its own movement.
+  expect(report.cohorts[0]!.metrics.observedPercentagePoints).toBe(50);
+  expect(report.cohorts[0]!.resolvedCycles).toBe(5);
 });

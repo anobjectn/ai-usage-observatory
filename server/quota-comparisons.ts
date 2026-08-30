@@ -23,6 +23,9 @@ export type AllowanceComparisonCohort = {
   cadence: string | null;
   sampleSize: number;
   resolvedCycles: number;
+  /** Members whose episodes overlapped another local same-provider session; their account
+   * movement shares cycles with those sessions and is de-duplicated per cycle below. */
+  overlappedSamples: number;
   confidence: { high: number; medium: number };
   coveragePercent: number;
   metrics: {
@@ -100,13 +103,53 @@ export function buildAllowanceComparisonReport(
     if (values.length < sampleFloor) return [];
     const first = values[0]!;
     const provider = first.sample.context.provider;
-    const totalPp = values.reduce((sum, value) => sum + (value.resource.deltaPercentagePoints ?? 0), 0);
-    const totalCredits = values.reduce((sum, value) => sum + (value.resource.deltaUnits ?? 0), 0);
+    // Per-session deltas are non-additive: overlapping sessions each observe the full movement
+    // of the shared account counter, so summing them double counts. Movement is instead counted
+    // once per account quota cycle, as the union of every member's readings inside that cycle —
+    // valid because episode endpoints are monotone readings of one counter within a cycle.
+    // Synthetic cycle ids (no reset instant) cannot be matched across sessions and stay keyed
+    // per session.
+    type CycleBounds = {
+      minStartPercent: number | null; maxEndPercent: number | null;
+      minStartUnits: number | null; maxEndUnits: number | null;
+    };
+    const cycles = new Map<string, CycleBounds>();
+    for (const value of values) {
+      for (const episode of value.resource.episodes) {
+        const key = episode.cycleId.startsWith("reset:")
+          ? episode.cycleId
+          : `${value.sample.session.sessionId}\0${episode.cycleId}`;
+        const bounds = cycles.get(key)
+          ?? { minStartPercent: null, maxEndPercent: null, minStartUnits: null, maxEndUnits: null };
+        if (episode.deltaPercentagePoints !== null) {
+          bounds.minStartPercent = bounds.minStartPercent === null
+            ? episode.startUsedPercent : Math.min(bounds.minStartPercent, episode.startUsedPercent);
+          bounds.maxEndPercent = bounds.maxEndPercent === null
+            ? episode.endUsedPercent : Math.max(bounds.maxEndPercent, episode.endUsedPercent);
+        }
+        if (episode.deltaUnits !== null && episode.startUsedUnits !== null && episode.endUsedUnits !== null) {
+          bounds.minStartUnits = bounds.minStartUnits === null
+            ? episode.startUsedUnits : Math.min(bounds.minStartUnits, episode.startUsedUnits);
+          bounds.maxEndUnits = bounds.maxEndUnits === null
+            ? episode.endUsedUnits : Math.max(bounds.maxEndUnits, episode.endUsedUnits);
+        }
+        cycles.set(key, bounds);
+      }
+    }
+    const totalPp = [...cycles.values()].reduce((sum, bounds) =>
+      sum + (bounds.minStartPercent !== null && bounds.maxEndPercent !== null
+        ? Math.max(0, bounds.maxEndPercent - bounds.minStartPercent)
+        : 0), 0);
+    const totalCredits = [...cycles.values()].reduce((sum, bounds) =>
+      sum + (bounds.minStartUnits !== null && bounds.maxEndUnits !== null
+        ? Math.max(0, bounds.maxEndUnits - bounds.minStartUnits)
+        : 0), 0);
     const totalActive = values.reduce((sum, value) => sum + value.sample.activeMinutes, 0);
     const totalOutput = values.reduce((sum, value) => sum + value.sample.session.outputTokens, 0);
     const totalCost = values.reduce((sum, value) => sum + value.sample.session.totalCost, 0);
     const warpTokens = values.reduce((sum, value) => sum + (value.sample.session.warp?.tokensBySource.warp ?? 0), 0);
-    const resolvedCycles = values.reduce((sum, value) => sum + value.resource.cycleCount, 0);
+    const resolvedCycles = cycles.size;
+    const overlappedSamples = values.filter((value) => value.sample.context.concurrency.maxOtherSameProviderSessions > 0).length;
     const confidence = {
       high: values.filter((value) => value.sample.context.confidence === "high").length,
       medium: values.filter((value) => value.sample.context.confidence === "medium").length,
@@ -123,6 +166,7 @@ export function buildAllowanceComparisonReport(
       cadence: first.sample.meta.cadence,
       sampleSize: values.length,
       resolvedCycles,
+      overlappedSamples,
       confidence,
       coveragePercent: values.reduce((sum, value) => sum + value.sample.context.coverage.activeDurationCoveredPercent, 0) / values.length,
       metrics: {
@@ -146,7 +190,7 @@ export function buildAllowanceComparisonReport(
     excluded,
     cohorts,
     crossProviderRatios: [],
-    note: "Observed on this account and workload. Provider plans and quota units are not equivalent.",
+    note: "Observed on this account and workload. Provider plans and quota units are not equivalent. Account movement is de-duplicated per quota cycle because overlapping sessions observe the same counter; workload totals stay per-session, and session cost is whole-session while cycle membership can be partial.",
   };
 }
 
