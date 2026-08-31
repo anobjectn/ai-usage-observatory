@@ -3,13 +3,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   averageMetricSlices,
-  currentAndPreviousFiveHourWindows,
   currentFiveHourWindows,
   currentWindowSessions,
   effortAbsenceReason,
   metricRowCacheShare,
   SessionDetailPanel,
   SessionMixGroupBreakdown,
+  observedTermini,
   pathFilteredRows,
   periodTickLabel,
   projectDayRows,
@@ -22,6 +22,9 @@ import {
   sessionQuotaBalanceItems,
   quotaRemainingRanges,
   quotaResetBoundaries,
+  recentSessionFloor,
+  recentSessionRows,
+  reportedTermini,
   sessionRangeLabel,
   withoutCacheMetricRow,
 } from "./App";
@@ -65,9 +68,9 @@ function session(overrides: Partial<Session>): Session {
   };
 }
 
-test("current five-hour sessions use each provider window and Warp overlap", () => {
+test("with no weekly reset the list reaches back to ten sessions of each provider", () => {
   const hour = 60 * 60 * 1_000;
-  const now = 10 * hour;
+  const now = 100 * hour;
   const quotas: DashboardData["quotas"] = {
     available: true,
     collectedAt: new Date(now).toISOString(),
@@ -80,17 +83,7 @@ test("current five-hour sessions use each provider window and Warp overlap", () 
           source: "test",
           snapshot: {
             kind: "window",
-            fiveHour: { usedPercent: 30, resetsAt: 13 * hour },
-            weekly: null,
-          },
-        },
-        {
-          provider: "codex",
-          status: "ok",
-          source: "test",
-          snapshot: {
-            kind: "window",
-            fiveHour: { usedPercent: 40, resetsAt: 14 * hour },
+            fiveHour: { usedPercent: 30, resetsAt: now + 3 * hour },
             weekly: null,
           },
         },
@@ -98,62 +91,195 @@ test("current five-hour sessions use each provider window and Warp overlap", () 
     },
   };
   const at = (milliseconds: number) => new Date(milliseconds).toISOString();
+  // Codex ran twelve times in the last twelve hours; Claude only four times, spread wider.
+  const sessions = [
+    ...Array.from({ length: 12 }, (unused, index) =>
+      session({
+        sessionId: `codex-${index}`,
+        metadata: { lastActivity: at(now - index * hour) },
+      }),
+    ),
+    ...Array.from({ length: 4 }, (unused, index) =>
+      session({
+        sessionId: `claude-${index}`,
+        agent: "claude",
+        metadata: { lastActivity: at(now - index * 6 * hour) },
+      }),
+    ),
+    session({
+      sessionId: "warp-inside",
+      agent: "warp",
+      metadata: { lastActivity: at(now - 10 * hour) },
+    }),
+    session({
+      sessionId: "warp-outside",
+      agent: "warp",
+      metadata: { lastActivity: at(now - 40 * hour) },
+    }),
+  ];
 
-  expect(currentFiveHourWindows(quotas, now)).toEqual([
-    { provider: "anthropic", startAt: 8 * hour, endAt: 13 * hour },
-    { provider: "codex", startAt: 9 * hour, endAt: 14 * hour },
+  // Codex's tenth-newest is nine hours back; Claude has only four, so it offers its oldest at
+  // eighteen. The earlier of the two wins, which keeps Codex's ten intact.
+  expect(recentSessionFloor(quotas, sessions, now)).toEqual({
+    at: now - 18 * hour,
+    basis: "sessions",
+  });
+
+  const kept = currentWindowSessions(sessions, quotas, now).map(
+    (item) => item.sessionId,
+  );
+  expect(kept.filter((id) => id.startsWith("codex-")).length).toBe(12);
+  expect(kept.filter((id) => id.startsWith("claude-")).length).toBe(4);
+  // Warp is held to the same span as everyone else rather than to its own window rule.
+  expect(kept).toContain("warp-inside");
+  expect(kept).not.toContain("warp-outside");
+});
+
+test("reported termini bound the recent list per provider", () => {
+  const hour = 60 * 60 * 1_000;
+  const day = 24 * hour;
+  const now = 30 * day;
+  const windowProvider = (
+    provider: "anthropic" | "codex",
+    resetsAt: number,
+    weeklyResetsAt: number | null,
+  ) => ({
+    provider,
+    status: "ok" as const,
+    source: "test",
+    snapshot: {
+      kind: "window" as const,
+      fiveHour: { usedPercent: 10, resetsAt },
+      weekly: weeklyResetsAt === null ? null : { usedPercent: 20, resetsAt: weeklyResetsAt },
+    },
+  });
+  const quotas: DashboardData["quotas"] = {
+    available: true,
+    collectedAt: new Date(now).toISOString(),
+    usage: {
+      generatedAt: now,
+      providers: [
+        windowProvider("anthropic", now + 3 * hour, now + 2 * day),
+        windowProvider("codex", now + 4 * hour, now + 4 * day),
+      ],
+    },
+  };
+
+  // The list runs back to the earlier of the two weekly openings, which is Anthropic's here.
+  expect(recentSessionFloor(quotas, [], now)).toEqual({
+    at: now - 5 * day,
+    basis: "weekly",
+  });
+  expect(reportedTermini(quotas, now)).toEqual([
+    { provider: "codex", key: "codex-fiveHour-current", window: "fiveHour", scope: "current", at: now - hour },
+    { provider: "anthropic", key: "anthropic-fiveHour-current", window: "fiveHour", scope: "current", at: now - 2 * hour },
+    { provider: "codex", key: "codex-fiveHour-previous", window: "fiveHour", scope: "previous", at: now - 6 * hour },
+    { provider: "anthropic", key: "anthropic-fiveHour-previous", window: "fiveHour", scope: "previous", at: now - 7 * hour },
+    { provider: "codex", key: "codex-weekly-current", window: "weekly", scope: "current", at: now - 3 * day },
+    { provider: "anthropic", key: "anthropic-weekly-current", window: "weekly", scope: "current", at: now - 5 * day },
   ]);
-  expect(currentAndPreviousFiveHourWindows(quotas, now)).toEqual([
-    { provider: "anthropic", startAt: 8 * hour, endAt: 13 * hour },
-    { provider: "codex", startAt: 9 * hour, endAt: 14 * hour },
-    { provider: "anthropic", startAt: 3 * hour, endAt: 8 * hour },
-    { provider: "codex", startAt: 4 * hour, endAt: 9 * hour },
-  ]);
+
+  const at = (milliseconds: number) => new Date(milliseconds).toISOString();
+  // The floor is what the list is cut at: a session older than it belongs to the sessions view.
   expect(
     currentWindowSessions(
       [
-        session({
-          sessionId: "claude-current",
-          agent: "claude",
-          metadata: { lastActivity: at(9 * hour) },
-        }),
-        session({
-          sessionId: "codex-current",
-          metadata: { lastActivity: at(12 * hour) },
-        }),
-        session({
-          sessionId: "claude-before-window",
-          agent: "claude",
-          metadata: { lastActivity: at(7 * hour) },
-        }),
-        session({
-          sessionId: "warp-overlap",
-          agent: "warp",
-          metadata: { lastActivity: at(7 * hour) },
-          activityIntervals: [{ startAt: 8.5 * hour, endAt: 9 * hour }],
-        }),
-        session({
-          sessionId: "warp-outside",
-          agent: "warp",
-          metadata: { lastActivity: at(7 * hour) },
-          activityIntervals: [{ startAt: 1 * hour, endAt: 2 * hour }],
-        }),
-        session({
-          sessionId: "warp-previous",
-          agent: "warp",
-          metadata: { lastActivity: at(5 * hour) },
-        }),
+        session({ sessionId: "this-week", metadata: { lastActivity: at(now - hour) } }),
+        session({ sessionId: "codex-extra-days", metadata: { lastActivity: at(now - 4 * day) } }),
+        session({ sessionId: "older", agent: "claude", metadata: { lastActivity: at(now - 6 * day) } }),
       ],
       quotas,
       now,
     ).map((item) => item.sessionId),
+  ).toEqual(["this-week", "codex-extra-days"]);
+
+  const rows = recentSessionRows(
+    [
+      session({ sessionId: "newest", metadata: { lastActivity: at(now - 30 * 60_000) } }),
+      session({ sessionId: "between-windows", metadata: { lastActivity: at(now - 90 * 60_000) } }),
+      session({ sessionId: "last-week", metadata: { lastActivity: at(now - 4 * day) } }),
+    ],
+    reportedTermini(quotas, now),
+  );
+  expect(
+    rows.map((row) =>
+      row.kind === "session" ? row.session.sessionId : row.terminus.key,
+    ),
   ).toEqual([
-    "codex-current",
-    "claude-current",
-    "claude-before-window",
-    "warp-overlap",
-    "warp-previous",
+    "newest",
+    "codex-fiveHour-current",
+    "between-windows",
+    "anthropic-fiveHour-current",
+    "codex-fiveHour-previous",
+    "anthropic-fiveHour-previous",
+    "codex-weekly-current",
+    "last-week",
+    "anthropic-weekly-current",
   ]);
+});
+
+test("recorded cycle changes keep placing termini past the reported windows", () => {
+  const cycle = (provider: "anthropic" | "codex", endCycleId: string) =>
+    ({
+      provider,
+      basis: "bracketed_account_delta",
+      coverage: {},
+      resources: [{ id: "fiveHour", endCycleId }],
+    }) as unknown as SessionQuotaContext;
+  // Newest first and interleaved, the way the recent list orders rows: the Claude boundary sits
+  // several Codex rows away from the Claude rows it divides.
+  const stamp = (milliseconds: number) => new Date(milliseconds).toISOString();
+  const sessions = [
+    session({ sessionId: "claude-new", agent: "claude", metadata: { lastActivity: stamp(7000) } }),
+    session({ sessionId: "codex-new", metadata: { lastActivity: stamp(6000) } }),
+    session({ sessionId: "codex-old", metadata: { lastActivity: stamp(2000) } }),
+    session({ sessionId: "claude-old", agent: "claude", metadata: { lastActivity: stamp(1000) } }),
+  ];
+  expect(
+    observedTermini(sessions, {
+      "claude-new": cycle("anthropic", "reset:9000"),
+      "codex-new": cycle("codex", "reset:8000"),
+      "codex-old": cycle("codex", "reset:3000"),
+      "claude-old": cycle("anthropic", "reset:4000"),
+    }),
+  ).toEqual([
+    { provider: "codex", key: "codex-fiveHour-3000", window: "fiveHour", scope: "observed", at: 3000 },
+    { provider: "anthropic", key: "anthropic-fiveHour-4000", window: "fiveHour", scope: "observed", at: 4000 },
+  ]);
+  // A session whose reading has not been fetched yet simply places no boundary.
+  expect(observedTermini(sessions, {})).toEqual([]);
+  // A cycle id can change without a reset in the gap — Codex re-anchors its weekly reset instant
+  // as the week runs — and an instant outside the gap is not a boundary these two sessions saw.
+  expect(
+    observedTermini(sessions, {
+      "codex-new": cycle("codex", "reset:90000"),
+      "codex-old": cycle("codex", "reset:80000"),
+    }),
+  ).toEqual([]);
+});
+
+test("a session with no readable activity time does not place a terminus", () => {
+  const termini = [
+    {
+      provider: "codex" as const,
+      key: "codex-current",
+      window: "fiveHour" as const,
+      scope: "current" as const,
+      at: 5_000,
+    },
+  ];
+  const rows = recentSessionRows(
+    [
+      session({ sessionId: "undated", metadata: { lastActivity: "" } }),
+      session({ sessionId: "older", metadata: { lastActivity: new Date(1_000).toISOString() } }),
+    ],
+    termini,
+  );
+  expect(
+    rows.map((row) =>
+      row.kind === "session" ? row.session.sessionId : row.terminus.key,
+    ),
+  ).toEqual(["undated", "codex-current", "older"]);
 });
 
 test("pathFilteredRows combines matching sessions only within the selected periods", () => {

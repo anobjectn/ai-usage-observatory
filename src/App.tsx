@@ -711,58 +711,227 @@ export function currentFiveHourWindows(
   });
 }
 
-export function currentAndPreviousFiveHourWindows(
+const weekMs = 7 * 24 * 60 * 60 * 1_000;
+
+/** Each provider's weekly window, ending at the reset it reports and running the seven days
+ * before it. Both providers count a fixed seven-day week, so the opening follows from the reset.
+ */
+export function currentWeeklyWindows(
   quotas: DashboardData["quotas"],
   now = Date.now(),
-) {
-  const currentWindows = currentFiveHourWindows(quotas, now);
-  return [
-    ...currentWindows,
-    ...currentWindows.map((window) => ({
-      ...window,
-      startAt: window.startAt - fiveHoursMs,
-      endAt: window.startAt,
-    })),
-  ];
+): Array<{ provider: "anthropic" | "codex"; startAt: number; endAt: number }> {
+  return (quotas.usage?.providers ?? []).flatMap((provider) => {
+    if (provider.provider !== "anthropic" && provider.provider !== "codex")
+      return [];
+    const resetAt =
+      provider.snapshot?.kind === "window"
+        ? provider.snapshot.weekly?.resetsAt
+        : null;
+    if (typeof resetAt !== "number" || !Number.isFinite(resetAt) || resetAt <= now)
+      return [];
+    return [{ provider: provider.provider, startAt: resetAt - weekMs, endAt: resetAt }];
+  });
 }
 
-function sessionOverlapsWindow(
-  session: Session,
-  windows: CurrentFiveHourWindow[],
-) {
-  const overlaps = (startAt: number, endAt: number) =>
-    windows.some((window) => startAt < window.endAt && endAt >= window.startAt);
-  const activityIntervals = session.activityIntervals ?? [];
-  if (activityIntervals.length) {
-    return activityIntervals.some((interval) =>
-      Number.isFinite(interval.startAt) &&
-      Number.isFinite(interval.endAt) &&
-      overlaps(interval.startAt, interval.endAt),
-    );
-  }
-  const activityAt = Date.parse(String(session.metadata?.lastActivity ?? ""));
-  return Number.isFinite(activityAt) && overlaps(activityAt, activityAt);
+export type RecentSessionFloor = {
+  at: number;
+  /** `weekly` is an open cycle a provider is reporting; `sessions` is the fallback below. */
+  basis: "weekly" | "sessions";
+};
+
+/** How many sessions each main provider is guaranteed when neither reports a weekly reset. */
+const recentSessionFallback = 10;
+
+const sessionActivityAt = (session: Session) =>
+  Date.parse(String(session.metadata?.lastActivity ?? ""));
+
+/** How far back the recent list runs.
+ *
+ * Normally the earlier of the two providers' weekly openings: each provider is then always shown
+ * its whole current week, and whichever resets later is shown the few extra days that carries.
+ *
+ * With no weekly reset reported there is no cycle to cut at, so the floor instead reaches back far
+ * enough to hold the last ten sessions of each main provider — again the earlier of the two, so
+ * neither is cut short by the other being busier. Null only when neither has a session to measure,
+ * and then nothing is cut.
+ */
+export function recentSessionFloor(
+  quotas: DashboardData["quotas"],
+  sessions: Session[],
+  now = Date.now(),
+): RecentSessionFloor | null {
+  const openings = currentWeeklyWindows(quotas, now).map((window) => window.startAt);
+  if (openings.length) return { at: Math.min(...openings), basis: "weekly" };
+  const nth = (["anthropic", "codex"] as const).flatMap((provider) => {
+    const times = sessions
+      .filter((session) => providerKey(session.agent) === provider)
+      .map(sessionActivityAt)
+      .filter((at) => Number.isFinite(at))
+      .sort((left, right) => right - left);
+    // A provider with fewer than ten sessions contributes its oldest, which is all it has.
+    return times.length
+      ? [times[Math.min(recentSessionFallback, times.length) - 1]!]
+      : [];
+  });
+  return nth.length ? { at: Math.min(...nth), basis: "sessions" } : null;
 }
 
+/** Everything the recent list shows: one span, applied to every provider alike. Warp used to be
+ * held to the five-hour windows while Claude and Codex ran on past them; the floor is now the
+ * single answer to how far back the card reaches. */
 export function currentWindowSessions(
   sessions: Session[],
   quotas: DashboardData["quotas"],
   now = Date.now(),
 ) {
-  const warpWindows = currentAndPreviousFiveHourWindows(quotas, now);
+  const floor = recentSessionFloor(quotas, sessions, now);
   return sessions
     .filter((session) => {
       const provider = providerKey(session.agent);
-      // Claude and Codex record their sessions on separate schedules, and Claude can omit a
-      // live reset instant altogether. Keep both providers visible regardless of that timing.
-      if (provider === "anthropic" || provider === "codex") return true;
-      return provider === "warp" && sessionOverlapsWindow(session, warpWindows);
+      if (provider !== "anthropic" && provider !== "codex" && provider !== "warp")
+        return false;
+      if (floor === null) return true;
+      const at = sessionActivityAt(session);
+      // A session with no readable activity time is kept: nothing about it says it is old.
+      return !Number.isFinite(at) || at >= floor.at;
     })
     .sort(
       (left, right) =>
         Date.parse(String(right.metadata?.lastActivity ?? "")) -
         Date.parse(String(left.metadata?.lastActivity ?? "")),
     );
+}
+
+export type RecentTerminus = {
+  provider: "anthropic" | "codex";
+  key: string;
+  window: "fiveHour" | "weekly";
+  /** `observed` is a boundary the account's own readings recorded, rather than one the provider
+   * is reporting live. Only a live one can be named current or previous. */
+  scope: "current" | "previous" | "observed";
+  /** The instant one window ended and the next opened. */
+  at: number;
+};
+
+/** Boundaries the providers report right now: each one's current and previous five-hour window,
+ * and the opening of the week it is counting. The two providers are timed independently, so each
+ * contributes its own. */
+export function reportedTermini(
+  quotas: DashboardData["quotas"],
+  now = Date.now(),
+): RecentTerminus[] {
+  const fiveHour = currentFiveHourWindows(quotas, now).flatMap((window) =>
+    ([
+      ["current", window.startAt],
+      ["previous", window.startAt - fiveHoursMs],
+    ] as const).map(([scope, at]) => ({
+      provider: window.provider,
+      key: `${window.provider}-fiveHour-${scope}`,
+      window: "fiveHour" as const,
+      scope,
+      at,
+    })),
+  );
+  const weekly = currentWeeklyWindows(quotas, now).map((window) => ({
+    provider: window.provider,
+    key: `${window.provider}-weekly-current`,
+    window: "weekly" as const,
+    scope: "current" as const,
+    at: window.startAt,
+  }));
+  return [...fiveHour, ...weekly].sort((left, right) => right.at - left.at);
+}
+
+/** Boundaries the account's own readings recorded: two adjacent sessions of one provider that
+ * closed in different cycles were separated by that cycle's reset. A provider reports only the
+ * windows it is counting now, so this is what keeps the bars going further down the list.
+ *
+ * Providers are tracked separately because the list interleaves them: Claude's boundary can sit
+ * many Codex rows away from the Claude rows it divides.
+ */
+export function observedTermini(
+  sessions: Session[],
+  contexts: Record<string, SessionQuotaContext | null | undefined>,
+): RecentTerminus[] {
+  const previous = new Map<string, { context: SessionQuotaContext; at: number }>();
+  const termini = new Map<string, RecentTerminus>();
+  for (const session of sessions) {
+    const context = contexts[session.sessionId];
+    if (!context) continue;
+    const at = Date.parse(String(session.metadata?.lastActivity ?? ""));
+    if (!Number.isFinite(at)) continue;
+    const seen = previous.get(context.provider);
+    previous.set(context.provider, { context, at });
+    if (!seen) continue;
+    for (const boundary of quotaResetBoundaries(seen.context, context)) {
+      if (boundary.id !== "fiveHour" && boundary.id !== "weekly") continue;
+      if (boundary.provider !== "anthropic" && boundary.provider !== "codex") continue;
+      // A cycle id can change without a reset having happened: Codex re-anchors its weekly
+      // reset instant as the week runs. Only an instant that falls in the gap between these two
+      // sessions is a boundary they observed; anything else is the provider moving the goalposts.
+      if (boundary.at < at || boundary.at > seen.at) continue;
+      const key = `${boundary.provider}-${boundary.id}-${boundary.at}`;
+      termini.set(key, {
+        provider: boundary.provider,
+        key,
+        window: boundary.id,
+        scope: "observed",
+        at: boundary.at,
+      });
+    }
+  }
+  return [...termini.values()];
+}
+
+/** Every boundary the recent list can draw: the ones the providers report live, plus the ones
+ * their own closing readings recorded further down. A recorded boundary that restates a live one
+ * is dropped, since the two readings need not agree to the second. */
+export function recentTermini(
+  quotas: DashboardData["quotas"],
+  sessions: Session[],
+  contexts: Record<string, SessionQuotaContext | null | undefined>,
+  now = Date.now(),
+): RecentTerminus[] {
+  const live = reportedTermini(quotas, now);
+  return [
+    ...live,
+    ...observedTermini(sessions, contexts).filter(
+      (terminus) =>
+        !live.some(
+          (other) =>
+            other.provider === terminus.provider &&
+            other.window === terminus.window &&
+            Math.abs(other.at - terminus.at) < 60_000,
+        ),
+    ),
+  ].sort((left, right) => right.at - left.at);
+}
+
+export type RecentSessionRow =
+  | { kind: "session"; session: Session }
+  | { kind: "terminus"; terminus: RecentTerminus };
+
+/** Sessions newest first, with each window opening drawn where the list crosses it. The card
+ * keeps showing older sessions, so the bars are what say which of them the heading covers. */
+export function recentSessionRows(
+  sessions: Session[],
+  termini: RecentTerminus[],
+): RecentSessionRow[] {
+  const pending = [...termini].sort((left, right) => right.at - left.at);
+  const rows: RecentSessionRow[] = [];
+  for (const session of sessions) {
+    const at = Date.parse(String(session.metadata?.lastActivity ?? ""));
+    // A session with no readable activity time cannot place a boundary; it sits where the
+    // caller's own ordering put it and the pending termini wait for a row that can.
+    while (Number.isFinite(at) && pending.length && pending[0]!.at > at) {
+      rows.push({ kind: "terminus", terminus: pending.shift()! });
+    }
+    rows.push({ kind: "session", session });
+  }
+  return [
+    ...rows,
+    ...pending.map((terminus) => ({ kind: "terminus" as const, terminus })),
+  ];
 }
 
 function resetCopy(timestamp: number | null, verb = "resets") {
@@ -3537,6 +3706,7 @@ function Overview({
   });
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
   const recent = currentWindowSessions(windowSessions, data.quotas);
+  const recentFloor = recentSessionFloor(data.quotas, windowSessions);
   // The list runs well past the two windows it is titled for, so a closing quota reading is
   // fetched for a row only once that row is actually on screen.
   const sessionQuota = useSessionQuotaContexts();
@@ -3565,6 +3735,12 @@ function Overview({
       return () => quotaObserver.unobserve(node);
     },
     [quotaObserver],
+  );
+  // Those same readings carry the cycle each session closed in, so the window boundaries keep
+  // being drawn as far down as the list has been read.
+  const recentRows = recentSessionRows(
+    recent,
+    recentTermini(data.quotas, recent, sessionQuota.contexts),
   );
   const cacheShare = totals.traffic
     ? Math.round((totals.cache / totals.traffic) * 100)
@@ -3885,9 +4061,29 @@ function Overview({
         <article className="panel panel-wide recent-panel">
           <div className="panel-heading">
             <div>
-              <span className="overline">CURRENT + PREVIOUS FIVE-HOUR WINDOWS</span>
+              <span className="overline">
+                {recentFloor?.basis === "weekly"
+                  ? "CURRENT WEEKLY WINDOWS"
+                  : "LATEST ACTIVITY"}
+              </span>
               <h2>Latest sessions</h2>
-              <p>Claude and Codex sessions · Warp activity inside either window</p>
+              {/* One span for every provider. It runs to the earlier of the two weekly openings,
+               * so each of Claude and Codex is always shown its whole current week and one of
+               * them a few days more. */}
+              <p>
+                {recentFloor === null ? (
+                  "Claude, Codex, and Warp sessions"
+                ) : (
+                  <>
+                    All sessions since{" "}
+                    <SessionDateStamp value={new Date(recentFloor.at).toISOString()} />
+                    {" · "}
+                    {recentFloor.basis === "weekly"
+                      ? "the earlier of Claude's and Codex's open weekly cycles"
+                      : "the last ten each from Claude and Codex"}
+                  </>
+                )}
+              </p>
             </div>
             <a
               className="text-link"
@@ -3901,10 +4097,43 @@ function Overview({
             </a>
           </div>
           <div className="recent-list">
-            {recent.length ? recent.map((session, index) => {
+            {recent.length ? recentRows.map((row) => {
+              if (row.kind === "terminus") {
+                const at = new Date(row.terminus.at).toISOString();
+                return (
+                  <p
+                    className={`recent-terminus${row.terminus.window === "weekly" ? " recent-terminus--weekly" : ""}`}
+                    key={row.terminus.key}
+                  >
+                    <i
+                      style={{
+                        background:
+                          row.terminus.provider === "anthropic"
+                            ? providerColors.anthropic
+                            : providerColors.openai,
+                      }}
+                      aria-hidden="true"
+                    />
+                    <b>{agentTerminusLabels[row.terminus.provider]}</b>
+                    <span
+                      title={
+                        row.terminus.scope === "observed"
+                          ? "Recorded from this account's own quota readings on either side of the line."
+                          : "Reported by the provider now."
+                      }
+                    >
+                      {row.terminus.scope === "observed"
+                        ? `${terminusWindowLabels[row.terminus.window]} window reset`
+                        : `${row.terminus.scope} ${terminusWindowLabels[row.terminus.window]} window opened`}
+                    </span>
+                    <time dateTime={at}>{formatSessionDate(at)}</time>
+                  </p>
+                );
+              }
+              const session = row.session;
               const modelName =
                 session.modelsUsed.join(", ") || "Unknown model";
-              const tooltipId = `recent-session-tag-tooltip-${index}`;
+              const tooltipId = `recent-session-tag-tooltip-${session.sessionId}`;
               return (
                 <div className="recent-session" key={session.sessionId}>
                   <a
@@ -3993,7 +4222,13 @@ function Overview({
                   </button>
                 </div>
               );
-            }) : <Empty text="No Claude, Codex, or Warp sessions in the current five-hour windows." />}
+            }) : <Empty
+              text={
+                recentFloor === null
+                  ? "No Claude, Codex, or Warp sessions recorded."
+                  : "No Claude, Codex, or Warp sessions in this span."
+              }
+            />}
           </div>
         </article>
       </section>
@@ -5828,6 +6063,12 @@ export function SessionDetailPanel({
     </div>
   );
 }
+
+/** The agent names the recent list spells out, where "Anthropic" and "OpenAI" would name the
+ * vendor rather than the tool the session ran in. */
+const agentTerminusLabels = { anthropic: "Claude", codex: "Codex" } as const;
+
+const terminusWindowLabels = { fiveHour: "5-hour", weekly: "weekly" } as const;
 
 const sessionProviderLabels: Record<ActivityProvider, string> = {
   anthropic: "Anthropic",
