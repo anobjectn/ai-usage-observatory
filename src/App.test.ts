@@ -26,6 +26,7 @@ import {
   recentSessionRows,
   reportedTermini,
   sessionRangeLabel,
+  shareStructure,
   withoutCacheMetricRow,
 } from "./App";
 import type {
@@ -1052,4 +1053,39 @@ test("an incomplete or switched-off index is named as the reason, not the model"
   expect(
     effortAbsenceReason(null, effortIndexStatus({ phase: "error", error: "boom" })),
   ).toBe("Effort indexing reported an error.");
+});
+
+test("shareStructure keeps identity for unchanged subtrees and always reflects the new values", () => {
+  const prev = {
+    daily: [{ date: "2026-08-29", tokens: 10 }, { date: "2026-08-30", tokens: 20 }],
+    quotas: { history: { windows: [{ provider: "codex", reachedCount: 2 }] } },
+    totals: { tokens: 30 },
+  };
+  const next = {
+    daily: [{ date: "2026-08-29", tokens: 10 }, { date: "2026-08-30", tokens: 25 }],
+    quotas: { history: { windows: [{ provider: "codex", reachedCount: 2 }] } },
+    totals: { tokens: 35 },
+  };
+  const shared = shareStructure(prev, next);
+  // The shared result is value-identical to the fresh payload…
+  expect(shared).toEqual(next);
+  // …unchanged subtrees keep their previous identity…
+  expect(shared.quotas).toBe(prev.quotas);
+  expect(shared.daily[0]).toBe(prev.daily[0]);
+  // …and changed subtrees (and their ancestors) do not.
+  expect(shared).not.toBe(prev);
+  expect(shared.daily).not.toBe(prev.daily);
+  expect(shared.daily[1]).not.toBe(prev.daily[1]);
+  expect(shared.totals).not.toBe(prev.totals);
+});
+
+test("shareStructure never resurrects removed keys, rows, or mismatched shapes", () => {
+  expect(shareStructure({ a: 1, b: 2 }, { a: 1 })).toEqual({ a: 1 });
+  expect(shareStructure({ a: 1 }, { a: 1, b: 2 })).toEqual({ a: 1, b: 2 });
+  const shrunk = shareStructure([{ id: 1 }, { id: 2 }], [{ id: 1 }]);
+  expect(shrunk).toEqual([{ id: 1 }]);
+  expect(shareStructure({ rows: [1] }, { rows: null })).toEqual({ rows: null });
+  expect(shareStructure(null, { rows: [1] })).toEqual({ rows: [1] });
+  const identical = { a: [1, 2], b: { c: "x" } };
+  expect(shareStructure(identical, structuredClone(identical))).toBe(identical);
 });

@@ -1,5 +1,6 @@
 import {
   Fragment,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -990,14 +991,53 @@ function expiryCopy(timestamp: string | null) {
   };
 }
 
+/** Returns `next` with object identity preserved for every subtree deep-equal to `prev`, so a
+ * poll that only moved a few numbers leaves the rest of the tree `===` the previous data and
+ * slice memos bail instead of recomputing over identical values. */
+export function shareStructure<T>(prev: unknown, next: T): T {
+  if (Object.is(prev, next)) return next;
+  if (Array.isArray(prev) && Array.isArray(next)) {
+    const prevItems = prev as unknown[];
+    let allShared = prevItems.length === next.length;
+    const merged = next.map((item, index) => {
+      const shared = shareStructure(prevItems[index], item);
+      if (!Object.is(shared, prevItems[index])) allShared = false;
+      return shared;
+    });
+    return (allShared ? prev : merged) as T;
+  }
+  if (
+    prev && next && typeof prev === "object" && typeof next === "object" &&
+    !Array.isArray(prev) && !Array.isArray(next)
+  ) {
+    const prevRecord = prev as Record<string, unknown>;
+    const nextRecord = next as Record<string, unknown>;
+    const nextKeys = Object.keys(nextRecord);
+    let allShared = Object.keys(prevRecord).length === nextKeys.length;
+    const merged: Record<string, unknown> = {};
+    for (const key of nextKeys) {
+      const shared = shareStructure(prevRecord[key], nextRecord[key]);
+      merged[key] = shared;
+      if (!Object.is(shared, prevRecord[key])) allShared = false;
+    }
+    return (allShared ? prev : merged) as T;
+  }
+  return next;
+}
+
 function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const dashboardEtag = useRef<string | null>(null);
-  const load = async (refresh = false) => {
-    setLoading(true);
-    setError(null);
+  const latest = useRef<DashboardData | null>(null);
+  const load = async (refresh = false, background = false) => {
+    // Background polls stay silent: no "Collecting" spinner, and none of the app-wide
+    // re-renders that toggling `loading` would force on every tick.
+    if (!background) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       if (refresh) await fetch("/api/refresh", { method: "POST" });
       const response = await fetch("/api/dashboard", {
@@ -1006,16 +1046,23 @@ function useDashboard() {
       if (response.status === 304) return;
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
       dashboardEtag.current = response.headers.get("ETag");
-      setData(await response.json());
+      const next = shareStructure(latest.current, (await response.json()) as DashboardData);
+      latest.current = next;
+      // Committing in a transition lets React time-slice the tree-wide re-render instead of
+      // blocking the main thread for the whole update.
+      startTransition(() => {
+        setData(next);
+        setError(null);
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   };
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 60_000);
+    const timer = setInterval(() => void load(false, true), 60_000);
     return () => clearInterval(timer);
   }, []);
   return { data, error, loading, load };
