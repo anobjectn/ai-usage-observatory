@@ -61,6 +61,7 @@ import {
   type DecodedSessionEffort,
   type EffortScopeInput,
 } from "./hooks/use-effort";
+import { useSessionQuotaContexts } from "./hooks/use-session-quota-contexts";
 import {
   Activity,
   ArrowDownRight,
@@ -3536,6 +3537,35 @@ function Overview({
   });
   const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
   const recent = currentWindowSessions(windowSessions, data.quotas);
+  // The list runs well past the two windows it is titled for, so a closing quota reading is
+  // fetched for a row only once that row is actually on screen.
+  const sessionQuota = useSessionQuotaContexts();
+  const requestQuota = sessionQuota.request;
+  const quotaObserver = useMemo(
+    () =>
+      typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver(
+            (entries) => {
+              const visible = entries
+                .filter((entry) => entry.isIntersecting)
+                .map((entry) => (entry.target as HTMLElement).dataset.sessionId)
+                .filter((sessionId): sessionId is string => Boolean(sessionId));
+              if (visible.length) requestQuota(visible);
+            },
+            { rootMargin: "150px" },
+          ),
+    [requestQuota],
+  );
+  useEffect(() => () => quotaObserver?.disconnect(), [quotaObserver]);
+  const watchQuota = useCallback(
+    (node: HTMLElement | null) => {
+      if (!node || !quotaObserver) return;
+      quotaObserver.observe(node);
+      return () => quotaObserver.unobserve(node);
+    },
+    [quotaObserver],
+  );
   const cacheShare = totals.traffic
     ? Math.round((totals.cache / totals.traffic) * 100)
     : 0;
@@ -3893,8 +3923,36 @@ function Overview({
                       onOpenSession(session.sessionId);
                     }}
                   >
-                    <span className={`agent-mark ${session.agent}`}>
-                      {session.agent.slice(0, 1).toUpperCase()}
+                    {/* One reading of the shared account counter at this session's close, the
+                     * same column the sessions table carries. It is fetched when the row is
+                     * seen, so a row still says it is loading until then. */}
+                    <span
+                      className="recent-session__quota"
+                      data-session-id={session.sessionId}
+                      ref={watchQuota}
+                    >
+                      <SessionQuotaBalanceCell
+                        context={sessionQuota.contexts[session.sessionId]}
+                        loading={
+                          !Object.hasOwn(
+                            sessionQuota.contexts,
+                            session.sessionId,
+                          )
+                        }
+                        provider={providerFromAgent(session.agent)}
+                      />
+                    </span>
+                    <span className="recent-session__activity">
+                      {session.metadata?.lastActivity ? (
+                        <SessionDateStamp value={session.metadata.lastActivity} />
+                      ) : (
+                        "—"
+                      )}
+                    </span>
+                    {/* Claude and Codex both began with a "C": the agent is named in full so the
+                     * row does not need decoding. */}
+                    <span className={`agent-pill ${session.agent}`}>
+                      {session.agent}
                     </span>
                     <span className="session-main">
                       <b>{modelName}</b>
