@@ -5,6 +5,24 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-08-30
+
+### Added
+
+- Show change and comparison baselines on the Overview summary cards.
+- Break cache share into read and write values, with provider coverage stated.
+- Show each latest session's agent, closing quota, and last activity within the relevant quota windows.
+
+### Changed
+
+- Reuse unchanged collection, transcript, quota-history, and session-context work between collection ticks, reducing dashboard payload size and speeding up warm quota comparisons.
+- Keep background dashboard polls responsive by reusing unchanged data and scheduling updates as transitions.
+- Repaint scene canvases only when needed, size star fields to the selected density, and allow animation to pause.
+
+### Fixed
+
+- Keep Explorer model-signal tooltips useful for every model, including models without a dominant effort value.
+
 ## [1.18.0] - 2026-08-30
 
 ### Added
@@ -36,6 +54,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Fix date-range control spacing and hover behavior.
 - Prevent page-level horizontal overflow.
 
+[1.19.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.17.0...v1.18.0
 
 ## [1.17.0] - 2026-08-28
