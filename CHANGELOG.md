@@ -5,6 +5,34 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] - 2026-08-31
+
+### Added
+
+- Add weekly headroom overlays to Explorer and quota reach patterns to Overview,
+  including weekly cadence, wall-clock timing, and expandable reach history.
+- Add a model standing view across token volume, API-equivalent cost, and output,
+  plus selectable allowance targets for maximizing capture or preserving headroom.
+- Add grouped, paginated efficiency findings in Data with per-session avoidable
+  token totals and explicit policy context.
+- Group related project checkouts and automation runs, and expose more session
+  context through carry signals, Warp conversation detail, quota balances, and
+  verdict badges.
+
+### Changed
+
+- Refresh the README screenshot gallery for Overview, Explorer, Sessions, Models,
+  and Data. Preserve the reviewed release copies:
+  [Overview](docs/screenshots/releases/v1.20.0/1.dashboard.png),
+  [Explorer](docs/screenshots/releases/v1.20.0/2.explorer.png),
+  [Sessions](docs/screenshots/releases/v1.20.0/3.sessions.png),
+  [Models](docs/screenshots/releases/v1.20.0/5.models.png), and
+  [Data](docs/screenshots/releases/v1.20.0/6.data-intelligence.png).
+- Center the Sessions Verdict values and keep the tier-change caveat behind an
+  info tooltip.
+
+[1.20.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.19.0...v1.20.0
+
 ## [1.19.0] - 2026-08-30
 
 ### Added
