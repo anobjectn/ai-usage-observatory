@@ -4,7 +4,7 @@ import { providerFromAgent } from "../src/provider";
 import type { MetricRow, ModelBreakdown, WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
 import { collectQuota } from "./quota";
-import { getPathIndex, indexSessionPaths, pathTagsForCwd } from "./path-indexer";
+import { getPathIndex, indexSessionPaths, pathTagsForCwd, type PathIndexResult } from "./path-indexer";
 import { collectWarp } from "./warp";
 import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
 import { emptyAnnotation, getAnnotations, getAnnotationVersion, getSettings, listRules } from "./store";
@@ -231,9 +231,35 @@ function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadT
   return { ...base, inputTokens: base.inputTokens + warp.tokens, totalTokens: base.totalTokens + warp.tokens };
 }
 
+let ccusageCache: { fingerprint: string; result: Awaited<ReturnType<typeof collectCcusage>> } | null = null;
+
+/** ccusage re-reads every transcript on disk each run, so a collection tick where no transcript
+ * changed reuses the previous report instead. The fingerprint is taken from stats read before
+ * ccusage runs, so a file changing mid-run misses the cache on the next tick rather than serving
+ * stale data. Trade-off: an active block's time-based projections freeze while nothing is being
+ * written, which is exactly when no tokens are being spent against them. */
+async function collectCcusageCached(timeZone: string, paths: PathIndexResult) {
+  const hash = new Bun.CryptoHasher("sha256");
+  hash.update(timeZone);
+  for (const line of paths.catalog.map((source) => `${source.sourceFile}\0${source.mtimeMs}\0${source.size}`).sort()) {
+    hash.update(`\0${line}`);
+  }
+  const fingerprint = hash.digest("hex");
+  if (ccusageCache?.fingerprint === fingerprint) return ccusageCache.result;
+  const result = await collectCcusage(timeZone);
+  ccusageCache = { fingerprint, result };
+  return result;
+}
+
 async function buildSnapshot() {
   const timeZone = systemTimeZone();
-  const [paths, ccusage, quota, warpCollection] = await Promise.all([indexSessionPaths(), collectCcusage(timeZone), collectQuota(), collectWarp(timeZone)]);
+  const pathsPromise = indexSessionPaths();
+  const [paths, ccusage, quota, warpCollection] = await Promise.all([
+    pathsPromise,
+    pathsPromise.then((result) => collectCcusageCached(timeZone, result)),
+    collectQuota(),
+    collectWarp(timeZone),
+  ]);
   setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
   // Read the revision before the rows: a write in between only causes one harmless re-overlay,

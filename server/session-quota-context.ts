@@ -380,7 +380,41 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
   };
 }
 
-const contextCache = new Map<string, SessionQuotaContext>();
+/** Results keyed by session + activity window, checked before any history is fetched. An entry
+ * whose activity window ended well before it was computed is settled — the observations that
+ * bracket it are historical and cannot change — so it stays valid until evicted. Anything more
+ * recent is trusted only briefly, since its history is still being written, and a result
+ * computed from an unhealthy source is never settled: the outage, not the history, produced it. */
+type ContextCacheEntry = { value: SessionQuotaContext; computedAt: number; settled: boolean };
+const contextCache = new Map<string, ContextCacheEntry>();
+// Must exceed the evidence-session count: /api/quota-comparisons walks every evidence session
+// in one pass, and an LRU smaller than that pass evicts each entry before its next lookup.
+const CONTEXT_CACHE_LIMIT = 4000;
+const CONTEXT_FRESH_MS = 5 * 60_000;
+const CONTEXT_SETTLED_MS = 48 * 60 * 60_000;
+
+function readContextCache(key: string) {
+  const entry = contextCache.get(key);
+  if (!entry) return null;
+  if (!entry.settled && Date.now() - entry.computedAt >= CONTEXT_FRESH_MS) {
+    contextCache.delete(key);
+    return null;
+  }
+  // Re-insert to keep eviction least-recently-used rather than insertion-ordered.
+  contextCache.delete(key);
+  contextCache.set(key, entry);
+  return entry.value;
+}
+
+function writeContextCache(key: string, value: SessionQuotaContext, windowEnd: number) {
+  const computedAt = Date.now();
+  const healthy = value.sourceState === "connected" || value.sourceState === "history_only";
+  contextCache.set(key, { value, computedAt, settled: healthy && windowEnd + CONTEXT_SETTLED_MS < computedAt });
+  if (contextCache.size > CONTEXT_CACHE_LIMIT) {
+    const oldest = contextCache.keys().next().value;
+    if (oldest !== undefined) contextCache.delete(oldest);
+  }
+}
 export type SessionQuotaCohortMeta = {
   planId: string | null;
   planLabel: string | null;
@@ -403,6 +437,15 @@ function markerEpisodes(markers: QuotaLifecycleMarker[]): ActivityEpisode[] {
 export async function getSessionQuotaContext(sessionId: string): Promise<SessionQuotaContext | null> {
   const provider = getSessionProvider(sessionId);
   let episodes = getSessionEpisodes(sessionId);
+  // Keyed on the unrefined episodes so a hit also skips the lifecycle-marker fetch below.
+  const cacheKey = provider && episodes.length
+    ? `${sessionId}:${episodes.map((episode) => `${episode.startAt}-${episode.endAt}`).join(",")}`
+    : null;
+  if (cacheKey) {
+    const cached = readContextCache(cacheKey);
+    if (cached) return cached;
+  }
+  const windowEnd = episodes.length ? Math.max(...episodes.map((episode) => episode.endAt)) : 0;
   if (provider === "anthropic" && episodes.length) {
     const nativeSessionKey = getNativeSessionKey(sessionId);
     if (nativeSessionKey) {
@@ -453,12 +496,14 @@ export async function getSessionQuotaContext(sessionId: string): Promise<Session
       poolLimit: null,
       cadence: null,
     });
-    return calculateSessionQuotaContext({
+    const embeddedResult = calculateSessionQuotaContext({
       sessionId, provider, basis: "embedded_account_observation", episodes, points,
       otherSessions, earliestObservationAt: points[0]?.observedAt ?? null,
       sourceState: points.length ? "connected" : "disabled",
       initialReason: points.length ? null : "This transcript has no embedded account quota observations.",
     });
+    if (cacheKey) writeContextCache(cacheKey, embeddedResult, windowEnd);
+    return embeddedResult;
   }
 
   const pages = await Promise.all(episodes.map((episode) => collectRawQuotaHistory(
@@ -489,10 +534,6 @@ export async function getSessionQuotaContext(sessionId: string): Promise<Session
       : pages.some((page) => page.sourceState === "degraded")
         ? "degraded" as const
         : "unreachable" as const;
-  const version = pages.map((page) => page.historyVersion).join(",");
-  const cacheKey = `${sessionId}:${version}:${sourceState}:${episodes.map((episode) => `${episode.startAt}-${episode.endAt}`).join(",")}`;
-  const cached = contextCache.get(cacheKey);
-  if (cached) return cached;
   const result = calculateSessionQuotaContext({
     sessionId,
     provider,
@@ -504,6 +545,6 @@ export async function getSessionQuotaContext(sessionId: string): Promise<Session
     sourceState,
     initialReason: points.length ? null : "Quota history is unavailable for this session.",
   });
-  contextCache.set(cacheKey, result);
+  if (cacheKey) writeContextCache(cacheKey, result, windowEnd);
   return result;
 }

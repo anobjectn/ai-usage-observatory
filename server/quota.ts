@@ -12,13 +12,39 @@ type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
 type ResetCreditHistory = { id?: string; title?: string | null; status?: string | null; expiresAt?: string | null };
 export type QuotaSeriesPoint = { provider: "anthropic" | "codex"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
 
-export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetRows: ResetHistoryRow[]) {
-  const reachedCycles = new Map<string, Map<string, number>>();
-  const series: QuotaSeriesPoint[] = [];
-  const seenBuckets = new Set<string>();
-  let trackingSince: number | null = null;
+/** Fold state for the history summary. The summary is a pure sequential fold over rows in
+ * captured_at order, so `collectQuotaHistory` can keep this alive between collection ticks and
+ * fold only rows it has not seen yet instead of re-reading the whole database every minute. */
+type HistoryFoldState = {
+  reachedCycles: Map<string, Map<string, number>>;
+  series: QuotaSeriesPoint[];
+  /** Latest 5-minute bucket folded per provider:window. Rows arrive in captured_at order, so
+   * remembering one bucket per key dedupes exactly like a set of every bucket ever seen. */
+  lastBucket: Map<string, number>;
+  trackingSince: number | null;
+  usedResets: Map<string, { id: string; title: string; usedAt: number }>;
+  previousAvailable: Map<string, ResetCreditHistory>;
+  snapshotCount: number;
+  resetCount: number;
+};
+
+function emptyHistoryFoldState(): HistoryFoldState {
+  return {
+    reachedCycles: new Map(),
+    series: [],
+    lastBucket: new Map(),
+    trackingSince: null,
+    usedResets: new Map(),
+    previousAvailable: new Map(),
+    snapshotCount: 0,
+    resetCount: 0,
+  };
+}
+
+function foldSnapshotRows(state: HistoryFoldState, snapshotRows: SnapshotHistoryRow[]) {
   for (const row of snapshotRows) {
-    trackingSince = trackingSince === null ? row.capturedAt : Math.min(trackingSince, row.capturedAt);
+    state.snapshotCount++;
+    state.trackingSince = state.trackingSince === null ? row.capturedAt : Math.min(state.trackingSince, row.capturedAt);
     if (!row.snapshotJson) continue;
     try {
       const snapshot = JSON.parse(row.snapshotJson) as { kind?: string; fiveHour?: {usedPercent?:number;resetsAt?:number|null}|null; weekly?: {usedPercent?:number;resetsAt?:number|null}|null };
@@ -27,33 +53,37 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
       for (const [window, value] of [["fiveHour", snapshot.fiveHour], ["weekly", snapshot.weekly]] as const) {
         if (!value || !Number.isFinite(Number(value.usedPercent))) continue;
         const cycleId = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
-        const bucket = `${row.provider}:${window}:${Math.floor(row.capturedAt / 300_000)}`;
-        if (!seenBuckets.has(bucket)) {
-          seenBuckets.add(bucket);
-          series.push({ provider: row.provider, window, capturedAt: row.capturedAt, usedPercent: Number(value.usedPercent), resetsAt: value.resetsAt ?? null, cycleId });
+        const bucketKey = `${row.provider}:${window}`;
+        const bucket = Math.floor(row.capturedAt / 300_000);
+        if (state.lastBucket.get(bucketKey) !== bucket) {
+          state.lastBucket.set(bucketKey, bucket);
+          state.series.push({ provider: row.provider, window, capturedAt: row.capturedAt, usedPercent: Number(value.usedPercent), resetsAt: value.resetsAt ?? null, cycleId });
         }
         if (Number(value.usedPercent) < 100) continue;
         const key = `${row.provider}:${window}`;
         const cycle = cycleId;
-        const cycles = reachedCycles.get(key) ?? new Map<string, number>();
+        const cycles = state.reachedCycles.get(key) ?? new Map<string, number>();
         const firstObservedAt = cycles.get(cycle);
         if (firstObservedAt === undefined || row.capturedAt < firstObservedAt) {
           cycles.set(cycle, row.capturedAt);
         }
-        reachedCycles.set(key, cycles);
+        state.reachedCycles.set(key, cycles);
       }
     } catch { /* Ignore malformed historical rows; current quota collection remains available. */ }
   }
+}
 
-  const usedResets = new Map<string, { id: string; title: string; usedAt: number }>();
+/** `resetRows` must already be sorted by capturedAt: the disappeared-before-expiry rule compares
+ * each capture against the previous one. */
+function foldResetRows(state: HistoryFoldState, resetRows: ResetHistoryRow[]) {
   const recordUsedReset = (id: string, credit: ResetCreditHistory, usedAt: number) => {
-    if (!usedResets.has(id)) {
-      usedResets.set(id, { id, title: credit.title?.trim() || "Banked reset", usedAt });
+    if (!state.usedResets.has(id)) {
+      state.usedResets.set(id, { id, title: credit.title?.trim() || "Banked reset", usedAt });
     }
   };
-  let previousAvailable = new Map<string, ResetCreditHistory>();
-  for (const row of [...resetRows].sort((a, b) => a.capturedAt - b.capturedAt)) {
-    trackingSince = trackingSince === null ? row.capturedAt : Math.min(trackingSince, row.capturedAt);
+  for (const row of resetRows) {
+    state.resetCount++;
+    state.trackingSince = state.trackingSince === null ? row.capturedAt : Math.min(state.trackingSince, row.capturedAt);
     let credits: ResetCreditHistory[] = [];
     try { credits = row.creditsJson ? JSON.parse(row.creditsJson) : []; } catch { continue; }
     const currentAvailable = new Map<string, ResetCreditHistory>();
@@ -63,15 +93,17 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
       if (status && ["used", "consumed", "redeemed"].includes(status)) recordUsedReset(credit.id, credit, row.capturedAt);
       if (status === "available") currentAvailable.set(credit.id, credit);
     }
-    for (const [id, credit] of previousAvailable) {
+    for (const [id, credit] of state.previousAvailable) {
       const expiry = credit.expiresAt ? Date.parse(credit.expiresAt) : NaN;
       if (!currentAvailable.has(id) && (!Number.isFinite(expiry) || expiry > row.capturedAt)) recordUsedReset(id, credit, row.capturedAt);
     }
-    previousAvailable = currentAvailable;
+    state.previousAvailable = currentAvailable;
   }
+}
 
+function finalizeHistory(state: HistoryFoldState) {
   const windows = (["codex", "anthropic"] as const).flatMap((provider) => (["fiveHour", "weekly"] as const).map((window) => {
-    const reachedAt = [...(reachedCycles.get(`${provider}:${window}`)?.values() ?? [])]
+    const reachedAt = [...(state.reachedCycles.get(`${provider}:${window}`)?.values() ?? [])]
       .sort((left, right) => right - left);
     return {
       provider,
@@ -81,9 +113,25 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
       reachedAt,
     };
   }));
-  const used = [...usedResets.values()].sort((left, right) => right.usedAt - left.usedAt);
-  return { available: snapshotRows.length > 0 || resetRows.length > 0, trackingSince, windows, series, codexBankedResets: { usedCount: used.length, used } };
+  const used = [...state.usedResets.values()].sort((left, right) => right.usedAt - left.usedAt);
+  // The series array is still being appended to on later ticks; hand out a copy so an already
+  // built snapshot never changes under its ETag.
+  return { available: state.snapshotCount > 0 || state.resetCount > 0, trackingSince: state.trackingSince, windows, series: state.series.slice(), codexBankedResets: { usedCount: used.length, used } };
 }
+
+export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetRows: ResetHistoryRow[]) {
+  const state = emptyHistoryFoldState();
+  foldSnapshotRows(state, snapshotRows);
+  foldResetRows(state, [...resetRows].sort((a, b) => a.capturedAt - b.capturedAt));
+  return finalizeHistory(state);
+}
+
+const historyAccumulator = {
+  dbPath: null as string | null,
+  state: emptyHistoryFoldState(),
+  lastSnapshotId: 0,
+  lastResetId: 0,
+};
 
 export function collectQuotaHistory() {
   try {
@@ -93,9 +141,27 @@ export function collectQuotaHistory() {
     if (!existsSync(dbPath)) return { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } };
     const db = new Database(dbPath, { readonly: true });
     try {
-      const snapshotRows = db.query("SELECT provider, captured_at AS capturedAt, snapshot_json AS snapshotJson FROM snapshots WHERE status IN ('ok', 'stale') ORDER BY captured_at").all() as SnapshotHistoryRow[];
-      const resetRows = db.query("SELECT captured_at AS capturedAt, credits_json AS creditsJson FROM reset_credits WHERE status IN ('ok', 'stale') ORDER BY captured_at").all() as ResetHistoryRow[];
-      return summarizeQuotaHistory(snapshotRows, resetRows);
+      const maxSnapshotId = Number((db.query("SELECT COALESCE(MAX(id), 0) AS value FROM snapshots").get() as { value: number }).value);
+      const maxResetId = Number((db.query("SELECT COALESCE(MAX(id), 0) AS value FROM reset_credits").get() as { value: number }).value);
+      // A different database path, or ids moving backwards (the file was pruned or replaced),
+      // invalidates everything folded so far.
+      if (historyAccumulator.dbPath !== dbPath || maxSnapshotId < historyAccumulator.lastSnapshotId || maxResetId < historyAccumulator.lastResetId) {
+        historyAccumulator.dbPath = dbPath;
+        historyAccumulator.state = emptyHistoryFoldState();
+        historyAccumulator.lastSnapshotId = 0;
+        historyAccumulator.lastResetId = 0;
+      }
+      if (maxSnapshotId > historyAccumulator.lastSnapshotId) {
+        const snapshotRows = db.query("SELECT provider, captured_at AS capturedAt, snapshot_json AS snapshotJson FROM snapshots WHERE status IN ('ok', 'stale') AND id > ? ORDER BY captured_at").all(historyAccumulator.lastSnapshotId) as SnapshotHistoryRow[];
+        foldSnapshotRows(historyAccumulator.state, snapshotRows);
+        historyAccumulator.lastSnapshotId = maxSnapshotId;
+      }
+      if (maxResetId > historyAccumulator.lastResetId) {
+        const resetRows = db.query("SELECT captured_at AS capturedAt, credits_json AS creditsJson FROM reset_credits WHERE status IN ('ok', 'stale') AND id > ? ORDER BY captured_at").all(historyAccumulator.lastResetId) as ResetHistoryRow[];
+        foldResetRows(historyAccumulator.state, resetRows);
+        historyAccumulator.lastResetId = maxResetId;
+      }
+      return finalizeHistory(historyAccumulator.state);
     } finally { db.close(); }
   } catch {
     return { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } };

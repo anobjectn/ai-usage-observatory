@@ -21,7 +21,10 @@ const dashboard = (request: Request, value: Awaited<ReturnType<typeof getSnapsho
   const etag = `\"${value.collectedAt}:${getAnnotationVersion()}\"`;
   const headers = { "Cache-Control": "private, no-cache", ETag: etag };
   if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-  return Response.json(value, { headers });
+  // The full quota series stays server-side for insights; the browser reads only `windows` and
+  // `codexBankedResets`, and the series is by far the largest part of the payload.
+  const { series: _series, ...history } = value.quotas.history;
+  return Response.json({ ...value, quotas: { ...value.quotas, history } }, { headers });
 };
 
 const effortHeaders = (etag: string) => ({ "Cache-Control": "private, no-cache", ETag: etag });

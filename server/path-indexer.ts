@@ -31,7 +31,14 @@ const headScanBytes = 4_000_000;
 
 export async function parseHead(file: string, agent: "claude" | "codex") {
   const text = await Bun.file(file).slice(0, headScanBytes).text();
-  const lines = text.split("\n").slice(0, 80);
+  // Only the first 80 lines matter; find where they end instead of splitting all 4 MB into
+  // an array of every line in the window.
+  let end = -1;
+  for (let count = 0; count < 80; count++) {
+    end = text.indexOf("\n", end + 1);
+    if (end === -1) break;
+  }
+  const lines = (end === -1 ? text : text.slice(0, end)).split("\n");
   let cwd: string | null = null;
   let nativeKey = basename(file, ".jsonl");
   for (const line of lines) {
@@ -87,6 +94,7 @@ async function indexGlob(agent: "claude" | "codex", pattern: string) {
   const existingQuery = db.query("SELECT session_id, source_mtime, source_size, cwd FROM session_paths WHERE source_file = ?");
   const touchSize = db.query("UPDATE session_paths SET source_size = ? WHERE session_id = ?");
   const touchCwd = db.query("UPDATE session_paths SET cwd = ? WHERE session_id = ?");
+  const touchStats = db.query("UPDATE session_paths SET source_mtime = ?, source_size = ?, indexed_at = CURRENT_TIMESTAMP WHERE session_id = ?");
   const catalog: SessionSource[] = [];
   const changed: SessionSource[] = [];
   for await (const sourceRelativePath of glob.scan({ cwd: root, absolute: false, onlyFiles: true, dot: true })) {
@@ -107,6 +115,11 @@ async function indexGlob(agent: "claude" | "codex", pattern: string) {
         const { cwd } = await parseHead(sourceFile, agent);
         if (cwd) touchCwd.run(cwd, existing.session_id);
       }
+    } else if (existing && existing.cwd !== null && info.size >= existing.source_size) {
+      // These transcripts are append-only, and appends never rewrite the head, so a grown file
+      // with an already-resolved cwd keeps its identity without the 4 MB head re-read. A file
+      // that shrank was replaced, not appended to, and falls through to the full parse.
+      touchStats.run(info.mtimeMs, info.size, existing.session_id);
     } else {
       const { cwd, nativeKey } = await parseHead(sourceFile, agent);
       sessionId = stableSessionId(agent, sourceRelativePath, nativeKey);
