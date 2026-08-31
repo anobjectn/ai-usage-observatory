@@ -26,6 +26,12 @@ export type AnalysisScope = {
   finding: string;
   /** Data-only session facet. Once selected, downstream metrics retain each full session. */
   effort: string;
+  /** 1-based page of grouped efficiency findings. Display-only; measurements ignore it. */
+  findingPage: number;
+  /** What "well used" means for the allowance rubric: burn the paid capacity, or
+   * keep room for the next task. The measurements are identical; only the
+   * scoring direction of the utilization-shaped components changes. */
+  policy: "capture" | "headroom";
 };
 type Provider = "anthropic" | "codex";
 type InsightSession = Session & {
@@ -42,7 +48,7 @@ type InsightSession = Session & {
   outlierReasons: string[];
 };
 
-export type Profile = { id: string; rubricVersion: string; score: number | null; band: "on-target" | "drifting" | "off-target" | null; confidence: "high" | "medium" | "low" | "insufficient"; components: Array<{id:string;label:string;weight:number;value:number|null;normalized:number|null;evidence:Record<string,number|string>;unavailableReason?:string}>; previousPeriod:{score:number|null;delta:number|null}; withoutOutliers:{score:number|null;delta:number|null}; explanation:string; links:Array<{label:string;href:string}> };
+export type Profile = { id: string; rubricVersion: string; policy: "capture" | "headroom"; score: number | null; band: "on-target" | "drifting" | "off-target" | null; confidence: "high" | "medium" | "low" | "insufficient"; components: Array<{id:string;label:string;weight:number;value:number|null;normalized:number|null;evidence:Record<string,number|string>;unavailableReason?:string}>; previousPeriod:{score:number|null;delta:number|null}; withoutOutliers:{score:number|null;delta:number|null}; explanation:string; links:Array<{label:string;href:string}> };
 
 export type EfficiencyFinding = {
   ruleId: string;
@@ -158,28 +164,41 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
     outliers: requestedOutliers === "typical" || requestedOutliers === "only" ? requestedOutliers : "all",
     finding: efficiencyRules.some((rule) => rule.id === requestedFinding) ? String(requestedFinding) : "all",
     effort: resolveEffortFacet(input.get("effort")),
+    findingPage: Math.max(1, Math.floor(Number(input.get("findingPage")) || 1)),
+    policy: input.get("policy") === "headroom" ? "headroom" : "capture",
   };
 }
 
-function allowance(data: DashboardData, providerId: Provider, sessionCount: number): Profile {
+function allowance(data: DashboardData, providerId: Provider, sessionCount: number, policy: AnalysisScope["policy"]): Profile {
   const series = (data.quotas.history?.series ?? []).filter((point) => point.provider === providerId);
   const weekly = series.filter((point) => point.window === "weekly");
   const fiveHour = series.filter((point) => point.window === "fiveHour");
   const reaches = data.quotas.history?.windows.find((window) => window.provider === providerId && window.window === "fiveHour")?.reachedCount ?? 0;
   const confidence: Profile["confidence"] = weekly.length >= 2 ? (providerId === "codex" ? "low" : "medium") : "insufficient";
   const recentWeekly = weekly.at(-1)?.usedPercent ?? null;
-  const utilization = recentWeekly === null ? null : Math.max(0, 100 - Math.abs(90 - recentWeekly) * 2);
+  // The measurement is one number — weekly used% — but what counts as good is a
+  // policy. Capture targets ~90% used (paid capacity should not expire unused);
+  // headroom targets ≤50% used (the next task should never find the tank empty).
+  const utilization =
+    recentWeekly === null
+      ? null
+      : policy === "capture"
+        ? Math.max(0, 100 - Math.abs(90 - recentWeekly) * 2)
+        : recentWeekly <= 50
+          ? 100
+          : Math.max(0, 100 - (recentWeekly - 50) * 2);
   const noStops = weekly.length ? Math.max(0, 100 - reaches * 20) : null;
   const pace = fiveHour.length >= 2 ? Math.max(0, 100 - Math.max(...fiveHour.map((point) => point.usedPercent)) + 60) : null;
   const components: Profile["components"] = [
-    { id:"weekly-utilization", label:"Weekly allowance utilization", weight:40, value:recentWeekly, normalized:utilization, evidence:{points:weekly.length, usedPercent:recentWeekly ?? "N/A"}, unavailableReason: weekly.length ? undefined : "No weekly quota series" },
+    { id:"weekly-utilization", label: policy === "capture" ? "Weekly allowance utilization" : "Weekly headroom preserved", weight:40, value:recentWeekly, normalized:utilization, evidence:{points:weekly.length, usedPercent:recentWeekly ?? "N/A"}, unavailableReason: weekly.length ? undefined : "No weekly quota series" },
     { id:"hard-stops", label:"Absence of five-hour hard stops", weight:25, value:reaches, normalized:noStops, evidence:{reaches}, unavailableReason: weekly.length ? undefined : "No quota series" },
     { id:"pacing", label:"Pacing across five-hour windows", weight:20, value:fiveHour.length ? Math.max(...fiveHour.map((point) => point.usedPercent)) : null, normalized:pace, evidence:{points:fiveHour.length}, unavailableReason: fiveHour.length < 2 ? "Insufficient five-hour observations" : undefined },
     { id:"headroom", label:"Usable allowance before reset", weight:15, value:recentWeekly === null ? null : 100 - recentWeekly, normalized:recentWeekly === null ? null : recentWeekly <= 95 ? 100 : 0, evidence:{sessions:sessionCount}, unavailableReason: recentWeekly === null ? "No weekly quota series" : undefined },
   ];
   const available = components.filter((component) => component.normalized !== null);
   const score = confidence === "insufficient" ? null : Math.round(available.reduce((sum, component) => sum + component.weight * (component.normalized ?? 0), 0) / available.reduce((sum, component) => sum + component.weight, 0));
-  return { id:`allowance-capture-${providerId}`, rubricVersion:"allowance-capture@1", score, band: score === null ? null : score >= 80 ? "on-target" : score >= 60 ? "drifting" : "off-target", confidence, components, previousPeriod:{score:null,delta:null}, withoutOutliers:{score,delta:0}, explanation: score === null ? "Allowance Capture needs locally observed quota percentage history before it can be graded." : `${providerId === "anthropic" ? "Claude" : "Codex"} is scored separately from its own locally observed quota history.`, links:[{label:"Quota provenance",href:"?view=sources"}] };
+  const policyLabel = policy === "capture" ? "maximize capture" : "preserve headroom";
+  return { id:`allowance-capture-${providerId}`, rubricVersion:`allowance-capture@2:${policy}`, policy, score, band: score === null ? null : score >= 80 ? "on-target" : score >= 60 ? "drifting" : "off-target", confidence, components, previousPeriod:{score:null,delta:null}, withoutOutliers:{score,delta:0}, explanation: score === null ? "Allowance Capture needs locally observed quota percentage history before it can be graded." : `${providerId === "anthropic" ? "Claude" : "Codex"} is scored separately from its own locally observed quota history, under the "${policyLabel}" target policy.`, links:[{label:"Quota provenance",href:"?view=sources"}] };
 }
 
 /** Per-session context estimates. Claude writes one cache block per turn, so for a thread whose
@@ -330,6 +349,45 @@ function buildFindings(rows: InsightSession[], rates: Map<string, ModelRate>): E
   }
   const weight = { urgent: 0, opportunity: 1, notice: 2 };
   return findings.sort((a, b) => weight[a.severity] - weight[b.severity] || (b.recoverable ?? 0) - (a.recoverable ?? 0) || b.processed - a.processed);
+}
+
+export type EfficiencyFindingGroup = {
+  sessionId: string;
+  provider: Provider;
+  agent: string;
+  date: string | null;
+  project: string;
+  model: string;
+  cost: number;
+  processed: number;
+  /** The session's single largest recoverable estimate — several rules can price the
+   * same cache reads, so summing them would double-count. */
+  recoverable: number;
+  findings: Array<Pick<EfficiencyFinding, "ruleId" | "severity" | "headline" | "metrics" | "recoverable">>;
+};
+
+/** One entry per flagged session, its findings inside it. The list reads as
+ * "sessions to learn from" rather than N near-duplicate cards for one thread. */
+export function groupFindings(findings: EfficiencyFinding[]): EfficiencyFindingGroup[] {
+  const groups = new Map<string, EfficiencyFindingGroup>();
+  for (const finding of findings) {
+    const group = groups.get(finding.sessionId) ?? {
+      sessionId: finding.sessionId,
+      provider: finding.provider,
+      agent: finding.agent,
+      date: finding.date,
+      project: finding.project,
+      model: finding.model,
+      cost: finding.cost,
+      processed: finding.processed,
+      recoverable: 0,
+      findings: [],
+    };
+    group.recoverable = Math.max(group.recoverable, finding.recoverable ?? 0);
+    group.findings.push({ ruleId: finding.ruleId, severity: finding.severity, headline: finding.headline, metrics: finding.metrics, recoverable: finding.recoverable });
+    groups.set(finding.sessionId, group);
+  }
+  return [...groups.values()].sort((a, b) => b.recoverable - a.recoverable || b.processed - a.processed);
 }
 
 /** The one mapper from a dashboard session to the row shape the efficiency rules measure. */
@@ -485,7 +543,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
 
   return {
     scope,
-    profiles: overviewProviders.map((id) => allowance(data, id, overviewSessionCounts.get(id) ?? 0)),
+    profiles: overviewProviders.map((id) => allowance(data, id, overviewSessionCounts.get(id) ?? 0, scope.policy)),
     volume: {
       ...overall,
       cacheCreationAvailable: data.models.some((model) => model.cacheCreationTokens > 0),
@@ -516,15 +574,23 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
         })
         .sort((a, b) => b.processed - a.processed),
     },
-    efficiency: {
-      rules: efficiencyRules.map((rule) => {
-        const matches = findings.filter((finding) => finding.ruleId === rule.id);
-        return { ...rule, count: matches.length, recoverable: matches.reduce((sum, finding) => sum + (finding.recoverable ?? 0), 0) };
-      }),
-      findings: shown.slice(0, 80),
-      truncated: Math.max(0, shown.length - 80),
-      totals: { findings: findings.length, flaggedSessions: flaggedSessions.size, sessionShare: ratio(flaggedSessions.size, sessions.length), recoverable, recoverableShare: ratio(recoverable, overall.raw) },
-    },
+    efficiency: (() => {
+      const groups = groupFindings(shown);
+      const groupPageSize = 12;
+      const groupPages = Math.max(1, Math.ceil(groups.length / groupPageSize));
+      const groupPage = Math.min(scope.findingPage, groupPages);
+      return {
+        rules: efficiencyRules.map((rule) => {
+          const matches = findings.filter((finding) => finding.ruleId === rule.id);
+          return { ...rule, count: matches.length, recoverable: matches.reduce((sum, finding) => sum + (finding.recoverable ?? 0), 0) };
+        }),
+        groups: groups.slice((groupPage - 1) * groupPageSize, groupPage * groupPageSize),
+        groupPage,
+        groupPages,
+        groupPageSize,
+        totals: { findings: findings.length, flaggedSessions: flaggedSessions.size, sessionShare: ratio(flaggedSessions.size, sessions.length), recoverable, recoverableShare: ratio(recoverable, overall.raw) },
+      };
+    })(),
     facets: {
       modelFamilies: [...new Set(marked.map((row) => row.family))].sort(),
       sessionsInScope: marked.length,

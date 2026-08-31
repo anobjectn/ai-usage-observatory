@@ -796,7 +796,8 @@ export function ChartTooltipContext({
     };
   }, [description, popoverOpen]);
 
-  if (!label) return null;
+  if (!label && !description) return null;
+  const infoLabel = label ? `About ${label}` : "More information";
   const cancelPointerDismiss = () => {
     if (pointerDismissTimerRef.current === null) return;
     window.clearTimeout(pointerDismissTimerRef.current);
@@ -859,13 +860,13 @@ export function ChartTooltipContext({
   return (
     <>
       <span className={`chart-tooltip__context ${className}`.trim()}>
-        <span className="chart-tooltip__context-label">{label}</span>
+        {label && <span className="chart-tooltip__context-label">{label}</span>}
         {description && (
           <button
             ref={infoRef}
             type="button"
             className="chart-tooltip__info"
-            aria-label={`About ${label}`}
+            aria-label={infoLabel}
             aria-describedby={descriptionId}
             onPointerEnter={showForPointer}
             onPointerLeave={hideForPointer}
@@ -890,7 +891,7 @@ export function ChartTooltipContext({
               className={`chart-tooltip__context-popover${popoverPosition ? " is-visible" : ""}`}
               data-placement={popoverPosition?.placement ?? "right"}
               role="dialog"
-              aria-label={`About ${label}`}
+              aria-label={infoLabel}
               onPointerEnter={showForPointer}
               onPointerLeave={hideForPointer}
               onPointerDown={stopPopoverPointerDown}
@@ -906,7 +907,7 @@ export function ChartTooltipContext({
               <button
                 type="button"
                 className="chart-tooltip__context-close"
-                aria-label={`Close ${label} description`}
+                aria-label={`Close ${label ?? "description"}`}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={closeFromControl}
               >

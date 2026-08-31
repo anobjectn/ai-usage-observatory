@@ -110,7 +110,14 @@ import {
   type ProviderColors,
   type SceneEffects,
 } from "./scene";
-import { providerHeadroom } from "./quota-headroom";
+import { dailyHeadroomSeries, providerHeadroom, type DailyHeadroom } from "./quota-headroom";
+import { modelSignalSlopes, type SlopeMeasure } from "./model-slope";
+import {
+  mergeEffortSummaries,
+  mergeProjectSummaries,
+  type GroupedProjectSummary,
+} from "./project-grouping";
+import { reachClockSummary, reachHourBuckets, reachWeekBuckets } from "./quota-reaches";
 import {
   buildAnthropicCreditView,
   buildCodexCreditView,
@@ -127,6 +134,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Line,
   Pie,
   PieChart,
@@ -199,7 +207,14 @@ import {
 } from "./time-range";
 import { aggregateModels } from "./model-aggregation";
 import { UsageIntelligence } from "./views/data/intelligence";
-import type { DataFacets } from "./views/data/insights";
+import {
+  compactTokens as insightTokens,
+  percent as insightPercent,
+  providerLabel as insightProviderLabel,
+  shortDate as insightShortDate,
+  useInsights,
+  type DataFacets,
+} from "./views/data/insights";
 import {
   ChartPinProvider,
   ChartTooltipContext,
@@ -1637,6 +1652,8 @@ type TimelineTooltipRow = {
     >
   >;
   projectGroups?: Record<string, ProjectActivity[]>;
+  /** Weekly-window headroom observed on this day, when the chart overlays it. */
+  headroom?: DailyHeadroom;
 } & Partial<Record<(typeof providerSeries)[number]["key"], number>>;
 
 /** The heading a timeline row reads under: its date, else the label the chart
@@ -1895,6 +1912,17 @@ function ActivityDayCard({
         markers={quotaMarkersAt(quotaMarkers, point)}
         timeZone={timeZone}
       />
+      {row?.headroom && (row.headroom.anthropic !== null || row.headroom.codex !== null) && (
+        <p className="tooltip-headroom">
+          Weekly headroom at day's end
+          {row.headroom.anthropic !== null && (
+            <b> · Claude {Math.round(row.headroom.anthropic)}%</b>
+          )}
+          {row.headroom.codex !== null && (
+            <b> · Codex {Math.round(row.headroom.codex)}%</b>
+          )}
+        </p>
+      )}
       {providers.map((provider) => {
         const models = tooltipModels(row, provider.key);
         const visibleModels = models.slice(0, 3);
@@ -2304,12 +2332,154 @@ function modelDistribution(rows: MetricRow[], metric: Metric) {
       rawName: values.name,
       name: values.name.replace(/^claude-|^gpt-/, ""),
       value: values[key],
+      tokens: values.tokens,
+      cost: values.cost,
+      output: values.outputTokens,
       provider: values.provider,
       color:
         providerSeries.find((series) => series.key === values.provider)?.color ??
         "var(--aqua)",
     }))
     .sort((a, b) => b.value - a.value);
+}
+
+/** Rank-based slope (bump) chart connecting each model's standing across
+ * tokens, cost, and output. The three columns share one scale — rank within the
+ * shown set — so a line that dives or climbs is the story: a model that is
+ * heavy in tokens but cheap, or expensive relative to what it handed back.
+ * Endpoint labels carry the values; middle standings surface on hover. */
+function ModelSignalSlope({
+  models,
+}: {
+  models: Array<{
+    rawName: string;
+    name: string;
+    tokens: number;
+    cost: number;
+    output: number;
+    color: string;
+  }>;
+}) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  // The same model name can appear once per agent, so identity is positional.
+  const slopes = modelSignalSlopes(models, 8).map((model, index) => ({
+    ...model,
+    slopeKey: `${model.rawName}:${index}`,
+  }));
+  if (slopes.length === 0) return null;
+  const rowHeight = 34;
+  const topPad = 30;
+  const height = topPad + slopes.length * rowHeight + 6;
+  const columns = [
+    { measure: "tokens" as const, label: "TOKENS", x: 24 },
+    { measure: "cost" as const, label: "API $", x: 55 },
+    { measure: "output" as const, label: "OUTPUT", x: 86 },
+  ];
+  const rankY = (rank: number) => topPad + (rank - 0.5) * rowHeight;
+  const valueLabel = (model: (typeof slopes)[number], measure: SlopeMeasure) =>
+    measure === "cost" ? formatMoney(model.cost) : formatCompact(measure === "tokens" ? model.tokens : model.output);
+  const summary = slopes
+    .map(
+      (model) =>
+        `${model.name}: tokens rank ${model.ranks.tokens} (${formatCompact(model.tokens)}), cost rank ${model.ranks.cost} (${formatMoney(model.cost)}), output rank ${model.ranks.output} (${formatCompact(model.output)})`,
+    )
+    .join("; ");
+  const dimmed = (slopeKey: string) => hovered !== null && hovered !== slopeKey;
+  return (
+    <div
+      className="slope-chart"
+      style={{ height }}
+      role="img"
+      aria-label={`Model standing across tokens, API cost, and output. ${summary}`}
+      onMouseLeave={() => setHovered(null)}
+    >
+      <svg
+        viewBox={`0 0 100 ${height}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        {slopes.map((model) => (
+          <polyline
+            key={model.slopeKey}
+            points={columns
+              .map((column) => `${column.x},${rankY(model.ranks[column.measure])}`)
+              .join(" ")}
+            fill="none"
+            stroke={model.color}
+            strokeWidth={hovered === model.slopeKey ? 3 : 2}
+            strokeOpacity={dimmed(model.slopeKey) ? 0.18 : 0.9}
+            vectorEffect="non-scaling-stroke"
+            strokeLinecap="round"
+          />
+        ))}
+      </svg>
+      {columns.map((column) => (
+        <span
+          key={column.measure}
+          className="slope-chart__column"
+          style={{ left: `${column.x}%` }}
+        >
+          {column.label}
+        </span>
+      ))}
+      {slopes.map((model) => (
+        <Fragment key={model.slopeKey}>
+          {columns.map((column) => (
+            <i
+              key={column.measure}
+              className="slope-chart__dot"
+              data-dim={dimmed(model.slopeKey) ? "" : undefined}
+              style={{
+                left: `${column.x}%`,
+                top: rankY(model.ranks[column.measure]),
+                background: model.color,
+              }}
+              title={`${model.name} · ${column.label.toLowerCase()} ${valueLabel(model, column.measure)} · ${Math.round(model.shares[column.measure])}% of shown`}
+              onMouseEnter={() => setHovered(model.slopeKey)}
+            />
+          ))}
+          <button
+            type="button"
+            className="slope-chart__name"
+            data-dim={dimmed(model.slopeKey) ? "" : undefined}
+            style={{ top: rankY(model.ranks.tokens) }}
+            onMouseEnter={() => setHovered(model.slopeKey)}
+            onFocus={() => setHovered(model.slopeKey)}
+            onBlur={() => setHovered(null)}
+            aria-label={`Highlight ${model.name}`}
+          >
+            <span>{model.name}</span>
+            <b>{formatCompact(model.tokens)}</b>
+          </button>
+          <span
+            className="slope-chart__end"
+            data-dim={dimmed(model.slopeKey) ? "" : undefined}
+            style={{ top: rankY(model.ranks.output) }}
+          >
+            {formatCompact(model.output)}
+          </span>
+          {hovered === model.slopeKey && (
+            <span
+              className="slope-chart__mid"
+              style={{ left: `${columns[1].x}%`, top: rankY(model.ranks.cost) }}
+            >
+              {formatMoney(model.cost)}
+            </span>
+          )}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** The avatar letter follows the model family, not a guess from "gpt or not":
+ * grok is xAI's, and Warp's pseudo-models are neither Claude nor GPT. */
+function modelAvatarLetter(model: string) {
+  const normalized = model.toLowerCase();
+  if (normalized.startsWith("gpt")) return "G";
+  if (normalized.includes("claude") || /^(opus|sonnet|haiku|fable)/.test(normalized)) return "C";
+  if (normalized.startsWith("grok")) return "X";
+  return (normalized.charAt(0) || "?").toUpperCase();
 }
 
 function modelSignalColor(baseColor: string, dominant: string | null) {
@@ -2528,6 +2698,7 @@ function ProviderTimeline({
   quotaHistory,
   timeZone,
   emptyText,
+  headroomOverlay = false,
 }: {
   rows: MetricRow[];
   projectActivity: ProjectActivity[];
@@ -2535,6 +2706,9 @@ function ProviderTimeline({
   quotaHistory: DashboardData["quotas"]["history"];
   timeZone: string;
   emptyText: string;
+  /** Overlay observed weekly-window headroom as dashed lines on a 0–100% right
+   * axis, so a token spike can be read against what it did to the allowance. */
+  headroomOverlay?: boolean;
 }) {
   const projectsByDay = new Map<string, Record<string, ProjectActivity[]>>();
   projectActivity.forEach((project) => {
@@ -2614,6 +2788,30 @@ function ProviderTimeline({
       }),
     };
   });
+  const headroomByDay = headroomOverlay
+    ? dailyHeadroomSeries(quotaHistory ?? undefined, rows.map((row) => row.period), timeZone)
+    : new Map<string, DailyHeadroom>();
+  const chartData = data.map((row) => {
+    const headroom = headroomByDay.get(row.period);
+    return headroom
+      ? {
+          ...row,
+          headroom,
+          headroomAnthropic: headroom.anthropic,
+          headroomCodex: headroom.codex,
+        }
+      : row;
+  });
+  const headroomLines = (
+    [
+      { key: "headroomAnthropic" as const, provider: "anthropic" as const, label: "Claude weekly headroom" },
+      { key: "headroomCodex" as const, provider: "codex" as const, label: "Codex weekly headroom" },
+    ]
+  ).filter(
+    (line) =>
+      [...headroomByDay.values()].filter((entry) => entry[line.provider] !== null)
+        .length >= 2,
+  );
   const totals = providerSeries.map((provider) => ({
     ...provider,
     value: data.reduce((sum, row) => sum + row[provider.key], 0),
@@ -2636,6 +2834,17 @@ function ProviderTimeline({
             <b>{formatCompact(provider.value)}</b>
           </div>
         ))}
+        {headroomLines.map((line) => {
+          const color = providerSeries.find(
+            (provider) => provider.key === line.provider,
+          )?.color;
+          return (
+            <div key={line.key} className="provider-legend__headroom">
+              <i className="provider-legend__dash" style={{ background: color }} />
+              <span>{line.label}</span>
+            </div>
+          );
+        })}
       </div>
       <QuotaMarkerLegend markers={quotaMarkers} />
       <div
@@ -2644,9 +2853,9 @@ function ProviderTimeline({
         role="img"
       >
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
-            data={data}
-            margin={{ top: 10, right: 8, left: -18, bottom: 0 }}
+          <ComposedChart
+            data={chartData}
+            margin={{ top: 10, right: headroomLines.length > 0 ? 2 : 8, left: -18, bottom: 0 }}
           >
             <defs>
               {visibleProviders.map((provider) => (
@@ -2704,10 +2913,23 @@ function ProviderTimeline({
               tickLine={false}
               axisLine={false}
             />
+            {headroomLines.length > 0 && (
+              <YAxis
+                yAxisId="headroom"
+                orientation="right"
+                domain={[0, 100]}
+                ticks={[0, 50, 100]}
+                tickFormatter={(value: number) => `${value}%`}
+                tick={{ fill: "#71807b", fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                width={30}
+              />
+            )}
             <Tooltip
               content={
                 <ProviderChartTooltip
-                  rows={data}
+                  rows={chartData}
                   quotaMarkers={quotaMarkers}
                   timeZone={timeZone}
                 />
@@ -2735,7 +2957,29 @@ function ProviderTimeline({
                 }}
               />
             ))}
-          </AreaChart>
+            {headroomLines.map((line) => {
+              const color = providerSeries.find(
+                (provider) => provider.key === line.provider,
+              )?.color;
+              return (
+                <Line
+                  key={line.key}
+                  yAxisId="headroom"
+                  type="monotone"
+                  dataKey={line.key}
+                  name={line.label}
+                  stroke={color}
+                  strokeWidth={1.4}
+                  strokeDasharray="5 4"
+                  strokeOpacity={0.85}
+                  dot={false}
+                  activeDot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              );
+            })}
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </>
@@ -3035,7 +3279,7 @@ function quotaBucket(
     detail:
       detail ??
       (hasValue
-        ? `${Math.max(0, 100 - usedPercent).toFixed(0)}% available`
+        ? `${Math.max(0, Math.min(100, usedPercent)).toFixed(0)}% used`
         : suspended
           ? "temporarily suspended"
           : "not currently reported"),
@@ -3428,11 +3672,101 @@ function CodexCredits({ view }: { view: CodexCreditView }) {
   );
 }
 
+/** The reach history as a pattern instead of a list: reaches per trailing week
+ * (is this getting more frequent?) and a wall-clock strip (when do walls land?).
+ * The raw timestamps stay available behind a disclosure. */
+function ReachPattern({
+  providerLabel,
+  windowLabel,
+  reachedAt,
+  timeZone,
+}: {
+  providerLabel: string;
+  windowLabel: string;
+  reachedAt: number[];
+  timeZone: string;
+}) {
+  const weeks = reachWeekBuckets(reachedAt, timeZone);
+  const hours = reachHourBuckets(reachedAt, timeZone);
+  const clockSummary = reachClockSummary(hours);
+  const weekMax = Math.max(1, ...weeks.map((week) => week.count));
+  const hourMax = Math.max(1, ...hours.map((bucket) => bucket.count));
+  const strip = weeks.length > 0 && weeks.some((week) => week.count > 0);
+  return (
+    <div className="reach-pattern">
+      {strip && (
+        <div
+          className="reach-pattern__weeks"
+          role="img"
+          aria-label={`${providerLabel} ${windowLabel} reaches per week: ${weeks
+            .map((week) => `${week.label} ${week.count}`)
+            .join(", ")}`}
+        >
+          {weeks.map((week) => (
+            <div className="reach-pattern__week" key={week.key} title={`Week of ${week.label}: ${week.count === 1 ? "1 reach" : `${week.count} reaches`}`}>
+              <i
+                style={{ "--reach": `${Math.round((week.count / weekMax) * 100)}%` } as CSSProperties}
+                data-empty={week.count === 0 ? "" : undefined}
+              />
+              <span>{week.count > 0 ? week.count : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {clockSummary && <small className="reach-pattern__clock">{clockSummary}</small>}
+      {strip && (
+        <div
+          className="reach-pattern__hours"
+          role="img"
+          aria-label={`${providerLabel} ${windowLabel} reaches by hour of day`}
+        >
+          {hours.map((bucket) => (
+            <i
+              key={bucket.hour}
+              style={{ "--reach": `${Math.round((bucket.count / hourMax) * 100)}%` } as CSSProperties}
+              data-empty={bucket.count === 0 ? "" : undefined}
+              title={`${bucket.hour}:00 · ${bucket.count === 1 ? "1 reach" : `${bucket.count} reaches`}`}
+            />
+          ))}
+        </div>
+      )}
+      {reachedAt.length > 0 && (
+        <details className="reach-pattern__log">
+          <summary>
+            {reachedAt.length === 1 ? "1 recorded reach" : `All ${reachedAt.length} reaches`}
+          </summary>
+          <ol aria-label={`${providerLabel} ${windowLabel} quota reaches`}>
+            {reachedAt.map((instant) => (
+              <li key={instant}>
+                <time dateTime={new Date(instant).toISOString()}>
+                  {new Date(instant).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+      <ChartTooltipContext
+        className="reach-pattern__tier-note"
+        description="Plan-tier changes move these walls. Reaches before a tier change are not comparable to reaches after it."
+      />
+    </div>
+  );
+}
+
 function QuotaDials({
   quotas,
+  timeZone,
   onUpdateWebCredits,
 }: {
   quotas: DashboardData["quotas"];
+  timeZone: string;
   onUpdateWebCredits?: () => void;
 }) {
   const cards = quotaCards(quotas);
@@ -3484,30 +3818,30 @@ function QuotaDials({
               </div>
               <div className="quota-buckets">
                 {card.buckets.map((bucket) => {
-                  const percent =
+                  const left =
                     bucket.usedPercent === null
                       ? null
-                      : Math.max(0, Math.min(100, bucket.usedPercent));
+                      : Math.max(0, Math.min(100, 100 - bucket.usedPercent));
                   return (
                     <div
                       className={`quota-bucket ${bucket.state}`}
                       key={bucket.id}
-                      aria-label={`${card.providerLabel} ${bucket.windowLabel}: ${percent === null ? bucket.state : `${percent.toFixed(0)}% used`}`}
+                      aria-label={`${card.providerLabel} ${bucket.windowLabel}: ${left === null ? bucket.state : `${left.toFixed(0)}% left`}`}
                     >
                       <div
                         className="quota-dial"
                         style={
                           {
-                            "--used": `${percent ?? 0}%`,
+                            "--fill": `${left ?? 0}%`,
                           } as React.CSSProperties
                         }
                       >
                         <div>
                           <strong>
-                            {percent === null ? "—" : `${percent.toFixed(0)}%`}
+                            {left === null ? "—" : `${left.toFixed(0)}%`}
                           </strong>
                           <span>
-                            {percent === null ? bucket.state : "used"}
+                            {left === null ? bucket.state : "left"}
                           </span>
                         </div>
                       </div>
@@ -3515,7 +3849,7 @@ function QuotaDials({
                         <div className="quota-bucket__top">
                           <b>{bucket.windowLabel}</b>
                           <span>
-                            {percent === null ? bucket.state : bucket.detail}
+                            {left === null ? bucket.state : bucket.detail}
                           </span>
                         </div>
                         <small>
@@ -3534,21 +3868,12 @@ function QuotaDials({
                               </b>
                             </div>
                             {bucket.reachedAt && bucket.reachedAt.length > 0 && (
-                              <ol aria-label={`${card.providerLabel} ${bucket.windowLabel} quota reaches`}>
-                                {bucket.reachedAt.map((reachedAt) => (
-                                  <li key={reachedAt}>
-                                    <time dateTime={new Date(reachedAt).toISOString()}>
-                                      {new Date(reachedAt).toLocaleString(undefined, {
-                                        month: "short",
-                                        day: "numeric",
-                                        year: "numeric",
-                                        hour: "numeric",
-                                        minute: "2-digit",
-                                      })}
-                                    </time>
-                                  </li>
-                                ))}
-                              </ol>
+                              <ReachPattern
+                                providerLabel={card.providerLabel}
+                                windowLabel={bucket.windowLabel}
+                                reachedAt={bucket.reachedAt}
+                                timeZone={timeZone}
+                              />
                             )}
                           </div>
                         )}
@@ -3632,6 +3957,7 @@ function Overview({
   onMetricRangeChange,
   onOpenSession,
   onOpenSessions,
+  onOpenData,
   onTagSession,
   onUpdateWebCredits,
   accent,
@@ -3651,6 +3977,7 @@ function Overview({
   onMetricRangeChange: (range: MetricRange, customRange?: DateRange) => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSessions: () => void;
+  onOpenData: () => void;
   onTagSession: (session: Session) => void;
   onUpdateWebCredits: () => void;
   accent: string;
@@ -3658,6 +3985,23 @@ function Overview({
   sceneEffects: SceneEffects;
 }) {
   const [benchmarkModal, setBenchmarkModal] = useState(false);
+  // The top-finding card follows the same range, agent, and path filters as the
+  // summary above it; cache stays included because the finding rules reason
+  // over cache traffic. Facets beyond that are the Data view's defaults.
+  const overviewAgentParams = useMemo(() => agentSelectionParams(agent), [agent]);
+  const { insights: overviewInsights } = useInsights(
+    {
+      days: metricRange === "custom" ? "30" : metricRange,
+      dateRange: metricRange === "custom" ? customRange : null,
+      providers: overviewAgentParams.providers,
+      modelFamilies: overviewAgentParams.modelFamilies,
+      pathTag,
+      showCache: true,
+      collectedAt: data.collectedAt,
+    },
+    { outliers: "all", finding: "all", effort: "all", findingPage: 1, policy: "capture" },
+  );
+  const topFindingGroup = overviewInsights?.efficiency.groups[0] ?? null;
   // Effort follows the same global range, provider, and path-tag controls as everything else on
   // this page; the headline token and cost cards are untouched.
   const effortRequest = useEffortAggregate(
@@ -3701,6 +4045,7 @@ function Overview({
     };
   }, [comboDaysRequest.data]);
   const totals = metricTotals(daily);
+  const directTraffic = totals.input + totals.output;
   const previousDaily = metricRangeRows(data.daily, metricRange, customRange, 1)
     .map((row) => selectAgentRow(row, agent))
     .filter(Boolean) as MetricRow[];
@@ -3830,7 +4175,11 @@ function Overview({
           headroom={providerHeadroom(data.quotas)}
         />
       </section>
-      <QuotaDials quotas={data.quotas} onUpdateWebCredits={onUpdateWebCredits} />
+      <QuotaDials
+        quotas={data.quotas}
+        timeZone={data.timeZone}
+        onUpdateWebCredits={onUpdateWebCredits}
+      />
       <section
         className="metric-summary"
         aria-labelledby="metric-summary-title"
@@ -3859,20 +4208,36 @@ function Overview({
           </div>
         </div>
         <div className="metric-grid">
+          <MetricCard
+            eyebrow="API-EQUIVALENT COST"
+            value={formatMoney(totals.cost)}
+            detail="ccusage · offline pricing"
+            trend={percentChange(totals.cost, previousTotals.cost)}
+            baseline={formatMoney(previousTotals.cost)}
+            averages={metricAverageCardItems(
+              costAverages,
+              previousCostAverages,
+              formatMoney,
+            )}
+            icon={CircleDollarSign}
+          />
+          {/* Output leads: it is the only column that measures work handed back.
+              In/out shares use direct traffic as the denominator — against the
+              cache-inclusive total they round to 0% and read as noise. */}
           <TokenTableCard
             eyebrow="TOKENS"
             icon={Zap}
             columns={[
               {
-                key: "total",
-                label: "TOTAL",
-                value: formatCompact(totals.tokens),
-                detail: `${daily.length} active ${daily.length === 1 ? "day" : "days"}`,
-                trend: percentChange(totals.tokens, previousTotals.tokens),
-                baseline: formatCompact(previousTotals.tokens),
+                key: "output",
+                label: "OUT",
+                value: formatCompact(totals.output),
+                detail: `${directTraffic ? Math.round((totals.output / directTraffic) * 100) : 0}% of direct traffic`,
+                trend: percentChange(totals.output, previousTotals.output),
+                baseline: formatCompact(previousTotals.output),
                 averages: metricAverageCardItems(
-                  tokenAverages,
-                  previousTokenAverages,
+                  outputAverages,
+                  previousOutputAverages,
                   formatCompact,
                 ),
               },
@@ -3880,7 +4245,7 @@ function Overview({
                 key: "input",
                 label: "IN",
                 value: formatCompact(totals.input),
-                detail: `${totals.tokens ? Math.round((totals.input / totals.tokens) * 100) : 0}% of period tokens`,
+                detail: `${directTraffic ? Math.round((totals.input / directTraffic) * 100) : 0}% of direct traffic`,
                 trend: percentChange(totals.input, previousTotals.input),
                 baseline: formatCompact(previousTotals.input),
                 averages: metricAverageCardItems(
@@ -3890,15 +4255,15 @@ function Overview({
                 ),
               },
               {
-                key: "output",
-                label: "OUT",
-                value: formatCompact(totals.output),
-                detail: `${totals.tokens ? Math.round((totals.output / totals.tokens) * 100) : 0}% of period tokens`,
-                trend: percentChange(totals.output, previousTotals.output),
-                baseline: formatCompact(previousTotals.output),
+                key: "total",
+                label: "TOTAL",
+                value: formatCompact(totals.tokens),
+                detail: `incl. cache · ${daily.length} active ${daily.length === 1 ? "day" : "days"}`,
+                trend: percentChange(totals.tokens, previousTotals.tokens),
+                baseline: formatCompact(previousTotals.tokens),
                 averages: metricAverageCardItems(
-                  outputAverages,
-                  previousOutputAverages,
+                  tokenAverages,
+                  previousTokenAverages,
                   formatCompact,
                 ),
               },
@@ -3935,19 +4300,6 @@ function Overview({
               percentagePointChange,
             )}
             icon={Database}
-          />
-          <MetricCard
-            eyebrow="API-EQUIVALENT COST"
-            value={formatMoney(totals.cost)}
-            detail="ccusage · offline pricing"
-            trend={percentChange(totals.cost, previousTotals.cost)}
-            baseline={formatMoney(previousTotals.cost)}
-            averages={metricAverageCardItems(
-              costAverages,
-              previousCostAverages,
-              formatMoney,
-            )}
-            icon={CircleDollarSign}
           />
         </div>
         <article className="panel usage-trajectory-panel">
@@ -4105,6 +4457,55 @@ function Overview({
           </EffortState>
           <p className="effort-help">{EFFORT_HELP}</p>
         </article>
+        {topFindingGroup && overviewInsights && (
+          <article className="panel panel-wide top-finding-panel">
+            <div className="panel-heading">
+              <div>
+                <span className="overline">EFFICIENCY SIGNAL</span>
+                <h2>Top finding</h2>
+                <p>The session with the most plausibly avoidable spend in view.</p>
+              </div>
+              <a
+                className="text-link"
+                href={viewHref("sources")}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onOpenData();
+                }}
+              >
+                All findings <ChevronRight aria-hidden="true" />
+              </a>
+            </div>
+            <p className="top-finding__headline">
+              {topFindingGroup.findings[0]?.headline}
+            </p>
+            <p className="top-finding__meta">
+              {insightProviderLabel(topFindingGroup.provider)} · {topFindingGroup.project} ·{" "}
+              {insightShortDate(topFindingGroup.date)} ·{" "}
+              {insightTokens.format(topFindingGroup.processed)} tokens · {formatMoney(topFindingGroup.cost)}
+              {topFindingGroup.recoverable > 0 && (
+                <b> · {insightTokens.format(topFindingGroup.recoverable)} avoidable</b>
+              )}
+              {" · "}
+              <a
+                className="text-link"
+                href={sessionHref(topFindingGroup.sessionId)}
+                onClick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+                  event.preventDefault();
+                  onOpenSession(topFindingGroup.sessionId);
+                }}
+              >
+                Open session
+              </a>
+            </p>
+            <p className="top-finding__totals">
+              {overviewInsights.efficiency.totals.flaggedSessions} sessions flagged in view ·{" "}
+              {insightTokens.format(overviewInsights.efficiency.totals.recoverable)} tokens plausibly
+              avoidable ({insightPercent(overviewInsights.efficiency.totals.recoverableShare, 1)} of processed)
+            </p>
+          </article>
+        )}
         <article className="panel panel-wide recent-panel">
           <div className="panel-heading">
             <div>
@@ -4689,6 +5090,7 @@ function Explorer({
   metric: Metric;
   setMetric: (metric: Metric) => void;
 }) {
+  const [signalView, setSignalView] = useState<"slope" | "ranked">("slope");
   const modelEffortRequest = useEffortAggregate(
     "model",
     globalEffortScope(agent, dateRange, pathTag),
@@ -4739,7 +5141,7 @@ function Explorer({
       <PageTitle
         eyebrow="ANALYTICAL WORKSPACE"
         title="Usage explorer"
-        description="Brush the timeline to focus a period. Global agent and path filters stay linked across the workspace."
+        description="Activity beside observed weekly headroom, so a spike can be read against what it did to the allowance. Global agent and path filters stay linked across the workspace."
       />
       <section className="panel explorer-main usage-trajectory-panel">
         <div className="panel-heading">
@@ -4771,6 +5173,7 @@ function Explorer({
             quotaHistory={data.quotas.history}
             timeZone={data.timeZone}
             emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
+            headroomOverlay
           />
         )}
       </section>
@@ -4795,18 +5198,41 @@ function Explorer({
               <span className="overline">MODEL DISTRIBUTION</span>
               <h2>Model signals</h2>
             </div>
-            <Segmented
-              value={metric}
-              onChange={(v) => setMetric(v as Metric)}
-              options={[
-                { value: "totalTokens", label: "Tokens" },
-                { value: "totalCost", label: "Cost" },
-                { value: "outputTokens", label: "Output" },
-              ]}
-            />
+            <div className="model-signal-controls">
+              <Segmented
+                value={signalView}
+                onChange={(v) => setSignalView(v as "slope" | "ranked")}
+                options={[
+                  { value: "slope", label: "Slope" },
+                  { value: "ranked", label: "Ranked" },
+                ]}
+              />
+              {signalView === "ranked" && (
+                <Segmented
+                  value={metric}
+                  onChange={(v) => setMetric(v as Metric)}
+                  options={[
+                    { value: "totalTokens", label: "Tokens" },
+                    { value: "totalCost", label: "Cost" },
+                    { value: "outputTokens", label: "Output" },
+                  ]}
+                />
+              )}
+            </div>
           </div>
           {modelData.length === 0 ? (
             <Empty text={filterEmptyMessage(agent, metricRange, pathTag, customRange)} />
+          ) : signalView === "slope" ? (
+            <>
+              <ModelSignalSlope models={modelData} />
+              <p className="slope-chart__note">
+                Position is rank among the shown models per column, top 8 by
+                tokens. A line that dives toward API $ is cheap for its volume;
+                one that dives toward output paid for more context than it
+                handed back. Warp-only models carry $0 here because provider
+                credits never become dollars.
+              </p>
+            </>
           ) : (
             <div
               className="bar-chart"
@@ -6509,6 +6935,31 @@ const verdictOptions = [
   { value: "bad", label: "Bad", icon: "−" },
 ] as const;
 
+/** The row shows the verdict; rating happens in the expanded detail. Three
+ * always-visible buttons per row drowned the one signal that is user-supplied. */
+function SessionVerdictBadge({ verdict }: { verdict: SessionVerdict | null }) {
+  if (!verdict) {
+    return (
+      <span
+        className="session-verdict-badge is-unrated"
+        title="Not rated — expand the row to rate this session"
+      >
+        —
+      </span>
+    );
+  }
+  const option = verdictOptions.find((entry) => entry.value === verdict);
+  return (
+    <span
+      className={`session-verdict-badge is-${verdict}`}
+      title={`Rated ${option?.label.toLowerCase()} — expand the row to change it`}
+    >
+      <i aria-hidden="true">{option?.icon}</i>
+      <span className="sr-only">Rated {option?.label}</span>
+    </span>
+  );
+}
+
 /** One-click, keyboard-reachable rating. It is the user's own judgement: nothing here infers a
  * verdict, and clicking the active option clears it rather than locking it in. */
 function SessionVerdictControl({
@@ -6671,6 +7122,49 @@ function Sessions({
   }), [filtered, sort, effortBySession]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
+  // Context carry: cache-read tokens dragged along per output token. The
+  // baseline is the median of the sessions in view, so "heavy" always means
+  // "heavy among what you are looking at". Token-based only — a session whose
+  // output was mostly deletions still counts its output tokens in full.
+  const sessionCarry = (session: Session) =>
+    session.outputTokens > 0 && session.cacheReadTokens > 0
+      ? session.cacheReadTokens / session.outputTokens
+      : null;
+  const medianCarry = useMemo(() => {
+    const values = filtered
+      .map(sessionCarry)
+      .filter((value): value is number => value !== null)
+      .sort((a, b) => a - b);
+    return values.length ? values[Math.floor(values.length / 2)] : null;
+  }, [filtered]);
+  // The rating nudge points at the largest unrated session in view: verdicts
+  // starve the model × effort evidence table, and the biggest sessions are the
+  // ones whose rating moves it most.
+  const unratedCount = useMemo(
+    () => filtered.filter((session) => !annotationOf(session).verdict).length,
+    [filtered, annotationOf],
+  );
+  const biggestUnrated = useMemo(() => {
+    let best: Session | null = null;
+    for (const session of filtered) {
+      if (annotationOf(session).verdict) continue;
+      if (!best || session.totalTokens > best.totalTokens) best = session;
+    }
+    return best;
+  }, [filtered, annotationOf]);
+  const rateBiggestUnrated = async () => {
+    if (!biggestUnrated) return;
+    const index = sorted.findIndex(
+      (session) => session.sessionId === biggestUnrated.sessionId,
+    );
+    if (index >= 0) setPage(Math.floor(index / pageSize) + 1);
+    await toggle(biggestUnrated);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(".session-row-open")
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  };
   // The remaining-quota column reads like a bank statement's balance column, which only holds
   // when rows are in end-time order: any other sort turns it into a column of random numbers.
   const showQuotaBalance = sort.key === "activity";
@@ -6861,6 +7355,19 @@ function Sessions({
         }
       />
       <section className="panel table-panel">
+        {biggestUnrated && (
+          <div className="rate-nudge">
+            <PencilLine aria-hidden="true" />
+            <span>
+              <b>{unratedCount === 1 ? "1 session" : `${unratedCount} sessions`}</b> in view
+              {unratedCount === 1 ? " is" : " are"} unrated. Verdicts are the only
+              user-supplied signal here — they feed the model × effort evidence.
+            </span>
+            <button type="button" onClick={() => void rateBiggestUnrated()}>
+              Rate the biggest ({formatCompact(biggestUnrated.totalTokens)} tokens)
+            </button>
+          </div>
+        )}
         <div className="table-scroll">
           <table className="session-table">
             <colgroup>
@@ -7051,6 +7558,19 @@ function Sessions({
                           ? "output tokens"
                           : `${formatCompact(session.totalTokens)} total`}
                       </small>
+                      {(() => {
+                        const carry = sessionCarry(session);
+                        if (carry === null || carry < 1) return null;
+                        const heavy = medianCarry !== null && medianCarry > 0 && carry >= medianCarry * 3;
+                        return (
+                          <small
+                            className={`session-carry${heavy ? " is-heavy" : ""}`}
+                            title={`Re-read ${Math.round(carry)} cache tokens per output token${medianCarry !== null ? ` · median in view ${Math.round(medianCarry)}:1` : ""}. Token-based: output that deletes code counts the same as output that adds it.`}
+                          >
+                            {Math.round(carry)}:1 carry
+                          </small>
+                        );
+                      })()}
                     </td>
                     <td className="session-col session-col--cost">
                       {session.source === "warp" ? (
@@ -7065,15 +7585,8 @@ function Sessions({
                         </>
                       )}
                     </td>
-                    <td
-                      className="session-col session-col--verdict session-row__verdict"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <SessionVerdictControl
-                        sessionId={session.sessionId}
-                        verdict={annotationOf(session).verdict}
-                        onChange={patchAnnotation}
-                      />
+                    <td className="session-col session-col--verdict session-row__verdict">
+                      <SessionVerdictBadge verdict={annotationOf(session).verdict} />
                     </td>
                     <td
                       className="session-col session-col--actions session-row__actions"
@@ -8290,9 +8803,13 @@ function Projects({
       const project = (session.cwd ?? "").replace(/\/+$/, "");
       if (project) sessionCounts.set(project, (sessionCounts.get(project) ?? 0) + 1);
     });
-    return data.projects
+    const inRange = data.projects
       .map((project) => projectSummaryInRange(project, daily, sessionCounts.get(project.name) ?? 0))
       .filter(Boolean) as ProjectSummary[];
+    // One row per project, not per checkout path: a scheduled task's dated run
+    // directories roll up into a single recurring row, and the same project
+    // under two parents merges.
+    return mergeProjectSummaries(inRange);
   }, [data.projects, daily, sessions]);
   const visibleProjects = useMemo(() => {
     const [key, direction] = sort.split("-") as [
@@ -8300,13 +8817,13 @@ function Projects({
       "asc" | "desc",
     ];
     const matches = scopedProjects.filter((project) =>
-      `${friendlyProject(project.name)} ${project.models.join(" ")}`
+      `${project.label} ${project.models.join(" ")}`
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
     );
     return [...matches].sort((left, right) => {
-      const value = (project: ProjectSummary): string | number =>
-        key === "name" ? friendlyProject(project.name) : project[key];
+      const value = (project: GroupedProjectSummary): string | number =>
+        key === "name" ? project.label : project[key];
       const a = value(left),
         b = value(right);
       const comparison =
@@ -8388,7 +8905,11 @@ function Projects({
       <section className="card-list project-list">
         {visibleProjects.map((project, index) => {
           const open = openProject === project.name;
-          const effortSummary = effortByProject.get(project.name) ?? null;
+          const effortSummary = mergeEffortSummaries(
+            project.memberIds
+              .map((memberId) => effortByProject.get(memberId))
+              .filter((summary): summary is EffortSummary => Boolean(summary)),
+          );
           const maxTokens = Math.max(
             ...project.trend.map((point) => point.totalTokens),
             1,
@@ -8410,7 +8931,25 @@ function Projects({
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <div className="rank-main">
-                  <h3>{friendlyProject(project.name)}</h3>
+                  <h3>
+                    {project.label}
+                    {project.automation && (
+                      <i
+                        className="automation-chip"
+                        title={`Recurring scheduled task — ${project.memberIds.length === 1 ? "its dated run directory is" : `${project.memberIds.length} dated run directories are`} rolled up into this one row.`}
+                      >
+                        automation
+                      </i>
+                    )}
+                    {!project.automation && project.memberIds.length > 1 && (
+                      <i
+                        className="automation-chip automation-chip--merge"
+                        title={`Combined from ${project.memberIds.length} checkouts: ${project.memberIds.join(", ")}`}
+                      >
+                        ×{project.memberIds.length} paths
+                      </i>
+                    )}
+                  </h3>
                   <p>{project.models.slice(0, 3).join(" · ")}</p>
                   <div className="micro-chart" aria-hidden="true">
                     {project.trend.slice(-14).map((point, i) => (
@@ -8453,13 +8992,13 @@ function Projects({
                   <ProjectDetails
                     project={project}
                     daily={daily}
-                    activity={data.projectActivity.filter(
-                      (activity) => activity.projectId === project.name,
+                    activity={data.projectActivity.filter((activity) =>
+                      project.memberIds.includes(activity.projectId),
                     )}
-                    sessions={sessions.filter(
-                      (session) =>
-                        (session.cwd ?? "").replace(/\/+$/, "") ===
-                        project.name,
+                    sessions={sessions.filter((session) =>
+                      project.memberIds.includes(
+                        (session.cwd ?? "").replace(/\/+$/, ""),
+                      ),
                     )}
                     quotaHistory={data.quotas.history}
                     timeZone={data.timeZone}
@@ -8711,6 +9250,15 @@ function Models({
                 String(left.metadata?.lastActivity ?? left.period),
               ),
             );
+          // Credits follow the session's lead model so a mixed-model Warp
+          // session never counts its credits twice across cards.
+          const warpCredits = modelSessions.reduce(
+            (sum, session) =>
+              session.source === "warp" && session.modelsUsed[0] === model.model
+                ? sum + (session.warp?.credits ?? 0)
+                : sum,
+            0,
+          );
           const open = openModels.has(model.model);
           const page = Math.min(
             pages[model.model] ?? 1,
@@ -8732,7 +9280,7 @@ function Models({
             >
               <div className="model-card__head">
                 <span style={{ background: palette[index % palette.length] }}>
-                  {model.model.startsWith("gpt") ? "G" : "C"}
+                  {modelAvatarLetter(model.model)}
                 </span>
                 <div>
                   <h3>{model.model}</h3>
@@ -8768,12 +9316,31 @@ function Models({
                 </EffortState>
               </div>
               <div className="model-cost">
-                <strong className={model.priced ? undefined : "unpriced"}>
-                  {model.priced ? formatMoney(model.cost) : "Pricing unavailable"}
-                </strong>
-                <span>
-                  {model.priced ? "API-equivalent" : warpOnly ? "Warp credits separate" : "no rate card in ccusage"}
-                </span>
+                {!model.priced && warpCredits > 0 ? (
+                  <>
+                    <strong>{formatWarpCredits(warpCredits)}</strong>
+                    <span title="Summed from this model's Warp sessions; a mixed-model session's credits follow its lead model.">
+                      Warp credits burned
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <strong className={model.priced ? undefined : "unpriced"}>
+                      {model.priced ? formatMoney(model.cost) : "Pricing unavailable"}
+                    </strong>
+                    <span>
+                      {model.priced ? "API-equivalent" : warpOnly ? "Warp credits separate" : "no rate card in ccusage"}
+                    </span>
+                  </>
+                )}
+                {model.priced && warpCredits > 0 && (
+                  <small
+                    className="model-cost__credits"
+                    title="Summed from this model's Warp sessions; a mixed-model session's credits follow its lead model."
+                  >
+                    + {formatWarpCredits(warpCredits)} Warp credits
+                  </small>
+                )}
               </div>
               <div className={`meter${model.priced ? "" : " meter--unpriced"}`}>
                 <i
@@ -8803,6 +9370,26 @@ function Models({
                 <div>
                   <dt>Cache write</dt>
                   <dd>{formatCompact(model.cacheCreationTokens)}</dd>
+                </div>
+                <div>
+                  <dt title="Blended over observed traffic, so a cache-heavy model reads cheap — a cost-tier proxy, never a capability ranking.">
+                    $ / Mtok
+                  </dt>
+                  <dd>
+                    {model.priced && model.tokens > 0
+                      ? `$${(model.cost / (model.tokens / 1_000_000)).toFixed(2)}`
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt title="Output tokens as a share of everything this model processed — the rest is context moved into it.">
+                    Output share
+                  </dt>
+                  <dd>
+                    {!warpOnly && model.tokens > 0
+                      ? `${((model.outputTokens / model.tokens) * 100).toFixed(2)}%`
+                      : "—"}
+                  </dd>
                 </div>
               </dl>
               <button
@@ -10335,7 +10922,7 @@ export function condensedResetCopy(
 ) {
   const parts = resetCountdownParts(resetAt, now, withSeconds);
   if (!parts) return `${verb} now`;
-  return `${verb} -${parts.countdown} · ${parts.stamp}`;
+  return `${verb} in ${parts.countdown} · ${parts.stamp}`;
 }
 
 function ResetCountdown({
@@ -10456,30 +11043,30 @@ export function QuickOverviewModal({
                 </header>
                 <div className="quick-overview__dials">
                   {card.buckets.map((bucket) => {
-                    const percent =
+                    const left =
                       bucket.usedPercent === null
                         ? null
-                        : Math.max(0, Math.min(100, bucket.usedPercent));
+                        : Math.max(0, Math.min(100, 100 - bucket.usedPercent));
                     return (
                       <div
                         className={`quick-overview__dial ${bucket.state}`}
                         key={bucket.id}
-                        aria-label={`${card.providerLabel} ${bucket.windowLabel}: ${percent === null ? bucket.state : `${percent.toFixed(0)}% used`}`}
+                        aria-label={`${card.providerLabel} ${bucket.windowLabel}: ${left === null ? bucket.state : `${left.toFixed(0)}% left`}`}
                       >
                         <div
                           className="quota-dial"
                           style={
                             {
-                              "--used": `${percent ?? 0}%`,
+                              "--fill": `${left ?? 0}%`,
                             } as React.CSSProperties
                           }
                         >
                           <div>
                             <strong>
-                              {percent === null ? "—" : `${percent.toFixed(0)}%`}
+                              {left === null ? "—" : `${left.toFixed(0)}%`}
                             </strong>
                             <span>
-                              {percent === null ? bucket.state : "used"}
+                              {left === null ? bucket.state : "left"}
                             </span>
                           </div>
                         </div>
@@ -10509,10 +11096,10 @@ export function QuickOverviewModal({
                   <i>{card.state === "ok" ? "current" : card.state}</i>
                 </header>
                 {card.buckets.map((bucket) => {
-                  const percent =
+                  const left =
                     bucket.usedPercent === null
                       ? null
-                      : Math.max(0, Math.min(100, bucket.usedPercent));
+                      : Math.max(0, Math.min(100, 100 - bucket.usedPercent));
                   return (
                     <div
                       className={`quick-overview__row ${bucket.state}`}
@@ -10520,7 +11107,7 @@ export function QuickOverviewModal({
                     >
                       <b>{bucket.windowLabel}</b>
                       <strong>
-                        {percent === null ? "—" : `${percent.toFixed(0)}%`}
+                        {left === null ? "—" : `${left.toFixed(0)}% left`}
                       </strong>
                       <ResetCountdown
                         resetAt={bucket.resetAt}
@@ -10667,11 +11254,14 @@ function RulesModal({
 export function App() {
   const { data: collectedData, error, loading, load } = useDashboard();
   const [showCache, setShowCache] = useState(true);
-  const [dataFacets, setDataFacets] = useState<DataFacets>({
+  const [dataFacets, setDataFacets] = useState<DataFacets>(() => ({
     outliers: "all",
     finding: "all",
     effort: "all",
-  });
+    findingPage: 1,
+    // The allowance target policy is a durable preference, not a per-visit facet.
+    policy: localStorage.getItem("allowance-policy") === "headroom" ? "headroom" : "capture",
+  }));
   const data = useMemo(
     () =>
       collectedData && !showCache
@@ -11193,6 +11783,7 @@ export function App() {
               onMetricRangeChange={changeTimeRange}
               onOpenSession={openSession}
               onOpenSessions={() => navigateToView("sessions")}
+              onOpenData={() => navigateToView("sources")}
               onTagSession={setSession}
               onUpdateWebCredits={() => setWebImport(true)}
               accent={accent}
@@ -11256,7 +11847,10 @@ export function App() {
               showCache={showCache}
               facets={dataFacets}
               onFacets={(next) =>
-                setDataFacets((current) => ({ ...current, ...next }))
+                setDataFacets((current) => {
+                  if (next.policy) localStorage.setItem("allowance-policy", next.policy);
+                  return { ...current, ...next };
+                })
               }
               onOpenSession={openSession}
             />

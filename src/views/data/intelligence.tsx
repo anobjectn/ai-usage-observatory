@@ -92,7 +92,12 @@ export function UsageIntelligence({
           states the evidence it used and what it could not see.
         </p>
       </section>
-      <AllowanceProfiles profiles={insights.profiles} modelEffort={modelEffort.data} />
+      <AllowanceProfiles
+        profiles={insights.profiles}
+        modelEffort={modelEffort.data}
+        policy={facets.policy}
+        onPolicyChange={(policy) => onFacets({ policy })}
+      />
       <FacetBar
         facets={facets}
         onChange={onFacets}

@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { DateRange } from "../../time-range";
 
 export type Provider = "anthropic" | "codex";
+export type AllowancePolicy = "capture" | "headroom";
 export type ProfileCard = {
   id: string;
+  policy: AllowancePolicy;
   score: number | null;
   band: "on-target" | "drifting" | "off-target" | null;
   confidence: string;
@@ -34,6 +36,13 @@ export type FindingRow = {
   metrics: Array<{ label: string; value: string }>; recoverable: number | null; cost: number; processed: number;
 };
 export type RuleSummary = { id: string; label: string; severity: FindingRow["severity"]; question: string; basis: string; count: number; recoverable: number };
+export type FindingGroup = {
+  sessionId: string; provider: Provider; agent: string; date: string | null; project: string; model: string;
+  cost: number; processed: number;
+  /** Largest single recoverable estimate — rules can price the same cache reads. */
+  recoverable: number;
+  findings: Array<Pick<FindingRow, "ruleId" | "severity" | "headline" | "metrics" | "recoverable">>;
+};
 export type Insights = {
   profiles: ProfileCard[];
   volume: GroupSummary & { cacheCreationAvailable: boolean; providers: Array<GroupSummary & { provider: Provider }>; models: ModelRow[] };
@@ -42,7 +51,7 @@ export type Insights = {
     providers: Array<{ provider: Provider; directInput: number; cacheRead: number; cacheCreation: number; output: number; cacheHitRate: number | null; amplification: number | null; cacheWritesReported: boolean; medianTurns: number | null; medianContextWritten: number | null; largestContextWritten: number | null }>;
   };
   outliers: { count: number; sessionShare: number; tokenShare: number; cohortsEvaluated: number; cohortsSkipped: number; sessions: OutlierRow[] };
-  efficiency: { rules: RuleSummary[]; findings: FindingRow[]; truncated: number; totals: { findings: number; flaggedSessions: number; sessionShare: number | null; recoverable: number; recoverableShare: number | null } };
+  efficiency: { rules: RuleSummary[]; groups: FindingGroup[]; groupPage: number; groupPages: number; groupPageSize: number; totals: { findings: number; flaggedSessions: number; sessionShare: number | null; recoverable: number; recoverableShare: number | null } };
   facets: {
     modelFamilies: string[]; sessionsInScope: number; sessionsShown: number; outlierCount: number;
     effortLevels: string[];
@@ -57,6 +66,10 @@ export type DataFacets = {
   outliers: "all" | "typical" | "only";
   finding: string;
   effort: string;
+  /** 1-based page of grouped efficiency findings; server-paginated. */
+  findingPage: number;
+  /** Target policy for the allowance rubric — a preference, not a session facet. */
+  policy: AllowancePolicy;
 };
 
 export const compactTokens = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
@@ -86,13 +99,15 @@ export function useInsights(
       outliers: facets.outliers,
       finding: facets.finding,
       effort: facets.effort,
+      findingPage: String(facets.findingPage),
+      policy: facets.policy,
     });
     if (scope.dateRange) {
       params.set("from", scope.dateRange.from);
       params.set("to", scope.dateRange.to);
     }
     return params.toString();
-  }, [scope.days, scope.dateRange, providerKey, familyKey, scope.pathTag, scope.showCache, facets.outliers, facets.finding, facets.effort]);
+  }, [scope.days, scope.dateRange, providerKey, familyKey, scope.pathTag, scope.showCache, facets.outliers, facets.finding, facets.effort, facets.findingPage, facets.policy]);
 
   useEffect(() => {
     let active = true;

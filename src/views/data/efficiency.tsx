@@ -1,11 +1,8 @@
-import { useState } from "react";
-import { ArrowUpRight, Lightbulb } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Lightbulb } from "lucide-react";
 import { ComboPill } from "../../components/effort";
 import { type DecodedSessionEffort } from "../../hooks/use-effort";
 import { familyOf } from "../../model-family";
 import { compactTokens, type DataFacets, type Insights, percent, providerColor, providerLabel, sessionHref, shortDate } from "./insights";
-
-const pageSize = 12;
 
 export function EfficiencyFindings({
   insights,
@@ -24,10 +21,8 @@ export function EfficiencyFindings({
    * rather than two stacked ones. */
   aside?: React.ReactNode;
 }) {
-  const [limit, setLimit] = useState(pageSize);
-  const { rules, findings, truncated, totals } = insights.efficiency;
+  const { rules, groups, groupPage, groupPages, totals } = insights.efficiency;
   const active = rules.find((rule) => rule.id === facets.finding);
-  const visible = findings.slice(0, limit);
 
   return (
     <section className="data-section">
@@ -58,7 +53,7 @@ export function EfficiencyFindings({
       </div>
 
       <div className="rule-chips" role="group" aria-label="Filter findings by rule">
-        <button type="button" className={facets.finding === "all" ? "active" : ""} onClick={() => { onChange({ finding: "all" }); setLimit(pageSize); }}>
+        <button type="button" className={facets.finding === "all" ? "active" : ""} onClick={() => onChange({ finding: "all", findingPage: 1 })}>
           All findings <b>{totals.findings}</b>
         </button>
         {rules.map((rule) => (
@@ -67,10 +62,11 @@ export function EfficiencyFindings({
             key={rule.id}
             className={`${facets.finding === rule.id ? "active" : ""} severity-${rule.severity}`}
             disabled={rule.count === 0}
-            onClick={() => { onChange({ finding: rule.id }); setLimit(pageSize); }}
-            title={rule.question}
+            onClick={() => onChange({ finding: rule.id, findingPage: 1 })}
+            title={`${rule.question}${rule.recoverable > 0 ? ` · ${compactTokens.format(rule.recoverable)} tokens plausibly avoidable under this rule` : ""}`}
           >
             {rule.label} <b>{rule.count}</b>
+            {rule.recoverable > 0 && <small>{compactTokens.format(rule.recoverable)}</small>}
           </button>
         ))}
       </div>
@@ -87,67 +83,92 @@ export function EfficiencyFindings({
 
       <div className={aside ? "findings-split" : undefined}>
         <div className="findings-split__list">
-      {visible.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="data-empty">
           No session in the current scope trips {active ? `the ${active.label.toLowerCase()} rule` : "any rule"}. Widen
           the range or switch the session-type facet to see more.
         </p>
       ) : (
         <ol className="finding-list">
-          {visible.map((finding) => (
-            <li key={`${finding.ruleId}-${finding.sessionId}`} className={`finding severity-${finding.severity}`}>
+          {groups.map((group) => (
+            <li key={group.sessionId} className="finding-group">
               <div className="finding__top">
-                <span className="finding__rule">{rules.find((rule) => rule.id === finding.ruleId)?.label ?? finding.ruleId}</span>
                 {(() => {
-                  // The dominant combo the digest recorded, falling back to this finding's own
+                  // The dominant combo the digest recorded, falling back to this session's own
                   // dominant model with no effort rather than inventing one.
-                  const decoded = effortBySession.get(finding.sessionId);
-                  const combo = decoded?.dominantCombo ?? { family: familyOf(finding.model), effort: "" };
+                  const decoded = effortBySession.get(group.sessionId);
+                  const combo = decoded?.dominantCombo ?? { family: familyOf(group.model), effort: "" };
                   const extra = (decoded?.combos.length ?? 1) - 1;
                   return <ComboPill combo={combo} trailing={extra > 0 ? `+${extra}` : undefined} />;
                 })()}
                 <span className="finding__meta">
-                  <i style={{ background: providerColor(finding.provider) }} />
-                  {providerLabel(finding.provider)} · {finding.project} ·{" "}
-                  {finding.date ? <time dateTime={finding.date}>{shortDate(finding.date)}</time> : shortDate(finding.date)}
+                  <i style={{ background: providerColor(group.provider) }} />
+                  {providerLabel(group.provider)} · {group.project} ·{" "}
+                  {group.date ? <time dateTime={group.date}>{shortDate(group.date)}</time> : shortDate(group.date)}
+                </span>
+                <span className="finding-group__totals">
+                  {compactTokens.format(group.processed)} tokens · ${group.cost.toFixed(2)}
+                  {group.recoverable > 0 && <b> · {compactTokens.format(group.recoverable)} avoidable</b>}
                 </span>
                 <a
                   className="finding__open"
-                  href={sessionHref(finding.sessionId)}
-                  onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); onOpenSession(finding.sessionId); }}
+                  href={sessionHref(group.sessionId)}
+                  onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); onOpenSession(group.sessionId); }}
                 >
                   Open session <ArrowUpRight />
                 </a>
               </div>
-              <p className="finding__headline">{finding.headline}</p>
-              <dl className="finding__metrics">
-                {finding.metrics.map((metric) => (
-                  <div key={metric.label}>
-                    <dt>{metric.label}</dt>
-                    <dd>{metric.value}</dd>
-                  </div>
+              <ol className="finding-group__findings">
+                {group.findings.map((finding) => (
+                  <li key={`${finding.ruleId}-${finding.headline}`} className={`finding severity-${finding.severity}`}>
+                    <div className="finding__top">
+                      <span className="finding__rule">{rules.find((rule) => rule.id === finding.ruleId)?.label ?? finding.ruleId}</span>
+                      <p className="finding__headline">{finding.headline}</p>
+                    </div>
+                    <dl className="finding__metrics">
+                      {finding.metrics.map((metric) => (
+                        <div key={metric.label}>
+                          <dt>{metric.label}</dt>
+                          <dd>{metric.value}</dd>
+                        </div>
+                      ))}
+                      {finding.recoverable !== null && (
+                        <div className="finding__recoverable">
+                          <dt>Plausibly avoidable</dt>
+                          <dd>{compactTokens.format(finding.recoverable)} tokens</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </li>
                 ))}
-                {finding.recoverable !== null && (
-                  <div className="finding__recoverable">
-                    <dt>Plausibly avoidable</dt>
-                    <dd>{compactTokens.format(finding.recoverable)} tokens</dd>
-                  </div>
-                )}
-              </dl>
+              </ol>
             </li>
           ))}
         </ol>
       )}
 
-      {(limit < findings.length || truncated > 0) && (
-        <div className="data-more">
-          {limit < findings.length && (
-            <button type="button" className="secondary-button" onClick={() => setLimit(limit + pageSize * 2)}>
-              Show {Math.min(pageSize * 2, findings.length - limit)} more
-            </button>
-          )}
-          {truncated > 0 && <small>{truncated} further findings are outside the served window — narrow the range or pick a single rule.</small>}
-        </div>
+      {groupPages > 1 && (
+        <nav className="data-more finding-pagination" aria-label="Flagged session pages">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={groupPage <= 1}
+            onClick={() => onChange({ findingPage: groupPage - 1 })}
+          >
+            <ChevronLeft aria-hidden="true" /> Previous
+          </button>
+          <small>
+            page {groupPage} of {groupPages} · {totals.flaggedSessions} flagged sessions
+          </small>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={groupPage >= groupPages}
+            onClick={() => onChange({ findingPage: groupPage + 1 })}
+          >
+            Next <ChevronRight aria-hidden="true" />
+          </button>
+        </nav>
       )}
         </div>
         {aside && <div className="findings-split__aside">{aside}</div>}

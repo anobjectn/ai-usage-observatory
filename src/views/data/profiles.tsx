@@ -12,7 +12,7 @@ import {
   effortLabel,
   sharePercent,
 } from "../../components/effort";
-import { type ProfileCard, providerColor } from "./insights";
+import { type AllowancePolicy, type ProfileCard, providerColor } from "./insights";
 
 const providerOf = (id: string) => (id.includes("anthropic") ? "anthropic" : "codex");
 type Provider = ReturnType<typeof providerOf>;
@@ -145,19 +145,53 @@ function ProviderEffortPie({
 export function AllowanceProfiles({
   profiles,
   modelEffort,
+  policy,
+  onPolicyChange,
 }: {
   profiles: ProfileCard[];
   modelEffort: EffortAggregate | null;
+  policy: AllowancePolicy;
+  onPolicyChange: (policy: AllowancePolicy) => void;
 }) {
   return (
     <section className="data-section">
       <header className="data-section__head">
         <div>
           <span className="overline">SUBSCRIPTION ALLOWANCE</span>
-          <h2>Did the included capacity get used?</h2>
+          <h2>
+            {policy === "capture"
+              ? "Did the included capacity get used?"
+              : "Did the allowance stay clear for the next task?"}
+          </h2>
+          <div
+            className="allowance-policy"
+            role="group"
+            aria-label="Allowance target policy"
+          >
+            <span>Target policy</span>
+            <button
+              type="button"
+              aria-pressed={policy === "capture"}
+              className={policy === "capture" ? "active" : ""}
+              title="Score against burning the paid capacity — unused allowance at reset counts against you."
+              onClick={() => onPolicyChange("capture")}
+            >
+              Maximize capture
+            </button>
+            <button
+              type="button"
+              aria-pressed={policy === "headroom"}
+              className={policy === "headroom" ? "active" : ""}
+              title="Score against keeping room free — a week that ends near its cap counts against you."
+              onClick={() => onPolicyChange("headroom")}
+            >
+              Preserve headroom
+            </button>
+          </div>
         </div>
         <p className="allowance-profiles__intro">
-          Graded per provider from locally observed quota history, never blended. Scores and effort
+          Graded per provider from locally observed quota history, never blended. The measurements
+          never change with the policy — only what counts as a good number does. Scores and effort
           distributions are whole-corpus context; the session facets below do not change them.
         </p>
       </header>
@@ -177,7 +211,7 @@ export function AllowanceProfiles({
                   {profile.score ?? "—"}
                   <span>/100 · {profile.confidence} confidence</span>
                 </div>
-                <h3>Allowance capture</h3>
+                <h3>{profile.policy === "capture" ? "Allowance capture" : "Headroom preservation"}</h3>
                 <p>{profile.explanation}</p>
                 <dl>
                   {profile.components.map((component) => (

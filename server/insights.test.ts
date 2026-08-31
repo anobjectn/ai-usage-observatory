@@ -5,7 +5,7 @@ import { summarizeQuotaHistory } from "./quota";
 
 describe("insights scope", () => {
   test("clamps the analysis window and keeps unsupported filters harmless", () => {
-    expect(resolveScope(new URLSearchParams("range=500&providers=other&outliers=wat&finding=nope"))).toEqual({ rangeDays: 120, fromDate: null, toDate: null, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all" });
+    expect(resolveScope(new URLSearchParams("range=500&providers=other&outliers=wat&finding=nope&policy=wat&findingPage=-3"))).toEqual({ rangeDays: 120, fromDate: null, toDate: null, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all", findingPage: 1, policy: "capture" });
   });
   test("accepts all time as an unbounded analysis window", () => {
     expect(resolveScope(new URLSearchParams("range=all"))).toMatchObject({ rangeDays: null });
@@ -84,16 +84,17 @@ describe("efficiency findings", () => {
   test("flags a thread whose context carry far exceeds its cohort median", () => {
     const rows = [...baseline, session("heavy", "claude", "claude-opus-5", { outputTokens: 10_000, cacheReadTokens: 40_000_000, cacheCreationTokens: 400_000 })];
     const insights = buildInsights(dashboard(rows), resolveScope(new URLSearchParams()));
-    const split = insights.efficiency.findings.filter((finding) => finding.ruleId === "split-session");
-    expect(split.map((finding) => finding.sessionId)).toEqual(["heavy"]);
-    expect(split[0].recoverable).toBeGreaterThan(0);
+    const flagged = insights.efficiency.groups.filter((group) => group.findings.some((finding) => finding.ruleId === "split-session"));
+    expect(flagged.map((group) => group.sessionId)).toEqual(["heavy"]);
+    expect(flagged[0].recoverable).toBeGreaterThan(0);
   });
 
   test("flags context written beyond a single window and reports estimated turns", () => {
     const rows = [...baseline, session("long", "claude", "claude-opus-5", { cacheCreationTokens: 600_000, cacheReadTokens: 30_000_000 })];
     const insights = buildInsights(dashboard(rows), resolveScope(new URLSearchParams()));
-    const missed = insights.efficiency.findings.find((finding) => finding.ruleId === "missed-clear");
-    expect(missed?.sessionId).toBe("long");
+    const flagged = insights.efficiency.groups.find((group) => group.findings.some((finding) => finding.ruleId === "missed-clear"));
+    expect(flagged?.sessionId).toBe("long");
+    const missed = flagged?.findings.find((finding) => finding.ruleId === "missed-clear");
     expect(missed?.metrics.find((metric) => metric.label === "Est. turns")?.value).toBe("100");
   });
 
@@ -104,14 +105,14 @@ describe("efficiency findings", () => {
     expect(codex?.cacheWritesReported).toBe(false);
     expect(codex?.medianTurns).toBeNull();
     expect(codex?.amplification).toBeNull();
-    expect(insights.efficiency.findings.some((finding) => finding.ruleId === "missed-clear")).toBe(false);
+    expect(insights.efficiency.groups.some((group) => group.findings.some((finding) => finding.ruleId === "missed-clear"))).toBe(false);
   });
 
   test("the finding facet narrows the list without changing the measurements", () => {
     const rows = [...baseline, session("long", "claude", "claude-opus-5", { cacheCreationTokens: 600_000, cacheReadTokens: 30_000_000 })];
     const all = buildInsights(dashboard(rows), resolveScope(new URLSearchParams()));
     const filtered = buildInsights(dashboard(rows), resolveScope(new URLSearchParams("finding=missed-clear")));
-    expect(filtered.efficiency.findings.every((finding) => finding.ruleId === "missed-clear")).toBe(true);
+    expect(filtered.efficiency.groups.every((group) => group.findings.every((finding) => finding.ruleId === "missed-clear"))).toBe(true);
     expect(filtered.efficiency.totals).toEqual(all.efficiency.totals);
     expect(filtered.volume.processed).toBe(all.volume.processed);
   });

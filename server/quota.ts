@@ -12,6 +12,20 @@ type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
 type ResetCreditHistory = { id?: string; title?: string | null; status?: string | null; expiresAt?: string | null };
 export type QuotaSeriesPoint = { provider: "anthropic" | "codex"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
 
+/** The full series stays server-side for insights; the browser only needs one weekly point per
+ * provider per calendar day to draw the headroom overlay, which keeps the dashboard payload slim. */
+export function dailyWeeklyQuotaSeries(series: QuotaSeriesPoint[], timeZone: string): QuotaSeriesPoint[] {
+  const latest = new Map<string, QuotaSeriesPoint>();
+  const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  for (const point of series) {
+    if (point.window !== "weekly") continue;
+    const key = `${point.provider}\0${dayOf.format(point.capturedAt)}`;
+    const current = latest.get(key);
+    if (!current || point.capturedAt > current.capturedAt) latest.set(key, point);
+  }
+  return [...latest.values()].sort((a, b) => a.capturedAt - b.capturedAt);
+}
+
 /** Fold state for the history summary. The summary is a pure sequential fold over rows in
  * captured_at order, so `collectQuotaHistory` can keep this alive between collection ticks and
  * fold only rows it has not seen yet instead of re-reading the whole database every minute. */

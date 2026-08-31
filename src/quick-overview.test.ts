@@ -108,10 +108,10 @@ test("condensedResetCopy formats a live countdown with a short stamp", () => {
   const resetAt = new Date(2026, 7, 28, 19, 40, 0).getTime();
   const now = resetAt - (3 * 3600 + 12 * 60 + 10) * 1000;
   expect(condensedResetCopy(resetAt, "resets", now, true)).toBe(
-    "resets -3h 12m 10s · 8/28 7:40p",
+    "resets in 3h 12m 10s · 8/28 7:40p",
   );
   expect(condensedResetCopy(resetAt, "resets", now, false)).toBe(
-    "resets -3h 12m · 8/28 7:40p",
+    "resets in 3h 12m · 8/28 7:40p",
   );
 });
 
@@ -119,21 +119,23 @@ test("condensedResetCopy covers days, morning stamps, and elapsed resets", () =>
   const resetAt = new Date(2026, 8, 2, 4, 0, 0).getTime();
   const now = resetAt - ((4 * 86400 + 11 * 3600 + 22 * 60) * 1000 + 5000);
   expect(condensedResetCopy(resetAt, "renews", now, true)).toBe(
-    "renews -4d 11h 22m 5s · 9/2 4:00a",
+    "renews in 4d 11h 22m 5s · 9/2 4:00a",
   );
   expect(condensedResetCopy(resetAt, "resets", resetAt + 1000, true)).toBe(
     "resets now",
   );
 });
 
-test("gauges mode renders dials with stacked reset countdowns per window", () => {
+test("gauges mode renders headroom dials with stacked reset countdowns per window", () => {
   const html = renderModal("gauges");
   expect(html).toContain("quota-dial");
-  expect(html).toContain("42%");
-  expect(html).toContain("61%");
+  // Buckets report 42% and 61% used; dials read out what is left.
+  expect(html).toContain("58%");
+  expect(html).toContain("39%");
+  expect(html).toContain("% left");
+  expect(html).not.toContain("42%");
   expect(html).toContain("quick-overview__reset--stacked");
   expect(html).toContain("reset in");
-  expect(html).not.toContain("resets -");
   expect(html).not.toContain("·");
   expect(html).not.toContain("quick-overview__row");
   // The orrery legend names every provider; only the card for the reported one exists.
@@ -144,8 +146,8 @@ test("grid mode groups rows under one provider header with reset info", () => {
   const html = renderModal("grid");
   expect(html).toContain("quick-overview__group");
   expect(html).toContain("quick-overview__row");
-  expect(html).toContain("42%");
-  expect(html).toContain("resets -");
+  expect(html).toContain("58% left");
+  expect(html).toContain("resets in");
   expect(html).not.toContain("quota-dial");
   expect(html.match(/quick-overview__group /g)?.length).toBe(1);
 });
