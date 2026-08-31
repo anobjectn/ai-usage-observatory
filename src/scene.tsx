@@ -38,8 +38,17 @@ function stepScene(now: number, animate: boolean, speed: number) {
   if (camera.dragging) return;
   const idle = now - camera.lastInput > 2600;
   const pull = Math.min(1, dt * (idle ? 0.5 : 1.6));
-  camera.vyaw += ((idle ? AUTO_YAW * speed : 0) - camera.vyaw) * pull;
+  const targetYaw = idle ? AUTO_YAW * speed : 0;
+  camera.vyaw += (targetYaw - camera.vyaw) * pull;
   camera.vpitch -= camera.vpitch * pull;
+  // When the camera is only decaying toward rest (target zero — dragged to a stop, or speed 0),
+  // snap it there once the motion is invisible so the version stops changing and the canvases
+  // stop repainting a static scene. Never snap while auto-rotation is pulling away from rest.
+  if (targetYaw === 0 && Math.abs(camera.vyaw) < 0.0005 && Math.abs(camera.vpitch) < 0.0005) {
+    camera.vyaw = 0;
+    camera.vpitch = 0;
+    return;
+  }
   camera.yaw += camera.vyaw * dt;
   camera.pitch += camera.vpitch * dt;
   camera.version++;
@@ -121,8 +130,19 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
-    let w = 0, h = 0, raf = 0, drawnVersion = -1, baseStarCount = 0;
+    let w = 0, h = 0, raf = 0, drawnVersion = -1, drawnClock = -1, baseStarCount = 0;
     let stars: Star[] = [];
+    // makeStars is seeded, so growing or shrinking the count regenerates the same field up to
+    // the new length — visible stars never shuffle, and memory tracks the chosen density
+    // instead of always holding the maximum.
+    const syncStars = () => {
+      const density = Math.min(MAX_STAR_DENSITY, Math.max(1, Math.round(propsRef.current.effects.starDensity)));
+      const target = Math.min(30000, Math.round(baseStarCount * STAR_DENSITY_MULTIPLIERS[density]));
+      if (target !== stars.length) {
+        stars = makeStars(target);
+        dirtyRef.current = true;
+      }
+    };
     const resize = () => {
       ({ w, h } = fitCanvas(canvas, ctx));
       // Stars fill the whole sky sphere but the camera only sees a narrow cone,
@@ -130,7 +150,7 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
       const f = h * 0.8;
       const coverage = Math.atan(w / 2 / f) * Math.atan(h / 2 / f) / Math.PI;
       baseStarCount = Math.min(6000, Math.round(w * h / 3200 / Math.max(0.02, coverage)));
-      stars = makeStars(Math.min(30000, Math.round(baseStarCount * STAR_DENSITY_MULTIPLIERS[MAX_STAR_DENSITY])));
+      syncStars();
       dirtyRef.current = true;
     };
     resize();
@@ -140,8 +160,13 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
       raf = requestAnimationFrame(frame);
       const animate = !reduced.current;
       stepScene(now, animate, propsRef.current.effects.speed);
-      if (!animate && !dirtyRef.current && camera.version === drawnVersion) return;
+      syncStars();
+      // Repaint only when something can have changed: a prop/resize invalidation, camera
+      // motion, or ambient time advancing (twinkle). At speed 0 with a settled camera this
+      // skips every frame.
+      if (!dirtyRef.current && camera.version === drawnVersion && clock === drawnClock) return;
       drawnVersion = camera.version;
+      drawnClock = clock;
       dirtyRef.current = false;
       const { accent, effects } = propsRef.current;
       ctx.clearRect(0, 0, w, h);
@@ -149,7 +174,7 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
       const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
       const f = h * 0.8, midX = w / 2, midY = h / 2, D = 2.5;
       const density = Math.min(MAX_STAR_DENSITY, Math.max(1, Math.round(effects.starDensity)));
-      const visibleStarCount = Math.min(stars.length, Math.round(baseStarCount * STAR_DENSITY_MULTIPLIERS[density]));
+      const visibleStarCount = stars.length;
       for (let index = 0; index < visibleStarCount; index++) {
         const star = stars[index];
         const r = effects.parallax ? density === MAX_STAR_DENSITY ? 4 + (star.radius - 9) * 2.2 : star.radius : 30;
@@ -362,7 +387,7 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
-    let w = 0, h = 0, raf = 0, drawnVersion = -1;
+    let w = 0, h = 0, raf = 0, drawnVersion = -1, drawnClock = -1;
     const orbitAngles: Record<(typeof RINGS)[number]["provider"], number> = {
       anthropic: RINGS[0].phase,
       openai: RINGS[1].phase,
@@ -549,8 +574,11 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
             orbitDelta * headroomOrbitRate(signal?.percent ?? null) * ring.dir;
         }
       }
-      if (!animate && !dirtyRef.current && camera.version === drawnVersion) return;
+      // Repaint only on invalidation, camera motion, or ambient time advancing (orbits,
+      // pulse). At speed 0 with a settled camera this skips every frame.
+      if (!dirtyRef.current && camera.version === drawnVersion && clock === drawnClock) return;
       drawnVersion = camera.version;
+      drawnClock = clock;
       dirtyRef.current = false;
       draw(animate);
     };

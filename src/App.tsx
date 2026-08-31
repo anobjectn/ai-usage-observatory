@@ -550,7 +550,7 @@ function savedSceneEffects(): SceneEffects {
       twinkle: value.twinkle === true,
       tesseract: value.tesseract === true,
       speed:
-        Number.isFinite(speed) && speed >= 0.1 && speed <= 3
+        Number.isFinite(speed) && speed >= 0 && speed <= 3
           ? speed
           : defaultSceneEffects.speed,
       starDensity:
@@ -9774,12 +9774,12 @@ function AppearanceModal({
             <div className="effect-row">
               <div>
                 <b>Animation speed</b>
-                <small>Rate of auto-rotation, orbits, and twinkle</small>
+                <small>Rate of auto-rotation, orbits, and twinkle — 0 pauses</small>
               </div>
               <div className="speed-control">
                 <input
                   type="range"
-                  min={0.1}
+                  min={0}
                   max={3}
                   step={0.05}
                   value={sceneEffects.speed}
@@ -9792,7 +9792,9 @@ function AppearanceModal({
                   }
                 />
                 <output aria-live="polite">
-                  {sceneEffects.speed.toFixed(2)}x
+                  {sceneEffects.speed === 0
+                    ? "Paused"
+                    : `${sceneEffects.speed.toFixed(2)}x`}
                 </output>
               </div>
             </div>
