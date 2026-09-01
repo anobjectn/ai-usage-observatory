@@ -5,6 +5,20 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-08-31
+
+### Changed
+
+- Refresh the README Overview screenshot and preserve the reviewed release copy at
+  [Overview](docs/screenshots/releases/v1.20.1/1.dashboard.png).
+
+### Fixed
+
+- Show Overview quota-card details in remaining terms so they match the dial. A
+  row with 17% used now appears as 83% left.
+
+[1.20.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.20.0...v1.20.1
+
 ## [1.20.0] - 2026-08-31
 
 ### Added
