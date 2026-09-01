@@ -81,6 +81,11 @@ test("quickOverviewCards keeps only providers with reported windows", () => {
   expect(cards.map((card) => card.provider)).toEqual(["anthropic"]);
 });
 
+test("quota card details match the remaining percentage shown by the dial", () => {
+  const buckets = quickOverviewCards(quotasFixture())[0]!.buckets;
+  expect(buckets.map((bucket) => bucket.detail)).toEqual(["58% left", "39% left"]);
+});
+
 test("a stale provider without a snapshot is still shown", () => {
   const quotas = {
     available: true,

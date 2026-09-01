@@ -3279,7 +3279,7 @@ function quotaBucket(
     detail:
       detail ??
       (hasValue
-        ? `${Math.max(0, Math.min(100, usedPercent)).toFixed(0)}% used`
+        ? `${Math.max(0, Math.min(100, 100 - usedPercent)).toFixed(0)}% left`
         : suspended
           ? "temporarily suspended"
           : "not currently reported"),
