@@ -637,6 +637,25 @@ describe("session digest and detail", () => {
     expect(api.buildSessionEffortSummary(snapshot, "s1")).toBeNull();
   });
 
+  test("reasoning evidence is null unless a usage event reported it, and an honest zero stays a zero", () => {
+    const snapshot = snapshotOf([session({ sessionId: "claude" }), session({ sessionId: "codex-zero", agent: "codex" }), session({ sessionId: "codex", agent: "codex" })]);
+    seed("claude", "claude", "/fixture/alpha", [{ day: today, model: "claude-opus-5", effort: "high", observations: 2, tokens: 600, outputTokens: 200 }]);
+    seed("codex-zero", "codex", "/fixture/alpha", [{ day: today, model: "gpt-5.5", effort: "high", observations: 1, tokens: 300, outputTokens: 50, reasoningOutputTokens: 0, reasoningReportedEvents: 1 }]);
+    seed("codex", "codex", "/fixture/alpha", [
+      { day: today, model: "gpt-5.5", effort: "high", observations: 2, tokens: 900, outputTokens: 400, reasoningOutputTokens: 150, reasoningReportedEvents: 2 },
+      { day: today, model: "gpt-5.5", effort: "", observations: 1, tokens: 100, outputTokens: 40, reasoningOutputTokens: 10, reasoningReportedEvents: 1 },
+    ]);
+    expect(api.buildSessionEffortSummary(snapshot, "claude")!.reasoning).toBeNull();
+    expect(api.buildSessionEffortSummary(snapshot, "codex-zero")!.reasoning).toEqual({ outputTokens: 50, reasoningOutputTokens: 0, reportedEvents: 1 });
+    // Unrecorded-effort rows still count: the evidence is about output, not effort.
+    expect(api.buildSessionEffortSummary(snapshot, "codex")!.reasoning).toEqual({ outputTokens: 440, reasoningOutputTokens: 160, reportedEvents: 3 });
+    const byModel = api.buildEffortAggregate(snapshot, api.resolveEffortScope(params("")), "model");
+    expect(byModel.rows.find((row) => row.key === "claude-opus-5")!.summary.reasoning).toBeNull();
+    expect(byModel.rows.find((row) => row.key === "gpt-5.5")!.summary.reasoning).toEqual({ outputTokens: 490, reasoningOutputTokens: 160, reportedEvents: 4 });
+    const total = api.buildEffortAggregate(snapshot, api.resolveEffortScope(params("")), "total");
+    expect(total.rows[0].summary.reasoning).toEqual({ outputTokens: 690, reasoningOutputTokens: 160, reportedEvents: 4 });
+  });
+
   test("session combos keep model and effort together, including unrecorded effort", () => {
     snapshotOf([session({ sessionId: "s1" })]);
     seed("s1", "claude", "/fixture/alpha", [

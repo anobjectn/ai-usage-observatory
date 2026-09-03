@@ -279,13 +279,31 @@ function labelFor(group: EffortGroup, key: string) {
   return "All activity";
 }
 
+/** Reasoning evidence for a scope: `null` unless at least one usage event in scope carried a
+ * reasoning field. Claude never reports one, so a Claude-only scope is `null`, not zero. */
+function reasoningOf(rows: EffortGroupedRow[]): EffortSummary["reasoning"] {
+  const reportedEvents = rows.reduce((sum, row) => sum + row.reasoningReportedEvents, 0);
+  if (reportedEvents === 0) return null;
+  return {
+    outputTokens: rows.reduce((sum, row) => sum + row.outputTokens, 0),
+    reasoningOutputTokens: rows.reduce((sum, row) => sum + row.reasoningOutputTokens, 0),
+    reportedEvents,
+  };
+}
+
 function foldGroupedRows(rows: EffortGroupedRow[], eligibleFor: (key: string) => number, quality: EffortSummary["quality"]) {
   const byKey = new Map<string, EffortGroupedRow[]>();
   for (const row of rows) byKey.set(row.key, [...(byKey.get(row.key) ?? []), row]);
   return [...byKey.entries()].map(([key, keyRows]) => {
     const known = keyRows.filter((row) => row.effort !== null).map((row) => ({ effort: row.effort!, observations: row.observations, tokens: row.tokens }));
     const unknownObservations = keyRows.filter((row) => row.effort === null).reduce((sum, row) => sum + row.observations, 0);
-    return { key, summary: foldEffort(sortEffortBuckets(known), { eligibleTokens: eligibleFor(key), unknownObservations, quality }) };
+    return {
+      key,
+      summary: {
+        ...foldEffort(sortEffortBuckets(known), { eligibleTokens: eligibleFor(key), unknownObservations, quality }),
+        reasoning: reasoningOf(keyRows),
+      },
+    };
   });
 }
 
@@ -805,11 +823,14 @@ export function buildSessionEffortSummary(snapshot: DashboardData, sessionId: st
   if (rows.length === 0) return null;
   const known = rows.filter((row) => row.effort !== null).map((row) => ({ effort: row.effort!, observations: row.observations, tokens: row.tokens }));
   const unknownObservations = rows.filter((row) => row.effort === null).reduce((sum, row) => sum + row.observations, 0);
-  return foldEffort(sortEffortBuckets(known), {
-    eligibleTokens: sessionTokens(session),
-    unknownObservations,
-    quality: status.quality === "degraded" ? "degraded" : "ok",
-  });
+  return {
+    ...foldEffort(sortEffortBuckets(known), {
+      eligibleTokens: sessionTokens(session),
+      unknownObservations,
+      quality: status.quality === "degraded" ? "degraded" : "ok",
+    }),
+    reasoning: reasoningOf(rows),
+  };
 }
 
 /** The same session's derived rows kept split by model, so the detail panel can show model × effort

@@ -49,6 +49,15 @@ import {
 import { providerFromAgent, providerFromModel, type ActivityProvider } from "./provider";
 import { PageJump } from "./components/page-jump";
 import {
+  TokenTypeTable,
+  TokenTypesByModel,
+  TokenTypesNotice,
+  cacheHiddenNotice,
+  warpOnlyNotice,
+} from "./components/token-types";
+import { summarizeTokenTypes, type ModelRowInput } from "./token-types";
+import type { RateCardSummary } from "./types";
+import {
   decodeEffortDigest,
   effortSearchText,
   effortSummaryLabel,
@@ -6024,6 +6033,9 @@ export function SessionDetailPanel({
   detail,
   loading,
   effortStatus,
+  rateCard = null,
+  unpricedModels = [],
+  showCache = true,
   annotation,
   onAnnotationChange,
 }: {
@@ -6031,6 +6043,9 @@ export function SessionDetailPanel({
   detail?: SessionDetail;
   loading: boolean;
   effortStatus: EffortIndexStatus | null;
+  rateCard?: RateCardSummary | null;
+  unpricedModels?: string[];
+  showCache?: boolean;
   annotation?: SessionAnnotation;
   onAnnotationChange?: (sessionId: string, annotation: SessionAnnotation) => void;
 }) {
@@ -6239,6 +6254,24 @@ export function SessionDetailPanel({
           </>
         )}
       </div>
+      {!showCache ? (
+        <TokenTypesNotice>{cacheHiddenNotice}</TokenTypesNotice>
+      ) : warp ? (
+        <TokenTypesNotice>{warpOnlyNotice}</TokenTypesNotice>
+      ) : (
+        <TokenTypeTable
+          summary={summarizeTokenTypes(
+            session.modelBreakdowns.map((breakdown) => ({ agent: session.agent, breakdown })),
+            rateCard,
+            unpricedModels,
+          )}
+          context={{
+            reasoning: detail?.effort?.reasoning ?? null,
+            effortIndexEnabled: effortStatus?.enabled,
+            rateCard,
+          }}
+        />
+      )}
       {detail?.quotaContext && <SessionQuotaContextPanel context={detail.quotaContext} />}
       <div className="session-detail__columns">
         <SessionDetailColumn
@@ -7021,11 +7054,17 @@ function SessionVerdictControl({
 
 function Sessions({
   sessions,
+  rateCard,
+  unpricedModels,
+  showCache,
   onEdit,
   focusSessionId,
   focusOutsideRange = false,
 }: {
   sessions: Session[];
+  rateCard: RateCardSummary;
+  unpricedModels: string[];
+  showCache: boolean;
   onEdit: (session: Session) => void;
   focusSessionId?: string | null;
   focusOutsideRange?: boolean;
@@ -7646,6 +7685,9 @@ function Sessions({
                           detail={details[session.sessionId]}
                           loading={loadingDetail === session.sessionId}
                           effortStatus={effortStatus}
+                          rateCard={rateCard}
+                          unpricedModels={unpricedModels}
+                          showCache={showCache}
                           annotation={annotationOf(session)}
                           onAnnotationChange={patchAnnotation}
                         />
@@ -8234,6 +8276,11 @@ function ProjectDetails({
   timeZone,
   effortScope,
   rangeEmptyText,
+  rateCard,
+  unpricedModels,
+  showCache,
+  effortSummary,
+  effortIndexEnabled,
   onOpenSession,
 }: {
   project: ProjectSummary;
@@ -8244,9 +8291,24 @@ function ProjectDetails({
   timeZone: string;
   effortScope: EffortScopeInput;
   rangeEmptyText: string;
+  rateCard: RateCardSummary;
+  unpricedModels: string[];
+  showCache: boolean;
+  effortSummary: EffortSummary | null;
+  effortIndexEnabled?: boolean;
   onOpenSession: (sessionId: string) => void;
 }) {
   type ModelSortKey = "name" | "tokens" | "cost";
+  // The in-range sessions already cover every grouped member path, and each session row carries
+  // its own per-model ccusage cost, so the project table is a sum of validated per-model parts.
+  const tokenTypeInputs = useMemo(
+    () => sessions.flatMap((session) => session.modelBreakdowns.map((breakdown) => ({ agent: session.agent, breakdown }))),
+    [sessions],
+  );
+  const tokenTypes = useMemo(
+    () => summarizeTokenTypes(tokenTypeInputs, rateCard, unpricedModels),
+    [tokenTypeInputs, rateCard, unpricedModels],
+  );
   const [modelSort, setModelSort] = useState<{
     key: ModelSortKey;
     direction: "asc" | "desc";
@@ -8586,6 +8648,23 @@ function ProjectDetails({
               {models.length} {models.length === 1 ? "model" : "models"}
             </span>
           </div>
+          {!showCache ? (
+            <TokenTypesNotice>{cacheHiddenNotice}</TokenTypesNotice>
+          ) : tokenTypes.totalTokens === 0 && tokenTypes.warpTokensExcluded > 0 ? (
+            <TokenTypesNotice>{warpOnlyNotice}</TokenTypesNotice>
+          ) : (
+            <TokenTypeTable
+              summary={tokenTypes}
+              title="Cost by token type, all models"
+              context={{
+                reasoning: effortSummary?.reasoning ?? null,
+                effortIndexEnabled,
+                rateCard,
+              }}
+            >
+              <TokenTypesByModel inputs={tokenTypeInputs} rateCard={rateCard} unpricedModels={unpricedModels} />
+            </TokenTypeTable>
+          )}
           <div className="project-model-total">
             <span>Overall total</span>
             <b>
@@ -8774,6 +8853,7 @@ function Projects({
   metricRange,
   customRange,
   dateRange,
+  showCache,
   onOpenSession,
 }: {
   data: DashboardData;
@@ -8782,6 +8862,7 @@ function Projects({
   metricRange: MetricRange;
   customRange: DateRange | null;
   dateRange: DateRange | null;
+  showCache: boolean;
   onOpenSession: (sessionId: string) => void;
 }) {
   const [openProject, setOpenProject] = useState<string | null>(null);
@@ -8992,6 +9073,11 @@ function Projects({
                   <ProjectDetails
                     project={project}
                     daily={daily}
+                    rateCard={data.rateCard}
+                    unpricedModels={data.unpricedModels}
+                    showCache={showCache}
+                    effortSummary={effortSummary}
+                    effortIndexEnabled={statusRequest.data?.enabled}
                     activity={data.projectActivity.filter((activity) =>
                       project.memberIds.includes(activity.projectId),
                     )}
@@ -9023,17 +9109,34 @@ function Projects({
   );
 }
 
+/** Every ccusage observation of one model inside the selected rows, agent by agent. Built from
+ * the raw agent branches rather than `aggregateModels`, which merges Warp and ccusage sightings
+ * of the same model name into one row; the token-type table has to keep them apart. */
+function modelTokenTypeInputs(daily: MetricRow[], modelName: string): ModelRowInput[] {
+  const inputs: ModelRowInput[] = [];
+  for (const row of daily) {
+    for (const agent of row.agents ?? [row]) {
+      for (const breakdown of agent.modelBreakdowns) {
+        if (breakdown.modelName === modelName) inputs.push({ agent: agent.agent, breakdown });
+      }
+    }
+  }
+  return inputs;
+}
+
 function Models({
   data,
   daily,
   sessions,
   dateRange,
+  showCache,
   onOpenSession,
 }: {
   data: DashboardData;
   daily: MetricRow[];
   sessions: Session[];
   dateRange: DateRange | null;
+  showCache: boolean;
   onOpenSession: (sessionId: string) => void;
 }) {
   type ModelOrder =
@@ -9407,6 +9510,24 @@ function Models({
               </button>
               {open && (
                 <div className="model-sessions" id={panelId}>
+                  {!showCache ? (
+                    <TokenTypesNotice>{cacheHiddenNotice}</TokenTypesNotice>
+                  ) : warpOnly ? (
+                    <TokenTypesNotice>{warpOnlyNotice}</TokenTypesNotice>
+                  ) : (
+                    <TokenTypeTable
+                      summary={summarizeTokenTypes(
+                        modelTokenTypeInputs(daily, model.model),
+                        data.rateCard,
+                        data.unpricedModels,
+                      )}
+                      context={{
+                        reasoning: effortSummary?.reasoning ?? null,
+                        effortIndexEnabled: statusRequest.data?.enabled,
+                        rateCard: data.rateCard,
+                      }}
+                    />
+                  )}
                   {effortSummary && (
                     <section className="model-effort-detail">
                       <div>
@@ -11808,6 +11929,9 @@ export function App() {
           {view === "sessions" && (
             <Sessions
               sessions={visibleSessions}
+              rateCard={data.rateCard}
+              unpricedModels={data.unpricedModels}
+              showCache={showCache}
               onEdit={setSession}
               focusSessionId={focusSessionId}
               focusOutsideRange={Boolean(
@@ -11823,6 +11947,7 @@ export function App() {
               metricRange={days}
               customRange={customRange}
               dateRange={activeDateRange}
+              showCache={showCache}
               onOpenSession={openSession}
             />
           )}
@@ -11832,6 +11957,7 @@ export function App() {
               daily={rangeRows}
               sessions={rangeSessions}
               dateRange={activeDateRange}
+              showCache={showCache}
               onOpenSession={openSession}
             />
           )}

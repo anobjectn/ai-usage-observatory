@@ -11,6 +11,7 @@ import { emptyAnnotation, getAnnotations, getAnnotationVersion, getSettings, lis
 import { buildInsights, resolveScope } from "./insights";
 import { reconcileAdvice } from "./advice";
 import { aggregateModels } from "../src/model-aggregation";
+import { ensureRateCard, rateCardHealth, summarizeRateCard } from "./rate-card";
 
 export { aggregateModels } from "../src/model-aggregation";
 
@@ -254,11 +255,14 @@ async function collectCcusageCached(timeZone: string, paths: PathIndexResult) {
 async function buildSnapshot() {
   const timeZone = systemTimeZone();
   const pathsPromise = indexSessionPaths();
-  const [paths, ccusage, quota, warpCollection] = await Promise.all([
+  // The rate card resolves from cache or the bundled fallback; a stale table refreshes in the
+  // background, so this never waits on the network.
+  const [paths, ccusage, quota, warpCollection, rateCardState] = await Promise.all([
     pathsPromise,
     pathsPromise.then((result) => collectCcusageCached(timeZone, result)),
     collectQuota(),
     collectWarp(timeZone),
+    ensureRateCard(),
   ]);
   setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
@@ -279,6 +283,8 @@ async function buildSnapshot() {
   const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
   const daily = mergeWarp(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
   const { sessions: _warpSessions, ...warp } = warpCollection;
+  const models = aggregateModels(daily, ccusage.unpricedModels);
+  const rateCardHealthEntry = rateCardHealth(rateCardState);
   return {
     collectedAt: new Date().toISOString(),
     timeZone,
@@ -293,8 +299,10 @@ async function buildSnapshot() {
     projectActivity: aggregateProjectActivity(sessions, timeZone),
     blocks: ccusage.blocks.blocks,
     projects: aggregateProjects(sessions, timeZone),
-    models: aggregateModels(daily, ccusage.unpricedModels),
+    models,
     unpricedModels: ccusage.unpricedModels,
+    // Only the names ccusage emitted: the client looks rates up by exact model name.
+    rateCard: summarizeRateCard(rateCardState, models.map((model) => model.model)),
     quotas: quota,
     warp,
     rules: listRules(),
@@ -308,6 +316,7 @@ async function buildSnapshot() {
           : `Pinned v${ccusage.version} · ${timeZone} calendar · live pricing`,
         kind: "local analytics",
       },
+      { name: "Pricing rate card", status: rateCardHealthEntry.status, detail: rateCardHealthEntry.detail, kind: "local analytics" },
       { name: "Path index", status: "healthy", detail: `${transcriptSessions.filter((session) => session.cwd).length} transcript sessions joined · metadata only`, kind: "local metadata" },
       {
         name: "Warp local ledger",

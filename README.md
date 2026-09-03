@@ -297,6 +297,11 @@ different quota-service base URL.
   estimate, not a subscription bill. Models without a current rate card are
   identified in the interface and excluded from cost totals rather than counted
   as free.
+- Per-token-type costs (cache reads, cache writes, generated output, uncached
+  input) are a validated decomposition of that same `ccusage` figure using
+  LiteLLM's published rates, never a second price. When the parts do not
+  reconcile with `ccusage` for any contributing model, the cost columns are
+  withheld and the model is named; the token columns always remain.
 - Allowance figures come from the optional
   [`quota-service`](https://github.com/anobjectn/quota-service) and are labeled as
   provider-reported in the interface.

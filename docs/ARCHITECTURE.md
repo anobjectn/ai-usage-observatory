@@ -6,8 +6,19 @@ The React frontend only consumes normalized local API responses. It never reads 
 
 ## Collection flow
 
-1. The server invokes the project-pinned `node_modules/.bin/ccusage` binary in offline mode.
+1. The server invokes the project-pinned `node_modules/.bin/ccusage` binary. It runs without
+   `--offline`, so ccusage fetches LiteLLM pricing and falls back to its embedded catalog when
+   that fetch fails.
 2. Zod validates unified, block, and Claude project-instance reports.
+3. The pricing rate card resolves from the SQLite cache or the bundled
+   `server/rate-card-fallback.json`, and refreshes from LiteLLM in the background once a day
+   (never awaited by a collection tick; `USAGE_OBSERVATORY_OFFLINE_PRICING=1` pins it offline).
+   The card only ever splits a ccusage cost into token types: input, output, and cache-read cost
+   are rate times tokens, cache-write cost is the residual, and a model-row is shown with cost
+   only when that residual lands where the card says a cache write can cost. Codex rows must
+   match exactly; Claude rows may land anywhere between the all-5-minute and all-1-hour
+   cache-write bounds because ccusage prices 1-hour writes at the higher rate. Anything else is
+   withheld, never repriced.
 3. The metadata-only path indexer incrementally reads session file heads when mtimes change.
 4. Native report sessions are joined to indexed paths without copying transcript content.
 5. Project activity groups joined session totals by provider, working directory, and local last-activity day. A session spanning multiple days is attributed to its latest activity day.

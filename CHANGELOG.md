@@ -5,6 +5,24 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add a "Cost by token type" table to Models cards, Session detail, and Project
+  detail: cache reads, cache writes, generated output, and uncached input with
+  exact token counts, token share, cost, and cost share. Project tables sum
+  validated per-model parts and include a collapsed per-model breakdown.
+- Add a pricing rate card (LiteLLM, cached in SQLite for a day, bundled
+  fallback, `USAGE_OBSERVATORY_OFFLINE_PRICING=1` to pin offline) that splits
+  each ccusage model cost into token types. A model whose parts do not reconcile
+  with its ccusage cost is named and its cost columns are withheld; Codex rows
+  must match exactly and Claude rows may land anywhere between the 5-minute and
+  1-hour cache-write bounds ccusage prices with.
+- Expose provider-reported reasoning tokens on effort summaries so the table's
+  footnote can state the Codex reasoning share inside generated output.
+- Add a "Pricing rate card" source-health entry.
+
 ## [1.20.1] - 2026-08-31
 
 ### Changed

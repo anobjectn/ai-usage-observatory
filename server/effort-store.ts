@@ -49,7 +49,17 @@ export type EffortQuery = {
   model: string | null;
 };
 
-export type EffortGroupedRow = { key: string; effort: string | null; observations: number; tokens: number };
+export type EffortGroupedRow = {
+  key: string;
+  effort: string | null;
+  observations: number;
+  tokens: number;
+  outputTokens: number;
+  /** Provider-reported reasoning tokens inside `outputTokens`; only Codex reports them. */
+  reasoningOutputTokens: number;
+  /** Usage events that carried a reasoning field at all, so a zero can be told from "not reported". */
+  reasoningReportedEvents: number;
+};
 
 /** The bundled SQLite must expose `json_each`; without it the only alternative is interpolating
  * an `IN (...)` list into SQL text, which this codebase does not do. */
@@ -330,13 +340,36 @@ const groupedQueries = Object.fromEntries(
   (Object.keys(groupExpressions) as EffortGroup[]).map((group) => [
     group,
     db.query(`SELECT ${groupExpressions[group]} AS key, u.effort AS effort,
-        SUM(u.observations) AS observations, SUM(u.total_tokens) AS tokens
+        SUM(u.observations) AS observations, SUM(u.total_tokens) AS tokens,
+        SUM(u.output_tokens) AS output_tokens,
+        SUM(u.reasoning_output_tokens) AS reasoning_output_tokens,
+        SUM(u.reasoning_reported_events) AS reasoning_reported_events
       FROM session_effort_usage u
       JOIN session_paths p ON p.session_id = u.session_id
       ${filters}
       GROUP BY key, u.effort`),
   ]),
 ) as Record<EffortGroup, ReturnType<typeof db.query>>;
+
+type GroupedSqlRow = {
+  key: string;
+  effort: string;
+  observations: number;
+  tokens: number;
+  output_tokens: number;
+  reasoning_output_tokens: number;
+  reasoning_reported_events: number;
+};
+
+const groupedRow = (row: GroupedSqlRow): EffortGroupedRow => ({
+  key: row.key,
+  effort: row.effort === "" ? null : row.effort,
+  observations: Number(row.observations),
+  tokens: Number(row.tokens),
+  outputTokens: Number(row.output_tokens),
+  reasoningOutputTokens: Number(row.reasoning_output_tokens),
+  reasoningReportedEvents: Number(row.reasoning_reported_events),
+});
 
 function bindings(query: EffortQuery) {
   return {
@@ -352,30 +385,21 @@ function bindings(query: EffortQuery) {
 }
 
 export function queryEffortGrouped(query: EffortQuery): EffortGroupedRow[] {
-  const rows = groupedQueries[query.group].all(bindings(query)) as Array<{ key: string; effort: string; observations: number; tokens: number }>;
-  return rows.map((row) => ({
-    key: row.key,
-    effort: row.effort === "" ? null : row.effort,
-    observations: Number(row.observations),
-    tokens: Number(row.tokens),
-  }));
+  return (groupedQueries[query.group].all(bindings(query)) as GroupedSqlRow[]).map(groupedRow);
 }
 
 const sessionDigestQuery = db.query(`SELECT u.session_id AS key, u.effort AS effort,
-    SUM(u.observations) AS observations, SUM(u.total_tokens) AS tokens
+    SUM(u.observations) AS observations, SUM(u.total_tokens) AS tokens,
+    SUM(u.output_tokens) AS output_tokens,
+    SUM(u.reasoning_output_tokens) AS reasoning_output_tokens,
+    SUM(u.reasoning_reported_events) AS reasoning_reported_events
   FROM session_effort_usage u
   JOIN session_paths p ON p.session_id = u.session_id
   ${filters}
   GROUP BY u.session_id, u.effort`);
 
 export function queryEffortBySession(query: Omit<EffortQuery, "group">): EffortGroupedRow[] {
-  const rows = sessionDigestQuery.all(bindings({ ...query, group: "total" })) as Array<{ key: string; effort: string; observations: number; tokens: number }>;
-  return rows.map((row) => ({
-    key: row.key,
-    effort: row.effort === "" ? null : row.effort,
-    observations: Number(row.observations),
-    tokens: Number(row.tokens),
-  }));
+  return (sessionDigestQuery.all(bindings({ ...query, group: "total" })) as GroupedSqlRow[]).map(groupedRow);
 }
 
 /** A flat raw-model × effort bucket. Raw models are collapsed to families in TypeScript through

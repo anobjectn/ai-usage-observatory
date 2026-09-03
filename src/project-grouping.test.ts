@@ -114,6 +114,14 @@ test("mergeEffortSummaries adds counts and recomputes dominance and mixedness", 
   expect(merged.levels.find((l) => l.effort === "medium")?.tokenShare).toBe(0.75);
 });
 
+test("mergeEffortSummaries adds reasoning evidence and keeps an unreported group null", () => {
+  const reported = { ...effort({ high: 100 }), reasoning: { outputTokens: 40, reasoningOutputTokens: 10, reportedEvents: 2 } };
+  const alsoReported = { ...effort({ high: 100 }), reasoning: { outputTokens: 60, reasoningOutputTokens: 0, reportedEvents: 1 } };
+  const silent = { ...effort({ medium: 300 }), reasoning: null };
+  expect(mergeEffortSummaries([reported, silent, alsoReported])!.reasoning).toEqual({ outputTokens: 100, reasoningOutputTokens: 10, reportedEvents: 3 });
+  expect(mergeEffortSummaries([silent, effort({ low: 5 })])!.reasoning).toBeNull();
+});
+
 test("mergeEffortSummaries passes single members through untouched", () => {
   const single = effort({ high: 10 });
   expect(mergeEffortSummaries([single])).toBe(single);

@@ -13,6 +13,13 @@ export type MetricRow = {
   metadata?: { lastActivity?: string; [key: string]: unknown };
 };
 export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
+/** USD per token. `cacheWrite1h` is null for providers without a 1-hour cache tier. */
+export type ModelRate = { input: number; output: number; cacheRead: number; cacheWrite5m: number; cacheWrite1h: number | null };
+export type RateCardStatus = "live" | "cached" | "fallback";
+/** The slice of the pricing rate card the dashboard needs: one entry per model name ccusage
+ * emitted, `null` when the card has no rate for it. Rates only ever split ccusage's own cost;
+ * they never price anything on their own. */
+export type RateCardSummary = { status: RateCardStatus; fetchedAt: string | null; models: Record<string, ModelRate | null> };
 export type ProjectTrendRow = Omit<MetricRow, "agent" | "period"> & { date: string; period?: string; warpCredits?: number };
 export type ProjectActivity = {
   date: string;
@@ -144,7 +151,13 @@ export type EffortSummary = EffortCoverageFields & {
   mixed: boolean;
   levels: Array<EffortLevelBucket & { tokenShare: number | null }>;
   reconciliationDeltaTokens: number;
+  /** Provider-reported reasoning tokens inside output for this scope. `null` when no usage event
+   * in scope carried a reasoning field (Claude never does); `reportedEvents` distinguishes an
+   * honest zero from that absence. */
+  reasoning?: EffortReasoningEvidence | null;
 };
+
+export type EffortReasoningEvidence = { outputTokens: number; reasoningOutputTokens: number; reportedEvents: number };
 
 export type EffortGroup = "total" | "day" | "project" | "model" | "provider";
 
@@ -515,6 +528,7 @@ export type DashboardData = {
   models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:string[];priced:boolean;warpCredits?:number}>;
   /** Models ccusage had no rate card for; their tokens are real but excluded from every cost total. */
   unpricedModels: string[];
+  rateCard: RateCardSummary;
   quotas: {available:boolean;sourceState?:"disabled"|"history_only"|"connected"|"degraded"|"unreachable";usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;history?:QuotaHistory;status?:unknown;error?:string;collectedAt:string};
   warp: WarpData;
   rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;

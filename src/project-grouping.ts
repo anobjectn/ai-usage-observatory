@@ -201,5 +201,18 @@ export function mergeEffortSummaries(
       (sum, s) => sum + s.reconciliationDeltaTokens,
       0,
     ),
+    reasoning: mergeReasoning(present),
+  };
+}
+
+/** Reasoning evidence adds like the counts; members that reported nothing contribute nothing,
+ * and a group where no member reported stays `null` rather than becoming a false zero. */
+function mergeReasoning(summaries: EffortSummary[]): EffortSummary["reasoning"] {
+  const reported = summaries.map((s) => s.reasoning).filter((r): r is NonNullable<typeof r> => Boolean(r));
+  if (reported.length === 0) return null;
+  return {
+    outputTokens: reported.reduce((sum, r) => sum + r.outputTokens, 0),
+    reasoningOutputTokens: reported.reduce((sum, r) => sum + r.reasoningOutputTokens, 0),
+    reportedEvents: reported.reduce((sum, r) => sum + r.reportedEvents, 0),
   };
 }

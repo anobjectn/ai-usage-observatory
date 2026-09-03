@@ -178,6 +178,20 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    id: 7,
+    up(db) {
+      // The LiteLLM rate card is a few hundred KB, so it gets a single-row table of its own
+      // rather than a `settings` key: `getSettings()` ships every setting to the dashboard.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS rate_card_cache (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          fetched_at TEXT NOT NULL,
+          card_json TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database, applied: Migration[] = migrations) {
