@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { modelSignalSlopes } from "./model-slope";
+import { DEFAULT_SLOPE_SORT, modelSignalSlopes, nextSlopeSort } from "./model-slope";
 
 const model = (
   rawName: string,
@@ -39,4 +39,32 @@ test("handles zero totals without dividing by zero", () => {
   const slopes = modelSignalSlopes([model("a", 10, 0, 0)]);
   expect(slopes[0].shares.cost).toBe(0);
   expect(slopes[0].shares.output).toBe(0);
+});
+
+test("the primary measure picks the shown set and the secondary breaks ties", () => {
+  const slopes = modelSignalSlopes(
+    [
+      model("heavy", 100, 1, 1),
+      model("pricey", 10, 50, 1),
+      model("also-pricey", 10, 50, 9),
+    ],
+    2,
+    ["cost", "output", "tokens"],
+  );
+  expect(slopes.map((entry) => entry.rawName)).toEqual(["also-pricey", "pricey"]);
+  expect(slopes[0].ranks).toEqual({ cost: 1, output: 1, tokens: 1 });
+  expect(slopes[1].ranks).toEqual({ cost: 2, output: 2, tokens: 2 });
+});
+
+test("clicking a heading promotes it and demotes the old primary to tie-break", () => {
+  const first = nextSlopeSort(DEFAULT_SLOPE_SORT, "cost");
+  expect(first).toEqual({ order: ["cost", "tokens", "output"], direction: "desc" });
+  const second = nextSlopeSort(first, "output");
+  expect(second).toEqual({ order: ["output", "cost", "tokens"], direction: "desc" });
+  expect(nextSlopeSort(second, "output").direction).toBe("asc");
+  // Leaving an ascending primary for another column resets to descending.
+  expect(nextSlopeSort(nextSlopeSort(second, "output"), "tokens")).toEqual({
+    order: ["tokens", "output", "cost"],
+    direction: "desc",
+  });
 });

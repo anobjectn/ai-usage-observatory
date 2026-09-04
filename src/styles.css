@@ -305,7 +305,7 @@ select { border:0;background:transparent;color:var(--text);height:100%;padding:0
 .model-signal-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .slope-chart{position:relative;margin-top:4px}
 .slope-chart svg{position:absolute;inset:0;width:100%;height:100%}
-.slope-chart__column{position:absolute;top:2px;transform:translateX(-50%);font:10px var(--font-label);letter-spacing:.08em;color:var(--dim)}
+.slope-chart__frame{position:relative}.slope-chart__sort{position:absolute;top:6px;z-index:1;transform:translateX(-50%);display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:0;font:10px var(--font-label);letter-spacing:.08em;color:var(--dim);cursor:pointer}.slope-chart__sort span{font-size:11px;color:var(--line-bright)}.slope-chart__sort[data-role=secondary] span{font-size:8px;color:var(--dim)}.slope-chart__sort:hover,.slope-chart__sort:focus-visible,.slope-chart__sort[data-role=primary]{color:var(--accent)}.slope-chart__sort[data-role=primary] span{color:var(--accent)}
 .slope-chart__dot{position:absolute;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);border:2px solid var(--surface);box-sizing:content-box;cursor:default}
 .slope-chart__dot[data-dim],.slope-chart__name[data-dim],.slope-chart__end[data-dim]{opacity:.28}
 .slope-chart__name{position:absolute;left:0;max-width:21%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;gap:1px;background:none;border:0;padding:0 8px 0 0;text-align:right;cursor:default;font:inherit}

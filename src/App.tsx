@@ -120,7 +120,13 @@ import {
   type SceneEffects,
 } from "./scene";
 import { dailyHeadroomSeries, providerHeadroom, type DailyHeadroom } from "./quota-headroom";
-import { modelSignalSlopes, type SlopeMeasure } from "./model-slope";
+import {
+  DEFAULT_SLOPE_SORT,
+  modelSignalSlopes,
+  nextSlopeSort,
+  type SlopeMeasure,
+  type SlopeSort,
+} from "./model-slope";
 import {
   mergeEffortSummaries,
   mergeProjectSummaries,
@@ -2356,9 +2362,14 @@ function modelDistribution(rows: MetricRow[], metric: Metric) {
  * tokens, cost, and output. The three columns share one scale — rank within the
  * shown set — so a line that dives or climbs is the story: a model that is
  * heavy in tokens but cheap, or expensive relative to what it handed back.
- * Endpoint labels carry the values; middle standings surface on hover. */
+ * Headings sort: the clicked measure becomes the leftmost column and picks the
+ * shown set, the previous primary slides to the middle as the tie-break, and
+ * re-clicking the primary flips the rank axis. Endpoint labels carry the
+ * values; middle standings surface on hover. */
 function ModelSignalSlope({
   models,
+  sort,
+  onSort,
 }: {
   models: Array<{
     rawName: string;
@@ -2368,10 +2379,12 @@ function ModelSignalSlope({
     output: number;
     color: string;
   }>;
+  sort: SlopeSort;
+  onSort: (measure: SlopeMeasure) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   // The same model name can appear once per agent, so identity is positional.
-  const slopes = modelSignalSlopes(models, 8).map((model, index) => ({
+  const slopes = modelSignalSlopes(models, 8, sort.order).map((model, index) => ({
     ...model,
     slopeKey: `${model.rawName}:${index}`,
   }));
@@ -2379,12 +2392,18 @@ function ModelSignalSlope({
   const rowHeight = 34;
   const topPad = 30;
   const height = topPad + slopes.length * rowHeight + 6;
-  const columns = [
-    { measure: "tokens" as const, label: "TOKENS", x: 24 },
-    { measure: "cost" as const, label: "API $", x: 55 },
-    { measure: "output" as const, label: "OUTPUT", x: 86 },
-  ];
-  const rankY = (rank: number) => topPad + (rank - 0.5) * rowHeight;
+  const columnX = [24, 55, 86];
+  const columns = sort.order.map((measure, index) => ({
+    measure,
+    label: SLOPE_MEASURE_LABELS[measure],
+    x: columnX[index],
+    role: index === 0 ? "primary" : index === 1 ? "secondary" : undefined,
+  }));
+  const [primary, secondary, last] = columns;
+  // Ascending flips the whole rank axis so the lines keep their shape, mirrored.
+  const rankY = (rank: number) =>
+    topPad +
+    ((sort.direction === "asc" ? slopes.length + 1 - rank : rank) - 0.5) * rowHeight;
   const valueLabel = (model: (typeof slopes)[number], measure: SlopeMeasure) =>
     measure === "cost" ? formatMoney(model.cost) : formatCompact(measure === "tokens" ? model.tokens : model.output);
   const summary = slopes
@@ -2395,91 +2414,124 @@ function ModelSignalSlope({
     .join("; ");
   const dimmed = (slopeKey: string) => hovered !== null && hovered !== slopeKey;
   return (
-    <div
-      className="slope-chart"
-      style={{ height }}
-      role="img"
-      aria-label={`Model standing across tokens, API cost, and output. ${summary}`}
-      onMouseLeave={() => setHovered(null)}
-    >
-      <svg
-        viewBox={`0 0 100 ${height}`}
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        {slopes.map((model) => (
-          <polyline
-            key={model.slopeKey}
-            points={columns
-              .map((column) => `${column.x},${rankY(model.ranks[column.measure])}`)
-              .join(" ")}
-            fill="none"
-            stroke={model.color}
-            strokeWidth={hovered === model.slopeKey ? 3 : 2}
-            strokeOpacity={dimmed(model.slopeKey) ? 0.18 : 0.9}
-            vectorEffect="non-scaling-stroke"
-            strokeLinecap="round"
-          />
-        ))}
-      </svg>
+    <div className="slope-chart__frame">
       {columns.map((column) => (
-        <span
+        <button
           key={column.measure}
-          className="slope-chart__column"
+          type="button"
+          className="slope-chart__sort"
+          data-role={column.role}
           style={{ left: `${column.x}%` }}
+          aria-pressed={column.role === "primary"}
+          aria-label={
+            column.role === "primary"
+              ? `Sorted by ${column.label}, ${sort.direction === "desc" ? "highest first" : "lowest first"}. Flip direction`
+              : `Sort by ${column.label}${column.role === "secondary" ? " (current tie-break)" : ""}`
+          }
+          title={
+            column.role === "primary"
+              ? "Primary sort · click to flip"
+              : column.role === "secondary"
+                ? "Secondary sort · breaks ties in the primary"
+                : "Click to sort by this column"
+          }
+          onClick={() => onSort(column.measure)}
         >
           {column.label}
-        </span>
+          <span aria-hidden="true">
+            {column.role === "primary"
+              ? sort.direction === "desc"
+                ? "↓"
+                : "↑"
+              : column.role === "secondary"
+                ? "2"
+                : "↕"}
+          </span>
+        </button>
       ))}
-      {slopes.map((model) => (
-        <Fragment key={model.slopeKey}>
-          {columns.map((column) => (
-            <i
-              key={column.measure}
-              className="slope-chart__dot"
-              data-dim={dimmed(model.slopeKey) ? "" : undefined}
-              style={{
-                left: `${column.x}%`,
-                top: rankY(model.ranks[column.measure]),
-                background: model.color,
-              }}
-              title={`${model.name} · ${column.label.toLowerCase()} ${valueLabel(model, column.measure)} · ${Math.round(model.shares[column.measure])}% of shown`}
-              onMouseEnter={() => setHovered(model.slopeKey)}
+      <div
+        className="slope-chart"
+        style={{ height }}
+        role="img"
+        aria-label={`Model standing across ${columns.map((column) => column.label).join(", ")}, sorted by ${primary.label}. ${summary}`}
+        onMouseLeave={() => setHovered(null)}
+      >
+        <svg
+          viewBox={`0 0 100 ${height}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          {slopes.map((model) => (
+            <polyline
+              key={model.slopeKey}
+              points={columns
+                .map((column) => `${column.x},${rankY(model.ranks[column.measure])}`)
+                .join(" ")}
+              fill="none"
+              stroke={model.color}
+              strokeWidth={hovered === model.slopeKey ? 3 : 2}
+              strokeOpacity={dimmed(model.slopeKey) ? 0.18 : 0.9}
+              vectorEffect="non-scaling-stroke"
+              strokeLinecap="round"
             />
           ))}
-          <button
-            type="button"
-            className="slope-chart__name"
-            data-dim={dimmed(model.slopeKey) ? "" : undefined}
-            style={{ top: rankY(model.ranks.tokens) }}
-            onMouseEnter={() => setHovered(model.slopeKey)}
-            onFocus={() => setHovered(model.slopeKey)}
-            onBlur={() => setHovered(null)}
-            aria-label={`Highlight ${model.name}`}
-          >
-            <span>{model.name}</span>
-            <b>{formatCompact(model.tokens)}</b>
-          </button>
-          <span
-            className="slope-chart__end"
-            data-dim={dimmed(model.slopeKey) ? "" : undefined}
-            style={{ top: rankY(model.ranks.output) }}
-          >
-            {formatCompact(model.output)}
-          </span>
-          {hovered === model.slopeKey && (
-            <span
-              className="slope-chart__mid"
-              style={{ left: `${columns[1].x}%`, top: rankY(model.ranks.cost) }}
+        </svg>
+        {slopes.map((model) => (
+          <Fragment key={model.slopeKey}>
+            {columns.map((column) => (
+              <i
+                key={column.measure}
+                className="slope-chart__dot"
+                data-dim={dimmed(model.slopeKey) ? "" : undefined}
+                style={{
+                  left: `${column.x}%`,
+                  top: rankY(model.ranks[column.measure]),
+                  background: model.color,
+                }}
+                title={`${model.name} · ${column.label.toLowerCase()} ${valueLabel(model, column.measure)} · ${Math.round(model.shares[column.measure])}% of shown`}
+                onMouseEnter={() => setHovered(model.slopeKey)}
+              />
+            ))}
+            <button
+              type="button"
+              className="slope-chart__name"
+              data-dim={dimmed(model.slopeKey) ? "" : undefined}
+              style={{ top: rankY(model.ranks[primary.measure]) }}
+              onMouseEnter={() => setHovered(model.slopeKey)}
+              onFocus={() => setHovered(model.slopeKey)}
+              onBlur={() => setHovered(null)}
+              aria-label={`Highlight ${model.name}`}
             >
-              {formatMoney(model.cost)}
+              <span>{model.name}</span>
+              <b>{valueLabel(model, primary.measure)}</b>
+            </button>
+            <span
+              className="slope-chart__end"
+              data-dim={dimmed(model.slopeKey) ? "" : undefined}
+              style={{ top: rankY(model.ranks[last.measure]) }}
+            >
+              {valueLabel(model, last.measure)}
             </span>
-          )}
-        </Fragment>
-      ))}
+            {hovered === model.slopeKey && (
+              <span
+                className="slope-chart__mid"
+                style={{ left: `${secondary.x}%`, top: rankY(model.ranks[secondary.measure]) }}
+              >
+                {valueLabel(model, secondary.measure)}
+              </span>
+            )}
+          </Fragment>
+        ))}
+      </div>
     </div>
   );
 }
+
+const SLOPE_MEASURE_LABELS: Record<SlopeMeasure, string> = {
+  tokens: "TOKENS",
+  cost: "API $",
+  output: "OUTPUT",
+};
 
 /** The avatar letter follows the model family, not a guess from "gpt or not":
  * grok is xAI's, and Warp's pseudo-models are neither Claude nor GPT. */
@@ -5100,6 +5152,7 @@ function Explorer({
   setMetric: (metric: Metric) => void;
 }) {
   const [signalView, setSignalView] = useState<"slope" | "ranked">("slope");
+  const [slopeSort, setSlopeSort] = useState<SlopeSort>(DEFAULT_SLOPE_SORT);
   const modelEffortRequest = useEffortAggregate(
     "model",
     globalEffortScope(agent, dateRange, pathTag),
@@ -5233,13 +5286,22 @@ function Explorer({
             <Empty text={filterEmptyMessage(agent, metricRange, pathTag, customRange)} />
           ) : signalView === "slope" ? (
             <>
-              <ModelSignalSlope models={modelData} />
+              <ModelSignalSlope
+                models={modelData}
+                sort={slopeSort}
+                onSort={(measure) =>
+                  setSlopeSort((current) => nextSlopeSort(current, measure))
+                }
+              />
               <p className="slope-chart__note">
-                Position is rank among the shown models per column, top 8 by
-                tokens. A line that dives toward API $ is cheap for its volume;
-                one that dives toward output paid for more context than it
-                handed back. Warp-only models carry $0 here because provider
-                credits never become dollars.
+                Position is rank among the shown models per column, top 8 by{" "}
+                {SLOPE_MEASURE_LABELS[slopeSort.order[0]]} with ties broken by{" "}
+                {SLOPE_MEASURE_LABELS[slopeSort.order[1]]}. Click a heading to
+                sort by it; the last primary becomes the tie-break. A line that
+                dives toward API $ is cheap for its volume; one that dives toward
+                output paid for more context than it handed back. Warp-only
+                models carry $0 here because provider credits never become
+                dollars.
               </p>
             </>
           ) : (
