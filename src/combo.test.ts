@@ -38,7 +38,7 @@ describe("effort ordering", () => {
   });
 
   test("max has an explicit effort-only colour distinct from unknown", () => {
-    expect(effortColor("max")).toBe("var(--red)");
+    expect(effortColor("max")).toBe("var(--color-effort-max)");
     expect(effortColor("max")).not.toBe(effortColor("unknown"));
     expect(effortColor("max")).not.toBe(effortColor("xhigh"));
   });
@@ -130,7 +130,7 @@ describe("labels and colour", () => {
     const max = comboColor({ family: "claude-opus-5", effort: "max" });
     expect(low).toContain("white");
     expect(low).not.toContain("black");
-    expect(max).toBe("var(--orange)");
+    expect(max).toBe("var(--color-series-3)");
     expect(low).not.toBe(max);
   });
 

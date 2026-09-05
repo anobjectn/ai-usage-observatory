@@ -28,6 +28,8 @@ import {
   sessionRangeLabel,
   shareStructure,
   withoutCacheMetricRow,
+  normalizeTextScale,
+  textScaleBounds,
 } from "./App";
 import type {
   EffortIndexStatus,
@@ -1088,4 +1090,21 @@ test("shareStructure never resurrects removed keys, rows, or mismatched shapes",
   expect(shareStructure(null, { rows: [1] })).toEqual({ rows: [1] });
   const identical = { a: [1, 2], b: { c: "x" } };
   expect(shareStructure(identical, structuredClone(identical))).toBe(identical);
+});
+
+test("normalizeTextScale keeps values the stepper can show and rejects the rest", () => {
+  expect(normalizeTextScale("90", textScaleBounds.data)).toBe(90);
+  expect(normalizeTextScale("150", textScaleBounds.data)).toBe(150);
+  // The stepper reaches 180, so a saved 180 must survive a reload and anything above it falls back.
+  expect(normalizeTextScale("180", textScaleBounds.data)).toBe(180);
+  expect(normalizeTextScale("250", textScaleBounds.data)).toBe(125);
+  expect(normalizeTextScale("80", textScaleBounds.data)).toBe(125);
+  expect(normalizeTextScale("abc", textScaleBounds.data)).toBe(125);
+  expect(normalizeTextScale(null, textScaleBounds.data)).toBe(125);
+  expect(normalizeTextScale(undefined, textScaleBounds.data)).toBe(125);
+  expect(normalizeTextScale("", textScaleBounds.data)).toBe(125);
+  // Off-grid values snap to the nearest step rather than showing a value no button reaches.
+  expect(normalizeTextScale("134", textScaleBounds.data)).toBe(130);
+  expect(normalizeTextScale("130", textScaleBounds.interface)).toBe(130);
+  expect(normalizeTextScale("140", textScaleBounds.interface)).toBe(100);
 });

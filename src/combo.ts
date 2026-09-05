@@ -49,7 +49,7 @@ export function comboKind(rawModel: unknown): ComboKind {
   return "interactive";
 }
 
-const fallbackPalette = ["#7fb3a5", "#b39ddb", "#e6b86a", "#8fa9d9", "#cf8fb1", "#86c58a"];
+const fallbackPalette = [1, 2, 3, 4, 5, 6].map((index) => `var(--color-family-fallback-${index})`);
 const neutral = "var(--line-bright)";
 
 function stablePaletteColor(value: string) {
@@ -58,18 +58,20 @@ function stablePaletteColor(value: string) {
   return fallbackPalette[hash % fallbackPalette.length];
 }
 
+/** Effort hues are their own tokens so a custom accent never recolours a level. */
 const fixedEffortColors: Record<string, string> = {
-  low: "var(--aqua)",
-  medium: "var(--accent)",
-  high: "var(--orange)",
-  xhigh: "var(--violet)",
-  max: "var(--red)",
+  low: "var(--color-effort-low)",
+  medium: "var(--color-effort-medium)",
+  high: "var(--color-effort-high)",
+  xhigh: "var(--color-effort-xhigh)",
+  max: "var(--color-effort-max)",
 };
+const unknownEffortColor = "var(--color-effort-unknown)";
 
 /** Values the providers add later still get a stable, repeatable colour rather than a random one
  * or a silent drop. Colour is never the only label. */
 export function effortColor(effort: string) {
-  if (effort === UNKNOWN_COMBO_KEY || effort === OTHER_COMBO_KEY || effort === "") return neutral;
+  if (effort === UNKNOWN_COMBO_KEY || effort === OTHER_COMBO_KEY || effort === "") return unknownEffortColor;
   return fixedEffortColors[effort] ?? stablePaletteColor(effort);
 }
 
@@ -88,11 +90,11 @@ export function effortShortLabel(effort: string | null) {
 }
 
 const fixedFamilyColors: Record<string, string> = {
-  "claude-fable-5": "var(--violet)",
-  "claude-opus-5": "var(--orange)",
-  "claude-sonnet-5": "var(--accent)",
-  "claude-haiku-4-5": "var(--aqua)",
-  "gpt-5.6-sol": "#8fa9d9",
+  "claude-fable-5": "var(--color-series-4)",
+  "claude-opus-5": "var(--color-series-3)",
+  "claude-sonnet-5": "var(--color-series-5)",
+  "claude-haiku-4-5": "var(--color-series-2)",
+  "gpt-5.6-sol": "var(--color-family-fallback-4)",
 };
 
 /** Model families need their own colours: provider colours would make every Claude or Codex

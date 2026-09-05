@@ -1,0 +1,13 @@
+/* Import order is the cascade: tokens, resets, shared primitives, app chrome, one file per view,
+   then the motion policy last so reduced motion wins everywhere. */
+@import "./tokens.css";
+@import "./base.css";
+@import "./primitives.css";
+@import "./chrome.css";
+@import "./views/models.css";
+@import "./views/sessions.css";
+@import "./views/explorer.css";
+@import "./views/projects.css";
+@import "./views/data.css";
+@import "./views/overview.css";
+@import "./motion.css";

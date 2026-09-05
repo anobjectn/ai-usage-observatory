@@ -1,0 +1,24 @@
+/* Element resets. */
+
+* {
+  box-sizing: border-box;
+}
+:where(h1, h2, h3, h4, h5, h6) {
+  font-family:var(--font-heading);
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+}
+button, input, select, textarea {
+  font: inherit;
+}
+button {
+  color:inherit;
+}
+svg {
+  width: 18px;
+  height: 18px;
+}

@@ -12,10 +12,10 @@ import type { RateCardSummary } from "../types";
 /** Same hues the Explorer composition bar assigns to these four types, so a reader can carry
  * the colour from one view to the other. */
 const tokenTypeColors: Record<TokenType, string> = {
-  cacheRead: "#b7f25c",
-  cacheWrite: "#ff9e64",
-  output: "#d7b3ff",
-  input: "#58d9cf",
+  cacheRead: "var(--color-series-1)",
+  cacheWrite: "var(--color-series-3)",
+  output: "var(--color-series-4)",
+  input: "var(--color-series-2)",
 };
 
 export function formatShare(share: number | null) {

@@ -18,10 +18,11 @@ function CompositionBar({ parts, label }: { parts: Array<{ key: string; value: n
 }
 
 const compositionKeys = [
-  { key: "direct input", field: "directInput", color: "var(--aqua)" },
-  { key: "cache read", field: "cacheRead", color: "var(--accent)" },
-  { key: "cache write", field: "cacheCreation", color: "var(--violet)" },
-  { key: "output", field: "output", color: "var(--orange)" },
+  // Same series slots as the Explorer composition bar and the token-type tables.
+  { key: "direct input", field: "directInput", color: "var(--color-series-2)" },
+  { key: "cache read", field: "cacheRead", color: "var(--color-series-1)" },
+  { key: "cache write", field: "cacheCreation", color: "var(--color-series-3)" },
+  { key: "output", field: "output", color: "var(--color-series-4)" },
 ] as const;
 
 export function InferenceVolume({ insights }: { insights: Insights }) {

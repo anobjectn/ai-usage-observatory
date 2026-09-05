@@ -1,0 +1,116 @@
+/* Design tokens. Runtime-written properties (accent, provider colours, both text scales) keep these names. */
+
+:root {
+  /* Font roles: replace these three values to theme the entire interface. */
+  --sans-font: "Avenir Next", Avenir, sans-serif;
+  --serif-font: "Iowan Old Style", Georgia, serif;
+  --mono-font: "IBM Plex Mono", Menlo, monospace;
+  --font-body: var(--sans-font);
+  --font-heading: var(--sans-font);
+  --font-label: var(--mono-font);
+  --font-weight-medium: 500;
+  --bg: #07100f;
+  --surface: #0d1715;
+  --surface-2: #111d1a;
+  --surface-3: #17231f;
+  --line: #24322e;
+  --line-bright: #35463f;
+  --text: #ecf2ef;
+  --muted: #91a19b;
+  --dim: #65736e;
+  --accent: #78a8ff;
+  --anthropic-color: #d97757;
+  --openai-color: #eaeaea;
+  --warp-color: #d7b3ff;
+  --aqua: #58d9cf;
+  --orange: #ff9e64;
+  --violet: #d7b3ff;
+  --red: #ff786f;
+  --radius: var(--radius-panel);
+  --shadow: var(--shadow-panel);
+  --data-text-scale: 1.25;
+  --data-text-primary: 15px;
+  --data-text-secondary: 12.5px;
+  --data-text-compact: 11.25px;
+  --data-text-strong: 18.75px;
+  --ease-standard: cubic-bezier(.4,0,.2,1);
+  --ease-decelerate: cubic-bezier(0,0,.2,1);
+  --ease-accelerate: cubic-bezier(.4,0,1,1);
+  --ease-sidebar: cubic-bezier(.22,1,.36,1);
+  --duration-speedy: 140ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --duration-sidebar: 340ms;
+  --link-underline-offset: .3em;
+  /* ---- Foundation tokens (design-system migration). Unused until a consumer is migrated. ---- */
+  /* Interface type: base px × the Appearance "Interface text size" scalar, written by App.tsx.
+     Data text keeps its own --data-text-* tokens and scalar. */
+  --type-scale-ui: 1;
+  --text-2xs: calc(11px * var(--type-scale-ui));
+  --text-xs: calc(12px * var(--type-scale-ui));
+  --text-sm: calc(13px * var(--type-scale-ui));
+  --text-md: calc(15px * var(--type-scale-ui));
+  --text-lg: calc(18px * var(--type-scale-ui));
+  --text-xl: calc(22px * var(--type-scale-ui));
+  --text-2xl: calc(28px * var(--type-scale-ui));
+  --text-3xl: calc(36px * var(--type-scale-ui));
+  --text-4xl: calc(44px * var(--type-scale-ui));
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --tracking-label: .06em;
+  --tracking-tight: -.025em;
+  /* Space: 4px grid. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  /* Radius roles. */
+  --radius-chip: 4px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-panel: 16px;
+  --radius-pill: 999px;
+  /* Elevation roles. Panel keeps today's value until step 14 profiles it. */
+  --shadow-panel: 0 24px 80px rgba(0,0,0,.28);
+  --shadow-floating: 0 20px 48px rgba(0,0,0,.58);
+  --shadow-modal: 0 35px 100px rgba(0,0,0,.6);
+  /* Status colours: stable across any user accent. */
+  --color-up: #7dd8a5;
+  --color-down: #f08bb4;
+  --color-warn: #f2d15c;
+  --color-danger: #ff786f;
+  --color-info: #78a8ff;
+  /* Effort levels: today's hues, decoupled from the accent (medium was var(--accent)). */
+  --color-effort-low: #58d9cf;
+  --color-effort-medium: #78a8ff;
+  --color-effort-high: #ff9e64;
+  --color-effort-xhigh: #d7b3ff;
+  --color-effort-max: #ff786f;
+  --color-effort-unknown: #35463f;
+  /* Chart series: the App.tsx palette, in order. */
+  --color-series-1: #b7f25c;
+  --color-series-2: #58d9cf;
+  --color-series-3: #ff9e64;
+  --color-series-4: #d7b3ff;
+  --color-series-5: #78a8ff;
+  --color-series-6: #f2d15c;
+  /* Families without a fixed colour draw from this stable secondary set (see combo.ts). */
+  --color-family-fallback-1: #7fb3a5;
+  --color-family-fallback-2: #b39ddb;
+  --color-family-fallback-3: #e6b86a;
+  --color-family-fallback-4: #8fa9d9;
+  --color-family-fallback-5: #cf8fb1;
+  --color-family-fallback-6: #86c58a;
+  color-scheme: dark;
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+}

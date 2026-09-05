@@ -252,14 +252,10 @@ const nav: Array<{ id: View; label: string; icon: typeof Orbit }> = [
   { id: "models", label: "Models", icon: Atom },
   { id: "sources", label: "Data", icon: Gauge },
 ];
-const palette = [
-  "#b7f25c",
-  "#58d9cf",
-  "#ff9e64",
-  "#d7b3ff",
-  "#78a8ff",
-  "#f2d15c",
-];
+/** Series colours live in styles/tokens.css as --color-series-*; SVG presentation attributes and
+ * inline styles both resolve var() so charts and marks read the same tokens. The canvas scene
+ * and favicon keep literal hex because they cannot. */
+const palette = [1, 2, 3, 4, 5, 6].map((index) => `var(--color-series-${index})`);
 const defaultAccent = "#78a8ff";
 const defaultProviderColors: ProviderColors = {
   anthropic: "#d97757",
@@ -278,9 +274,29 @@ const accentStorageKey = "usage-observatory:accent";
 const providerColorsStorageKey = "usage-observatory:provider-colors";
 const favoriteAccentsStorageKey = "usage-observatory:favorite-accents";
 const dataTextScaleStorageKey = "usage-observatory:data-text-scale";
+const interfaceTextScaleStorageKey = "usage-observatory:interface-text-scale";
 const sidebarCollapsedStorageKey = "usage-observatory:sidebar-collapsed";
 const quickOverviewModeStorageKey = "usage-observatory:quick-overview-mode";
 const defaultDataTextScale = 125;
+const defaultInterfaceTextScale = 100;
+/** The stepper's range and the range accepted back from storage must agree, or a saved value
+ * silently snaps to the default on reload. Both steppers read their bounds from here. */
+export const textScaleBounds = {
+  data: { min: 90, max: 180, fallback: defaultDataTextScale },
+  interface: { min: 90, max: 130, fallback: defaultInterfaceTextScale },
+} as const;
+
+/** Accepts a stored or typed percentage and returns a value the control can show: finite,
+ * inside the bounds, on the stepper's 10-point grid. Anything else is the default. */
+export function normalizeTextScale(
+  raw: unknown,
+  bounds: { min: number; max: number; fallback: number },
+) {
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (raw === null || raw === undefined || raw === "" || !Number.isFinite(value)) return bounds.fallback;
+  const snapped = Math.round(value / 10) * 10;
+  return snapped >= bounds.min && snapped <= bounds.max ? snapped : bounds.fallback;
+}
 
 function faviconHref(accent: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="1.5 1.5 21 21" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.341 6.484A10 10 0 0 1 10.266 21.85"/><path d="M3.659 17.516A10 10 0 0 1 13.74 2.152"/><circle cx="12" cy="12" r="3"/><circle cx="19" cy="5" r="2" fill="${accent}"/><circle cx="5" cy="19" r="2" fill="${accent}"/></svg>`;
@@ -340,12 +356,20 @@ function savedProviderColors(): ProviderColors {
 
 function savedDataTextScale() {
   try {
-    const value = Number(localStorage.getItem(dataTextScaleStorageKey));
-    return Number.isFinite(value) && value >= 90 && value <= 150
-      ? value
-      : defaultDataTextScale;
+    return normalizeTextScale(localStorage.getItem(dataTextScaleStorageKey), textScaleBounds.data);
   } catch {
     return defaultDataTextScale;
+  }
+}
+
+function savedInterfaceTextScale() {
+  try {
+    return normalizeTextScale(
+      localStorage.getItem(interfaceTextScaleStorageKey),
+      textScaleBounds.interface,
+    );
+  } catch {
+    return defaultInterfaceTextScale;
   }
 }
 
@@ -10284,6 +10308,48 @@ function ColorControl({
   );
 }
 
+function TextScaleSetting({
+  label,
+  detail,
+  value,
+  bounds,
+  onChange,
+}: {
+  label: string;
+  detail: string;
+  value: number;
+  bounds: { min: number; max: number };
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="data-text-setting">
+      <div>
+        <b>{label}</b>
+        <small>{detail}</small>
+      </div>
+      <div className="data-text-control">
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(bounds.min, value - 10))}
+          disabled={value <= bounds.min}
+          aria-label={`Decrease ${label.toLowerCase()}`}
+        >
+          −
+        </button>
+        <output aria-live="polite">{value}%</output>
+        <button
+          type="button"
+          onClick={() => onChange(Math.min(bounds.max, value + 10))}
+          disabled={value >= bounds.max}
+          aria-label={`Increase ${label.toLowerCase()}`}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppearanceModal({
   accent,
   onChange,
@@ -10293,6 +10359,8 @@ function AppearanceModal({
   onFavoriteAccentsChange,
   dataTextScale,
   onDataTextScaleChange,
+  interfaceTextScale,
+  onInterfaceTextScaleChange,
   sceneEffects,
   onSceneEffectsChange,
   reducedMotion,
@@ -10307,6 +10375,8 @@ function AppearanceModal({
   onFavoriteAccentsChange: (value: string[]) => void;
   dataTextScale: number;
   onDataTextScaleChange: (value: number) => void;
+  interfaceTextScale: number;
+  onInterfaceTextScaleChange: (value: number) => void;
   sceneEffects: SceneEffects;
   onSceneEffectsChange: (value: SceneEffects) => void;
   reducedMotion: boolean;
@@ -10321,6 +10391,7 @@ function AppearanceModal({
     providerColors: { ...providerColors },
     favoriteAccents: [...favoriteAccents],
     dataTextScale,
+    interfaceTextScale,
     sceneEffects: { ...sceneEffects },
   });
   const starting = initial.current;
@@ -10336,6 +10407,7 @@ function AppearanceModal({
         ),
     ) +
     Number(dataTextScale !== starting.dataTextScale) +
+    Number(interfaceTextScale !== starting.interfaceTextScale) +
     Object.keys(starting.sceneEffects).reduce(
       (count, key) =>
         count +
@@ -10350,6 +10422,7 @@ function AppearanceModal({
     onProviderColorsChange({ ...starting.providerColors });
     onFavoriteAccentsChange([...starting.favoriteAccents]);
     onDataTextScaleChange(starting.dataTextScale);
+    onInterfaceTextScaleChange(starting.interfaceTextScale);
     onSceneEffectsChange({ ...starting.sceneEffects });
     setEditingFavorites(false);
   };
@@ -10386,6 +10459,7 @@ function AppearanceModal({
     accent,
     changeCount,
     dataTextScale,
+    interfaceTextScale,
     dismissal,
     favoriteAccents,
     onClose,
@@ -10518,35 +10592,20 @@ function AppearanceModal({
               </button>
             </div>
           )}
-          <div className="data-text-setting">
-            <div>
-              <b>Data text size</b>
-              <small>Tables and dense data rows across every view</small>
-            </div>
-            <div className="data-text-control">
-              <button
-                type="button"
-                onClick={() =>
-                  onDataTextScaleChange(Math.max(90, dataTextScale - 10))
-                }
-                disabled={dataTextScale <= 90}
-                aria-label="Decrease data text size"
-              >
-                −
-              </button>
-              <output aria-live="polite">{dataTextScale}%</output>
-              <button
-                type="button"
-                onClick={() =>
-                  onDataTextScaleChange(Math.min(250, dataTextScale + 10))
-                }
-                disabled={dataTextScale >= 250}
-                aria-label="Increase data text size"
-              >
-                +
-              </button>
-            </div>
-          </div>
+          <TextScaleSetting
+            label="Data text size"
+            detail="Tables and dense data rows across every view"
+            value={dataTextScale}
+            bounds={textScaleBounds.data}
+            onChange={onDataTextScaleChange}
+          />
+          <TextScaleSetting
+            label="Interface text size"
+            detail="Labels, captions, headings, and controls; data text keeps its own size"
+            value={interfaceTextScale}
+            bounds={textScaleBounds.interface}
+            onChange={onInterfaceTextScaleChange}
+          />
           <div className="scene-effects">
             <span className="appearance-label">Observatory scene effects</span>
             {sceneEffectOptions.map((option) => {
@@ -11549,6 +11608,7 @@ export function App() {
     useState<ProviderColors>(savedProviderColors);
   const [favoriteAccents, setFavoriteAccents] = useState(savedFavoriteAccents);
   const [dataTextScale, setDataTextScale] = useState(savedDataTextScale);
+  const [interfaceTextScale, setInterfaceTextScale] = useState(savedInterfaceTextScale);
   const [sceneEffects, setSceneEffects] =
     useState<SceneEffects>(savedSceneEffects);
   const reducedMotion = usePrefersReducedMotion();
@@ -11658,6 +11718,16 @@ export function App() {
       localStorage.setItem(dataTextScaleStorageKey, String(dataTextScale));
     } catch {}
   }, [dataTextScale]);
+  // One scalar; the type tokens in styles/tokens.css multiply their base sizes by it in calc().
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--type-scale-ui",
+      String(interfaceTextScale / 100),
+    );
+    try {
+      localStorage.setItem(interfaceTextScaleStorageKey, String(interfaceTextScale));
+    } catch {}
+  }, [interfaceTextScale]);
   const agents = useMemo(
     () =>
       data
@@ -11797,6 +11867,7 @@ export function App() {
     setProviderColors(defaultProviderColors);
     setFavoriteAccents(defaultFavoriteAccents);
     setDataTextScale(defaultDataTextScale);
+    setInterfaceTextScale(defaultInterfaceTextScale);
     setSceneEffects(defaultSceneEffects);
   };
   if (loading && !data)
@@ -12153,6 +12224,8 @@ export function App() {
           onFavoriteAccentsChange={setFavoriteAccents}
           dataTextScale={dataTextScale}
           onDataTextScaleChange={setDataTextScale}
+          interfaceTextScale={interfaceTextScale}
+          onInterfaceTextScaleChange={setInterfaceTextScale}
           sceneEffects={sceneEffects}
           onSceneEffectsChange={setSceneEffects}
           reducedMotion={reducedMotion}

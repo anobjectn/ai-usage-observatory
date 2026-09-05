@@ -87,10 +87,10 @@ describe("digest v2 decoding", () => {
 
 describe("effort presentation", () => {
   test("known values get fixed colours and unknown values a neutral one", () => {
-    expect(effortColor("low")).toBe("var(--aqua)");
-    expect(effortColor("xhigh")).toBe("var(--violet)");
-    expect(effortColor("unknown")).toBe("var(--line-bright)");
-    expect(effortColor("other")).toBe("var(--line-bright)");
+    expect(effortColor("low")).toBe("var(--color-effort-low)");
+    expect(effortColor("xhigh")).toBe("var(--color-effort-xhigh)");
+    expect(effortColor("unknown")).toBe("var(--color-effort-unknown)");
+    expect(effortColor("other")).toBe("var(--color-effort-unknown)");
   });
 
   test("an unrecognised value gets a stable, repeatable colour", () => {
