@@ -11,7 +11,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import { version as appVersion } from "../package.json";
 import {
   buildEffortDaySeries,
@@ -421,17 +421,6 @@ function modelsHref(models: Iterable<string>) {
   url.searchParams.set("view", "models");
   for (const model of models) url.searchParams.append("model", model);
   return `${url.pathname}${url.search}`;
-}
-
-function transitionModelGrid(update: () => void) {
-  const transitionDocument = document as Document & {
-    startViewTransition?: (callback: () => void) => unknown;
-  };
-  if (typeof transitionDocument.startViewTransition === "function") {
-    transitionDocument.startViewTransition(() => flushSync(update));
-  } else {
-    update();
-  }
 }
 
 const autoScrollDelayMs = 200;
@@ -9186,6 +9175,72 @@ function modelTokenTypeInputs(daily: MetricRow[], modelName: string): ModelRowIn
   return inputs;
 }
 
+type ModelSortKey =
+  | "model"
+  | "sessions"
+  | "total"
+  | "output"
+  | "input"
+  | "cacheRead"
+  | "cacheWrite"
+  | "cost"
+  | "perMtok"
+  | "outputShare";
+type ModelSort = { key: ModelSortKey; direction: "asc" | "desc" };
+type ModelTableRow = {
+  model: ReturnType<typeof aggregateModels>[number];
+  index: number;
+  sessions: Session[];
+  warpOnly: boolean;
+  warpCredits: number;
+  perMtok: number | null;
+  outputShare: number | null;
+};
+
+/** A missing value (an unpriced cost, a Warp-only output share) sorts last in both directions so
+ * flipping a column never floats the dashes to the top. */
+function modelSortValue(row: ModelTableRow, key: ModelSortKey): number | string | null {
+  switch (key) {
+    case "model":
+      return row.model.model;
+    case "sessions":
+      return row.sessions.length;
+    case "total":
+      return row.model.tokens;
+    case "output":
+      return row.warpOnly ? row.model.tokens : row.model.outputTokens;
+    case "input":
+      return row.model.inputTokens;
+    case "cacheRead":
+      return row.model.cacheReadTokens;
+    case "cacheWrite":
+      return row.model.cacheCreationTokens;
+    case "cost":
+      return row.model.priced ? row.model.cost : null;
+    case "perMtok":
+      return row.perMtok;
+    case "outputShare":
+      return row.outputShare;
+  }
+}
+
+function compareModelRows(left: ModelTableRow, right: ModelTableRow, sort: ModelSort) {
+  const a = modelSortValue(left, sort.key);
+  const b = modelSortValue(right, sort.key);
+  if (a === null || b === null) {
+    if (a === null && b === null) return left.model.model.localeCompare(right.model.model);
+    return a === null ? 1 : -1;
+  }
+  const comparison =
+    typeof a === "string" && typeof b === "string"
+      ? a.localeCompare(b)
+      : Number(a) - Number(b);
+  if (comparison !== 0) return sort.direction === "asc" ? comparison : -comparison;
+  return left.model.model.localeCompare(right.model.model);
+}
+
+const MODEL_TABLE_COLUMN_COUNT = 12;
+
 function Models({
   data,
   daily,
@@ -9201,22 +9256,14 @@ function Models({
   showCache: boolean;
   onOpenSession: (sessionId: string) => void;
 }) {
-  type ModelOrder =
-    | "total-desc"
-    | "total-asc"
-    | "output-desc"
-    | "output-asc"
-    | "input-desc"
-    | "input-asc"
-    | "cost-desc"
-    | "cost-asc";
   const [openModels, setOpenModels] = useState<Set<string>>(
     () => new Set(modelIdsFromUrl()),
   );
   const [pages, setPages] = useState<Record<string, number>>({});
   const [query, setQuery] = useState("");
-  const [usageOrder, setUsageOrder] = useState<ModelOrder>("output-desc");
-  const modelGridRef = useRef<HTMLElement | null>(null);
+  const [sort, setSort] = useState<ModelSort>({ key: "output", direction: "desc" });
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollModel = useRef<string | null>(modelIdsFromUrl().at(-1) ?? null);
   const lastUserScrollAt = useUserScrollIntent();
   const models = useMemo(
@@ -9238,7 +9285,7 @@ function Models({
       if (initialView() !== "models") return;
       const models = modelIdsFromUrl();
       pendingScrollModel.current = models.at(-1) ?? null;
-      transitionModelGrid(() => setOpenModels(new Set(models)));
+      setOpenModels(new Set(models));
     };
     window.addEventListener("popstate", syncOpenModels);
     return () => window.removeEventListener("popstate", syncOpenModels);
@@ -9263,56 +9310,52 @@ function Models({
     () => decodeEffortDigest(digestRequest.data),
     [digestRequest.data],
   );
-  const max = Math.max(...models.map((model) => model.cost), 1);
-  const visibleModels = useMemo(() => {
+  // Sessions are grouped once per model; every derived column reads from this row so sorting
+  // and rendering never recompute the join.
+  const rows = useMemo<ModelTableRow[]>(
+    () =>
+      models.map((model, index) => {
+        const modelSessions = sessions
+          .filter((session) => session.modelsUsed.includes(model.model))
+          .sort((left, right) =>
+            String(right.metadata?.lastActivity ?? right.period).localeCompare(
+              String(left.metadata?.lastActivity ?? left.period),
+            ),
+          );
+        const warpOnly =
+          model.agents.length > 0 &&
+          model.agents.every((agent) => providerKey(agent) === "warp");
+        // Credits follow the session's lead model so a mixed-model Warp session never counts
+        // its credits twice across rows.
+        const warpCredits = modelSessions.reduce(
+          (sum, session) =>
+            session.source === "warp" && session.modelsUsed[0] === model.model
+              ? sum + (session.warp?.credits ?? 0)
+              : sum,
+          0,
+        );
+        return {
+          model,
+          index,
+          sessions: modelSessions,
+          warpOnly,
+          warpCredits,
+          perMtok:
+            model.priced && model.tokens > 0 ? model.cost / (model.tokens / 1_000_000) : null,
+          outputShare: !warpOnly && model.tokens > 0 ? model.outputTokens / model.tokens : null,
+        };
+      }),
+    [models, sessions],
+  );
+  const maxCost = Math.max(...models.map((model) => model.cost), 1);
+  const visibleRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    const [metric, direction] = usageOrder.split("-") as [
-      "total" | "output" | "input" | "cost",
-      "asc" | "desc",
-    ];
-    const matches = models
-      .map((model, index) => ({ model, index }))
+    return rows
       .filter(({ model }) =>
-        `${model.model} ${model.agents.join(" ")}`
-          .toLowerCase()
-          .includes(normalizedQuery),
-      );
-    return matches.sort((left, right) => {
-      const leftWarpOnly =
-        left.model.agents.length > 0 &&
-        left.model.agents.every((agent) => providerKey(agent) === "warp");
-      const rightWarpOnly =
-        right.model.agents.length > 0 &&
-        right.model.agents.every((agent) => providerKey(agent) === "warp");
-      const leftUnavailable = metric === "cost" && !left.model.priced;
-      const rightUnavailable = metric === "cost" && !right.model.priced;
-      if (leftUnavailable !== rightUnavailable)
-        return leftUnavailable ? 1 : -1;
-      const leftValue =
-        metric === "total"
-          ? left.model.tokens
-          : metric === "output"
-          ? leftWarpOnly
-            ? left.model.tokens
-            : left.model.outputTokens
-          : metric === "input"
-            ? left.model.inputTokens
-            : left.model.cost;
-      const rightValue =
-        metric === "total"
-          ? right.model.tokens
-          : metric === "output"
-          ? rightWarpOnly
-            ? right.model.tokens
-            : right.model.outputTokens
-          : metric === "input"
-            ? right.model.inputTokens
-            : right.model.cost;
-      const comparison = leftValue - rightValue;
-      if (comparison !== 0) return direction === "asc" ? comparison : -comparison;
-      return left.model.model.localeCompare(right.model.model);
-    });
-  }, [models, query, usageOrder]);
+        `${model.model} ${model.agents.join(" ")}`.toLowerCase().includes(normalizedQuery),
+      )
+      .sort((left, right) => compareModelRows(left, right, sort));
+  }, [rows, query, sort]);
   useEffect(() => {
     const model = pendingScrollModel.current;
     if (!model) return;
@@ -9320,15 +9363,15 @@ function Models({
     const timeout = window.setTimeout(() => {
       if (performance.now() - lastUserScrollAt.current < userScrollCancelWindowMs)
         return;
-      const card = [
-        ...(modelGridRef.current?.querySelectorAll<HTMLElement>(".model-card") ?? []),
+      const row = [
+        ...(tableRef.current?.querySelectorAll<HTMLElement>(".model-row") ?? []),
       ].find((candidate) => candidate.dataset.modelKey === model);
-      if (!card) return;
+      if (!row) return;
       const topbarHeight =
         document.querySelector<HTMLElement>(".topbar")?.getBoundingClientRect().height ?? 72;
       const target = Math.max(
         0,
-        window.scrollY + card.getBoundingClientRect().top - topbarHeight - 18,
+        window.scrollY + row.getBoundingClientRect().top - topbarHeight - 18,
       );
       if (Math.abs(target - window.scrollY) < 12) return;
       window.scrollTo({
@@ -9340,7 +9383,25 @@ function Models({
     }, autoScrollDelayMs);
     return () => window.clearTimeout(timeout);
   }, [openModels]);
+  // The table can be wider than its scroll box. An opened row's detail is pinned to the visible
+  // width instead, so it never has to be scrolled sideways to be read in full.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || typeof ResizeObserver === "undefined") return;
+    const sync = () =>
+      scroller.style.setProperty("--model-table-viewport", `${scroller.clientWidth}px`);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [visibleRows.length]);
   const pageSize = 5;
+  const sortBy = (key: ModelSortKey) =>
+    setSort((current) =>
+      current.key === key
+        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: key === "model" ? "asc" : "desc" },
+    );
   const toggleModel = (model: string) => {
     const next = new Set(openModels);
     const opening = !next.has(model);
@@ -9352,14 +9413,39 @@ function Models({
       "",
       modelsHref(next),
     );
-    transitionModelGrid(() => setOpenModels(next));
+    setOpenModels(next);
   };
+  const header = (key: ModelSortKey, label: string, numeric = false, title?: string) => (
+    <th
+      className={`model-col model-col--${key}${numeric ? " num" : ""}`}
+      aria-sort={
+        sort.key === key
+          ? sort.direction === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <button
+        type="button"
+        className={`sort-header ${sort.key === key ? "active" : ""}`}
+        onClick={() => sortBy(key)}
+        title={title}
+      >
+        {label}
+        <span aria-hidden="true">
+          {sort.key === key ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+  const indexing = statusRequest.data?.phase === "indexing";
   return (
     <div className="view-stack page-enter">
       <PageTitle
         eyebrow="MODEL SPECTROGRAPH"
         title="Model mix and efficiency"
-        description="Compare API-equivalent cost, output volume, and cache behavior. Warp models contribute recorded tokens, while provider credits stay separate from dollar estimates."
+        description="One row per model. Sort any column to compare API-equivalent cost, output volume, and cache behavior; open a row for token types, effort distribution, and its sessions. Warp models contribute recorded tokens, while provider credits stay separate from dollar estimates."
         actions={
           <div className="model-controls">
             <label className="search model-search">
@@ -9381,338 +9467,323 @@ function Models({
                 </button>
               )}
             </label>
-            <label className="model-sort">
-              <span>Order</span>
-              <select
-                aria-label="Model usage order"
-                value={usageOrder}
-                onChange={(event) =>
-                  setUsageOrder(event.target.value as ModelOrder)
-                }
-              >
-                <option value="total-desc">Total tokens - DESC</option>
-                <option value="total-asc">Total tokens - ASC</option>
-                <option value="output-desc">Output tokens - DESC</option>
-                <option value="output-asc">Output tokens - ASC</option>
-                <option value="input-desc">Input tokens - DESC</option>
-                <option value="input-asc">Input tokens - ASC</option>
-                <option value="cost-desc">API-equivalent cost - DESC</option>
-                <option value="cost-asc">API-equivalent cost - ASC</option>
-              </select>
-            </label>
           </div>
         }
       />
-      <section className="model-grid" ref={modelGridRef}>
-        {visibleModels.map(({ model, index }) => {
-          const warpOnly = model.agents.length > 0 && model.agents.every((agent) => providerKey(agent) === "warp");
-          const modelSessions = sessions
-            .filter((session) => session.modelsUsed.includes(model.model))
-            .sort((left, right) =>
-              String(
-                right.metadata?.lastActivity ?? right.period,
-              ).localeCompare(
-                String(left.metadata?.lastActivity ?? left.period),
-              ),
-            );
-          // Credits follow the session's lead model so a mixed-model Warp
-          // session never counts its credits twice across cards.
-          const warpCredits = modelSessions.reduce(
-            (sum, session) =>
-              session.source === "warp" && session.modelsUsed[0] === model.model
-                ? sum + (session.warp?.credits ?? 0)
-                : sum,
-            0,
-          );
-          const open = openModels.has(model.model);
-          const page = Math.min(
-            pages[model.model] ?? 1,
-            Math.max(1, Math.ceil(modelSessions.length / pageSize)),
-          );
-          const pageCount = Math.max(1, Math.ceil(modelSessions.length / pageSize));
-          const pageSessions = modelSessions.slice(
-            (page - 1) * pageSize,
-            page * pageSize,
-          );
-          const panelId = `model-sessions-${index}`;
-          const effortSummary = effortByModel.get(model.model) ?? null;
-          const effortCombos = effortCombosByModel.get(model.model) ?? [];
-          return (
-            <article
-              className={`model-card${open ? " model-card--open" : ""}`}
-              data-model-key={model.model}
-              key={model.model}
-            >
-              <div className="model-card__head">
-                <span style={{ background: palette[index % palette.length] }}>
-                  {modelAvatarLetter(model.model)}
-                </span>
-                <div>
-                  <h3>{model.model}</h3>
-                  <p>{model.agents.join(" · ")}</p>
-                </div>
-              </div>
-              {effortCombos.length > 0 && (
-                <div className="model-effort-combos">
-                  <span>MODEL × EFFORT</span>
-                  <div>
-                    {effortCombos.map((combo) => (
-                      <ComboPill
-                        key={comboKey(combo)}
-                        combo={combo}
-                        trailing={sharePercent(combo.tokens, effortSummary?.attributedTokens ?? 0)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="model-effort-summary">
-                <span>Effort</span>
-                <EffortState status={statusRequest.data} summary={effortSummary}>
-                  {effortSummary && (
-                    <>
-                      <div>
-                        <EffortBadge summary={effortSummary} />
-                        <EffortCoverage summary={effortSummary} />
-                      </div>
-                      <EffortStack summary={effortSummary} height={6} showLegend={false} />
-                    </>
-                  )}
-                </EffortState>
-              </div>
-              <div className="model-cost">
-                {!model.priced && warpCredits > 0 ? (
-                  <>
-                    <strong>{formatWarpCredits(warpCredits)}</strong>
-                    <span title="Summed from this model's Warp sessions; a mixed-model session's credits follow its lead model.">
-                      Warp credits burned
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <strong className={model.priced ? undefined : "unpriced"}>
-                      {model.priced ? formatMoney(model.cost) : "Pricing unavailable"}
-                    </strong>
-                    <span>
-                      {model.priced ? "API-equivalent" : warpOnly ? "Warp credits separate" : "no rate card in ccusage"}
-                    </span>
-                  </>
-                )}
-                {model.priced && warpCredits > 0 && (
-                  <small
-                    className="model-cost__credits"
-                    title="Summed from this model's Warp sessions; a mixed-model session's credits follow its lead model."
-                  >
-                    + {formatWarpCredits(warpCredits)} Warp credits
-                  </small>
-                )}
-              </div>
-              <div className={`meter${model.priced ? "" : " meter--unpriced"}`}>
-                <i
-                  style={
-                    model.priced
-                      ? {
-                          width: `${(model.cost / max) * 100}%`,
-                          background: palette[index % palette.length],
-                        }
-                      : { width: "100%" }
-                  }
-                />
-              </div>
-              <dl>
-                <div>
-                  <dt>Total tokens</dt>
-                  <dd>{formatCompact(model.tokens)}</dd>
-                </div>
-                <div>
-                  <dt>{warpOnly ? "Recorded" : "Output"}</dt>
-                  <dd>{formatCompact(warpOnly ? model.tokens : model.outputTokens)}</dd>
-                </div>
-                <div>
-                  <dt>Cache read</dt>
-                  <dd>{formatCompact(model.cacheReadTokens)}</dd>
-                </div>
-                <div>
-                  <dt>Cache write</dt>
-                  <dd>{formatCompact(model.cacheCreationTokens)}</dd>
-                </div>
-                <div>
-                  <dt title="Blended over observed traffic, so a cache-heavy model reads cheap — a cost-tier proxy, never a capability ranking.">
-                    $ / Mtok
-                  </dt>
-                  <dd>
-                    {model.priced && model.tokens > 0
-                      ? `$${(model.cost / (model.tokens / 1_000_000)).toFixed(2)}`
-                      : "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt title="Output tokens as a share of everything this model processed — the rest is context moved into it.">
-                    Output share
-                  </dt>
-                  <dd>
-                    {!warpOnly && model.tokens > 0
-                      ? `${((model.outputTokens / model.tokens) * 100).toFixed(2)}%`
-                      : "—"}
-                  </dd>
-                </div>
-              </dl>
-              <button
-                type="button"
-                className="model-sessions-toggle"
-                aria-expanded={open}
-                aria-controls={panelId}
-                onClick={() => toggleModel(model.model)}
-              >
-                <span>
-                  <b>{modelSessions.length}</b>{" "}
-                  {modelSessions.length === 1 ? "session" : "sessions"}
-                </span>
-                <Plus aria-hidden="true" />
-              </button>
-              {open && (
-                <div className="model-sessions" id={panelId}>
-                  {!showCache ? (
-                    <TokenTypesNotice>{cacheHiddenNotice}</TokenTypesNotice>
-                  ) : warpOnly ? (
-                    <TokenTypesNotice>{warpOnlyNotice}</TokenTypesNotice>
-                  ) : (
-                    <TokenTypeTable
-                      summary={summarizeTokenTypes(
-                        modelTokenTypeInputs(daily, model.model),
-                        data.rateCard,
-                        data.unpricedModels,
-                      )}
-                      context={{
-                        reasoning: effortSummary?.reasoning ?? null,
-                        effortIndexEnabled: statusRequest.data?.enabled,
-                        rateCard: data.rateCard,
-                      }}
-                    />
-                  )}
-                  {effortSummary && (
-                    <section className="model-effort-detail">
-                      <div>
-                        <span className="overline">TOKEN DISTRIBUTION</span>
-                        <EffortStack summary={effortSummary} basis="tokens" height={8} />
-                      </div>
-                      <div>
-                        <span className="overline">OBSERVATION DISTRIBUTION</span>
-                        <EffortStack summary={effortSummary} basis="observations" height={8} />
-                      </div>
-                    </section>
-                  )}
-                  {pageSessions.length ? (
-                    <ol>
-                      {pageSessions.map((session) => (
-                        <li key={session.sessionId}>
-                          <a
-                            href={sessionHref(session.sessionId)}
-                            onClick={(event) => {
-                              if (
-                                event.metaKey ||
-                                event.ctrlKey ||
-                                event.shiftKey ||
-                                event.altKey
-                              )
-                                return;
-                              event.preventDefault();
-                              onOpenSession(session.sessionId);
-                            }}
-                          >
-                            <span>
-                              <b>
-                                {friendlyProject(
-                                  session.cwd ?? "Path unavailable",
-                                )}
-                              </b>
-                              <small>
-                                {session.metadata?.lastActivity
-                                  ? <DateStamp value={session.metadata.lastActivity} />
-                                  : session.period}
-                              </small>
-                            </span>
-                            <span className="model-session-usage">
-                              <b>{formatCompact(session.totalTokens)}</b>
-                              <small>{session.source === "warp" ? `${formatWarpCredits(session.warp?.credits ?? 0)} credits` : formatMoney(session.totalCost)}</small>
-                            </span>
-                            <SessionEffortCell
-                              decoded={effortBySession.get(session.sessionId)}
-                              enabled={Boolean(statusRequest.data?.enabled)}
-                            />
-                            <ArrowUpRight aria-hidden="true" />
-                          </a>
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p>No indexed sessions use this model.</p>
-                  )}
-                  <div className="model-sessions-footer">
-                    {modelSessions.length > pageSize && (
-                      <div
-                        className="model-session-pagination"
-                        aria-label={`Session pages for ${model.model}`}
-                      >
-                        <button
-                          type="button"
-                          disabled={page === 1}
-                          aria-label="Previous session page"
-                          onClick={() =>
-                            setPages((current) => ({
-                              ...current,
-                              [model.model]: page - 1,
-                            }))
-                          }
-                        >
-                          <ChevronLeft />
-                        </button>
-                        <PageJump
-                          page={page}
-                          pages={pageCount}
-                          label={`session page for ${model.model}`}
-                          onChange={(next) =>
-                            setPages((current) => ({
-                              ...current,
-                              [model.model]: next,
-                            }))
-                          }
-                        />
-                        <button
-                          type="button"
-                          disabled={page === pageCount}
-                          aria-label="Next session page"
-                          onClick={() =>
-                            setPages((current) => ({
-                              ...current,
-                              [model.model]: page + 1,
-                            }))
-                          }
-                        >
-                          <ChevronRight />
-                        </button>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="model-collapse"
-                      aria-controls={panelId}
-                      onClick={() => toggleModel(model.model)}
-                    >
-                      <span>Collapse</span>
-                      <ChevronUp aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            </article>
-          );
-        })}
-      </section>
       {!models.length ? (
         <Empty text="No model usage found in this period." />
+      ) : !visibleRows.length ? (
+        <Empty text="No models match that filter." />
       ) : (
-        !visibleModels.length && <Empty text="No models match that filter." />
+        <section className="panel table-panel model-table-panel">
+          <div className="table-scroll" ref={scrollRef}>
+            <table className="model-table" ref={tableRef}>
+              <thead>
+                <tr>
+                  {header("model", "Model")}
+                  <th className="model-col model-col--effort">
+                    <span title={EFFORT_HELP}>Effort</span>
+                  </th>
+                  {header("sessions", "Sessions", true)}
+                  {header("total", "Total", true, "Input, output, cache read, and cache write together.")}
+                  {header("output", "Output", true, "Warp-only models show their recorded tokens here.")}
+                  {header("input", "Input", true)}
+                  {header("cacheRead", "Cache read", true)}
+                  {header("cacheWrite", "Cache write", true)}
+                  {header("cost", "Cost", true, "API-equivalent cost from ccusage published rates. Warp credits never become dollars.")}
+                  {header("perMtok", "$/Mtok", true, "Blended over observed traffic, so a cache-heavy model reads cheap — a cost-tier proxy, never a capability ranking.")}
+                  {header("outputShare", "Out share", true, "Output tokens as a share of everything this model processed — the rest is context moved into it.")}
+                  <th className="model-col model-col--toggle">
+                    <span className="sr-only">Details</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map((row) => {
+                  const { model, index, warpOnly, warpCredits } = row;
+                  const modelSessions = row.sessions;
+                  const open = openModels.has(model.model);
+                  const pageCount = Math.max(1, Math.ceil(modelSessions.length / pageSize));
+                  const page = Math.min(pages[model.model] ?? 1, pageCount);
+                  const pageSessions = modelSessions.slice(
+                    (page - 1) * pageSize,
+                    page * pageSize,
+                  );
+                  const panelId = `model-detail-${index}`;
+                  const effortSummary = effortByModel.get(model.model) ?? null;
+                  const effortUsable =
+                    Boolean(statusRequest.data?.enabled) &&
+                    effortSummary !== null &&
+                    effortSummary.coverageState !== "unavailable";
+                  const effortCombos = effortCombosByModel.get(model.model) ?? [];
+                  const color = palette[index % palette.length];
+                  return (
+                    <Fragment key={model.model}>
+                      <tr
+                        className={`model-row${open ? " model-row--open" : ""}`}
+                        data-model-key={model.model}
+                        tabIndex={0}
+                        aria-expanded={open}
+                        aria-controls={panelId}
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest("a,button,input,select")) return;
+                          toggleModel(model.model);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            toggleModel(model.model);
+                          }
+                        }}
+                      >
+                        <td className="model-col model-col--model">
+                          <div className="model-identity">
+                            <span className="model-mark" style={{ background: color }} aria-hidden="true">
+                              {modelAvatarLetter(model.model)}
+                            </span>
+                            <div>
+                              <b title={model.model}>{model.model}</b>
+                              <small>{model.agents.join(" · ")}</small>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="model-col model-col--effort">
+                          <div className="model-effort-cell">
+                            <div>
+                              <EffortBadge summary={effortUsable ? effortSummary : null} />
+                              {indexing && <small>indexing</small>}
+                            </div>
+                            {effortUsable && effortSummary && (
+                              <EffortStack summary={effortSummary} height={5} showLegend={false} />
+                            )}
+                          </div>
+                        </td>
+                        <td className="model-col num">{modelSessions.length}</td>
+                        <td className="model-col num">{formatCompact(model.tokens)}</td>
+                        <td className="model-col num">
+                          {formatCompact(warpOnly ? model.tokens : model.outputTokens)}
+                          {warpOnly && <small>recorded</small>}
+                        </td>
+                        <td className="model-col num">{formatCompact(model.inputTokens)}</td>
+                        <td className="model-col num">{formatCompact(model.cacheReadTokens)}</td>
+                        <td className="model-col num">{formatCompact(model.cacheCreationTokens)}</td>
+                        <td className="model-col num model-col--cost">
+                          <div className="model-cost-cell">
+                            {model.priced ? (
+                              <b>{formatMoney(model.cost)}</b>
+                            ) : warpCredits > 0 ? (
+                              <>
+                                <b title="Summed from this model's Warp sessions; a mixed-model session's credits follow its lead model.">
+                                  {formatWarpCredits(warpCredits)}
+                                </b>
+                                <small>Warp credits</small>
+                              </>
+                            ) : (
+                              <em title={warpOnly ? "Warp reports credits, not tokens priced in dollars." : "ccusage has no rate card for this model."}>{warpOnly ? "Not priced" : "No rate card"}</em>
+                            )}
+                            {model.priced && warpCredits > 0 && (
+                              <small title="Warp credits, summed from this model's Warp sessions; a mixed-model session's credits follow its lead model. Credits never become dollars.">
+                                +{formatWarpCredits(warpCredits)} credits
+                              </small>
+                            )}
+                            <span className={`meter${model.priced ? "" : " meter--unpriced"}`} aria-hidden="true">
+                              <i
+                                style={
+                                  model.priced
+                                    ? { width: `${(model.cost / maxCost) * 100}%`, background: color }
+                                    : { width: "100%" }
+                                }
+                              />
+                            </span>
+                          </div>
+                        </td>
+                        <td className="model-col num">
+                          {row.perMtok === null ? "—" : `$${row.perMtok.toFixed(2)}`}
+                        </td>
+                        <td className="model-col num">
+                          {row.outputShare === null ? "—" : `${(row.outputShare * 100).toFixed(2)}%`}
+                        </td>
+                        <td className="model-col model-col--toggle">
+                          <button
+                            type="button"
+                            className="session-detail-toggle"
+                            aria-expanded={open}
+                            aria-controls={panelId}
+                            aria-label={open ? `Close ${model.model} details` : `Open ${model.model} details`}
+                            onClick={() => toggleModel(model.model)}
+                          >
+                            <Plus aria-hidden="true" />
+                          </button>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="model-detail-row" id={panelId}>
+                          <td colSpan={MODEL_TABLE_COLUMN_COUNT}>
+                            <div className="model-detail">
+                              {effortCombos.length > 0 && (
+                                <div className="model-effort-combos">
+                                  <span>MODEL × EFFORT</span>
+                                  <div>
+                                    {effortCombos.map((combo) => (
+                                      <ComboPill
+                                        key={comboKey(combo)}
+                                        combo={combo}
+                                        trailing={sharePercent(combo.tokens, effortSummary?.attributedTokens ?? 0)}
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {!showCache ? (
+                                <TokenTypesNotice>{cacheHiddenNotice}</TokenTypesNotice>
+                              ) : warpOnly ? (
+                                <TokenTypesNotice>{warpOnlyNotice}</TokenTypesNotice>
+                              ) : (
+                                <TokenTypeTable
+                                  summary={summarizeTokenTypes(
+                                    modelTokenTypeInputs(daily, model.model),
+                                    data.rateCard,
+                                    data.unpricedModels,
+                                  )}
+                                  context={{
+                                    reasoning: effortSummary?.reasoning ?? null,
+                                    effortIndexEnabled: statusRequest.data?.enabled,
+                                    rateCard: data.rateCard,
+                                  }}
+                                />
+                              )}
+                              <section className="model-effort-detail">
+                                <EffortState status={statusRequest.data} summary={effortSummary}>
+                                  {effortSummary && (
+                                    <>
+                                      <div>
+                                        <span className="overline">TOKEN DISTRIBUTION</span>
+                                        <EffortStack summary={effortSummary} basis="tokens" height={8} />
+                                        <EffortCoverage summary={effortSummary} indexing={indexing} />
+                                      </div>
+                                      <div>
+                                        <span className="overline">OBSERVATION DISTRIBUTION</span>
+                                        <EffortStack summary={effortSummary} basis="observations" height={8} />
+                                      </div>
+                                    </>
+                                  )}
+                                </EffortState>
+                              </section>
+                              <div className="model-sessions">
+                                {pageSessions.length ? (
+                                  <ol>
+                                    {pageSessions.map((session) => (
+                                      <li key={session.sessionId}>
+                                        <a
+                                          href={sessionHref(session.sessionId)}
+                                          onClick={(event) => {
+                                            if (
+                                              event.metaKey ||
+                                              event.ctrlKey ||
+                                              event.shiftKey ||
+                                              event.altKey
+                                            )
+                                              return;
+                                            event.preventDefault();
+                                            onOpenSession(session.sessionId);
+                                          }}
+                                        >
+                                          <span>
+                                            <b>
+                                              {friendlyProject(
+                                                session.cwd ?? "Path unavailable",
+                                              )}
+                                            </b>
+                                            <small>
+                                              {session.metadata?.lastActivity
+                                                ? <DateStamp value={session.metadata.lastActivity} />
+                                                : session.period}
+                                            </small>
+                                          </span>
+                                          <span className="model-session-usage">
+                                            <b>{formatCompact(session.totalTokens)}</b>
+                                            <small>{session.source === "warp" ? `${formatWarpCredits(session.warp?.credits ?? 0)} credits` : formatMoney(session.totalCost)}</small>
+                                          </span>
+                                          <SessionEffortCell
+                                            decoded={effortBySession.get(session.sessionId)}
+                                            enabled={Boolean(statusRequest.data?.enabled)}
+                                          />
+                                          <ArrowUpRight aria-hidden="true" />
+                                        </a>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                ) : (
+                                  <p>No indexed sessions use this model.</p>
+                                )}
+                                <div className="model-sessions-footer">
+                                  {modelSessions.length > pageSize && (
+                                    <div
+                                      className="model-session-pagination"
+                                      aria-label={`Session pages for ${model.model}`}
+                                    >
+                                      <button
+                                        type="button"
+                                        disabled={page === 1}
+                                        aria-label="Previous session page"
+                                        onClick={() =>
+                                          setPages((current) => ({
+                                            ...current,
+                                            [model.model]: page - 1,
+                                          }))
+                                        }
+                                      >
+                                        <ChevronLeft />
+                                      </button>
+                                      <PageJump
+                                        page={page}
+                                        pages={pageCount}
+                                        label={`session page for ${model.model}`}
+                                        onChange={(next) =>
+                                          setPages((current) => ({
+                                            ...current,
+                                            [model.model]: next,
+                                          }))
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={page === pageCount}
+                                        aria-label="Next session page"
+                                        onClick={() =>
+                                          setPages((current) => ({
+                                            ...current,
+                                            [model.model]: page + 1,
+                                          }))
+                                        }
+                                      >
+                                        <ChevronRight />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="model-collapse"
+                                    aria-controls={panelId}
+                                    onClick={() => toggleModel(model.model)}
+                                  >
+                                    <span>Collapse</span>
+                                    <ChevronUp aria-hidden="true" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
   );
