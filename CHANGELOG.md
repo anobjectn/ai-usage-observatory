@@ -5,7 +5,32 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.21.0] - 2026-09-03
+## [1.22.0] - 2026-09-05
+
+### Added
+
+- Replace the Models card grid with a sortable one-row-per-model table covering
+  sessions, tokens, cache behavior, API-equivalent cost, blended $/Mtok, and
+  output share.
+- Expand model rows to show token types, effort distributions, model × effort
+  combinations, and paginated sessions.
+- Make Explorer model-signal columns sortable, with the selected measure
+  controlling the top eight models and tie breaks.
+- Add a separate Interface text size control from 90% to 130%. Keep Data text
+  size separate, with its control and saved values aligned to a 90% to 180%
+  range.
+
+### Changed
+
+- Move interface styling into shared design tokens and per-view modules. Labels
+  now keep an 11px minimum, semantic colors stay stable when the accent
+  changes, and spacing, radii, shadows, and motion use shared roles.
+- Refresh the README Models screenshot and preserve the reviewed release copy at
+  [Models](docs/screenshots/releases/v1.22.0/5.models.png).
+
+[1.22.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.21.0...v1.22.0
+
+[1.21.0] - 2026-09-03
 
 ### Added
 
