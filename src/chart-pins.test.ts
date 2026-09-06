@@ -43,9 +43,9 @@ test("chart pins append new panels and replace duplicate data points", () => {
   expect(updated[1]?.x).toBe(140);
 });
 
-test("chart tooltip dates use a shared weekday and full-month format", () => {
-  expect(chartTooltipDateLabel("2026-07-26")).toBe("Sun July 26");
-  expect(chartTooltipDateLabel("2026-08-03")).toBe("Mon August 3");
+test("chart tooltip dates use a shared weekday and abbreviated-month format", () => {
+  expect(chartTooltipDateLabel("2026-07-26")).toBe("Sun Jul 26");
+  expect(chartTooltipDateLabel("2026-08-03")).toBe("Mon Aug 3");
 });
 
 test("chart pins can move, rise above siblings, and be removed", () => {

@@ -841,10 +841,9 @@ td>small {
 
 .usage-trajectory-panel {
   position: relative;
-  z-index: 1;
 }
 
-.usage-trajectory-panel .recharts-tooltip-wrapper {
+.recharts-tooltip-wrapper {
   z-index: 2!important;
 }
 
@@ -1263,7 +1262,7 @@ td>small {
 
 .provider-tooltip {
   --tooltip-x: -50%;
-  width: var(--tooltip-width,410px);
+  width: var(--tooltip-width,calc(410px + 10ch));
   transform: translate(var(--tooltip-x),var(--tooltip-y,-6px));
   animation: tooltip-rise .16s ease-out both;
 }
@@ -1856,7 +1855,7 @@ td>small {
 }
 
 .chart-tooltip.model-signal-tooltip {
-  min-width: 220px;
+  min-width: calc(220px + 10ch);
   transform: translate(var(--tooltip-x),-6px);
 }
 .chart-tooltip .model-signal-tooltip__effort {

@@ -18,7 +18,7 @@ export function chartTooltipDateLabel(value: string) {
   if (Number.isNaN(date.getTime())) return value;
   const parts = new Intl.DateTimeFormat(undefined, {
     weekday: "short",
-    month: "long",
+    month: "short",
     day: "numeric",
   }).formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
