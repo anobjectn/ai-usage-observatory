@@ -5,6 +5,23 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-09-05
+
+### Added
+
+- Draw dividers in the Sessions table wherever a 5-hour or weekly quota was
+  exhausted, or a banked Codex reset was applied, between two adjacent
+  sessions. Limit hits are tinted; a limit reached after the newest session
+  appears at the top of the list.
+
+### Fixed
+
+- Abbreviate the month in chart tooltip dates, widen provider and model-signal
+  tooltips to fit, and keep tooltips stacked above every chart rather than
+  only the usage trajectory panel.
+
+[1.23.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.22.0...v1.23.0
+
 ## [1.22.0] - 2026-09-05
 
 ### Added
@@ -30,7 +47,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 [1.22.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.21.0...v1.22.0
 
-[1.21.0] - 2026-09-03
+## [1.21.0] - 2026-09-03
 
 ### Added
 
