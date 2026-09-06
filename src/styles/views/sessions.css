@@ -1072,6 +1072,25 @@
   margin-left: 14px;
 }
 
+/* A limit being hit, or a banked reset spent, is an event rather than a scheduled window opening: a solid seam, tinted when quota ran out. */
+.session-reset-divider--event td {
+  border-top-style: solid;
+}
+
+.session-reset-divider--event.is-exhausted td {
+  border-top-color: var(--orange);
+  color: var(--orange);
+}
+
+.session-reset-divider__event {
+  display: inline-flex;
+  align-items: center;
+}
+
+.session-reset-divider__event + .session-reset-divider__event {
+  margin-left: 22px;
+}
+
 .session-quota-context__balance {
   margin: 10px 0 0;
   font: 11px var(--font-label);

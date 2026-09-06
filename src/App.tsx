@@ -175,6 +175,7 @@ import type {
   SessionEffortCombo,
   SessionQuotaContext,
   AnthropicWebCredits,
+  QuotaHistory,
   QuotaProvider,
   WarpSessionStats,
 } from "./types";
@@ -1595,7 +1596,7 @@ function useClampedTooltip(active: boolean, coordinate?: { x?: number }) {
       const edgePadding = 8;
       tooltip.style.setProperty(
         "--tooltip-width",
-        `${Math.max(0, Math.min(410, chartBounds.width - edgePadding * 2))}px`,
+        `min(calc(410px + 10ch), ${Math.max(0, chartBounds.width - edgePadding * 2)}px)`,
       );
       const wrapperBounds = wrapper.getBoundingClientRect();
       const centeredOffset =
@@ -5989,6 +5990,46 @@ export function quotaResetBoundaries(
   });
 }
 
+export type SessionQuotaEvent = {
+  provider: "anthropic" | "codex";
+  kind: "quota" | "weekly" | "reset";
+  label: string;
+  at: number;
+};
+
+/** Quota events the account recorded between two adjacent sessions' closing readings: a window
+ * hitting its limit, or a banked Codex reset being spent. Order-insensitive in `from`/`to`; the
+ * bounds are exclusive on the older side and inclusive on the newer one, so an event that lands
+ * exactly on a session's last activity is drawn once, above that session. */
+export function sessionQuotaEvents(
+  history: QuotaHistory | null | undefined,
+  from: number,
+  to: number,
+): SessionQuotaEvent[] {
+  if (!history?.available) return [];
+  const older = Math.min(from, to);
+  const newer = Math.max(from, to);
+  if (!Number.isFinite(older) && !Number.isFinite(newer)) return [];
+  const within = (at: number) => at > older && at <= newer;
+  const reached = history.windows.flatMap((window) =>
+    window.reachedAt.filter(within).map((at) => ({
+      provider: window.provider,
+      kind: window.window === "weekly" ? ("weekly" as const) : ("quota" as const),
+      label: window.window === "weekly" ? "Weekly quota exhausted" : "5-hour quota exhausted",
+      at,
+    })),
+  );
+  const resets = history.codexBankedResets.used
+    .filter((reset) => within(reset.usedAt))
+    .map((reset) => ({
+      provider: "codex" as const,
+      kind: "reset" as const,
+      label: reset.title ? `Banked reset applied · ${reset.title}` : "Banked reset applied",
+      at: reset.usedAt,
+    }));
+  return [...reached, ...resets].sort((left, right) => right.at - left.at);
+}
+
 /** One range per quota cycle, in remaining terms, oldest first: a session that spanned a reset
  * reads `25→0, 100→75`. Episodes inside one cycle collapse to first start → last end. */
 export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][number]): string[] {
@@ -7135,6 +7176,7 @@ function Sessions({
   onEdit,
   focusSessionId,
   focusOutsideRange = false,
+  quotaHistory = null,
 }: {
   sessions: Session[];
   rateCard: RateCardSummary;
@@ -7143,6 +7185,7 @@ function Sessions({
   onEdit: (session: Session) => void;
   focusSessionId?: string | null;
   focusOutsideRange?: boolean;
+  quotaHistory?: QuotaHistory | null;
 }) {
   type SortKey =
     | "activity"
@@ -7561,12 +7604,48 @@ function Sessions({
                 const boundaries = showQuotaBalance && index > 0
                   ? quotaResetBoundaries(quotaContexts[pageRows[index - 1]!.sessionId], quotaContexts[session.sessionId])
                   : [];
+                // Quota-exhausted and banked-reset instants sit between the two sessions' last
+                // activity. The newest row on the first page also owns everything after it, so
+                // a limit hit since the last session still shows up at the top of the list.
+                const activityAt = Date.parse(String(session.metadata?.lastActivity ?? ""));
+                const neighbourAt = index > 0
+                  ? Date.parse(String(pageRows[index - 1]!.metadata?.lastActivity ?? ""))
+                  : page === 1 && sort.direction === "desc" ? Number.POSITIVE_INFINITY : Number.NaN;
+                const events = showQuotaBalance && Number.isFinite(activityAt) && !Number.isNaN(neighbourAt)
+                  ? sessionQuotaEvents(quotaHistory, neighbourAt, activityAt)
+                  : [];
+                const trailingEvents = showQuotaBalance && Number.isFinite(activityAt)
+                  && sort.direction === "asc" && page === pages && index === pageRows.length - 1
+                  ? sessionQuotaEvents(quotaHistory, activityAt, Number.POSITIVE_INFINITY)
+                  : [];
+                const eventDivider = (items: SessionQuotaEvent[], keyPrefix: string) =>
+                  items.length > 0 && (
+                    <tr className={`session-reset-divider session-reset-divider--event${items.some((event) => event.kind !== "reset") ? " is-exhausted" : ""}`}>
+                      <td colSpan={columnCount}>
+                        {items.map((event) => (
+                          <span key={`${keyPrefix}-${event.provider}-${event.kind}-${event.at}`} className="session-reset-divider__event">
+                            <span className="session-reset-divider__provider">
+                              <i
+                                style={{ background: sessionProviderColors[event.provider] }}
+                                aria-hidden="true"
+                              />
+                              {sessionProviderLabels[event.provider]}
+                            </span>
+                            <span className="session-reset-divider__window">
+                              {event.label} · <DateStamp value={new Date(event.at).toISOString()} />
+                            </span>
+                          </span>
+                        ))}
+                      </td>
+                    </tr>
+                  );
                 const sessionProvider = providerFromAgent(session.agent);
                 const sessionProviderLabel = sessionProvider
                   ? sessionProviderLabels[sessionProvider]
                   : session.agent;
                 return (
                 <Fragment key={session.sessionId}>
+                  {eventDivider(events, "above")}
                   {boundaries.length > 0 && (
                     <tr className="session-reset-divider">
                       <td colSpan={columnCount}>
@@ -7769,6 +7848,7 @@ function Sessions({
                       </td>
                     </tr>
                   )}
+                  {eventDivider(trailingEvents, "below")}
                 </Fragment>
                 );
               })}
@@ -12141,6 +12221,7 @@ export function App() {
               focusOutsideRange={Boolean(
                 focusSessionId && !datedSessions.some((session) => session.sessionId === focusSessionId),
               )}
+              quotaHistory={data.quotas.history}
             />
           )}
           {view === "projects" && (

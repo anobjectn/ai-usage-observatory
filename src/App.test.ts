@@ -20,6 +20,7 @@ import {
   sessionModelNames,
   SessionQuotaBalanceCell,
   sessionQuotaBalanceItems,
+  sessionQuotaEvents,
   quotaRemainingRanges,
   quotaResetBoundaries,
   recentSessionFloor,
@@ -40,6 +41,7 @@ import type {
   ProjectTrendRow,
   Session,
   SessionQuotaContext,
+  QuotaHistory,
 } from "./types";
 
 function session(overrides: Partial<Session>): Session {
@@ -1107,4 +1109,28 @@ test("normalizeTextScale keeps values the stepper can show and rejects the rest"
   expect(normalizeTextScale("134", textScaleBounds.data)).toBe(130);
   expect(normalizeTextScale("130", textScaleBounds.interface)).toBe(130);
   expect(normalizeTextScale("140", textScaleBounds.interface)).toBe(100);
+});
+
+test("sessionQuotaEvents places limit hits and banked resets between two adjacent sessions", () => {
+  const history = {
+    available: true,
+    trackingSince: 0,
+    windows: [
+      { provider: "codex", window: "fiveHour", reachedCount: 2, lastReachedAt: 3000, reachedAt: [1500, 3000] },
+      { provider: "anthropic", window: "weekly", reachedCount: 1, lastReachedAt: 2500, reachedAt: [2500] },
+    ],
+    codexBankedResets: { usedCount: 1, used: [{ id: "r1", title: "Reset 5h", usedAt: 3100 }] },
+  } as QuotaHistory;
+
+  // Bounds are order-insensitive, exclusive on the older side and inclusive on the newer one.
+  expect(sessionQuotaEvents(history, 4000, 1500).map((event) => [event.provider, event.kind, event.at])).toEqual([
+    ["codex", "reset", 3100],
+    ["codex", "quota", 3000],
+    ["anthropic", "weekly", 2500],
+  ]);
+  expect(sessionQuotaEvents(history, 1000, 1500).map((event) => event.label)).toEqual(["5-hour quota exhausted"]);
+  expect(sessionQuotaEvents(history, 3050, Number.POSITIVE_INFINITY).map((event) => event.label)).toEqual([
+    "Banked reset applied · Reset 5h",
+  ]);
+  expect(sessionQuotaEvents({ ...history, available: false }, 0, 5000)).toEqual([]);
 });
