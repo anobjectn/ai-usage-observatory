@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   QuickOverviewModal,
+  benchmarkLoadedAtLabel,
   condensedResetCopy,
   quickOverviewCards,
   savedQuickOverviewMode,
@@ -74,6 +75,13 @@ function renderModal(
 
 test("savedQuickOverviewMode defaults to gauges without a stored choice", () => {
   expect(savedQuickOverviewMode()).toBe("gauges");
+});
+
+test("benchmarkLoadedAtLabel includes a full local date and time", () => {
+  const loadedAt = new Date(2026, 8, 7, 15, 42).getTime();
+  expect(benchmarkLoadedAtLabel(null, "DeepSWE")).toBe("Loading DeepSWE...");
+  expect(benchmarkLoadedAtLabel(loadedAt, "DeepSWE")).toContain("2026");
+  expect(benchmarkLoadedAtLabel(loadedAt, "DeepSWE")).toContain("3:42");
 });
 
 test("quickOverviewCards keeps only providers with reported windows", () => {

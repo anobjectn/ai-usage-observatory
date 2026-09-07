@@ -488,12 +488,13 @@ function useUserScrollIntent() {
   return lastUserScrollAt;
 }
 
-function useModalFocusTrap(onEscape: () => void) {
+function useModalFocusTrap(onEscape: () => void, active = true) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
 
   useEffect(() => {
+    if (!active) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -544,7 +545,7 @@ function useModalFocusTrap(onEscape: () => void) {
       document.body.style.overflow = previousBodyOverflow;
       previouslyFocused?.focus();
     };
-  }, []);
+  }, [active]);
 
   return dialogRef;
 }
@@ -4035,6 +4036,7 @@ function Overview({
   onOpenData,
   onTagSession,
   onUpdateWebCredits,
+  onOpenBenchmark,
   accent,
   providerColors,
   sceneEffects,
@@ -4055,11 +4057,11 @@ function Overview({
   onOpenData: () => void;
   onTagSession: (session: Session) => void;
   onUpdateWebCredits: () => void;
+  onOpenBenchmark: (siteId: BenchmarkSiteId) => void;
   accent: string;
   providerColors: ProviderColors;
   sceneEffects: SceneEffects;
 }) {
-  const [benchmarkModal, setBenchmarkModal] = useState(false);
   // The top-finding card follows the same range, agent, and path filters as the
   // summary above it; cache stays included because the finding rules reason
   // over cache traffic. Facets beyond that are the Data view's defaults.
@@ -4423,7 +4425,7 @@ function Overview({
               <button
                 type="button"
                 className="accent-icon-button benchmark-trigger"
-                onClick={() => setBenchmarkModal(true)}
+                onClick={() => onOpenBenchmark("deepswe")}
                 aria-label="Compare model cost and efficiency benchmarks"
                 title="Compare model cost and efficiency benchmarks"
               >
@@ -4432,7 +4434,6 @@ function Overview({
               <Bot />
             </div>
           </div>
-          {benchmarkModal && <BenchmarkModal onClose={() => setBenchmarkModal(false)} />}
           <div className="agent-mix">
             <div className="donut-wrap">
               <ResponsiveContainer width="100%" height="100%">
@@ -11212,15 +11213,70 @@ function BenchmarkSplitLauncher({ onOpen }: { onOpen: (siteId: BenchmarkSiteId) 
   );
 }
 
-function BenchmarkModal({ onClose, initialSiteId }: { onClose: () => void; initialSiteId?: BenchmarkSiteId }) {
-  const dialogRef = useModalFocusTrap(onClose);
+export function benchmarkLoadedAtLabel(loadedAt: number | null, siteLabel: string) {
+  if (loadedAt === null) return `Loading ${siteLabel}...`;
+  return `Loaded ${new Date(loadedAt).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+}
+
+export function BenchmarkModal({
+  onClose,
+  initialSiteId,
+  open = true,
+}: {
+  onClose: () => void;
+  initialSiteId?: BenchmarkSiteId;
+  open?: boolean;
+}) {
+  const dialogRef = useModalFocusTrap(onClose, open);
   const [siteId, setSiteId] = useState<BenchmarkSiteId>(initialSiteId ?? "deepswe");
+  const [visitedSites, setVisitedSites] = useState<Set<BenchmarkSiteId>>(
+    () => new Set([initialSiteId ?? "deepswe"]),
+  );
+  const [loadedAt, setLoadedAt] = useState<Partial<Record<BenchmarkSiteId, number>>>({});
+  const [refreshVersions, setRefreshVersions] = useState<Record<BenchmarkSiteId, number>>({
+    deepswe: 0,
+    artificialanalysis: 0,
+  });
+  useEffect(() => {
+    if (!initialSiteId) return;
+    setSiteId(initialSiteId);
+    setVisitedSites((current) => {
+      if (current.has(initialSiteId)) return current;
+      const next = new Set(current);
+      next.add(initialSiteId);
+      return next;
+    });
+  }, [initialSiteId]);
   const site = BENCHMARK_SITES.find((entry) => entry.id === siteId) ?? BENCHMARK_SITES[0];
+  const activeLoadedAt = loadedAt[site.id] ?? null;
+  const chooseSite = (nextSiteId: BenchmarkSiteId) => {
+    setSiteId(nextSiteId);
+    setVisitedSites((current) => {
+      if (current.has(nextSiteId)) return current;
+      const next = new Set(current);
+      next.add(nextSiteId);
+      return next;
+    });
+  };
+  const hardRefresh = () => {
+    setLoadedAt((current) => ({ ...current, [site.id]: undefined }));
+    setRefreshVersions((current) => ({
+      ...current,
+      [site.id]: current[site.id] + 1,
+    }));
+  };
   return createPortal(
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop benchmark-backdrop${open ? "" : " benchmark-backdrop--closed"}`}
+      aria-hidden={!open || undefined}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (open && e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -11244,7 +11300,7 @@ function BenchmarkModal({ onClose, initialSiteId }: { onClose: () => void; initi
               role="tab"
               aria-selected={entry.id === siteId}
               className={entry.id === siteId ? "active" : ""}
-              onClick={() => setSiteId(entry.id)}
+              onClick={() => chooseSite(entry.id)}
             >
               <img className={`benchmark-favicon benchmark-favicon--${entry.id}`} src={entry.favicon} alt="" loading="lazy" />
               {entry.label}
@@ -11253,12 +11309,41 @@ function BenchmarkModal({ onClose, initialSiteId }: { onClose: () => void; initi
         </div>
         <div className="benchmark-toolbar">
           <p>{site.description}</p>
-          <a className="secondary-button" href={site.url} target="_blank" rel="noreferrer">
-            <ExternalLink /> Open in new tab
-          </a>
+          <div className="benchmark-toolbar__actions">
+            <time
+              className="benchmark-loaded-at"
+              dateTime={activeLoadedAt === null ? undefined : new Date(activeLoadedAt).toISOString()}
+              aria-live="polite"
+            >
+              {benchmarkLoadedAtLabel(activeLoadedAt, site.label)}
+            </time>
+            <button
+              type="button"
+              className="secondary-button benchmark-hard-refresh"
+              onClick={hardRefresh}
+              aria-label={`Hard refresh ${site.label}`}
+              title={`Reload ${site.label} and reset its current selections`}
+            >
+              <RefreshCw /> Hard refresh
+            </button>
+            <a className="secondary-button" href={site.url} target="_blank" rel="noreferrer">
+              <ExternalLink /> Open in new tab
+            </a>
+          </div>
         </div>
         <div className="benchmark-frame">
-          <iframe key={site.id} src={site.url} title={site.label} loading="lazy" />
+          {BENCHMARK_SITES.map((entry) =>
+            visitedSites.has(entry.id) ? (
+              <iframe
+                key={`${entry.id}-${refreshVersions[entry.id]}`}
+                className={entry.id === site.id ? "is-active" : ""}
+                src={entry.url}
+                title={entry.label}
+                loading="lazy"
+                onLoad={() => setLoadedAt((current) => ({ ...current, [entry.id]: Date.now() }))}
+              />
+            ) : null,
+          )}
         </div>
       </div>
     </div>,
@@ -11679,6 +11764,7 @@ export function App() {
   const [appearance, setAppearance] = useState(false);
   const [webImport, setWebImport] = useState(false);
   const [benchmarkSite, setBenchmarkSite] = useState<BenchmarkSiteId | null>(null);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
   const [quickOverview, setQuickOverview] = useState(false);
   const [quickOverviewMode, setQuickOverviewMode] = useState<QuickOverviewMode>(
     savedQuickOverviewMode,
@@ -11942,6 +12028,10 @@ export function App() {
     setFocusSessionId(sessionId);
     setView("sessions");
   };
+  const openBenchmark = (siteId: BenchmarkSiteId) => {
+    setBenchmarkSite(siteId);
+    setBenchmarkOpen(true);
+  };
   const resetAppearance = () => {
     setAccent(defaultAccent);
     setProviderColors(defaultProviderColors);
@@ -12092,7 +12182,7 @@ export function App() {
             >
               <Gauge />
             </button>
-            <BenchmarkSplitLauncher onOpen={setBenchmarkSite} />
+            <BenchmarkSplitLauncher onOpen={openBenchmark} />
             {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
                 label would forward stray clicks into the first of them. */}
             {view !== "models" && view !== "projects" && (
@@ -12191,6 +12281,7 @@ export function App() {
               onOpenData={() => navigateToView("sources")}
               onTagSession={setSession}
               onUpdateWebCredits={() => setWebImport(true)}
+              onOpenBenchmark={openBenchmark}
               accent={accent}
               providerColors={providerColors}
               sceneEffects={sceneEffects}
@@ -12317,7 +12408,8 @@ export function App() {
       {benchmarkSite && (
         <BenchmarkModal
           initialSiteId={benchmarkSite}
-          onClose={() => setBenchmarkSite(null)}
+          open={benchmarkOpen}
+          onClose={() => setBenchmarkOpen(false)}
         />
       )}
       {quickOverview && (

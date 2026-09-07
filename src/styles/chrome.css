@@ -1812,6 +1812,10 @@ main {
   width: min(920px,100%);
 }
 
+.benchmark-backdrop--closed {
+  display: none;
+}
+
 .benchmark-tabs {
   display: flex;
   gap: 8px;
@@ -1874,6 +1878,25 @@ main {
   white-space: nowrap;
 }
 
+.benchmark-toolbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.benchmark-loaded-at {
+  color: var(--dim);
+  font: var(--text-2xs)/1.35 var(--font-label);
+  white-space: nowrap;
+}
+
+.benchmark-hard-refresh svg {
+  width: 14px;
+  height: 14px;
+}
+
 .benchmark-frame {
   margin-top: 16px;
   border: 1px solid var(--line);
@@ -1887,7 +1910,28 @@ main {
   width: 100%;
   height: 100%;
   border: 0;
+  display: none;
+}
+
+.benchmark-frame iframe.is-active {
   display: block;
+}
+
+@media (max-width:760px) {
+  .benchmark-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .benchmark-toolbar__actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .benchmark-loaded-at {
+    flex: 1 0 100%;
+  }
 }
 
 .quick-overview-button {
