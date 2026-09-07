@@ -3536,6 +3536,101 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
   ];
 }
 
+export type ProviderCapacityRow = {
+  provider: "anthropic" | "codex" | "warp";
+  label: string;
+  state: QuotaCard["state"];
+  tokens: number;
+  tokenShare: number;
+  highestUsedPercent: number | null;
+  windows: Array<{
+    id: string;
+    label: string;
+    usedPercent: number | null;
+    state: QuotaState;
+  }>;
+  limitReaches: number | null;
+  reachBreakdown: string | null;
+  resetsApplied: number | null | undefined;
+};
+
+/** Joins filtered activity with account-level quota readings. Token share is the
+ * utility proxy; current window pressure and locally observed events stay separate
+ * so the UI does not pretend unlike provider limits form one efficiency score. */
+export function providerCapacityRows(
+  daily: MetricRow[],
+  quotas: DashboardData["quotas"],
+): ProviderCapacityRow[] {
+  const tokens = new Map<ActivityProvider, number>();
+  for (const row of daily) {
+    for (const item of row.agents ?? [row]) {
+      const provider = providerFromAgent(item.agent);
+      if (!provider) continue;
+      tokens.set(provider, (tokens.get(provider) ?? 0) + item.totalTokens);
+    }
+  }
+  const total = [...tokens.values()].reduce((sum, value) => sum + value, 0);
+  const reports = new Set(
+    quotas.usage?.providers.map((provider) => provider.provider) ?? [],
+  );
+  return quotaCards(quotas)
+    .filter((card) => {
+      const hasHistory = quotas.history?.windows.some(
+        (window) => window.provider === card.provider,
+      );
+      return (
+        (tokens.get(card.provider) ?? 0) > 0 ||
+        reports.has(card.provider) ||
+        hasHistory
+      );
+    })
+    .map((card) => {
+      const providerTokens = tokens.get(card.provider) ?? 0;
+      const usedLevels = card.buckets
+        .map((bucket) => bucket.usedPercent)
+        .filter(
+          (value): value is number => value !== null && Number.isFinite(value),
+        );
+      const historyWindows =
+        card.provider === "warp"
+          ? []
+          : card.buckets.filter((bucket) => bucket.historyWindow);
+      const limitReaches =
+        card.provider !== "warp" && quotas.history?.available
+          ? historyWindows.reduce(
+              (sum, bucket) => sum + (bucket.reachedCount ?? 0),
+              0,
+            )
+          : null;
+      const reachBreakdown = historyWindows
+        .filter((bucket) => (bucket.reachedCount ?? 0) > 0)
+        .map((bucket) => `${bucket.windowLabel} ${bucket.reachedCount}`)
+        .join(" · ") || null;
+      return {
+        provider: card.provider,
+        label: card.providerLabel,
+        state: card.state,
+        tokens: providerTokens,
+        tokenShare: total > 0 ? (providerTokens / total) * 100 : 0,
+        highestUsedPercent: usedLevels.length ? Math.max(...usedLevels) : null,
+        windows: card.buckets.map((bucket) => ({
+          id: bucket.id,
+          label: bucket.windowLabel,
+          usedPercent: bucket.usedPercent,
+          state: bucket.state,
+        })),
+        limitReaches,
+        reachBreakdown,
+        resetsApplied:
+          card.provider === "codex"
+            ? quotas.history?.available
+              ? card.usedResetCount
+              : null
+            : undefined,
+      };
+    });
+}
+
 function WarpQuotaDetails({ report }: { report: QuotaProvider | undefined }) {
   const summary = warpQuotaSummary(report);
   const freshness =
@@ -4172,28 +4267,27 @@ function Overview({
     previousDaily,
     metricRowCacheShare,
   );
-  const agentTotals = new Map<string, number>();
-  daily.forEach((row) =>
-    (row.agents ?? [row]).forEach((item) =>
-      agentTotals.set(
-        item.agent,
-        (agentTotals.get(item.agent) ?? 0) + item.totalTokens,
-      ),
-    ),
-  );
-  const agentChart = [...agentTotals.entries()].map(([name, value], index) => {
-    const provider = providerKey(name);
-    const color =
-      provider === "anthropic"
+  const capacityRows = providerCapacityRows(daily, data.quotas);
+  const providerMix = capacityRows.map((row) => ({
+    name:
+      row.provider === "anthropic"
+        ? "Claude"
+        : row.provider === "codex"
+          ? "Codex"
+          : "Warp",
+    value: row.tokens,
+    share: row.tokenShare,
+    color:
+      row.provider === "anthropic"
         ? providerColors.anthropic
-        : provider === "codex"
+        : row.provider === "codex"
           ? providerColors.openai
-          : provider === "warp"
-            ? providerColors.warp
-            : palette[index % palette.length];
-    return { name, value, color };
-  });
-  const agentGrandTotal = agentChart.reduce((sum, item) => sum + item.value, 0);
+          : providerColors.warp,
+  }));
+  const providerMixTotal = providerMix.reduce(
+    (sum, provider) => sum + provider.value,
+    0,
+  );
   const recent = currentWindowSessions(windowSessions, data.quotas);
   const recentFloor = recentSessionFloor(data.quotas, windowSessions);
   // The list runs well past the two windows it is titled for, so a closing quota reading is
@@ -4238,6 +4332,12 @@ function Overview({
     ? Math.round((previousTotals.cache / previousTotals.traffic) * 100)
     : 0;
   const rangeLabel = metricRangeLabel(metricRange, customRange);
+  const capacityTrackingSince = data.quotas.history?.trackingSince
+    ? new Date(data.quotas.history.trackingSince).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : null;
   const spanDays = metricRangeSpanDays(metricRange, customRange);
   const periodLabel =
     daily.length === 1 ? (
@@ -4435,12 +4535,15 @@ function Overview({
         </article>
       </section>
       <section className="dashboard-grid">
-        <article className="panel agent-panel">
+        <article className="panel agent-panel provider-capacity-panel">
           <div className="panel-heading">
             <div>
-              <span className="overline">AGENT MIX</span>
-              <h2>Who used the context?</h2>
-              <p>{rangeLabel} · follows the active filters</p>
+              <span className="overline">PROVIDER CAPACITY</span>
+              <h2>Use vs limits</h2>
+              <p>
+                Token share covers {rangeLabel.toLowerCase()}. Account levels are latest.
+                {capacityTrackingSince && ` Events count since ${capacityTrackingSince}.`}
+              </p>
             </div>
             <div className="panel-heading-actions">
               <button
@@ -4455,44 +4558,105 @@ function Overview({
               <Bot />
             </div>
           </div>
-          <div className="agent-mix">
-            <div className="donut-wrap">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={agentChart}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={51}
-                    outerRadius={68}
-                    stroke="none"
-                  >
-                    {agentChart.map((item) => (
-                      <Cell key={item.name} fill={item.color} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <span>
-                {agentChart.length}
-                <small>agents</small>
-              </span>
-            </div>
-            <div className="legend">
-              {agentChart.map((item) => (
-                <div key={item.name}>
-                  <i style={{ background: item.color }} />
-                  <span>{item.name}</span>
-                  <b>
-                    {Math.round(
-                      (item.value / Math.max(1, agentGrandTotal)) * 100,
-                    )}
-                    %
-                  </b>
+          {capacityRows.length === 0 ? (
+            <Empty text="No provider activity or quota readings in this view." />
+          ) : (
+            <div className="provider-capacity">
+              <div className="provider-capacity__mix">
+                <div className="provider-capacity__donut">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={providerMix}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={43}
+                        outerRadius={58}
+                        stroke="none"
+                        isAnimationActive={false}
+                      >
+                        {providerMix.map((provider) => (
+                          <Cell key={provider.name} fill={provider.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <span>
+                    <b>{formatCompact(providerMixTotal)}</b>
+                    <small>tokens</small>
+                  </span>
                 </div>
-              ))}
+                <div className="provider-capacity__legend">
+                  {providerMix.map((provider) => (
+                    <div key={provider.name}>
+                      <i style={{ background: provider.color }} />
+                      <span>{provider.name}</span>
+                      <b>{provider.share.toFixed(0)}%</b>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {capacityRows.map((row) => {
+                const stateLabel = row.state === "ok" ? "current" : row.state;
+                const load = row.highestUsedPercent;
+                return (
+                  <section
+                    className={`provider-capacity__row ${row.provider} ${row.state}`}
+                    key={row.provider}
+                  >
+                    <header>
+                      <span><i />{row.label}</span>
+                      <small>{stateLabel}</small>
+                    </header>
+                    <div className="provider-capacity__comparison">
+                      <div>
+                        <span>Token share</span>
+                        <b>{row.tokenShare.toFixed(0)}%</b>
+                        <div className="provider-capacity__track" aria-hidden="true">
+                          <i style={{ width: `${row.tokenShare}%` }} />
+                        </div>
+                      </div>
+                      <div className={load !== null && load >= 90 ? "is-pressured" : undefined}>
+                        <span>Highest quota use</span>
+                        <b>{load === null ? "—" : `${load.toFixed(0)}%`}</b>
+                        <div className="provider-capacity__track" aria-hidden="true">
+                          <i style={{ width: `${load ?? 0}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      className="provider-capacity__windows"
+                      aria-label={`${row.label} current quota levels`}
+                    >
+                      {row.windows.map((window) => (
+                        <span className={window.state} key={window.id}>
+                          <small>{window.label}</small>
+                          <b>
+                            {window.usedPercent === null
+                              ? window.state
+                              : `${window.usedPercent.toFixed(0)}% used`}
+                          </b>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="provider-capacity__events">
+                      <span>
+                        Limit reaches
+                        <b>{row.limitReaches === null ? "not tracked" : row.limitReaches}</b>
+                        {row.reachBreakdown && <small>{row.reachBreakdown}</small>}
+                      </span>
+                      {row.resetsApplied !== undefined && (
+                        <span>
+                          Resets applied
+                          <b>{row.resetsApplied === null ? "not tracked" : row.resetsApplied}</b>
+                        </span>
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
-          </div>
+          )}
         </article>
         <article className="panel effort-panel">
           <div className="panel-heading">
