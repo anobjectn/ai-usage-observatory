@@ -2721,6 +2721,18 @@ function QuotaReferenceLines({
     const sharedXIndex = markers
       .slice(0, markerIndex)
       .filter((candidate) => candidate.x === marker.x).length;
+    const providerLabel = marker.provider === "anthropic" ? "Claude" : "Codex";
+    const resetEntry = marker.entries.find((entry) => entry.kind === "reset");
+    const reachedEntries = marker.entries.filter((entry) => entry.kind !== "reset");
+    const markerLabel = (entries: QuotaMarker["entries"]) => entries
+      .map((entry) => `${providerLabel} ${entry.label}${entry.count > 1 ? ` ×${entry.count}` : ""}`)
+      .join(" · ");
+    const labels = resetEntry && reachedEntries.length > 0
+      ? [
+          { text: markerLabel(reachedEntries), side: "left" as const },
+          { text: markerLabel([resetEntry]), side: "right" as const },
+        ]
+      : [{ text: marker.label, side: "left" as const }];
     return (
       <ReferenceLine
         key={marker.key}
@@ -2734,31 +2746,38 @@ function QuotaReferenceLines({
         label={{
           content: ({ viewBox }) => {
             if (!viewBox || !("x" in viewBox) || !("y" in viewBox)) return null;
-            const labelX = Number(viewBox.x) - 2 - sharedXIndex * 7;
             const labelY = Number(viewBox.y) + 4;
-            const labelWidth = marker.label.length * 5.4;
             return (
-              <g transform={`translate(${labelX} ${labelY}) rotate(-90)`}>
-                <rect
-                  x={-labelWidth - 1}
-                  y={-10}
-                  width={labelWidth + 3}
-                  height={11}
-                  rx={1.5}
-                  fill="#000"
-                  fillOpacity={0.6}
-                />
-                <text
-                  x={0}
-                  y={0}
-                  fill={quotaMarkerColors[marker.provider]}
-                  fontSize={9}
-                  fontFamily="var(--font-label)"
-                  textAnchor="end"
-                >
-                  {marker.label}
-                </text>
-              </g>
+              <>
+                {labels.map((label) => {
+                  const labelX = Number(viewBox.x) +
+                    (label.side === "right" ? 11 + sharedXIndex * 7 : -2 - sharedXIndex * 7);
+                  const labelWidth = label.text.length * 5.4;
+                  return (
+                    <g key={label.side} transform={`translate(${labelX} ${labelY}) rotate(-90)`}>
+                      <rect
+                        x={-labelWidth - 1}
+                        y={-10}
+                        width={labelWidth + 3}
+                        height={11}
+                        rx={1.5}
+                        fill="#000"
+                        fillOpacity={0.6}
+                      />
+                      <text
+                        x={0}
+                        y={0}
+                        fill={quotaMarkerColors[marker.provider]}
+                        fontSize={9}
+                        fontFamily="var(--font-label)"
+                        textAnchor="end"
+                      >
+                        {label.text}
+                      </text>
+                    </g>
+                  );
+                })}
+              </>
             );
           },
         }}
@@ -3046,7 +3065,8 @@ function ProviderTimeline({
                   name={line.label}
                   stroke={color}
                   strokeWidth={1.4}
-                  strokeDasharray="5 4"
+                  strokeDasharray="1 3 7 3"
+                  strokeLinecap="round"
                   strokeOpacity={0.85}
                   dot={false}
                   activeDot={false}
@@ -4409,6 +4429,7 @@ function Overview({
               quotaHistory={data.quotas.history}
               timeZone={data.timeZone}
               emptyText={filterEmptyMessage(agent, metricRange, pathTag, customRange)}
+              headroomOverlay
             />
           )}
         </article>

@@ -879,15 +879,15 @@ td>small {
 }
 
 .provider-legend div.provider-legend__headroom {
-  grid-template-columns: 12px auto;
+  grid-template-columns: 22px auto;
 }
 
 .provider-legend .provider-legend__dash {
-  width: 12px;
+  width: 22px;
   height: 2px;
   border-radius: 0;
-  mask: repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 8px);
-  -webkit-mask: repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 8px);
+  mask: repeating-linear-gradient(90deg,#000 0 1px,transparent 1px 4px,#000 4px 11px,transparent 11px 14px);
+  -webkit-mask: repeating-linear-gradient(90deg,#000 0 1px,transparent 1px 4px,#000 4px 11px,transparent 11px 14px);
 }
 
 .tooltip-headroom {
