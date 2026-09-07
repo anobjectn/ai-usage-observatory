@@ -8,7 +8,9 @@
   --font-body: var(--sans-font);
   --font-heading: var(--sans-font);
   --font-label: var(--mono-font);
+  --font-weight-regular: 400;
   --font-weight-medium: 500;
+  --font-weight-semibold: 600;
   --bg: #07100f;
   --surface: #0d1715;
   --surface-2: #111d1a;

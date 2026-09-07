@@ -90,16 +90,48 @@ function maxConcurrent(target: ActivityEpisode[], others: ActivityEpisode[]) {
   return maximum;
 }
 
+function overlapDuration(target: ActivityEpisode[], others: ActivityEpisode[]) {
+  const intersections = target.flatMap((left) => others.flatMap((right) => {
+    const startAt = Math.max(left.startAt, right.startAt);
+    const endAt = Math.min(left.endAt, right.endAt);
+    return endAt > startAt ? [{ startAt, endAt }] : [];
+  })).sort((left, right) => left.startAt - right.startAt || left.endAt - right.endAt);
+  let total = 0;
+  let current: ActivityEpisode | null = null;
+  for (const interval of intersections) {
+    if (!current) {
+      current = { ...interval };
+      continue;
+    }
+    if (interval.startAt > current.endAt) {
+      total += current.endAt - current.startAt;
+      current = { ...interval };
+    } else {
+      current.endAt = Math.max(current.endAt, interval.endAt);
+    }
+  }
+  return total + (current ? current.endAt - current.startAt : 0);
+}
+
 function concurrencyOf(input: ContextPolicyInput): SessionQuotaContext["concurrency"] {
   const same = input.otherSessions.filter((session) => session.sessionId !== input.sessionId && session.provider === input.provider);
   const cross = input.otherSessions.filter((session) => session.sessionId !== input.sessionId && session.provider !== input.provider);
   const overlapping = (session: (typeof input.otherSessions)[number]) =>
     session.episodes.some((other) => input.episodes.some((target) => overlap(target, other)));
+  const localSessions = [...same, ...cross]
+    .filter(overlapping)
+    .map((session) => ({
+      sessionId: session.sessionId,
+      provider: session.provider,
+      overlapMs: overlapDuration(input.episodes, session.episodes),
+    }))
+    .sort((left, right) => right.overlapMs - left.overlapMs || left.sessionId.localeCompare(right.sessionId));
   return {
     distinctOtherSameProviderSessions: same.filter(overlapping).length,
     maxOtherSameProviderSessions: maxConcurrent(input.episodes, same.flatMap((session) => session.episodes)),
     distinctOtherProviderSessions: cross.filter(overlapping).length,
     maxOtherProviderSessions: maxConcurrent(input.episodes, cross.flatMap((session) => session.episodes)),
+    sessions: localSessions,
     externalActivity: "unknown",
   };
 }

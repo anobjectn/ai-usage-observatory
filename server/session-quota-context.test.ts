@@ -249,5 +249,9 @@ describe("session quota policy", () => {
       distinctOtherProviderSessions: 1,
       maxOtherProviderSessions: 1,
     });
+    expect(result.concurrency.sessions).toEqual(expect.arrayContaining([
+      { sessionId: "same", provider: "anthropic", overlapMs: 2 * 60_000 },
+      { sessionId: "cross", provider: "codex", overlapMs: 2 * 60_000 },
+    ]));
   });
 });

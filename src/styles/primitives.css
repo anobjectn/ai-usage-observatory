@@ -694,14 +694,14 @@ td>small {
   margin-left: 6px;
 }
 
-/* The ledger keeps nine named columns under every sort. Percentages make model identity the flexible reading column while the action and detail controls stay close to their contents. */
+/* The ledger keeps nine named columns under every sort. Quota gets enough room for value-first readings; Verdict stays narrow because its rows contain one compact badge. */
 .table-panel .session-table {
   table-layout: fixed;
   min-width: 1180px;
 }
 
 .table-panel .session-table col.session-col--quota {
-  width: 4%;
+  width: 5.5%;
 }
 
 .table-panel .session-table col.session-col--activity {
@@ -709,11 +709,11 @@ td>small {
 }
 
 .table-panel .session-table col.session-col--model {
-  width: 27%;
+  width: 29%;
 }
 
 .table-panel .session-table col.session-col--pwd {
-  width: 21%;
+  width: 23.5%;
 }
 
 .table-panel .session-table col.session-col--tokens {
@@ -725,11 +725,11 @@ td>small {
 }
 
 .table-panel .session-table col.session-col--verdict {
-  width: 9%;
+  width: 4.5%;
 }
 
 .table-panel .session-table col.session-col--actions {
-  width: 8%;
+  width: 6.5%;
 }
 
 .table-panel .session-table col.session-col--toggle {
@@ -753,7 +753,7 @@ td>small {
   opacity: .55;
 }
 
-/* Vertical mini table: one row per window, label then remaining value, falling toward zero. */
+/* Vertical mini table: one row per window, remaining value then its compact window label. */
 .session-quota-balance {
   --quota-value-color: var(--aqua);
   display: flex;
@@ -785,16 +785,16 @@ td>small {
 
 .session-quota-balance b {
   color: var(--quota-value-color);
-  font: 11px var(--font-label);
+  font: var(--data-text-primary) var(--font-label);
   font-weight: var(--font-weight-medium);
+  letter-spacing: -.02em;
 }
 
 .session-quota-balance i {
   color: var(--dim);
   font: var(--text-2xs) var(--font-label);
   font-style: normal;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  letter-spacing: .03em;
   min-width: 14px;
 }
 
@@ -2004,8 +2004,20 @@ td>small {
   margin-top: 10px;
 }
 
+.token-types__table {
+  table-layout: fixed;
+}
+
+.token-types__table thead th:first-child {
+  width: 30%;
+}
+
 .token-types__table tbody th {
+  display: table-cell;
   max-width: none;
+  overflow: visible;
+  font-size: 10px;
+  text-overflow: clip;
 }
 
 .token-types__table tbody th i {
@@ -2014,6 +2026,22 @@ td>small {
   height: 8px;
   border-radius: var(--radius-chip);
   flex: none;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.token-types__table tbody tr {
+  transition: background-color var(--duration-speedy) ease,box-shadow var(--duration-speedy) ease;
+}
+
+.token-types__table tbody tr:hover {
+  background: color-mix(in srgb,var(--aqua) 7%,transparent);
+  box-shadow: inset 2px 0 color-mix(in srgb,var(--aqua) 65%,transparent);
+}
+
+.token-types__table tbody tr:hover th,
+.token-types__table tbody tr:hover td {
+  color: var(--text);
 }
 
 .token-types__table td {

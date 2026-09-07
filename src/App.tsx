@@ -416,7 +416,7 @@ function initialSessionId() {
 }
 
 function sessionHref(sessionId: string) {
-  const url = new URL(window.location.href);
+  const url = new URL(typeof window === "undefined" ? "http://localhost/" : window.location.href);
   url.search = "";
   url.searchParams.set("view", "sessions");
   url.searchParams.set("session", sessionId);
@@ -5852,6 +5852,14 @@ function quotaResourceLabel(id: string) {
   return id;
 }
 
+function quotaResourceCompactLabel(id: string) {
+  if (id === "fiveHour") return "5h window";
+  if (id === "weekly") return "w window";
+  if (id === "monthly") return "m pool";
+  if (id.startsWith("model:")) return `${id.slice(6)} window`;
+  return id;
+}
+
 function quotaNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
@@ -5948,8 +5956,8 @@ export function SessionQuotaBalanceCell({
         >
           {balance.remainingPercent === null && balance.remainingUnits === null ? (
             <>
-              <i>{balance.label}</i>
               <b>--</b>
+              <i>{balance.label}</i>
             </>
           ) : balance.remainingUnits !== null ? (
             <>
@@ -5964,8 +5972,8 @@ export function SessionQuotaBalanceCell({
             </>
           ) : (
             <>
-              <i>{balance.label}</i>
               <b>{quotaNumber(balance.remainingPercent ?? 0)}%</b>
+              <i>{balance.label}</i>
             </>
           )}
         </span>
@@ -6033,7 +6041,15 @@ export function sessionQuotaEvents(
 
 /** One range per quota cycle, in remaining terms, oldest first: a session that spanned a reset
  * reads `25→0, 100→75`. Episodes inside one cycle collapse to first start → last end. */
-export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][number]): string[] {
+export type SessionQuotaRange = {
+  text: string;
+  value: string;
+  unit: "%" | "credits";
+  magnitude: number;
+  magnitudeValue: string;
+};
+
+export function quotaRemainingRangeItems(resource: SessionQuotaContext["resources"][number]): SessionQuotaRange[] {
   const cycles = new Map<string, { start: number; end: number; startUnits: number | null; endUnits: number | null }>();
   for (const episode of resource.episodes) {
     const existing = cycles.get(episode.cycleId);
@@ -6052,43 +6068,100 @@ export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][
   return [...cycles.values()].map((cycle) => {
     if (resource.kind === "pool" && cycle.startUnits !== null && cycle.endUnits !== null) {
       if (resource.limitUnits === null || resource.limitChanged) return null;
-      return `${formatWarpCredits(resource.limitUnits - cycle.startUnits)}→${formatWarpCredits(resource.limitUnits - cycle.endUnits)} credits`;
+      const magnitude = Math.max(0, cycle.endUnits - cycle.startUnits);
+      const value = `${formatWarpCredits(resource.limitUnits - cycle.startUnits)}→${formatWarpCredits(resource.limitUnits - cycle.endUnits)}`;
+      return {
+        text: `${value} credits`,
+        value,
+        unit: "credits" as const,
+        magnitude,
+        magnitudeValue: formatWarpCredits(magnitude),
+      };
     }
-    return `${quotaNumber(Math.max(0, 100 - cycle.start))}→${quotaNumber(Math.max(0, 100 - cycle.end))}%`;
-  }).filter((range): range is string => range !== null);
+    const magnitude = Math.max(0, cycle.end - cycle.start);
+    const value = `${quotaNumber(Math.max(0, 100 - cycle.start))}→${quotaNumber(Math.max(0, 100 - cycle.end))}`;
+    return {
+      text: `${value}%`,
+      value,
+      unit: "%" as const,
+      magnitude,
+      magnitudeValue: quotaNumber(magnitude),
+    };
+  }).filter((range): range is SessionQuotaRange => range !== null);
 }
 
-export function SessionQuotaContextPanel({ context }: { context: SessionQuotaContext }) {
+export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][number]): string[] {
+  return quotaRemainingRangeItems(resource).map((range) => range.text);
+}
+
+function quotaImpactSummary(context: SessionQuotaContext | null | undefined) {
+  if (!context) return [];
+  return context.resources.flatMap((resource) => quotaRemainingRangeItems(resource).map((range) => ({
+    label: quotaResourceCompactLabel(resource.id),
+    range: range.text,
+  })));
+}
+
+function shortSessionId(sessionId: string) {
+  return sessionId.length > 22 ? `${sessionId.slice(0, 9)}…${sessionId.slice(-8)}` : sessionId;
+}
+
+function overlapDurationLabel(overlapMs: number) {
+  const minutes = Math.round(overlapMs / 60_000);
+  return minutes < 1 ? "<1m overlap" : `${minutes}m overlap`;
+}
+
+export function SessionQuotaContextPanel({ context, sessionId }: { context: SessionQuotaContext; sessionId?: string }) {
   const providerLabel = context.provider === "anthropic" ? "Claude" : context.provider === "codex" ? "Codex" : "Warp";
   const sameProvider = context.concurrency.distinctOtherSameProviderSessions;
   const evidence = context.basis === "embedded_account_observation" ? "Embedded snapshots" : "Bracketed snapshots";
   const balances = sessionQuotaBalanceItems(context);
   const availableBalances = balances.filter((balance) => balance.remainingPercent !== null || balance.remainingUnits !== null);
+  const titleId = `session-quota-context-title-${useId()}`;
+  const concurrentSessions = context.concurrency.sessions ?? [];
+  const observedChanges = context.resources.flatMap((resource) => quotaRemainingRangeItems(resource).map((range) => ({
+    label: quotaResourceLabel(resource.id),
+    magnitudeValue: range.magnitudeValue,
+    unit: range.unit,
+  })));
   return (
-    <section className={`session-quota-context is-${context.confidence}`} aria-labelledby="session-quota-context-title">
+    <section className={`session-quota-context session-quota-context--impact is-${context.confidence}`} aria-labelledby={titleId}>
       <header>
         <div>
-          <span className="overline">Account quota context</span>
-          <h4 id="session-quota-context-title">Observed during this active session</h4>
+          <span className="overline">Quota impact</span>
+          <h4 id={titleId}>Observed account movement while this session ran</h4>
         </div>
         <span className="session-quota-context__confidence">{context.confidence} confidence</span>
       </header>
       {context.resources.length > 0 ? (
         <div className="session-quota-context__resources">
           {context.resources.map((resource) => {
-            const ranges = quotaRemainingRanges(resource);
+            const ranges = quotaRemainingRangeItems(resource);
             const blanked = resource.deltaPercentagePoints === null && resource.deltaUnits === null;
             const movement = resource.confidence === "insufficient"
               ? "Unresolved"
               : blanked || !ranges.length
                 ? "Movement unavailable"
-                : !resource.measurable
-                  ? "No measurable movement"
-                  : `${ranges.join(", ")}${resource.kind === "pool" ? "" : " remaining"}`;
+                : "";
             return (
               <div key={resource.id} className={`is-${resource.confidence}`}>
                 <span>{quotaResourceLabel(resource.id)}</span>
-                <strong title={resource.confidence === "insufficient" || blanked ? undefined : "Remaining account quota while this session was active, oldest cycle first. A jump back up is a window reset; nothing is summed across resets."}>{movement}</strong>
+                <strong className="session-quota-context__movement" title={resource.confidence === "insufficient" || blanked ? undefined : "Remaining account quota while this session was active, oldest cycle first. A jump back up is a window reset; nothing is summed across resets."}>
+                  {ranges.length > 0 && resource.confidence !== "insufficient" && !blanked ? ranges.map((range) => (
+                    <span className="session-quota-context__range" key={`${resource.id}-${range.text}`}>
+                      <span className="session-quota-context__readout">
+                        <b>{range.value}</b>
+                        <i>{range.unit}</i>
+                        <em>remaining</em>
+                      </span>
+                      <span className="session-quota-context__change">
+                        <b>{range.magnitudeValue}{range.unit === "%" ? "%" : ""}</b>
+                        {range.unit !== "%" && <i>{range.unit}</i>}
+                        <small>observed account change</small>
+                      </span>
+                    </span>
+                  )) : movement}
+                </strong>
                 <small>
                   {resource.confidence === "insufficient"
                     ? resource.reason
@@ -6124,6 +6197,36 @@ export function SessionQuotaContextPanel({ context }: { context: SessionQuotaCon
             ? `Up to ${context.concurrency.maxOtherSameProviderSessions} other local ${providerLabel} ${context.concurrency.maxOtherSameProviderSessions === 1 ? "session" : "sessions"} overlapped`
             : `No other local ${providerLabel} session overlap detected`}
         </span>
+      </div>
+      <div className="session-quota-context__attribution">
+        <p>
+          <b>Observed account movement.</b>{" "}
+          {observedChanges.length
+            ? <>
+                {observedChanges.map((change, index) => (
+                  <span key={`${change.label}-${change.magnitudeValue}-${change.unit}`}>
+                    {index > 0 ? " · " : ""}{change.label}: {change.magnitudeValue}{change.unit === "%" ? "%" : ` ${change.unit}`}
+                  </span>
+                ))}.
+              </>
+            : "No measurable movement was resolved."}{" "}
+          These are changes in the shared provider counter, not amounts assigned to one session.
+        </p>
+        <p>
+          {sessionId ? (
+            <>Focused session <a href={sessionHref(sessionId)} title={sessionId}>{shortSessionId(sessionId)}</a> observed this movement.</>
+          ) : "This focused session observed this movement."}{" "}
+          {concurrentSessions.length ? (
+            <>Possible concurrent observers: {concurrentSessions.map((other, index) => (
+              <span key={other.sessionId}>
+                {index > 0 ? ", " : " "}
+                <a href={sessionHref(other.sessionId)} title={`${other.sessionId} · ${sessionProviderLabels[other.provider]}`}>
+                  {shortSessionId(other.sessionId)}
+                </a>{" "}<small>({sessionProviderLabels[other.provider]}, {overlapDurationLabel(other.overlapMs)})</small>
+              </span>
+            ))}. No causal split is available, so do not add the same account movement across these sessions.
+          </>) : "No local session overlap was recorded. Web, mobile, cloud, another machine, and other local processes remain unknown."}
+        </p>
       </div>
       <details>
         <summary>How to read this</summary>
@@ -6329,9 +6432,10 @@ export function SessionDetailPanel({
       onSelect: () => openExternalTarget("default-editor", target, label),
     },
   ];
+  const quotaSummary = quotaImpactSummary(detail?.quotaContext);
   return (
     <div className={`session-detail${warp ? " session-detail--warp" : ""}`}>
-      <div className="session-detail__summary">
+      <div className={`session-detail__summary${quotaSummary.length > 0 ? " session-detail__summary--with-quota" : ""}`}>
         <div className="session-detail__verdict">
           <span>YOUR VERDICT</span>
           <strong>
@@ -6361,6 +6465,22 @@ export function SessionDetailPanel({
             <em>−{deletions}</em>
           </strong>
         </div>
+        {quotaSummary.length > 0 && (
+          <div
+            className="session-detail__quota-meta"
+            title="Observed movement in the shared provider quota counter. It is not a charge assigned to this session."
+          >
+            <span>QUOTA IMPACT</span>
+            <strong className="session-detail__quota-values">
+              {quotaSummary.map((item) => (
+                <span className="session-detail__quota-item" key={`${item.range}-${item.label}`}>
+                  <b>{item.range}</b>
+                  <small>{item.label}</small>
+                </span>
+              ))}
+            </strong>
+          </div>
+        )}
         {warp && (
           <>
             <div><span>WARP CREDITS</span><strong>{formatWarpCredits(warp.credits)}</strong></div>
@@ -6371,25 +6491,6 @@ export function SessionDetailPanel({
           </>
         )}
       </div>
-      {!showCache ? (
-        <TokenTypesNotice>{cacheHiddenNotice}</TokenTypesNotice>
-      ) : warp ? (
-        <TokenTypesNotice>{warpOnlyNotice}</TokenTypesNotice>
-      ) : (
-        <TokenTypeTable
-          summary={summarizeTokenTypes(
-            session.modelBreakdowns.map((breakdown) => ({ agent: session.agent, breakdown })),
-            rateCard,
-            unpricedModels,
-          )}
-          context={{
-            reasoning: detail?.effort?.reasoning ?? null,
-            effortIndexEnabled: effortStatus?.enabled,
-            rateCard,
-          }}
-        />
-      )}
-      {detail?.quotaContext && <SessionQuotaContextPanel context={detail.quotaContext} />}
       <div className="session-detail__columns">
         <SessionDetailColumn
           column="prompt"
@@ -6660,6 +6761,32 @@ export function SessionDetailPanel({
                 ))}
             </ul>
           </SessionDetailColumn>
+        )}
+      </div>
+      <div className={`session-detail__metrics-row${detail?.quotaContext ? " session-detail__metrics-row--with-quota" : ""}`}>
+        {!showCache ? (
+          <TokenTypesNotice>{cacheHiddenNotice}</TokenTypesNotice>
+        ) : warp ? (
+          <TokenTypesNotice>{warpOnlyNotice}</TokenTypesNotice>
+        ) : (
+          <TokenTypeTable
+            summary={summarizeTokenTypes(
+              session.modelBreakdowns.map((breakdown) => ({ agent: session.agent, breakdown })),
+              rateCard,
+              unpricedModels,
+            )}
+            context={{
+              reasoning: detail?.effort?.reasoning ?? null,
+              effortIndexEnabled: effortStatus?.enabled,
+              rateCard,
+            }}
+          />
+        )}
+        {detail?.quotaContext && (
+          <SessionQuotaContextPanel
+            context={detail.quotaContext}
+            sessionId={session.sessionId}
+          />
         )}
       </div>
       {warp && (
@@ -7565,7 +7692,7 @@ function Sessions({
                 {header("cost", "cost", "session-col--cost")}
                 <th className="session-col session-col--verdict session-verdict-header">
                   <span title="Your own rating of the session. It is never inferred, and it is the only signal in this app that is user-supplied.">
-                    Verdict
+                    Rate
                   </span>
                 </th>
                 <th

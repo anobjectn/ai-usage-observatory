@@ -474,6 +474,13 @@ export type SessionQuotaContext = {
     maxOtherSameProviderSessions: number;
     distinctOtherProviderSessions: number;
     maxOtherProviderSessions: number;
+    /** Local sessions whose activity episodes overlap this session. The quota counter is shared,
+     * so these links identify possible contributors rather than causal allocations. */
+    sessions?: Array<{
+      sessionId: string;
+      provider: "anthropic" | "codex" | "warp";
+      overlapMs: number;
+    }>;
     externalActivity: "unknown";
   };
   coverage: {

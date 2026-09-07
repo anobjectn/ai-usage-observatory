@@ -21,6 +21,7 @@ import {
   SessionQuotaBalanceCell,
   sessionQuotaBalanceItems,
   sessionQuotaEvents,
+  quotaRemainingRangeItems,
   quotaRemainingRanges,
   quotaResetBoundaries,
   recentSessionFloor,
@@ -723,7 +724,13 @@ test("session quota context uses account-level, non-additive language", () => {
   );
 
   // Movement reads as a remaining-quota range, not a summed attribution.
-  expect(html).toContain("49.5→0.3% remaining");
+  expect(html).toContain("<b>49.5→0.3</b><i>%</i><em>remaining</em>");
+  expect(html).toContain("<b>49.3%</b><small>observed account change</small>");
+  expect(html).toContain("<b>49.5→0.3%</b><small>5h window</small>");
+  expect(html.indexOf("session-detail__quota-meta")).toBeLessThan(html.indexOf("session-detail__columns"));
+  expect(html.indexOf("session-detail__columns")).toBeLessThan(html.indexOf("token-types"));
+  expect(html.indexOf("token-types")).toBeLessThan(html.indexOf("session-quota-context--impact"));
+  expect(html).toContain("session-detail__metrics-row session-detail__metrics-row--with-quota");
   expect(html).not.toContain("+49.3% of quota");
   expect(html).toContain("Closing reading: 0.3% (5h) remaining.");
   expect(html).toContain("Up to 2 other local Codex sessions overlapped");
@@ -783,7 +790,7 @@ test("session quota context panel shows a resolved resource beside an unresolved
     }),
   );
 
-  expect(html).toContain("60→57% remaining");
+  expect(html).toContain("<b>60→57</b><i>%</i><em>remaining</em>");
   expect(html).toContain("Unresolved");
   expect(html).toContain("Waiting for the first snapshot");
   expect(html).toContain("1 resolved cycle · medium confidence");
@@ -843,7 +850,7 @@ test("session quota balance values carry the session provider class", () => {
   );
 
   expect(html).toContain('class="session-quota-balance codex"');
-  expect(html).toContain(">71%</b>");
+  expect(html).toContain("<b>71%</b><i>5h</i>");
 });
 
 test("a model window earns a balance row only while it diverges from the weekly reading", () => {
@@ -890,6 +897,29 @@ test("quotaRemainingRanges reports pool movement only when remaining units can b
 
   expect(quotaRemainingRanges(resource(false))).toEqual(["1,350→1,200 credits"]);
   expect(quotaRemainingRanges(resource(true))).toEqual([]);
+});
+
+test("quotaRemainingRangeItems keeps the absolute movement beside each range", () => {
+  const resource = {
+    kind: "window", limitUnits: null, limitChanged: false,
+    episodes: [{
+      cycleId: "reset:five-hour",
+      startUsedPercent: 33,
+      endUsedPercent: 41,
+      deltaPercentagePoints: 8,
+      startUsedUnits: null,
+      endUsedUnits: null,
+      deltaUnits: null,
+    }],
+  } as SessionQuotaContext["resources"][number];
+
+  expect(quotaRemainingRangeItems(resource)).toEqual([{
+    text: "67→59%",
+    value: "67→59",
+    unit: "%",
+    magnitude: 8,
+    magnitudeValue: "8",
+  }]);
 });
 
 test("quotaResetBoundaries reports the window that reset between two adjacent sessions", () => {
