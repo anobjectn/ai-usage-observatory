@@ -506,12 +506,12 @@ describe("daily effort series", () => {
     },
   });
 
-  test("keeps one stable key set across the range rather than per day", () => {
+  test("keeps one stable key set across the range, ordered by volume, rather than per day", () => {
     const { keys, points } = buildEffortDaySeries([
       day("2026-07-01", [["low", 1, 100]], 0),
       day("2026-07-02", [["high", 1, 900]], 0),
     ], "tokens");
-    expect(keys).toEqual(["low", "high", "unknown"]);
+    expect(keys).toEqual(["high", "low", "unknown"]);
     expect(points[0].values).toEqual({ low: 100, high: 0, unknown: 0 });
     expect(points[1].values).toEqual({ low: 0, high: 900, unknown: 0 });
   });

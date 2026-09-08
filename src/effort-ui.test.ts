@@ -12,7 +12,7 @@ import {
 } from "./hooks/use-effort";
 import { comboKey, encodeComboFacet, type Combo } from "./combo";
 import { EffortCoverage, effortColor, effortLabel, familyColor, familyLabel, sharePercent } from "./components/effort";
-import { effortRank } from "./effort-model";
+import { buildEffortDaySeries, effortRank, foldEffort } from "./effort-model";
 import type { EffortSessionDigest } from "./types";
 
 describe("effort scope params", () => {
@@ -214,5 +214,29 @@ describe("coverage wording", () => {
   test("the compact form is unchanged for the views that only have one line", () => {
     const html = renderToStaticMarkup(createElement(EffortCoverage, { summary }));
     expect(html).toContain("7% of tokens have a recorded effort · 100% of 5 observations");
+  });
+});
+
+describe("effort-only day series", () => {
+  const dayRow = (key: string, levels: Array<{ effort: string; tokens: number }>, eligibleTokens: number) => ({
+    key,
+    summary: foldEffort(
+      levels.map((level) => ({ effort: level.effort, observations: 1, tokens: level.tokens })),
+      { eligibleTokens, unknownObservations: 0, quality: "ok" },
+    ),
+  });
+
+  test("levels stack by volume with Warp named ahead of Unknown", () => {
+    const rows = [
+      dayRow("2026-07-01", [{ effort: "low", tokens: 500 }, { effort: "high", tokens: 200 }], 1_000),
+      dayRow("2026-07-02", [{ effort: "high", tokens: 90 }], 100),
+    ];
+    const { keys, points } = buildEffortDaySeries(rows, "tokens", new Map([["2026-07-01", 120]]));
+    expect(keys).toEqual(["low", "high", "warp", "unknown"]);
+    expect(points[0].values).toEqual({ low: 500, high: 200, warp: 120, unknown: 180 });
+    expect(points[0].total).toBe(1_000);
+    expect(points[1].values.warp).toBe(0);
+    expect(buildEffortDaySeries(rows, "observations", new Map([["2026-07-01", 120]])).keys).not.toContain("warp");
+    expect(effortLabel("warp")).toBe("Warp tokens");
   });
 });

@@ -140,7 +140,7 @@ describe("labels and colour", () => {
 });
 
 describe("selectComboSeries", () => {
-  test("selects the top N globally, then orders by family block and effort rank", () => {
+  test("selects the top N globally and orders them by volume, not by provider block", () => {
     const keys = selectComboSeries([
       amount("claude-opus-5", "high", 100),
       amount("claude-opus-5", "low", 40),
@@ -149,16 +149,31 @@ describe("selectComboSeries", () => {
       amount("claude-haiku-4-5", "low", 5),
     ], 4);
     expect(keys.map((key) => parseComboKey(key))).toEqual([
-      { family: "gpt-5.6-sol", effort: "medium" },
       { family: "gpt-5.6-sol", effort: "max" },
-      { family: "claude-opus-5", effort: "low" },
       { family: "claude-opus-5", effort: "high" },
+      { family: "claude-opus-5", effort: "low" },
+      { family: "gpt-5.6-sol", effort: "medium" },
     ]);
   });
 
   test("ignores buckets with no recorded effort", () => {
     expect(selectComboSeries([amount("claude-opus-5", "", 1e9), amount("claude-opus-5", "low", 1)], 6))
       .toEqual([comboKey({ family: "claude-opus-5", effort: "low" })]);
+  });
+
+  test("a combo that leads a single day is drawn even when it is light over the range", () => {
+    const keys = selectComboSeries([
+      { ...amount("gpt-5.6-sol", "high", 900), day: "2026-07-01" },
+      { ...amount("claude-opus-5", "high", 800), day: "2026-07-01" },
+      { ...amount("claude-opus-5", "high", 5), day: "2026-07-02" },
+      { ...amount("gpt-6-astra", "high", 20), day: "2026-07-02" },
+      { ...amount("claude-haiku-4-5", "low", 1), day: "2026-07-02" },
+    ], 2);
+    expect(keys.map((key) => parseComboKey(key))).toEqual([
+      { family: "gpt-5.6-sol", effort: "high" },
+      { family: "claude-opus-5", effort: "high" },
+      { family: "gpt-6-astra", effort: "high" },
+    ]);
   });
 
   test("selection is stable when volumes tie", () => {
@@ -212,7 +227,7 @@ const comboBucket = (family: string, effort: string, tokens: number, observation
 function day(
   key: string,
   buckets: EffortComboBucket[],
-  { eligibleTokens, unknownObservations = 0, suppressed = false }: { eligibleTokens: number; unknownObservations?: number; suppressed?: boolean },
+  { eligibleTokens, unknownObservations = 0, suppressed = false, warpTokens = 0 }: { eligibleTokens: number; unknownObservations?: number; suppressed?: boolean; warpTokens?: number },
 ): EffortComboDayRow {
   const attributedTokens = buckets.filter((bucket) => bucket.effort).reduce((sum, bucket) => sum + bucket.tokens, 0);
   const observedObservations = buckets.filter((bucket) => bucket.effort).reduce((sum, bucket) => sum + bucket.observations, 0);
@@ -220,6 +235,7 @@ function day(
     key,
     buckets,
     suppressed,
+    warpTokens,
     coverage: {
       observedObservations,
       unknownObservations,
@@ -289,6 +305,22 @@ describe("buildComboDaySeries", () => {
     expect(points[1].total).toBe(0);
     // The suppressed day must not influence which series the whole range draws.
     expect(points[0].values[comboKey({ family: "claude-opus-5", effort: "high" })]).toBe(400);
+  });
+
+  test("Warp tokens draw as their own series and are taken out of Unknown", () => {
+    const withWarp = [
+      day("2026-07-01", [comboBucket("claude-opus-5", "high", 400)], { eligibleTokens: 1_000, warpTokens: 250 }),
+      day("2026-07-02", [comboBucket("claude-opus-5", "high", 100)], { eligibleTokens: 100 }),
+    ];
+    const { keys, points } = buildComboDaySeries(withWarp, "tokens", 6);
+    expect(keys).toEqual([comboKey({ family: "claude-opus-5", effort: "high" }), "warp", "unknown"]);
+    expect(points[0].values.warp).toBe(250);
+    expect(points[0].values.unknown).toBe(350);
+    expect(points[0].total).toBe(1_000);
+    expect(points[1].values.warp).toBe(0);
+    // Warp records no observations, so the series does not exist on that basis.
+    expect(buildComboDaySeries(withWarp, "observations", 6).keys).not.toContain("warp");
+    expect(comboSeriesLabel("warp")).toBe("Warp tokens");
   });
 
   test("no Other series appears when every combo fits the budget", () => {

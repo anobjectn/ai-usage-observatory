@@ -206,7 +206,9 @@ function modelTokens(model: Session["modelBreakdowns"][number]) {
   return model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
 }
 
-function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions: Session[]) {
+/** Authoritative tokens per day in scope. With `only`, the same allocation narrowed to one
+ * provider, so a Warp share is read from exactly the rows the full denominator came from. */
+function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions: Session[], only: "anthropic" | "codex" | "warp" | null = null) {
   const timeZone = snapshotTimeZone(snapshot);
   const from = scopeStart(scope, timeZone);
   const to = scope.toDate;
@@ -215,7 +217,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
   // through to session allocation rather than reporting a provider-wide denominator.
   const providerOnly = scope.modelFamilies.length === 0;
   const wantsProvider = (provider: "anthropic" | "codex" | "warp") =>
-    scope.providers.length === 0 || scope.providers.includes(provider);
+    (only === null || provider === only) && (scope.providers.length === 0 || scope.providers.includes(provider));
   if (providerOnly && scope.pathTag === "all" && scope.project && !scope.model) {
     // Project activity already carries the app's authoritative provider/day allocation. Using it
     // avoids assigning a multi-day session's whole denominator to its last-activity day.
@@ -233,7 +235,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
     for (const row of snapshot.daily as MetricRow[]) {
       const date = row.period;
       if ((from && date < from) || (to && date > to)) continue;
-      const tokens = scope.providers.length === 0
+      const tokens = scope.providers.length === 0 && only === null
         ? row.totalTokens
         : (row.agents ?? [])
             .filter((agent) => {
@@ -248,6 +250,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
   // Path- and project-scoped days fall back to session allocation, which is what the existing
   // path-filtered views already do.
   for (const session of sessions) {
+    if (only !== null && providerFromAgent(session.agent) !== only) continue;
     const date = sessionDate(session, timeZone);
     if (!date || (from && date < from) || (to && date > to)) continue;
     totals.set(date, (totals.get(date) ?? 0) + sessionTokens(session));
@@ -461,6 +464,9 @@ export function buildEffortComboDays(snapshot: DashboardData, scope: EffortScope
     (session) => facetSessions === null || facetSessions.has(session.sessionId),
   );
   const eligible = dailyDenominators(snapshot, scope, sessions);
+  // Warp keeps no transcript, so its share of a day can never be attributed. It is reported
+  // beside the coverage figures so the chart can name it instead of folding it into Unknown.
+  const warp = dailyDenominators(snapshot, scope, sessions, "warp");
   const totalEligible = sessions.reduce((sum, session) => sum + sessionTokens(session), 0);
 
   if (!analysisAvailable(status)) {
@@ -493,6 +499,7 @@ export function buildEffortComboDays(snapshot: DashboardData, scope: EffortScope
       key: date,
       buckets: buckets.map(comboBucket).sort(compareBuckets),
       coverage: coverageOf(summary),
+      warpTokens: warp.get(date) ?? 0,
       suppressed: summary.reconciliationDeltaTokens > 0,
     };
   });

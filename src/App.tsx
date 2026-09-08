@@ -5030,7 +5030,13 @@ function EffortByDay({
   useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [comboRequest.load, aggregateRequest.load]);
 
   const comboSeries = useMemo(() => buildComboDaySeries(combos?.rows ?? [], basis), [combos, basis]);
-  const effortSeries = useMemo(() => buildEffortDaySeries(aggregate?.rows ?? [], basis), [aggregate, basis]);
+  // Warp per day comes from the combo rows in both modes, so the two breakdowns name the same
+  // Warp share for the same day.
+  const warpByDay = useMemo(
+    () => new Map((combos?.rows ?? []).map((row) => [row.key, row.warpTokens])),
+    [combos],
+  );
+  const effortSeries = useMemo(() => buildEffortDaySeries(aggregate?.rows ?? [], basis, warpByDay), [aggregate, basis, warpByDay]);
   const bucketsByDay = useMemo(
     () => new Map((combos?.rows ?? []).map((row) => [row.key, row.buckets])),
     [combos],
@@ -5250,7 +5256,10 @@ function EffortDayTooltip({
   const { point } = hold.snapshot;
   const isCombo = mode === "combo";
   const dateLabel = chartTooltipDateLabel(point.date);
-  const entries = keys.filter((key) => (point.values[key] ?? 0) > 0);
+  // Heaviest first: the tooltip reads top-down in the order the stack reads bottom-up.
+  const entries = keys
+    .filter((key) => (point.values[key] ?? 0) > 0)
+    .sort((a, b) => point.values[b] - point.values[a] || keys.indexOf(a) - keys.indexOf(b));
   const context = contextByDay.get(point.date);
   const subline = isCombo ? null : familySubline(point.buckets, basis);
   const reasoningByKey = new Map(

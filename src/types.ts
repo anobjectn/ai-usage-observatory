@@ -189,6 +189,9 @@ export type EffortComboDayRow = {
   key: string;
   buckets: EffortComboBucket[];
   coverage: EffortCoverageFields;
+  /** Authoritative Warp tokens inside this day's denominator. Warp keeps no transcript, so they
+   * are part of `unknownTokens`; the chart draws them as their own named series. */
+  warpTokens: number;
   /** Derived combo tokens exceeded the authoritative day total, so this day draws nothing. */
   suppressed: boolean;
 };

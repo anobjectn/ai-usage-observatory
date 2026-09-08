@@ -115,10 +115,15 @@ export type EffortDayPoint = {
 
 /** Turns one `group=day` response into a stackable series. The kept values are chosen once across
  * the whole range rather than per day, so a level does not change colour or disappear between
- * adjacent bars; the remainder collapses into `other` and totals are preserved. */
+ * adjacent bars; the remainder collapses into `other` and totals are preserved. Levels stack by
+ * volume, heaviest at the bottom.
+ *
+ * `warpByDay` carries each day's Warp tokens, which have no effort to record; on the token basis
+ * they draw as a named `warp` series and are taken out of `unknown`. */
 export function buildEffortDaySeries(
   rows: Array<{ key: string; summary: EffortSummary }>,
   basis: "tokens" | "observations",
+  warpByDay: Map<string, number> = new Map(),
   limit = 5,
 ): { keys: string[]; points: EffortDayPoint[]; suppressedDays: number } {
   const amountOf = (level: EffortLevelBucket) => (basis === "tokens" ? level.tokens : level.observations);
@@ -128,10 +133,12 @@ export function buildEffortDaySeries(
     for (const level of row.summary.levels) totals.set(level.effort, (totals.get(level.effort) ?? 0) + amountOf(level));
   }
   const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([effort]) => effort);
-  const kept = new Set(sortEffortBuckets(ranked.slice(0, limit).map((effort) => ({ effort }))).map((bucket) => bucket.effort));
+  const kept = new Set(ranked.slice(0, limit));
+  const hasWarp = basis === "tokens" && rows.some((row) => row.summary.reconciliationDeltaTokens === 0 && (warpByDay.get(row.key) ?? 0) > 0);
   const keys = [
-    ...sortEffortBuckets([...kept].map((effort) => ({ effort }))).map((bucket) => bucket.effort),
+    ...kept,
     ...(ranked.length > limit ? ["other"] : []),
+    ...(hasWarp ? ["warp"] : []),
     "unknown",
   ];
 
@@ -146,7 +153,9 @@ export function buildEffortDaySeries(
         const key = kept.has(level.effort) ? level.effort : "other";
         values[key] += amountOf(level);
       }
-      values.unknown = basis === "tokens" ? Math.max(0, row.summary.unknownTokens ?? 0) : row.summary.unknownObservations;
+      const warp = hasWarp ? warpByDay.get(row.key) ?? 0 : 0;
+      if (hasWarp) values.warp = warp;
+      values.unknown = basis === "tokens" ? Math.max(0, (row.summary.unknownTokens ?? 0) - warp) : row.summary.unknownObservations;
     }
     return {
       date: row.key,

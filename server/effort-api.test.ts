@@ -308,6 +308,27 @@ describe("model × effort by day", () => {
     expect(row.buckets[0]).toMatchObject({ family: "claude-opus-5", effort: "high", tokens: 500, observations: 3, kind: "interactive" });
   });
 
+  test("each day reports its Warp share of the denominator", () => {
+    const snapshot = snapshotOf([
+      session({ sessionId: "s1", totalTokens: 1_000 }),
+      session({ sessionId: "w1", agent: "warp", totalTokens: 300, modelsUsed: [], modelBreakdowns: [] }),
+    ]);
+    const dayRow = snapshot.daily.find((row) => row.period === today)! as { agents: Array<Record<string, unknown>> };
+    // The fixture snapshot rolls every session into one Claude agent row; split Warp back out the
+    // way the real daily rows carry it.
+    dayRow.agents = [
+      { ...dayRow.agents[0], totalTokens: 1_000 },
+      { ...dayRow.agents[0], agent: "warp", totalTokens: 300 },
+    ];
+    seed("s1", "claude", "/fixture/alpha", [{ day: today, model: "claude-opus-5", effort: "high", observations: 1, tokens: 1_000 }]);
+    const [row] = api.buildEffortComboDays(snapshot, api.resolveEffortScope(params(""))).rows;
+    expect(row.coverage).toMatchObject({ eligibleTokens: 1_300, attributedTokens: 1_000, unknownTokens: 300 });
+    expect(row.warpTokens).toBe(300);
+    const [claudeOnly] = api.buildEffortComboDays(snapshot, api.resolveEffortScope(params("providers=anthropic"))).rows;
+    expect(claudeOnly.warpTokens).toBe(0);
+    expect(claudeOnly.coverage.unknownTokens).toBe(0);
+  });
+
   test("a denominator-only day is all-unknown coverage rather than a missing day", () => {
     const snapshot = snapshotOf([
       session({ sessionId: "s1", metadata: { lastActivity: `${today}T12:00:00.000Z` }, totalTokens: 1_000 }),
@@ -598,6 +619,47 @@ describe("digest v2", () => {
     const [familyIndex, effortIndex] = digest.combos[digest.rows[0][1]];
     expect(digest.families[familyIndex]).toBe("claude-opus-5");
     expect(digest.efforts[effortIndex]).toBe("high");
+  });
+});
+
+describe("subagent transcripts", () => {
+  // Claude writes each subagent transcript under `<session>/subagents/` with the parent's session
+  // id in its header, and ccusage reports the whole family as one session. The dashboard names
+  // that session by the parent file, so scoping has to follow every sibling file or the parent's
+  // own activity, and all of its subagents', reads as unattributed.
+  function seedFamily() {
+    seed("parent", "claude", "/fixture/alpha", [{ day: today, model: "claude-opus-5", effort: "high", observations: 4, tokens: 600 }]);
+    seed("child", "claude", "/fixture/alpha", [{ day: today, model: "claude-sonnet-5", effort: "high", observations: 2, tokens: 300 }]);
+    db.query("UPDATE session_paths SET native_session_key = 'native-1', source_file = '/tmp/projects/native-1.jsonl' WHERE session_id = 'parent'").run();
+    db.query("UPDATE session_paths SET native_session_key = 'native-1', source_file = '/tmp/projects/native-1/subagents/agent-a1.jsonl' WHERE session_id = 'child'").run();
+  }
+
+  test("a session scoped by its parent id covers its subagent files too", () => {
+    seedFamily();
+    const snapshot = snapshotOf([session({ sessionId: "parent", totalTokens: 900 })]);
+    const [row] = api.buildEffortComboDays(snapshot, api.resolveEffortScope(params(""))).rows;
+    expect(row.coverage).toMatchObject({ eligibleTokens: 900, attributedTokens: 900, unknownTokens: 0 });
+    expect(row.buckets.map((bucket) => [bucket.family, bucket.tokens])).toEqual([["claude-opus-5", 600], ["claude-sonnet-5", 300]]);
+  });
+
+  test("session-keyed rows fold subagents into the parent session", () => {
+    seedFamily();
+    const snapshot = snapshotOf([session({ sessionId: "parent", totalTokens: 900 })]);
+    const digest = api.buildEffortSessionDigest(snapshot, api.resolveEffortScope(params("")));
+    expect(digest.rows).toHaveLength(1);
+    expect(digest.rows[0][0]).toBe("parent");
+    expect(digest.rows[0][3]).toBe(1000);
+    expect(digest.rows[0][2] & 2).toBe(0);
+    const summary = api.buildSessionEffortSummary(snapshot, "parent")!;
+    expect(summary).toMatchObject({ attributedTokens: 900, unknownTokens: 0, observedObservations: 6 });
+    expect(api.buildSessionEffortCombos("parent")!.map((combo) => [combo.model, combo.tokens])).toEqual([["claude-opus-5", 600], ["claude-sonnet-5", 300]]);
+  });
+
+  test("a project scope that excludes the parent excludes its subagents as well", () => {
+    seedFamily();
+    const snapshot = snapshotOf([session({ sessionId: "parent", totalTokens: 900, cwd: "/fixture/alpha" })]);
+    const rows = api.buildEffortComboDays(snapshot, api.resolveEffortScope(params("project=/fixture/beta"))).rows;
+    expect(rows.every((row) => row.buckets.length === 0)).toBe(true);
   });
 });
 

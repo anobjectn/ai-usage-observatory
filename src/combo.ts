@@ -16,6 +16,9 @@ const KEY_SEPARATOR = "\0";
 /** Reserved series keys. Neither is a real combo, so neither round-trips through `parseComboKey`. */
 export const OTHER_COMBO_KEY = "other";
 export const UNKNOWN_COMBO_KEY = "unknown";
+/** Warp activity: authoritative volume with no transcript behind it. Named rather than folded
+ * into Unknown so the chart still says where that work happened. */
+export const WARP_COMBO_KEY = "warp";
 
 /** The one raw-model → family conversion for combos. Effort is normalized, never inferred. */
 export function comboOf(rawModel: unknown, rawEffort: unknown): Combo {
@@ -51,6 +54,7 @@ export function comboKind(rawModel: unknown): ComboKind {
 
 const fallbackPalette = [1, 2, 3, 4, 5, 6].map((index) => `var(--color-family-fallback-${index})`);
 const neutral = "var(--line-bright)";
+const warpColor = "var(--warp-color)";
 
 function stablePaletteColor(value: string) {
   let hash = 0;
@@ -71,6 +75,7 @@ const unknownEffortColor = "var(--color-effort-unknown)";
 /** Values the providers add later still get a stable, repeatable colour rather than a random one
  * or a silent drop. Colour is never the only label. */
 export function effortColor(effort: string) {
+  if (effort === WARP_COMBO_KEY) return warpColor;
   if (effort === UNKNOWN_COMBO_KEY || effort === OTHER_COMBO_KEY || effort === "") return unknownEffortColor;
   return fixedEffortColors[effort] ?? stablePaletteColor(effort);
 }
@@ -79,6 +84,7 @@ export function effortLabel(effort: string | null) {
   if (!effort) return "Unknown";
   if (effort === "xhigh") return "X-high";
   if (effort === OTHER_COMBO_KEY) return "Other";
+  if (effort === WARP_COMBO_KEY) return "Warp tokens";
   return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
@@ -157,35 +163,40 @@ export function parseComboFacet(value: string | null | undefined): Combo | null 
   }
 }
 
-export type ComboAmount = Combo & { amount: number };
+export type ComboAmount = Combo & { amount: number; day?: string };
 
-/** Selects the series drawn across a whole range. Selection is by volume so the biggest cohorts
- * are always visible; display order is by family block so adjacent bars read as one model.
+/** A combo carrying at least this share of one day's recorded volume is drawn even when it is
+ * light across the range: a day's own leader must never read as "Other combos". */
+export const PROMINENT_DAY_SHARE = 0.2;
+
+/** Selects the series drawn across a whole range. Selection and order are both by volume: the
+ * biggest cohorts over the range are always visible, any combo prominent on a single day joins
+ * them, and every series sits by range volume with the heaviest at the bottom of the stack and
+ * the lightest on top, regardless of provider.
  *
  * Volume-aware ordering lives here rather than in a `compareCombo(a, b)` helper: a `Combo`
  * carries no volume, so that contract could not be implemented honestly. */
 export function selectComboSeries(buckets: ComboAmount[], limit = 6): string[] {
   const totals = new Map<string, number>();
+  const dayTotals = new Map<string, number>();
+  const dayAmounts = new Map<string, Map<string, number>>();
   for (const bucket of buckets) {
     if (!bucket.effort) continue;
     const key = comboKey(bucket);
     totals.set(key, (totals.get(key) ?? 0) + bucket.amount);
+    if (bucket.day === undefined) continue;
+    dayTotals.set(bucket.day, (dayTotals.get(bucket.day) ?? 0) + bucket.amount);
+    const amounts = dayAmounts.get(bucket.day) ?? new Map<string, number>();
+    amounts.set(key, (amounts.get(key) ?? 0) + bucket.amount);
+    dayAmounts.set(bucket.day, amounts);
   }
-  const selected = [...totals.entries()]
-    .sort((a, b) => b[1] - a[1] || compareComboKeys(a[0], b[0]))
-    .slice(0, limit);
-  const familyTotals = new Map<string, number>();
-  for (const [key, amount] of selected) {
-    const family = parseComboKey(key)!.family;
-    familyTotals.set(family, (familyTotals.get(family) ?? 0) + amount);
+  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1] || compareComboKeys(a[0], b[0]));
+  const selected = new Set(ranked.slice(0, limit).map(([key]) => key));
+  for (const [day, amounts] of dayAmounts) {
+    const total = dayTotals.get(day) ?? 0;
+    for (const [key, amount] of amounts) if (total > 0 && amount / total >= PROMINENT_DAY_SHARE) selected.add(key);
   }
-  return selected
-    .map(([key]) => ({ key, combo: parseComboKey(key)! }))
-    .sort((a, b) =>
-      (familyTotals.get(b.combo.family) ?? 0) - (familyTotals.get(a.combo.family) ?? 0)
-      || a.combo.family.localeCompare(b.combo.family)
-      || compareEffort(a.combo.effort, b.combo.effort))
-    .map((entry) => entry.key);
+  return ranked.filter(([key]) => selected.has(key)).map(([key]) => key);
 }
 
 export type ComboTotals = { observations: number; tokens: number };
@@ -234,21 +245,24 @@ export type ComboDayPoint = {
  * once across the whole range, so a combo does not change colour or vanish between adjacent bars;
  * the remainder collapses into `other` and totals are preserved.
  *
- * `unknown` sits outside the combo budget: it is authoritative volume with no complete recorded
- * combo, not the smallest of the recorded ones. */
+ * `warp` and `unknown` sit outside the combo budget: both are authoritative volume with no
+ * recorded combo, not the smallest of the recorded ones. Warp is named because its provider is
+ * known even though nothing else is; `unknown` is what remains after it. */
 export function buildComboDaySeries(
   rows: EffortComboDayRow[],
   basis: "tokens" | "observations",
-  limit = 6,
+  limit = 10,
 ): { keys: string[]; points: ComboDayPoint[]; suppressedDays: number } {
   const amountOf = (bucket: ComboTotals) => (basis === "tokens" ? bucket.tokens : bucket.observations);
   const drawable = rows.filter((row) => !row.suppressed);
   const selected = selectComboSeries(
-    drawable.flatMap((row) => row.buckets.map((bucket) => ({ family: bucket.family, effort: bucket.effort, amount: amountOf(bucket) }))),
+    drawable.flatMap((row) => row.buckets.map((bucket) => ({ family: bucket.family, effort: bucket.effort, amount: amountOf(bucket), day: row.key }))),
     limit,
   );
   const hasOther = drawable.some((row) => capComboBuckets(row.buckets, selected).other.combos > 0);
-  const keys = [...selected, ...(hasOther ? [OTHER_COMBO_KEY] : []), UNKNOWN_COMBO_KEY];
+  // Warp has tokens but no observations, so the series only exists on the token basis.
+  const hasWarp = basis === "tokens" && drawable.some((row) => row.warpTokens > 0);
+  const keys = [...selected, ...(hasOther ? [OTHER_COMBO_KEY] : []), ...(hasWarp ? [WARP_COMBO_KEY] : []), UNKNOWN_COMBO_KEY];
 
   let suppressedDays = 0;
   const points = rows.map((row): ComboDayPoint => {
@@ -260,8 +274,9 @@ export function buildComboDaySeries(
       if (hasOther) values[OTHER_COMBO_KEY] += amountOf(other);
       // Unrecorded-effort tokens are already outside `attributedTokens`, so the coverage figure
       // carries them; adding the buckets again here would double-count them.
+      if (hasWarp) values[WARP_COMBO_KEY] = row.warpTokens;
       values[UNKNOWN_COMBO_KEY] = basis === "tokens"
-        ? Math.max(0, row.coverage.unknownTokens ?? 0)
+        ? Math.max(0, (row.coverage.unknownTokens ?? 0) - (hasWarp ? row.warpTokens : 0))
         : row.coverage.unknownObservations;
     }
     return {
@@ -278,12 +293,14 @@ export function buildComboDaySeries(
 /** Legend/tooltip label for any series key, including the two reserved ones. */
 export function comboSeriesLabel(key: string) {
   if (key === OTHER_COMBO_KEY) return "Other combos";
+  if (key === WARP_COMBO_KEY) return "Warp tokens";
   if (key === UNKNOWN_COMBO_KEY) return "Unknown";
   const combo = parseComboKey(key);
   return combo ? comboLabel(combo) : key;
 }
 
 export function comboSeriesColor(key: string) {
+  if (key === WARP_COMBO_KEY) return warpColor;
   if (key === OTHER_COMBO_KEY || key === UNKNOWN_COMBO_KEY) return neutral;
   const combo = parseComboKey(key);
   return combo ? comboColor(combo) : neutral;
