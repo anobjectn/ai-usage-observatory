@@ -1,4 +1,5 @@
 import { db } from "./store";
+import { getSessionFamilies } from "./path-indexer";
 import type { EffortUsageRow, EmbeddedQuotaObservation } from "./effort-parse";
 
 /** This module is the only place internal empty-string sentinels ('' date / '' model / ''
@@ -371,10 +372,46 @@ const groupedRow = (row: GroupedSqlRow): EffortGroupedRow => ({
   reasoningReportedEvents: Number(row.reasoning_reported_events),
 });
 
-function bindings(query: EffortQuery) {
+/** Scopes name sessions as the dashboard reports them, and one of those can span several
+ * transcript files (a Claude parent plus its subagents). Widening the allowlist to every file in
+ * each named session is what keeps a session's derived rows and its authoritative token total
+ * describing the same activity. */
+function expandSessionIds(sessionIds: string[], families: Map<string, string>) {
+  const wanted = new Set(sessionIds.map((sessionId) => families.get(sessionId) ?? sessionId));
+  const expanded = new Set(sessionIds);
+  for (const [member, representative] of families) if (wanted.has(representative)) expanded.add(member);
+  return [...expanded];
+}
+
+/** Rows keyed by transcript file are re-keyed to the session that represents that file, then
+ * merged, so a subagent's activity reads under its parent session rather than under an id that
+ * no dashboard session carries. */
+function foldToSessions<T extends { key: string; observations: number; tokens: number; outputTokens: number; reasoningOutputTokens: number; reasoningReportedEvents: number }>(
+  rows: T[],
+  families: Map<string, string>,
+  identity: (row: T) => string,
+): T[] {
+  const merged = new Map<string, T>();
+  for (const row of rows) {
+    const key = families.get(row.key) ?? row.key;
+    const id = `${key}\0${identity(row)}`;
+    const existing = merged.get(id);
+    if (!existing) merged.set(id, { ...row, key });
+    else {
+      existing.observations += row.observations;
+      existing.tokens += row.tokens;
+      existing.outputTokens += row.outputTokens;
+      existing.reasoningOutputTokens += row.reasoningOutputTokens;
+      existing.reasoningReportedEvents += row.reasoningReportedEvents;
+    }
+  }
+  return [...merged.values()];
+}
+
+function bindings(query: EffortQuery, families = getSessionFamilies()) {
   return {
     $allSessions: query.sessionIds === null ? 1 : 0,
-    $sessionIds: JSON.stringify(query.sessionIds ?? []),
+    $sessionIds: JSON.stringify(query.sessionIds === null ? [] : expandSessionIds(query.sessionIds, families)),
     $fromDate: query.fromDate,
     $toDate: query.toDate,
     $allAgents: query.agents === null ? 1 : 0,
@@ -399,7 +436,9 @@ const sessionDigestQuery = db.query(`SELECT u.session_id AS key, u.effort AS eff
   GROUP BY u.session_id, u.effort`);
 
 export function queryEffortBySession(query: Omit<EffortQuery, "group">): EffortGroupedRow[] {
-  return (sessionDigestQuery.all(bindings({ ...query, group: "total" })) as GroupedSqlRow[]).map(groupedRow);
+  const families = getSessionFamilies();
+  const rows = (sessionDigestQuery.all(bindings({ ...query, group: "total" }, families)) as GroupedSqlRow[]).map(groupedRow);
+  return foldToSessions(rows, families, (row) => row.effort ?? "");
 }
 
 /** A flat raw-model × effort bucket. Raw models are collapsed to families in TypeScript through
@@ -452,13 +491,21 @@ export function queryEffortCombosByDay(query: Omit<EffortQuery, "group">): Effor
 }
 
 export function queryEffortCombosBySession(query: Omit<EffortQuery, "group">): EffortComboRow[] {
-  return (comboSessionQuery.all(bindings({ ...query, group: "total" })) as Array<Record<string, unknown>>).map(comboRow);
+  const families = getSessionFamilies();
+  const rows = (comboSessionQuery.all(bindings({ ...query, group: "total" }, families)) as Array<Record<string, unknown>>).map(comboRow);
+  return foldToSessions(rows, families, (row) => `${row.model}\0${row.effort ?? ""}`);
 }
 
 const sessionUnknownObservationsQuery = db.query(`SELECT u.session_id AS key, SUM(u.observations) AS observations
   FROM session_effort_usage u WHERE u.effort = '' GROUP BY u.session_id`);
 
 export function queryUnknownObservationsBySession(): Map<string, number> {
+  const families = getSessionFamilies();
   const rows = sessionUnknownObservationsQuery.all() as Array<{ key: string; observations: number }>;
-  return new Map(rows.map((row) => [row.key, Number(row.observations)]));
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const key = families.get(row.key) ?? row.key;
+    totals.set(key, (totals.get(key) ?? 0) + Number(row.observations));
+  }
+  return totals;
 }

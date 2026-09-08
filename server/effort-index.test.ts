@@ -228,6 +228,39 @@ describe("incremental indexing", () => {
     expect(state.attributedTokens).toBe(0);
   });
 
+  test("an oversized line that is not a boundary keeps Codex attribution", async () => {
+    // A `compacted` event replays the whole conversation on one line and can run to tens of
+    // megabytes. It changes nothing about which model and effort later token events belong to.
+    const compacted = `{"timestamp":"2026-07-01T15:00:00.000Z","type":"compacted","payload":{"message":"","replacement_history":["${"x".repeat(MAX_LINE_BYTES + 16)}"]}}`;
+    const body = fixtures.transcript([
+      fixtures.codexTurnContext({ effort: "high" }),
+      compacted,
+      fixtures.codexTokenCount({}),
+    ]);
+    const source = await writeSource("codex", body);
+    await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    const state = store.getEffortState(source.sessionId)!;
+    expect(state.parseErrors).toBe(0);
+    expect(state.skippedBytes).toBeGreaterThan(MAX_LINE_BYTES);
+    expect(state.contextGaps).toBe(0);
+    expect(state.attributedTokens).toBe(1060);
+    expect(derived(source.sessionId)).toEqual([{ occurred_on: "2026-07-01", model: "gpt-5.4", effort: "high", observations: 1, total_tokens: 1060 }]);
+  });
+
+  test("an oversized line whose type cannot be read is still a gap", async () => {
+    const body = fixtures.transcript([
+      fixtures.codexTurnContext({ effort: "high" }),
+      `{"padding":"${"x".repeat(MAX_LINE_BYTES + 16)}","type":"compacted"}`,
+      fixtures.codexTokenCount({}),
+    ]);
+    const source = await writeSource("codex", body);
+    await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    const state = store.getEffortState(source.sessionId)!;
+    expect(state.parseErrors).toBe(1);
+    expect(state.contextGaps).toBe(1);
+    expect(state.attributedTokens).toBe(0);
+  });
+
   test("Claude sessions index through the same path", async () => {
     const source = await writeSource("claude", fixtures.transcript([
       fixtures.claudeUser(),

@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseHead, sessionReportKeys } from "./path-indexer";
+import { getPathIndex, getSessionFamilies, isSubagentSource, parseHead, sessionReportKeys } from "./path-indexer";
+import { db } from "./store";
 
 // `server/test-setup.ts` (preloaded via bunfig.toml) has already pinned the database to a
 // throwaway path; this file only needs its own directory for transcript fixtures.
@@ -56,4 +57,22 @@ test("sessionReportKeys matches a codex transcript by basename once it has no da
   const keys = sessionReportKeys("codex", "019fbc20-e7b5-7282-b1e9-3658072557df", archivedFile);
 
   expect(keys).toContain("rollout-2026-08-01T03-01-40-019fbc20-e7b5-7282-b1e9-3658072557df");
+});
+
+test("a subagent transcript never claims the session key it shares with its parent", () => {
+  db.query("DELETE FROM session_paths").run();
+  const insert = db.query("INSERT INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size) VALUES (?, 'claude', ?, ?, '/fixture/project', 1, 1)");
+  // Inserted child-last so a last-write-wins index would pick the wrong file.
+  insert.run("parent-id", "native-1", "/Users/example/.claude/projects/-fixture/native-1.jsonl");
+  insert.run("child-id", "native-1", "/Users/example/.claude/projects/-fixture/native-1/subagents/agent-a1.jsonl");
+  insert.run("solo-id", "native-2", "/Users/example/.claude/projects/-fixture/native-2.jsonl");
+
+  expect(isSubagentSource("/Users/example/.claude/projects/-fixture/native-1/subagents/agent-a1.jsonl")).toBe(true);
+  expect(isSubagentSource("/Users/example/.claude/projects/-fixture/native-1.jsonl")).toBe(false);
+  expect(getSessionFamilies()).toEqual(new Map([["parent-id", "parent-id"], ["child-id", "parent-id"], ["solo-id", "solo-id"]]));
+  const index = getPathIndex();
+  expect(index["claude:native-1"].sessionId).toBe("parent-id");
+  expect(index["claude:native-2"].sessionId).toBe("solo-id");
+  expect(index["claude:agent-a1"]).toBeUndefined();
+  db.query("DELETE FROM session_paths").run();
 });

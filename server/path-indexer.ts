@@ -174,13 +174,60 @@ export function pathTagsForCwd(cwd: string | null) {
   return rules.filter((rule) => rule.matcher.test(cwd)).map((rule) => rule.tag);
 }
 
+type SessionPathRow = { session_id: string; agent: string; native_session_key: string; cwd: string | null; source_file: string };
+
+const sessionPathRowsQuery = "SELECT session_id, agent, native_session_key, cwd, source_file FROM session_paths";
+
+/** Claude writes each subagent transcript beside its parent under `<session>/subagents/`, and
+ * every one of those files repeats the parent's session id in its header. */
+export function isSubagentSource(sourceFile: string) {
+  return /[\\/]subagents[\\/]/.test(sourceFile);
+}
+
+/** Every indexed file mapped to the one that represents its session. Files that share an agent
+ * and native session key are one session as ccusage reports it: the parent transcript is the
+ * representative, and its subagent transcripts fold into it. A file with no siblings maps to
+ * itself. This is the single rule behind the dashboard join and the effort scoping, so the two
+ * can never pick different files for the same session. */
+export function getSessionFamilies(): Map<string, string> {
+  const rows = db.query(sessionPathRowsQuery).all() as SessionPathRow[];
+  return familiesOf(rows);
+}
+
+function familiesOf(rows: SessionPathRow[]) {
+  const representatives = new Map<string, SessionPathRow>();
+  for (const row of rows) {
+    const key = `${row.agent}\0${row.native_session_key}`;
+    const current = representatives.get(key);
+    if (!current || preferAsRepresentative(row, current)) representatives.set(key, row);
+  }
+  return new Map(rows.map((row) => [row.session_id, representatives.get(`${row.agent}\0${row.native_session_key}`)!.session_id]));
+}
+
+function preferAsRepresentative(candidate: SessionPathRow, current: SessionPathRow) {
+  const candidateSubagent = isSubagentSource(candidate.source_file);
+  const currentSubagent = isSubagentSource(current.source_file);
+  if (candidateSubagent !== currentSubagent) return currentSubagent;
+  // Two parent-looking files for one key is unexpected; the shorter path is the one that is not
+  // nested inside the other, and the tie-break keeps the choice stable across scans.
+  return candidate.source_file.length < current.source_file.length
+    || (candidate.source_file.length === current.source_file.length && candidate.source_file < current.source_file);
+}
+
 export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }> {
-  const rows = db.query("SELECT session_id, agent, native_session_key, cwd, source_file FROM session_paths").all() as Array<{session_id:string;agent:string;native_session_key:string;cwd:string|null;source_file:string}>;
-  return Object.fromEntries(rows.flatMap((row) => {
+  const rows = db.query(sessionPathRowsQuery).all() as SessionPathRow[];
+  const families = familiesOf(rows);
+  const index: Record<string, IndexedPath & { tags: string[] }> = {};
+  for (const row of rows) {
+    // A subagent file must never claim the key its parent transcript shares with it: ccusage
+    // reports the parent and its subagents as one session, and that session has to resolve to
+    // the parent's id or every sibling's activity is lost to the join.
+    if (families.get(row.session_id) !== row.session_id) continue;
     const tags = pathTagsForCwd(row.cwd);
     const value = { sessionId: row.session_id, agent: row.agent, nativeKey: row.native_session_key, cwd: row.cwd, sourceFile: relative(homedir(), row.source_file), tags };
-    return sessionReportKeys(row.agent, row.native_session_key, row.source_file).map((key) => [`${row.agent}:${key}`, value]);
-  }));
+    for (const key of sessionReportKeys(row.agent, row.native_session_key, row.source_file)) index[`${row.agent}:${key}`] = value;
+  }
+  return index;
 }
 
 export function getSessionSource(sessionId: string) {

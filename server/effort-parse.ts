@@ -3,7 +3,7 @@ import { dateKeyInTimeZone } from "../src/reporting-time";
 
 /** Bumping this rebuilds every session from byte zero. The constant lives in code, never in the
  * database, so a checkout can never disagree with the rows it is reading. */
-export const PARSER_VERSION = 5;
+export const PARSER_VERSION = 6;
 
 /** A single line is buffered only up to this size. Crossing it records a gap and a skipped-byte
  * count; no transcript fragment is ever persisted. */
@@ -166,6 +166,38 @@ export function recordParserGap(accumulator: EffortAccumulator, state: EffortPar
   // A skipped Claude line may have been a new response; forget the dedupe key rather than risk
   // discarding the next real one.
   state.lastUsageKey = null;
+}
+
+/** Bytes of an over-limit line worth inspecting. Both providers name the event type inside the
+ * first few hundred bytes; nothing past this point is ever decoded. */
+export const OVERSIZED_HEAD_BYTES = 1024;
+
+const boundaryMarkers = ["\"turn_context\"", "\"session_meta\"", "\"thread_rolled_back\""];
+
+/** Classifies an over-limit line from its head alone. A `compacted` replay or an inline image
+ * runs to many megabytes and carries no usage; treating it as a gap would clear a Codex
+ * session's attribution for every token event until the next turn boundary. Only a line whose
+ * head names an attribution boundary (or whose type cannot be read at all) still clears state. */
+export function recordOversizedLine(accumulator: EffortAccumulator, state: EffortParserState, agent: Agent, length: number, head: string) {
+  const typed = /"type"\s*:\s*"/.test(head);
+  const relevant = agent === "claude"
+    ? head.includes("\"assistant\"")
+    : boundaryMarkers.some((marker) => head.includes(marker));
+  if (typed && !relevant && !(agent === "codex" && head.includes("\"token_count\""))) {
+    // Skipped by size, not by shape: the head proves the line could not have carried a boundary
+    // or a usage record, so it is no more a parser gap than a prefiltered line would be.
+    accumulator.skippedBytes += length;
+    return;
+  }
+  if (agent === "codex" && typed && !relevant) {
+    // A usage record too large to read loses its tokens, but it never changes which model and
+    // effort the following records belong to.
+    accumulator.parseErrors++;
+    accumulator.skippedBytes += length;
+    state.lastUsageKey = null;
+    return;
+  }
+  recordParserGap(accumulator, state, agent, length);
 }
 
 function claudeLine(row: Record<string, unknown>, accumulator: EffortAccumulator, state: EffortParserState) {

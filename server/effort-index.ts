@@ -2,10 +2,11 @@ import type { SessionSource } from "./path-indexer";
 import {
   PARSER_VERSION,
   MAX_LINE_BYTES,
+  OVERSIZED_HEAD_BYTES,
   consumeEffortLine,
+  recordOversizedLine,
   createAccumulator,
   emptyState,
-  recordParserGap,
   type Agent,
   type EffortAccumulator,
   type EffortParserState,
@@ -196,7 +197,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
       // No complete line in the buffered span. Multi-byte UTF-8 is safe because nothing is
       // decoded until a terminator is seen.
       if (buffer.length > MAX_LINE_BYTES) {
-        recordParserGap(accumulator, state, agent, buffer.length);
+        recordOversizedLine(accumulator, state, agent, buffer.length, headOf(buffer, 0));
         skippingOversizedLine = true;
         carry = new Uint8Array(0);
         cursor = readFrom + chunk.length;
@@ -218,9 +219,9 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
       const terminator = buffer.indexOf(newline, lineStart);
       if (terminator < 0 || terminator > lastNewline) break;
       const length = terminator - lineStart;
-      // An over-limit line is treated as a gap without decoding it: recovering a provider marker
-      // would mean buffering the very bytes the limit exists to refuse.
-      if (length > MAX_LINE_BYTES) recordParserGap(accumulator, state, agent, length);
+      // An over-limit line is never decoded whole; only its head is read, to tell a boundary
+      // from a replay or attachment that merely happens to be enormous.
+      if (length > MAX_LINE_BYTES) recordOversizedLine(accumulator, state, agent, length, headOf(buffer, lineStart));
       else consumeEffortLine(decoder.decode(buffer.subarray(lineStart, terminator)), agent, accumulator, state);
       lineStart = terminator + 1;
     }
@@ -228,7 +229,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
     carry = buffer.slice(lastNewline + 1);
     // An incomplete trailing fragment is never persisted; it is re-read from `cursor` next pass.
     if (carry.length > MAX_LINE_BYTES) {
-      recordParserGap(accumulator, state, agent, carry.length);
+      recordOversizedLine(accumulator, state, agent, carry.length, headOf(carry, 0));
       skippingOversizedLine = true;
       cursor += carry.length;
       carry = new Uint8Array(0);
@@ -241,6 +242,12 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
   // state row; without one the backlog would offer the same session forever.
   if (!committed) await commit(createAccumulator(), cursor);
   return { done: true, offset: cursor };
+}
+
+/** The first bytes of a line, decoded leniently: a multi-byte sequence cut at the window edge
+ * becomes a replacement character, which no type marker contains. */
+function headOf(buffer: Uint8Array, start: number) {
+  return new TextDecoder().decode(buffer.subarray(start, start + OVERSIZED_HEAD_BYTES));
 }
 
 function concat(a: Uint8Array, b: Uint8Array) {
