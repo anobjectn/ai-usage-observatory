@@ -5,6 +5,42 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-09-07
+
+### Added
+
+- Add a "Use vs limits" panel to Overview that sets each provider's token
+  share against its latest account levels, with per-window used percentages,
+  recorded limit reaches, and applied resets.
+- Show observed account quota movement on Sessions rows and in session detail:
+  remaining ranges per quota cycle, oldest first, with a reset drawn as a jump
+  rather than summed across cycles, plus the concurrent local sessions that
+  could have observed the same movement.
+- Draw Warp as its own series in the effort stack, taken out of Unknown, and
+  order chart series and tooltip rows by volume instead of by provider.
+- Keep benchmark panel selections and loaded state between openings, and add a
+  hard refresh with a loaded-at readout.
+
+### Changed
+
+- Refresh the README Overview, Explorer, Sessions, and Appearance screenshots,
+  and preserve the reviewed release copies under
+  [docs/screenshots/releases/v1.24.0](docs/screenshots/releases/v1.24.0).
+
+### Fixed
+
+- Attribute Claude subagent transcripts to their parent session. Files sharing
+  an agent and native key now resolve to the parent, and effort queries widen
+  to every sibling file, so parent activity no longer reads as Unknown.
+- Inspect the head of an over-limit Codex transcript line instead of treating
+  it as a parser gap. A compaction replay or attachment is skipped by size
+  alone, so model and effort attribution survives to the next turn.
+- Distinguish headroom lines from quota markers in charts. Headroom lines use
+  a dash-dot stroke, and a reach and a reset at the same instant label to
+  opposite sides.
+
+[1.24.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.23.0...v1.24.0
+
 ## [1.23.0] - 2026-09-05
 
 ### Added
