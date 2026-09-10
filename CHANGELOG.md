@@ -5,6 +5,23 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.0] - 2026-09-10
+
+### Added
+
+- Translate provider quota-service errors into plain-language next steps in
+  Overview quota cards, Quick Quota Status, and the quota evidence panel. The
+  guidance covers stale or missing Claude Code and Codex credentials, macOS
+  Keychain access, rate limits, network failures, and stale Warp data.
+
+### Fixed
+
+- Distinguish session-detail load failures from missing indexed records. When
+  the local API cannot provide details, show the error and a Retry action instead
+  of reporting the record as unavailable.
+
+[1.25.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.24.0...v1.25.0
+
 ## [1.24.0] - 2026-09-07
 
 ### Added
