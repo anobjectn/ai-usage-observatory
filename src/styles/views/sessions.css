@@ -86,6 +86,15 @@
   font: 11px var(--font-label);
   padding: 26px 24px;
 }
+.session-detail--error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.session-detail--error .secondary-button {
+  min-height: 30px;
+  padding: 5px 10px;
+}
 .session-detail__summary {
   display: grid;
   grid-template-columns: repeat(5,minmax(112px,1fr));

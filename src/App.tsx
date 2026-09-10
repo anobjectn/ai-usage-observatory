@@ -6446,6 +6446,8 @@ export function SessionDetailPanel({
   session,
   detail,
   loading,
+  loadError = null,
+  onRetry,
   effortStatus,
   rateCard = null,
   unpricedModels = [],
@@ -6456,6 +6458,8 @@ export function SessionDetailPanel({
   session: Session;
   detail?: SessionDetail;
   loading: boolean;
+  loadError?: string | null;
+  onRetry?: () => void;
   effortStatus: EffortIndexStatus | null;
   rateCard?: RateCardSummary | null;
   unpricedModels?: string[];
@@ -6562,6 +6566,17 @@ export function SessionDetailPanel({
     return (
       <div className="session-detail session-detail--loading">
         Reading the local session record…
+      </div>
+    );
+  if (loadError)
+    return (
+      <div className="session-detail session-detail--empty session-detail--error" role="alert">
+        <span>{loadError}</span>
+        {onRetry && (
+          <button type="button" className="secondary-button" onClick={onRetry}>
+            Retry
+          </button>
+        )}
       </div>
     );
   if (!warp && !detail?.available)
@@ -7520,6 +7535,7 @@ function Sessions({
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SessionDetail>>({});
+  const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
   const [quotaContexts, setQuotaContexts] = useState<Record<string, SessionQuotaContext | null>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
@@ -7695,12 +7711,13 @@ function Sessions({
     );
     setPage(1);
   };
-  const toggle = async (session: Session) => {
-    if (expanded === session.sessionId) return setExpanded(null);
-    setExpanded(session.sessionId);
-    // Warp rows used to stop here because they had no readable record. They now
-    // resolve to the prompts in Warp's own query log, so they fetch like the rest.
-    if (details[session.sessionId]) return;
+  const loadDetail = async (session: Session) => {
+    setDetailErrors((current) => {
+      if (!current[session.sessionId]) return current;
+      const next = { ...current };
+      delete next[session.sessionId];
+      return next;
+    });
     setLoadingDetail(session.sessionId);
     try {
       const response = await fetch(
@@ -7713,22 +7730,24 @@ function Sessions({
         setQuotaContexts((current) => ({ ...current, [session.sessionId]: detail.quotaContext ?? null }));
       }
     } catch {
-      setDetails((current) => ({
+      // A failed request says nothing about whether the transcript still exists. Keep it
+      // distinct from the server's successful `available: false` response, and do not cache
+      // the failure as a missing record so the user can retry after the local API returns.
+      setDetailErrors((current) => ({
         ...current,
-        [session.sessionId]: {
-          available: false,
-          prompts: [],
-          outputs: [],
-          tools: [],
-          files: [],
-          additions: 0,
-          deletions: 0,
-          eventsRead: 0,
-        },
+        [session.sessionId]: "Could not load session details. The local API may be unavailable.",
       }));
     } finally {
       setLoadingDetail(null);
     }
+  };
+  const toggle = async (session: Session) => {
+    if (expanded === session.sessionId) return setExpanded(null);
+    setExpanded(session.sessionId);
+    // Warp rows used to stop here because they had no readable record. They now
+    // resolve to the prompts in Warp's own query log, so they fetch like the rest.
+    if (details[session.sessionId]) return;
+    await loadDetail(session);
   };
   const copySessionLink = async (sessionId: string) => {
     try {
@@ -8160,6 +8179,8 @@ function Sessions({
                           session={session}
                           detail={details[session.sessionId]}
                           loading={loadingDetail === session.sessionId}
+                          loadError={detailErrors[session.sessionId]}
+                          onRetry={() => void loadDetail(session)}
                           effortStatus={effortStatus}
                           rateCard={rateCard}
                           unpricedModels={unpricedModels}

@@ -545,6 +545,23 @@ test("session detail columns render in the requested order and default state", (
   expect(sessionModelNames(mixedSession)).toEqual(["gpt-test", "gpt-second"]);
 });
 
+test("a failed detail request is not reported as a missing indexed record", () => {
+  const html = renderToStaticMarkup(
+    createElement(SessionDetailPanel, {
+      session: session({}),
+      loading: false,
+      loadError: "Could not load session details. The local API may be unavailable.",
+      onRetry: () => {},
+      effortStatus: null,
+    }),
+  );
+
+  expect(html).toContain('role="alert"');
+  expect(html).toContain("The local API may be unavailable.");
+  expect(html).toContain(">Retry</button>");
+  expect(html).not.toContain("The indexed record is no longer available locally.");
+});
+
 test("provider totals carry model \u00d7 effort subtotals and keep the remainder visible", () => {
   const { groups, comboCount, tokens } = sessionProviderMix(
     [
