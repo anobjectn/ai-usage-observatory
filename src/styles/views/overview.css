@@ -1687,3 +1687,60 @@
     padding: 15px 12px;
   }
 }
+
+/* Provider collection failures translated into a next step. Sits under the dials in
+   the quota card, the quick-overview modal (compact), and the quota evidence panel. */
+.quota-notice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-warn) 45%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--color-warn) 8%, transparent);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.quota-notice.wait {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+}
+.quota-notice__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font: 700 var(--text-2xs) var(--font-label);
+  color: var(--bg);
+  background: var(--color-warn);
+}
+.quota-notice.wait .quota-notice__mark {
+  color: var(--dim);
+  background: color-mix(in srgb, var(--dim) 30%, transparent);
+}
+.quota-notice > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.quota-notice b {
+  color: var(--text);
+  font-weight: 600;
+}
+.quota-notice span {
+  color: var(--muted);
+}
+.quota-notice small {
+  color: var(--dim);
+  font-size: var(--text-2xs);
+  overflow-wrap: anywhere;
+}
+.quota-notice.compact {
+  padding: 6px 8px;
+  gap: 6px;
+  font-size: var(--text-2xs);
+}

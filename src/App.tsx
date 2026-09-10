@@ -142,6 +142,7 @@ import {
   type CreditFreshness,
 } from "./quota-credits";
 import { warpQuotaSummary } from "./warp-quota";
+import { quotaProviderNotice, type QuotaNotice } from "./quota-notice";
 import {
   Area,
   AreaChart,
@@ -3339,6 +3340,8 @@ type QuotaCard = {
   bankedResets: Array<{ id: string; title: string; expiresAt: string | null }>;
   usedResetCount: number;
   usedResets: Array<{ id: string; title: string; usedAt: number }>;
+  /** Why the provider is not fully reported and what to do about it. */
+  notice: QuotaNotice | null;
 };
 
 function quotaBucket(
@@ -3504,6 +3507,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       bankedResets: [],
       usedResetCount: 0,
       usedResets: [],
+      notice: quotaProviderNotice(anthropic),
     },
     {
       provider: "codex",
@@ -3518,6 +3522,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       bankedResets,
       usedResetCount: quotas.history?.codexBankedResets.usedCount ?? 0,
       usedResets: quotas.history?.codexBankedResets.used ?? [],
+      notice: quotaProviderNotice(codex),
     },
     {
       provider: "warp",
@@ -3532,6 +3537,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       bankedResets: [],
       usedResetCount: 0,
       usedResets: [],
+      notice: quotaProviderNotice(warp),
     },
   ];
 }
@@ -4073,6 +4079,7 @@ function QuotaDials({
                   );
                 })}
               </div>
+              {card.notice && <QuotaNoticeCallout notice={card.notice} />}
               {card.provider === "warp" && <WarpQuotaDetails report={warpReport} />}
               {card.provider === "anthropic" && (
                 <AnthropicCredits
@@ -10236,6 +10243,32 @@ function Models({
   );
 }
 
+/** Turns a provider collection failure into a next step. `compact` drops the
+ * raw producer message for the quick-overview modal. */
+export function QuotaNoticeCallout({
+  notice,
+  compact = false,
+}: {
+  notice: QuotaNotice;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`quota-notice ${notice.kind}${compact ? " compact" : ""}`}
+      role="status"
+    >
+      <span className="quota-notice__mark" aria-hidden="true">
+        {notice.kind === "act" ? "!" : "…"}
+      </span>
+      <div>
+        <b>{notice.headline}</b>
+        <span>{notice.nextStep}</span>
+        {!compact && <small>Reported: {notice.raw}</small>}
+      </div>
+    </div>
+  );
+}
+
 const ALLOWANCE_HELP_URL =
   "https://support.claude.com/en/articles/11647753-understanding-usage-and-length-limits";
 const EXTRA_USAGE_HELP_URL =
@@ -10264,6 +10297,7 @@ function QuotaProvenance({
   const snapshot = anthropic?.snapshot?.kind === "window" ? anthropic.snapshot : null;
   const credits = anthropic?.anthropicWebCredits ?? null;
   const view = buildAnthropicCreditView(anthropic);
+  const anthropicNotice = quotaProviderNotice(anthropic);
   const history = data.quotas.history;
   if (!data.quotas.available && !credits) return null;
   return (
@@ -10291,6 +10325,7 @@ function QuotaProvenance({
               {anthropic?.status ?? "unknown"}
             </span>
           </header>
+          {anthropicNotice && <QuotaNoticeCallout notice={anthropicNotice} />}
           <dl className="evidence-facts">
             <div>
               <dt>Captured</dt>
@@ -11861,6 +11896,7 @@ export function QuickOverviewModal({
                   <span>{card.providerLabel}</span>
                   <i>{card.state === "ok" ? "current" : card.state}</i>
                 </header>
+                {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                 <div className="quick-overview__dials">
                   {card.buckets.map((bucket) => {
                     const left =
@@ -11915,6 +11951,7 @@ export function QuickOverviewModal({
                   <span>{card.providerLabel}</span>
                   <i>{card.state === "ok" ? "current" : card.state}</i>
                 </header>
+                {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                 {card.buckets.map((bucket) => {
                   const left =
                     bucket.usedPercent === null

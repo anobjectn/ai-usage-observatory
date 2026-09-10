@@ -185,3 +185,40 @@ test("the orrery always shows; tesseract only swaps its core icon", () => {
   expect(withTesseract).toContain("headroom-orrery");
   expect(withTesseract).not.toContain("scene-icon");
 });
+
+test("a stale Claude Code token renders a next-step notice in both modes", () => {
+  const quotas = {
+    available: true,
+    collectedAt: new Date().toISOString(),
+    usage: {
+      generatedAt: Date.now(),
+      providers: [
+        {
+          provider: "anthropic",
+          status: "stale",
+          source: "anthropic_api",
+          snapshot: null,
+          error:
+            "401 from oauth/usage — access token stale; will self-heal on next Claude Code use (no self-refresh by design)",
+        },
+      ],
+    },
+  } as DashboardData["quotas"];
+  for (const mode of ["gauges", "grid"] as const) {
+    const html = renderToStaticMarkup(
+      createElement(QuickOverviewModal, {
+        quotas,
+        mode,
+        onModeChange: () => {},
+        accent: "#78a8ff",
+        providerColors,
+        sceneEffects,
+        onClose: () => {},
+      }),
+    );
+    expect(html).toContain("quota-notice act compact");
+    expect(html).toContain("Run any prompt in Claude Code");
+    // The compact variant omits the producer's raw wording.
+    expect(html).not.toContain("401 from oauth/usage");
+  }
+});
