@@ -5,6 +5,22 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.0] - 2026-09-13
+
+### Added
+
+- Attribute recorded quota reaches to the account tier active when each quota
+  cycle first reaches its limit. Use provider-reported tiers when available and
+  effective-dated local plan assignments to fill gaps in older observations.
+- Group recorded reaches by account tier in the expanded quota history and show
+  whether each tier came from provider data or a configured assignment.
+
+### Fixed
+
+- Prefer a provider-specific tier over a configured assignment or a generic
+  subscription value, so stale local configuration cannot override current
+  provider data.
+
 ## [1.25.0] - 2026-09-10
 
 ### Added
@@ -20,6 +36,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.26.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.25.0...v1.26.0
 [1.25.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.24.0...v1.25.0
 
 ## [1.24.0] - 2026-09-07
