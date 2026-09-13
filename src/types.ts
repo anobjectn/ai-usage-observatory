@@ -390,10 +390,20 @@ export type QuotaResets = {
     status: string;
   };
 };
+export type QuotaPlan = {
+  id: string | null;
+  label: string | null;
+  source: "provider" | "configured" | "unknown";
+  effectiveFrom: number | null;
+};
+export type QuotaReach = {
+  reachedAt: number;
+  plan: QuotaPlan;
+};
 export type QuotaHistory = {
   available: boolean;
   trackingSince: number | null;
-  windows: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";reachedCount:number;lastReachedAt:number|null;reachedAt:number[]}>;
+  windows: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";reachedCount:number;lastReachedAt:number|null;reachedAt:number[];reaches?:QuotaReach[]}>;
   series?: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";capturedAt:number;usedPercent:number;resetsAt:number|null;cycleId:string}>;
   codexBankedResets: {usedCount:number;used:Array<{id:string;title:string;usedAt:number}>};
 };
@@ -405,12 +415,7 @@ export type QuotaObservation = {
   timeSource: "provider" | "source_mtime" | "collector";
   status: "ok" | "stale";
   source: string;
-  plan: {
-    id: string | null;
-    label: string | null;
-    source: "provider" | "configured" | "unknown";
-    effectiveFrom: number | null;
-  };
+  plan: QuotaPlan;
   quota:
     | {
         kind: "windows";

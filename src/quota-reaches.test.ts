@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   reachClockSummary,
   reachHourBuckets,
+  reachTierBuckets,
   reachWeekBuckets,
 } from "./quota-reaches";
 
@@ -83,4 +84,17 @@ test("reachClockSummary stays quiet on thin or flat data", () => {
       ),
     ),
   ).toBeNull();
+});
+
+test("reachTierBuckets keeps tier provenance and identifies missing history", () => {
+  expect(reachTierBuckets([
+    { reachedAt: 1, plan: { id: "plus", label: "plus", source: "provider", effectiveFrom: null } },
+    { reachedAt: 2, plan: { id: "plus", label: "plus", source: "provider", effectiveFrom: null } },
+    { reachedAt: 3, plan: { id: "max-20", label: "Claude Max 20x", source: "configured", effectiveFrom: 3 } },
+    { reachedAt: 4, plan: { id: null, label: null, source: "unknown", effectiveFrom: null } },
+  ])).toEqual([
+    { key: "provider\0plus\0plus", label: "Plus", source: "provider", count: 2 },
+    { key: "configured\0max-20\0Claude Max 20x", label: "Claude Max 20x", source: "configured", count: 1 },
+    { key: "unknown", label: "Unknown", source: "unknown", count: 1 },
+  ]);
 });

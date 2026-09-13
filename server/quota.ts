@@ -2,15 +2,38 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { QuotaObservation, QuotaProvider } from "../src/types";
+import type { QuotaObservation, QuotaPlan, QuotaProvider, QuotaReach } from "../src/types";
 
 const baseUrl = process.env.QUOTA_SERVICE_URL ?? "http://127.0.0.1:8787";
 const defaultHistoryDbPath = join(homedir(), ".quota-service", "quota.db");
 
-type SnapshotHistoryRow = { provider: string; capturedAt: number; snapshotJson: string | null };
+type SnapshotHistoryRow = {
+  provider: string;
+  capturedAt: number;
+  observedAt?: number;
+  snapshotJson: string | null;
+  plan?: QuotaPlan;
+};
 type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
 type ResetCreditHistory = { id?: string; title?: string | null; status?: string | null; expiresAt?: string | null };
+type PlanAssignment = { rowId: number; provider: string; id: string; label: string; effectiveFrom: number };
 export type QuotaSeriesPoint = { provider: "anthropic" | "codex"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
+
+const unknownPlan = (): QuotaPlan => ({ id: null, label: null, source: "unknown", effectiveFrom: null });
+
+function reportedPlan(snapshot: { extra?: unknown }): QuotaPlan {
+  const extra = snapshot.extra && typeof snapshot.extra === "object"
+    ? snapshot.extra as Record<string, unknown>
+    : {};
+  const value = typeof extra.planType === "string"
+    ? extra.planType.trim()
+    : typeof extra.subscriptionType === "string"
+      ? extra.subscriptionType.trim()
+      : "";
+  return value
+    ? { id: value, label: value, source: "provider", effectiveFrom: null }
+    : unknownPlan();
+}
 
 /** The full series stays server-side for insights; the browser only needs one weekly point per
  * provider per calendar day to draw the headroom overlay, which keeps the dashboard payload slim. */
@@ -30,7 +53,7 @@ export function dailyWeeklyQuotaSeries(series: QuotaSeriesPoint[], timeZone: str
  * captured_at order, so `collectQuotaHistory` can keep this alive between collection ticks and
  * fold only rows it has not seen yet instead of re-reading the whole database every minute. */
 type HistoryFoldState = {
-  reachedCycles: Map<string, Map<string, number>>;
+  reachedCycles: Map<string, Map<string, QuotaReach>>;
   series: QuotaSeriesPoint[];
   /** Latest 5-minute bucket folded per provider:window. Rows arrive in captured_at order, so
    * remembering one bucket per key dedupes exactly like a set of every bucket ever seen. */
@@ -61,9 +84,10 @@ function foldSnapshotRows(state: HistoryFoldState, snapshotRows: SnapshotHistory
     state.trackingSince = state.trackingSince === null ? row.capturedAt : Math.min(state.trackingSince, row.capturedAt);
     if (!row.snapshotJson) continue;
     try {
-      const snapshot = JSON.parse(row.snapshotJson) as { kind?: string; fiveHour?: {usedPercent?:number;resetsAt?:number|null}|null; weekly?: {usedPercent?:number;resetsAt?:number|null}|null };
+      const snapshot = JSON.parse(row.snapshotJson) as { kind?: string; fiveHour?: {usedPercent?:number;resetsAt?:number|null}|null; weekly?: {usedPercent?:number;resetsAt?:number|null}|null; extra?: unknown };
       if (snapshot.kind !== "window") continue;
       if (row.provider !== "anthropic" && row.provider !== "codex") continue;
+      const plan = row.plan ?? reportedPlan(snapshot);
       for (const [window, value] of [["fiveHour", snapshot.fiveHour], ["weekly", snapshot.weekly]] as const) {
         if (!value || !Number.isFinite(Number(value.usedPercent))) continue;
         const cycleId = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
@@ -76,10 +100,10 @@ function foldSnapshotRows(state: HistoryFoldState, snapshotRows: SnapshotHistory
         if (Number(value.usedPercent) < 100) continue;
         const key = `${row.provider}:${window}`;
         const cycle = cycleId;
-        const cycles = state.reachedCycles.get(key) ?? new Map<string, number>();
-        const firstObservedAt = cycles.get(cycle);
-        if (firstObservedAt === undefined || row.capturedAt < firstObservedAt) {
-          cycles.set(cycle, row.capturedAt);
+        const cycles = state.reachedCycles.get(key) ?? new Map<string, QuotaReach>();
+        const firstReach = cycles.get(cycle);
+        if (firstReach === undefined || row.capturedAt < firstReach.reachedAt) {
+          cycles.set(cycle, { reachedAt: row.capturedAt, plan });
         }
         state.reachedCycles.set(key, cycles);
       }
@@ -117,14 +141,16 @@ function foldResetRows(state: HistoryFoldState, resetRows: ResetHistoryRow[]) {
 
 function finalizeHistory(state: HistoryFoldState) {
   const windows = (["codex", "anthropic"] as const).flatMap((provider) => (["fiveHour", "weekly"] as const).map((window) => {
-    const reachedAt = [...(state.reachedCycles.get(`${provider}:${window}`)?.values() ?? [])]
-      .sort((left, right) => right - left);
+    const reaches = [...(state.reachedCycles.get(`${provider}:${window}`)?.values() ?? [])]
+      .sort((left, right) => right.reachedAt - left.reachedAt);
+    const reachedAt = reaches.map((reach) => reach.reachedAt);
     return {
       provider,
       window,
       reachedCount: reachedAt.length,
       lastReachedAt: reachedAt[0] ?? null,
       reachedAt,
+      reaches,
     };
   }));
   const used = [...state.usedResets.values()].sort((left, right) => right.usedAt - left.usedAt);
@@ -142,6 +168,7 @@ export function summarizeQuotaHistory(snapshotRows: SnapshotHistoryRow[], resetR
 
 const historyAccumulator = {
   dbPath: null as string | null,
+  planFingerprint: null as string | null,
   state: emptyHistoryFoldState(),
   lastSnapshotId: 0,
   lastResetId: 0,
@@ -155,18 +182,45 @@ export function collectQuotaHistory() {
     if (!existsSync(dbPath)) return { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } };
     const db = new Database(dbPath, { readonly: true });
     try {
+      const assignments = tableExists(db, "plan_assignments")
+        ? db.query(`SELECT id AS rowId, provider, plan_id AS id, plan_label AS label,
+            effective_from AS effectiveFrom FROM plan_assignments
+          ORDER BY provider, effective_from, rowId`).all() as PlanAssignment[]
+        : [];
+      const planFingerprint = JSON.stringify(assignments);
       const maxSnapshotId = Number((db.query("SELECT COALESCE(MAX(id), 0) AS value FROM snapshots").get() as { value: number }).value);
       const maxResetId = Number((db.query("SELECT COALESCE(MAX(id), 0) AS value FROM reset_credits").get() as { value: number }).value);
       // A different database path, or ids moving backwards (the file was pruned or replaced),
       // invalidates everything folded so far.
-      if (historyAccumulator.dbPath !== dbPath || maxSnapshotId < historyAccumulator.lastSnapshotId || maxResetId < historyAccumulator.lastResetId) {
+      if (historyAccumulator.dbPath !== dbPath || historyAccumulator.planFingerprint !== planFingerprint || maxSnapshotId < historyAccumulator.lastSnapshotId || maxResetId < historyAccumulator.lastResetId) {
         historyAccumulator.dbPath = dbPath;
+        historyAccumulator.planFingerprint = planFingerprint;
         historyAccumulator.state = emptyHistoryFoldState();
         historyAccumulator.lastSnapshotId = 0;
         historyAccumulator.lastResetId = 0;
       }
       if (maxSnapshotId > historyAccumulator.lastSnapshotId) {
-        const snapshotRows = db.query("SELECT provider, captured_at AS capturedAt, snapshot_json AS snapshotJson FROM snapshots WHERE status IN ('ok', 'stale') AND id > ? ORDER BY captured_at").all(historyAccumulator.lastSnapshotId) as SnapshotHistoryRow[];
+        const snapshotColumns = db.query("PRAGMA table_info(snapshots)").all() as Array<{ name: string }>;
+        const observedAt = snapshotColumns.some((column) => column.name === "data_as_of")
+          ? "COALESCE(data_as_of, captured_at)"
+          : "captured_at";
+        const snapshotRows = db.query(`SELECT provider, captured_at AS capturedAt,
+            ${observedAt} AS observedAt, snapshot_json AS snapshotJson
+          FROM snapshots WHERE status IN ('ok', 'stale') AND id > ? ORDER BY captured_at`)
+          .all(historyAccumulator.lastSnapshotId) as SnapshotHistoryRow[];
+        for (const row of snapshotRows) {
+          const assignment = assignments
+            .filter((item) => item.provider === row.provider && item.effectiveFrom <= (row.observedAt ?? row.capturedAt))
+            .at(-1);
+          if (assignment) {
+            row.plan = {
+              id: assignment.id,
+              label: assignment.label,
+              source: "configured",
+              effectiveFrom: assignment.effectiveFrom,
+            };
+          }
+        }
         foldSnapshotRows(historyAccumulator.state, snapshotRows);
         historyAccumulator.lastSnapshotId = maxSnapshotId;
       }

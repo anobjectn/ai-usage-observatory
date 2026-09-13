@@ -56,6 +56,8 @@ companion described below.
 - Live provider quota headroom, resets, and credits across Claude, Codex, and
   Warp.
 - Locally observed quota history, for trend and reach analysis over time.
+- Account-tier attribution for each observed quota reach, from provider data or
+  an effective-dated local assignment.
 - Per-session quota movement and closing balances, down to the resolved quota
   cycle.
 
@@ -63,6 +65,7 @@ The history and per-session bullets need `quota-service` v1.3.0 or newer,
 which introduced the connected `/history` API; older services and other
 collectors can supply the same data through the SQLite compatibility path
 described in [BYOQS — Bring Your Own Quota Service](#byoqs) below.
+Effective-dated account-tier assignments need quota-service v1.4.0 or newer.
 
 ## Run locally
 
@@ -304,7 +307,8 @@ different quota-service base URL.
   withheld and the model is named; the token columns always remain.
 - Allowance figures come from the optional
   [`quota-service`](https://github.com/anobjectn/quota-service) and are labeled as
-  provider-reported in the interface.
+  provider-reported in the interface. User-configured account tiers are labeled
+  as configured plan assignments instead.
 - Five-hour blocks are reconstructed locally by `ccusage` and currently cover
   Claude Code only.
 - Effort labels are shown as recorded after trimming and lowercasing. They are
@@ -381,6 +385,44 @@ session quota context when the history API is unavailable. The documented
 quota-service setup uses `QUOTA_RETENTION_DAYS=forever`. A positive value opts
 into destructive pruning on the next service poll, which shortens the history
 available to this app.
+
+### Record Anthropic account tiers
+
+quota-service v1.4.0 records the generic Claude credential value `max` and does
+not collect the more specific OAuth profile rate-limit tier. To keep reach
+history comparable until the collector supplies that tier, record a local plan
+assignment when the account changes. This writes only to quota-service's local
+database. It does not modify the Anthropic account or this repository.
+
+Use one of these IDs and labels: `pro` with `Claude Pro`, `max_5x` with
+`Claude Max 5x`, or `max_20x` with `Claude Max 20x`.
+
+To record the tier from the current time:
+
+```bash
+curl --request POST http://127.0.0.1:8787/manual \
+  --header 'Content-Type: application/json' \
+  --data '{"provider":"anthropic","field":"plan_tier","value":"max_20x","note":"Claude Max 20x"}'
+```
+
+To backdate a change, convert the account-local change time to epoch
+milliseconds and add `effectiveFrom`. Include the UTC offset so daylight-saving
+time cannot shift the date:
+
+```bash
+bun -e 'console.log(new Date("2026-08-31T00:00:00-04:00").getTime())'
+# 1788148800000
+
+curl --request POST http://127.0.0.1:8787/manual \
+  --header 'Content-Type: application/json' \
+  --data '{"provider":"anthropic","field":"plan_tier","value":"max_20x","note":"Claude Max 20x","effectiveFrom":1788148800000}'
+```
+
+Plan assignments are append-only. Each assignment applies from its effective
+time until a later assignment. Record the change when it occurs; a receipt is
+not required. If only the calendar date is known, use midnight in the account's
+reporting timezone. The Observatory assigns all later observations to the new
+tier.
 
 Session detail can show account allowance movement observed during one active
 session, rendered as remaining-quota ranges per resolved quota cycle (a session

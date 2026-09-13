@@ -132,7 +132,7 @@ import {
   mergeProjectSummaries,
   type GroupedProjectSummary,
 } from "./project-grouping";
-import { reachClockSummary, reachHourBuckets, reachWeekBuckets } from "./quota-reaches";
+import { quotaPlanLabel, reachClockSummary, reachHourBuckets, reachTierBuckets, reachWeekBuckets } from "./quota-reaches";
 import {
   buildAnthropicCreditView,
   buildCodexCreditView,
@@ -177,6 +177,7 @@ import type {
   SessionQuotaContext,
   AnthropicWebCredits,
   QuotaHistory,
+  QuotaReach,
   QuotaProvider,
   WarpSessionStats,
 } from "./types";
@@ -3330,6 +3331,7 @@ type QuotaBucket = {
   historyWindow?: "fiveHour" | "weekly";
   reachedCount?: number;
   reachedAt?: number[];
+  reaches?: QuotaReach[];
 };
 
 type QuotaCard = {
@@ -3356,6 +3358,7 @@ function quotaBucket(
   historyWindow?: "fiveHour" | "weekly",
   reachedCount?: number,
   reachedAt?: number[],
+  reaches?: QuotaReach[],
 ): QuotaBucket {
   const hasValue = usedPercent !== null && Number.isFinite(usedPercent);
   const expired = hasValue && resetAt !== null && resetAt <= Date.now();
@@ -3385,6 +3388,7 @@ function quotaBucket(
     historyWindow,
     reachedCount,
     reachedAt,
+    reaches,
   };
 }
 
@@ -3416,6 +3420,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       "fiveHour",
       reachHistory("anthropic", "fiveHour")?.reachedCount,
       reachHistory("anthropic", "fiveHour")?.reachedAt,
+      reachHistory("anthropic", "fiveHour")?.reaches,
     ),
     quotaBucket(
       "anthropic-weekly",
@@ -3429,6 +3434,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       "weekly",
       reachHistory("anthropic", "weekly")?.reachedCount,
       reachHistory("anthropic", "weekly")?.reachedAt,
+      reachHistory("anthropic", "weekly")?.reaches,
     ),
     ...Object.entries(anthropicSnapshot?.modelWindows ?? {}).map(
       ([model, window]) =>
@@ -3458,6 +3464,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       "fiveHour",
       reachHistory("codex", "fiveHour")?.reachedCount,
       reachHistory("codex", "fiveHour")?.reachedAt,
+      reachHistory("codex", "fiveHour")?.reaches,
     ),
     quotaBucket(
       "codex-weekly",
@@ -3471,6 +3478,7 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       "weekly",
       reachHistory("codex", "weekly")?.reachedCount,
       reachHistory("codex", "weekly")?.reachedAt,
+      reachHistory("codex", "weekly")?.reaches,
     ),
   ];
   const warp = reports.get("warp");
@@ -3876,11 +3884,13 @@ function ReachPattern({
   providerLabel,
   windowLabel,
   reachedAt,
+  reaches,
   timeZone,
 }: {
   providerLabel: string;
   windowLabel: string;
   reachedAt: number[];
+  reaches?: QuotaReach[];
   timeZone: string;
 }) {
   const weeks = reachWeekBuckets(reachedAt, timeZone);
@@ -3889,6 +3899,19 @@ function ReachPattern({
   const weekMax = Math.max(1, ...weeks.map((week) => week.count));
   const hourMax = Math.max(1, ...hours.map((bucket) => bucket.count));
   const strip = weeks.length > 0 && weeks.some((week) => week.count > 0);
+  const reachDetails = reachedAt.map((instant) =>
+    reaches?.find((reach) => reach.reachedAt === instant) ?? {
+      reachedAt: instant,
+      plan: { id: null, label: null, source: "unknown" as const, effectiveFrom: null },
+    },
+  );
+  const tierBuckets = reachTierBuckets(reachDetails);
+  const tierSource = (source: QuotaReach["plan"]["source"]) =>
+    source === "provider"
+      ? "Provider reported"
+      : source === "configured"
+        ? "Configured plan assignment"
+        : "No tier recorded";
   return (
     <div className="reach-pattern">
       {strip && (
@@ -3932,18 +3955,40 @@ function ReachPattern({
           <summary>
             {reachedAt.length === 1 ? "1 recorded reach" : `All ${reachedAt.length} reaches`}
           </summary>
+          <div className="reach-pattern__tiers">
+            <span>Reaches by account tier</span>
+            <div>
+              {tierBuckets.map((tier) => (
+                <span
+                  className={tier.source}
+                  key={tier.key}
+                  title={tierSource(tier.source)}
+                >
+                  {tier.label} <b>{tier.count}</b>
+                </span>
+              ))}
+            </div>
+            <small>Compare within one tier.</small>
+          </div>
           <ol aria-label={`${providerLabel} ${windowLabel} quota reaches`}>
-            {reachedAt.map((instant) => (
-              <li key={instant}>
-                <time dateTime={new Date(instant).toISOString()}>
-                  {new Date(instant).toLocaleString(undefined, {
+            {reachDetails.map((reach) => (
+              <li key={reach.reachedAt}>
+                <time dateTime={new Date(reach.reachedAt).toISOString()}>
+                  {new Date(reach.reachedAt).toLocaleString(undefined, {
                     month: "short",
                     day: "numeric",
-                    year: "numeric",
+                    year: "2-digit",
                     hour: "numeric",
                     minute: "2-digit",
+                    timeZone,
                   })}
                 </time>
+                <span
+                  className={`reach-pattern__tier ${reach.plan.source}`}
+                  title={tierSource(reach.plan.source)}
+                >
+                  {quotaPlanLabel(reach.plan.label)}
+                </span>
               </li>
             ))}
           </ol>
@@ -3951,7 +3996,7 @@ function ReachPattern({
       )}
       <ChartTooltipContext
         className="reach-pattern__tier-note"
-        description="Plan-tier changes move these walls. Reaches before a tier change are not comparable to reaches after it."
+        description="The expanded log uses the plan recorded when each quota cycle first reached its limit. Compare reach frequency within the same tier."
       />
     </div>
   );
@@ -4069,6 +4114,7 @@ function QuotaDials({
                                 providerLabel={card.providerLabel}
                                 windowLabel={bucket.windowLabel}
                                 reachedAt={bucket.reachedAt}
+                                reaches={bucket.reaches}
                                 timeZone={timeZone}
                               />
                             )}

@@ -1,4 +1,5 @@
 import { dateKeyInTimeZone, hourInTimeZone, systemTimeZone } from "./reporting-time";
+import type { QuotaReach } from "./types";
 
 export type ReachWeekBucket = {
   /** Calendar key (YYYY-MM-DD) of the Monday opening the week, in the reporting timezone. */
@@ -9,6 +10,46 @@ export type ReachWeekBucket = {
 };
 
 export type ReachHourBucket = { hour: number; count: number };
+
+export type ReachTierBucket = {
+  key: string;
+  label: string;
+  source: QuotaReach["plan"]["source"];
+  count: number;
+};
+
+export function quotaPlanLabel(label: string | null): string {
+  if (!label) return "Unknown";
+  if (label !== label.toLowerCase()) return label;
+  return label
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/** Counts reaches under the recorded plan in effect when each quota cycle first hit its wall.
+ * Provenance remains part of the key because a configured label is not provider evidence. */
+export function reachTierBuckets(reaches: QuotaReach[]): ReachTierBucket[] {
+  const buckets = new Map<string, ReachTierBucket>();
+  for (const reach of reaches) {
+    const plan = reach.plan;
+    const key = plan.id && plan.label
+      ? `${plan.source}\0${plan.id}\0${plan.label}`
+      : "unknown";
+    const current = buckets.get(key) ?? {
+      key,
+      label: quotaPlanLabel(plan.label),
+      source: plan.id && plan.label ? plan.source : "unknown" as const,
+      count: 0,
+    };
+    current.count += 1;
+    buckets.set(key, current);
+  }
+  return [...buckets.values()].sort((left, right) =>
+    right.count - left.count || left.label.localeCompare(right.label),
+  );
+}
 
 function mondayKeyOf(dateKey: string): string {
   // The key is already a timezone-resolved calendar date, so UTC math on it is safe.

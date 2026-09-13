@@ -143,6 +143,28 @@ describe("quota history summary", () => {
     expect(weekly?.reachedAt).toEqual([3]);
   });
 
+  test("records the account tier in effect at each first-observed reach", () => {
+    const snapshots = [
+      {
+        provider: "codex",
+        capturedAt: 1,
+        snapshotJson: JSON.stringify({ kind: "window", fiveHour: { usedPercent: 100, resetsAt: 3_600_000 }, extra: { planType: "plus" } }),
+      },
+      {
+        provider: "codex",
+        capturedAt: 2,
+        snapshotJson: JSON.stringify({ kind: "window", fiveHour: { usedPercent: 100, resetsAt: 7_200_000 }, extra: { planType: "plus" } }),
+        plan: { id: "pro", label: "Codex Pro", source: "configured" as const, effectiveFrom: 2 },
+      },
+    ];
+    const fiveHour = summarizeQuotaHistory(snapshots, []).windows
+      .find((item) => item.provider === "codex" && item.window === "fiveHour");
+    expect(fiveHour?.reaches).toEqual([
+      { reachedAt: 2, plan: { id: "pro", label: "Codex Pro", source: "configured", effectiveFrom: 2 } },
+      { reachedAt: 1, plan: { id: "plus", label: "plus", source: "provider", effectiveFrom: null } },
+    ]);
+  });
+
   test("counts an available reset credit that disappears before expiry as used", () => {
     const expiry = new Date(10_000).toISOString();
     const resets = [

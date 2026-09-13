@@ -738,6 +738,66 @@
   color: var(--text);
 }
 
+.reach-pattern__tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0 7px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb,var(--quota-color) 5%,transparent);
+}
+
+.reach-pattern__tiers>span,.reach-pattern__tiers>small {
+  font: var(--text-2xs) var(--font-label);
+  color: var(--dim);
+}
+
+.reach-pattern__tiers>div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.reach-pattern__tiers>div>span,.reach-pattern__tier {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb,var(--quota-color) 32%,var(--line));
+  border-radius: var(--radius-chip);
+  color: var(--text);
+  font: var(--text-2xs) var(--font-label);
+}
+
+.reach-pattern__tiers>div>span.unknown,.reach-pattern__tier.unknown {
+  border-color: var(--line);
+  color: var(--dim);
+}
+
+.reach-pattern__tiers b {
+  color: var(--quota-color);
+  font-weight: 600;
+}
+
+.reach-pattern__log li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reach-pattern__tier {
+  flex: 0 0 auto;
+  padding-block: 1px;
+}
+
+.reach-pattern__log time {
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .reach-pattern__tier-note {
   display: inline-flex;
   align-items: center;
