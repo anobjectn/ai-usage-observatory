@@ -388,11 +388,12 @@ available to this app.
 
 ### Record Anthropic account tiers
 
-quota-service v1.4.0 records the generic Claude credential value `max` and does
-not collect the more specific OAuth profile rate-limit tier. To keep reach
-history comparable until the collector supplies that tier, record a local plan
-assignment when the account changes. This writes only to quota-service's local
-database. It does not modify the Anthropic account or this repository.
+Recent quota-service builds record the specific Anthropic OAuth profile tier in
+`snapshot.extra.planType`, including `max_5x` and `max_20x`. The Observatory
+prefers that provider value. Older snapshots can contain only the generic
+credential value `max` or no tier. Record a local plan assignment to backfill
+those observations. This writes only to quota-service's local database. It does
+not modify the Anthropic account or this repository.
 
 Use one of these IDs and labels: `pro` with `Claude Pro`, `max_5x` with
 `Claude Max 5x`, or `max_20x` with `Claude Max 20x`.
@@ -419,10 +420,10 @@ curl --request POST http://127.0.0.1:8787/manual \
 ```
 
 Plan assignments are append-only. Each assignment applies from its effective
-time until a later assignment. Record the change when it occurs; a receipt is
-not required. If only the calendar date is known, use midnight in the account's
-reporting timezone. The Observatory assigns all later observations to the new
-tier.
+time until a later assignment or a snapshot supplies a specific provider plan.
+Use receipts or account records to backfill historical changes. Compatible
+quota-service builds detect current tier changes automatically. If only the
+calendar date is known, use midnight in the account's reporting timezone.
 
 Session detail can show account allowance movement observed during one active
 session, rendered as remaining-quota ranges per resolved quota cycle (a session
@@ -598,6 +599,10 @@ objects. Only `ok` and `stale` rows are analyzed. A quota reach is counted once
 per reset cycle at the first observation of `usedPercent >= 100`. Reset-credit
 use is inferred when a credit is reported as `used`, `consumed`, or `redeemed`,
 or when an available credit disappears without evidence that it expired.
+
+For tier attribution, `snapshot_json.extra.planType` is specific provider
+evidence and takes precedence over `plan_assignments`. An effective-dated
+assignment can replace a generic `snapshot_json.extra.subscriptionType` value.
 
 </details>
 

@@ -21,18 +21,37 @@ export type QuotaSeriesPoint = { provider: "anthropic" | "codex"; window: "fiveH
 
 const unknownPlan = (): QuotaPlan => ({ id: null, label: null, source: "unknown", effectiveFrom: null });
 
-function reportedPlan(snapshot: { extra?: unknown }): QuotaPlan {
+function reportedPlan(snapshot: { kind?: unknown; extra?: unknown }): { plan: QuotaPlan; specific: boolean } {
+  if (snapshot.kind !== "window") return { plan: unknownPlan(), specific: false };
   const extra = snapshot.extra && typeof snapshot.extra === "object"
     ? snapshot.extra as Record<string, unknown>
     : {};
-  const value = typeof extra.planType === "string"
-    ? extra.planType.trim()
-    : typeof extra.subscriptionType === "string"
-      ? extra.subscriptionType.trim()
-      : "";
-  return value
-    ? { id: value, label: value, source: "provider", effectiveFrom: null }
-    : unknownPlan();
+  const planType = typeof extra.planType === "string" ? extra.planType.trim() : "";
+  if (planType) {
+    return {
+      plan: { id: planType, label: planType, source: "provider", effectiveFrom: null },
+      specific: true,
+    };
+  }
+  const subscriptionType = typeof extra.subscriptionType === "string"
+    ? extra.subscriptionType.trim()
+    : "";
+  return {
+    plan: subscriptionType
+      ? { id: subscriptionType, label: subscriptionType, source: "provider", effectiveFrom: null }
+      : unknownPlan(),
+    specific: false,
+  };
+}
+
+/** A provider-specific plan is authoritative. Effective-dated assignments fill gaps left by
+ * older snapshots that contain only a generic subscription type or no tier information. */
+export function resolveQuotaPlan(
+  snapshot: { kind?: unknown; extra?: unknown },
+  assigned?: QuotaPlan | null,
+): QuotaPlan {
+  const reported = reportedPlan(snapshot);
+  return reported.specific ? reported.plan : assigned ?? reported.plan;
 }
 
 /** The full series stays server-side for insights; the browser only needs one weekly point per
@@ -87,7 +106,7 @@ function foldSnapshotRows(state: HistoryFoldState, snapshotRows: SnapshotHistory
       const snapshot = JSON.parse(row.snapshotJson) as { kind?: string; fiveHour?: {usedPercent?:number;resetsAt?:number|null}|null; weekly?: {usedPercent?:number;resetsAt?:number|null}|null; extra?: unknown };
       if (snapshot.kind !== "window") continue;
       if (row.provider !== "anthropic" && row.provider !== "codex") continue;
-      const plan = row.plan ?? reportedPlan(snapshot);
+      const plan = resolveQuotaPlan(snapshot, row.plan);
       for (const [window, value] of [["fiveHour", snapshot.fiveHour], ["weekly", snapshot.weekly]] as const) {
         if (!value || !Number.isFinite(Number(value.usedPercent))) continue;
         const cycleId = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
@@ -286,17 +305,10 @@ function normalizeLocalObservation(database: Database, row: {
   const observedAt = row.dataAsOf ?? row.capturedAt;
   const snapshot = JSON.parse(row.snapshotJson) as Record<string, unknown>;
   const assigned = planAt(database, row.provider, observedAt);
-  const extra = snapshot.extra && typeof snapshot.extra === "object" ? snapshot.extra as Record<string, unknown> : {};
-  const reported = typeof extra.planType === "string"
-    ? extra.planType
-    : typeof extra.subscriptionType === "string"
-      ? extra.subscriptionType
-      : null;
-  const plan = assigned
-    ? { ...assigned, source: "configured" as const }
-    : reported
-      ? { id: reported, label: reported, effectiveFrom: null, source: "provider" as const }
-      : { id: null, label: null, effectiveFrom: null, source: "unknown" as const };
+  const plan = resolveQuotaPlan(
+    snapshot,
+    assigned ? { ...assigned, source: "configured" as const } : null,
+  );
   const base = {
     schemaVersion: 1 as const,
     provider: row.provider,

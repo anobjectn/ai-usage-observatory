@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { collectQuota, collectRawQuotaHistory, importAnthropicWebCredits, summarizeQuotaHistory } from "./quota";
+import { collectQuota, collectRawQuotaHistory, importAnthropicWebCredits, resolveQuotaPlan, summarizeQuotaHistory } from "./quota";
 
 const realFetch = globalThis.fetch;
 const realEnabled = process.env.QUOTA_SERVICE_ENABLED;
@@ -126,6 +126,29 @@ describe("importAnthropicWebCredits proxy", () => {
 });
 
 describe("quota history summary", () => {
+  test("prefers a specific provider tier and uses assignments for generic subscription data", () => {
+    const assigned = {
+      id: "max_20x",
+      label: "Claude Max 20x",
+      source: "configured" as const,
+      effectiveFrom: 2,
+    };
+    expect(resolveQuotaPlan({ kind: "window", extra: { planType: "max_5x", subscriptionType: "max" } }, assigned)).toEqual({
+      id: "max_5x",
+      label: "max_5x",
+      source: "provider",
+      effectiveFrom: null,
+    });
+    expect(resolveQuotaPlan({ kind: "window", extra: { subscriptionType: "max" } }, assigned)).toEqual(assigned);
+    expect(resolveQuotaPlan({ kind: "window", extra: { subscriptionType: "max" } })).toEqual({
+      id: "max",
+      label: "max",
+      source: "provider",
+      effectiveFrom: null,
+    });
+    expect(resolveQuotaPlan({ kind: "pool", extra: { planType: "max_5x" } }, assigned)).toEqual(assigned);
+  });
+
   test("counts a reached window once per reset cycle despite timestamp jitter", () => {
     const snapshots = [
       { provider: "anthropic", capturedAt: 1, snapshotJson: JSON.stringify({kind:"window",fiveHour:{usedPercent:100,resetsAt:3_600_001},weekly:{usedPercent:20,resetsAt:604_800_000}}) },
@@ -143,25 +166,26 @@ describe("quota history summary", () => {
     expect(weekly?.reachedAt).toEqual([3]);
   });
 
-  test("records the account tier in effect at each first-observed reach", () => {
+  test("records the authoritative or assigned account tier at each first-observed reach", () => {
     const snapshots = [
       {
-        provider: "codex",
+        provider: "anthropic",
         capturedAt: 1,
-        snapshotJson: JSON.stringify({ kind: "window", fiveHour: { usedPercent: 100, resetsAt: 3_600_000 }, extra: { planType: "plus" } }),
+        snapshotJson: JSON.stringify({ kind: "window", fiveHour: { usedPercent: 100, resetsAt: 3_600_000 }, extra: { subscriptionType: "max" } }),
+        plan: { id: "max_5x", label: "Claude Max 5x", source: "configured" as const, effectiveFrom: 1 },
       },
       {
-        provider: "codex",
+        provider: "anthropic",
         capturedAt: 2,
-        snapshotJson: JSON.stringify({ kind: "window", fiveHour: { usedPercent: 100, resetsAt: 7_200_000 }, extra: { planType: "plus" } }),
-        plan: { id: "pro", label: "Codex Pro", source: "configured" as const, effectiveFrom: 2 },
+        snapshotJson: JSON.stringify({ kind: "window", fiveHour: { usedPercent: 100, resetsAt: 7_200_000 }, extra: { planType: "max_20x", subscriptionType: "max" } }),
+        plan: { id: "max_5x", label: "Claude Max 5x", source: "configured" as const, effectiveFrom: 1 },
       },
     ];
     const fiveHour = summarizeQuotaHistory(snapshots, []).windows
-      .find((item) => item.provider === "codex" && item.window === "fiveHour");
+      .find((item) => item.provider === "anthropic" && item.window === "fiveHour");
     expect(fiveHour?.reaches).toEqual([
-      { reachedAt: 2, plan: { id: "pro", label: "Codex Pro", source: "configured", effectiveFrom: 2 } },
-      { reachedAt: 1, plan: { id: "plus", label: "plus", source: "provider", effectiveFrom: null } },
+      { reachedAt: 2, plan: { id: "max_20x", label: "max_20x", source: "provider", effectiveFrom: null } },
+      { reachedAt: 1, plan: { id: "max_5x", label: "Claude Max 5x", source: "configured", effectiveFrom: 1 } },
     ]);
   });
 
