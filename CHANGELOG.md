@@ -5,6 +5,13 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.1] - 2026-09-17
+
+### Fixed
+
+- Shorten quota reach log timestamps to `Mon DD, h:mma` so they no longer
+  overlap account-tier badges. Preserve the configured time zone.
+
 ## [1.26.0] - 2026-09-13
 
 ### Added
@@ -36,6 +43,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.26.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.26.0...v1.26.1
 [1.26.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.25.0...v1.26.0
 [1.25.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.24.0...v1.25.0
 
