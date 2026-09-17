@@ -644,17 +644,23 @@ const formatDate = (value: string, timeZone?: string) =>
 function DateStamp({ value, timeZone }: { value: string; timeZone?: string }) {
   return <time dateTime={value}>{formatDate(value, timeZone)}</time>;
 }
-const formatSessionDate = (value: string) => {
+/** Compact `Aug 31 10:35a` stamp; `separator` sits between the day and the time. */
+const formatCompactDate = (
+  value: string,
+  { timeZone, separator = " " }: { timeZone?: string; separator?: string } = {},
+) => {
   const parts = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   }).formatToParts(new Date(value));
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((valuePart) => valuePart.type === type)?.value ?? "";
-  return `${part("month")} ${part("day")} ${part("hour")}:${part("minute")}${part("dayPeriod").slice(0, 1).toLowerCase()}`;
+  return `${part("month")} ${part("day")}${separator}${part("hour")}:${part("minute")}${part("dayPeriod").slice(0, 1).toLowerCase()}`;
 };
+const formatSessionDate = (value: string) => formatCompactDate(value);
 function SessionDateStamp({ value }: { value: string }) {
   return <time dateTime={value}>{formatSessionDate(value)}</time>;
 }
@@ -3974,14 +3980,7 @@ function ReachPattern({
             {reachDetails.map((reach) => (
               <li key={reach.reachedAt}>
                 <time dateTime={new Date(reach.reachedAt).toISOString()}>
-                  {new Date(reach.reachedAt).toLocaleString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "2-digit",
-                    hour: "numeric",
-                    minute: "2-digit",
-                    timeZone,
-                  })}
+                  {formatCompactDate(new Date(reach.reachedAt).toISOString(), { timeZone, separator: ", " })}
                 </time>
                 <span
                   className={`reach-pattern__tier ${reach.plan.source}`}
