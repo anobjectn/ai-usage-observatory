@@ -225,6 +225,7 @@ import {
   type MetricRange,
 } from "./time-range";
 import { aggregateModels } from "./model-aggregation";
+import { carryUrlFilters, parseUrlFilters, writeUrlFilters } from "./url-filters";
 import { UsageIntelligence } from "./views/data/intelligence";
 import {
   compactTokens as insightTokens,
@@ -418,18 +419,28 @@ function initialSessionId() {
   return new URLSearchParams(window.location.search).get("session");
 }
 
+/** Links rebuild the query string, but the date, Agent, Path, and cache selections must survive
+ * navigation so a bookmark of any view reproduces the analysis. */
+function clearSearchKeepingFilters(url: URL) {
+  const filters = new URLSearchParams(url.search);
+  url.search = "";
+  return filters;
+}
+
 function sessionHref(sessionId: string) {
   const url = new URL(typeof window === "undefined" ? "http://localhost/" : window.location.href);
-  url.search = "";
+  const filters = clearSearchKeepingFilters(url);
   url.searchParams.set("view", "sessions");
   url.searchParams.set("session", sessionId);
+  carryUrlFilters(filters, url.searchParams);
   return `${url.pathname}${url.search}`;
 }
 
 function viewHref(view: View) {
   const url = new URL(window.location.href);
-  url.search = "";
+  const filters = clearSearchKeepingFilters(url);
   url.searchParams.set("view", view);
+  carryUrlFilters(filters, url.searchParams);
   return `${url.pathname}${url.search}`;
 }
 
@@ -445,9 +456,10 @@ function modelIdsFromUrl() {
 
 function modelsHref(models: Iterable<string>) {
   const url = new URL(window.location.href);
-  url.search = "";
+  const filters = clearSearchKeepingFilters(url);
   url.searchParams.set("view", "models");
   for (const model of models) url.searchParams.append("model", model);
+  carryUrlFilters(filters, url.searchParams);
   return `${url.pathname}${url.search}`;
 }
 
@@ -12185,7 +12197,8 @@ function RulesModal({
 
 export function App() {
   const { data: collectedData, error, loading, load, lastSuccessAt } = useDashboard();
-  const [showCache, setShowCache] = useState(true);
+  const [initialFilters] = useState(() => parseUrlFilters(window.location.search));
+  const [showCache, setShowCache] = useState(initialFilters.showCache);
   const [dataFacets, setDataFacets] = useState<DataFacets>(() => ({
     outliers: "all",
     finding: "all",
@@ -12205,10 +12218,10 @@ export function App() {
   const [focusSessionId, setFocusSessionId] = useState<string | null>(
     initialSessionId,
   );
-  const [agent, setAgent] = useState<AgentSelection>([]);
-  const [days, setDays] = useState<MetricRange>("30");
-  const [customRange, setCustomRange] = useState<DateRange | null>(null);
-  const [pathTag, setPathTag] = useState("all");
+  const [agent, setAgent] = useState<AgentSelection>(initialFilters.agent);
+  const [days, setDays] = useState<MetricRange>(initialFilters.range);
+  const [customRange, setCustomRange] = useState<DateRange | null>(initialFilters.customRange);
+  const [pathTag, setPathTag] = useState(initialFilters.pathTag);
   const [metric, setMetric] = useState<Metric>("totalTokens");
   const [sidebar, setSidebar] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -12348,11 +12361,26 @@ export function App() {
       convertLegacyViewUrl();
       setView(initialView());
       setFocusSessionId(initialSessionId());
+      const filters = parseUrlFilters(window.location.search);
+      setAgent(filters.agent);
+      setDays(filters.range);
+      setCustomRange(filters.customRange);
+      setPathTag(filters.pathTag);
+      setShowCache(filters.showCache);
     };
     convertLegacyViewUrl();
     window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
   }, []);
+  // A filter change rewrites the current history entry; it is not a navigation, so Back still
+  // returns to the previous view.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    writeUrlFilters(url.searchParams, { range: days, customRange, agent, pathTag, showCache });
+    const next = `${url.pathname}${url.search}${url.hash}`;
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`)
+      window.history.replaceState(window.history.state, "", next);
+  }, [days, customRange, agent, pathTag, showCache]);
   useEffect(() => {
     const scale = dataTextScale / 100;
     document.documentElement.style.setProperty(
@@ -12448,6 +12476,10 @@ export function App() {
     () => (data ? [...new Set(data.sessions.flatMap((s) => s.pathTags))] : []),
     [data],
   );
+  // A bookmarked Path tag can outlive its rule. Fall back to every path instead of an empty view.
+  useEffect(() => {
+    if (data && pathTag !== "all" && !pathTags.includes(pathTag)) setPathTag("all");
+  }, [data, pathTag, pathTags]);
   const sessions = useMemo(
     () =>
       data?.sessions.filter(
