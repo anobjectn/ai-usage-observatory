@@ -1082,21 +1082,29 @@ function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Wall-clock time of the last response the server answered, `304` included.
+  const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
   const dashboardEtag = useRef<string | null>(null);
   const latest = useRef<DashboardData | null>(null);
   const load = async (refresh = false, background = false) => {
     // Background polls stay silent: no "Collecting" spinner, and none of the app-wide
     // re-renders that toggling `loading` would force on every tick.
-    if (!background) {
-      setLoading(true);
-      setError(null);
-    }
+    // A standing error is cleared only by a response, so the connection banner stays up
+    // through a retry instead of flickering away and back.
+    if (!background) setLoading(true);
     try {
-      if (refresh) await fetch("/api/refresh", { method: "POST" });
+      if (refresh) {
+        const refreshed = await fetch("/api/refresh", { method: "POST" });
+        if (!refreshed.ok) throw new Error(`Server returned ${refreshed.status}`);
+      }
       const response = await fetch("/api/dashboard", {
         headers: dashboardEtag.current ? { "If-None-Match": dashboardEtag.current } : undefined,
       });
-      if (response.status === 304) return;
+      if (response.status === 304) {
+        setLastSuccessAt(Date.now());
+        setError(null);
+        return;
+      }
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
       dashboardEtag.current = response.headers.get("ETag");
       const next = shareStructure(latest.current, (await response.json()) as DashboardData);
@@ -1106,6 +1114,7 @@ function useDashboard() {
       startTransition(() => {
         setData(next);
         setError(null);
+        setLastSuccessAt(Date.now());
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -1118,7 +1127,7 @@ function useDashboard() {
     const timer = setInterval(() => void load(false, true), 60_000);
     return () => clearInterval(timer);
   }, []);
-  return { data, error, loading, load };
+  return { data, error, loading, load, lastSuccessAt };
 }
 
 /** Maps the global Agent / range / path-tag controls onto an effort scope. Dashboard and
@@ -12167,7 +12176,7 @@ function RulesModal({
 }
 
 export function App() {
-  const { data: collectedData, error, loading, load } = useDashboard();
+  const { data: collectedData, error, loading, load, lastSuccessAt } = useDashboard();
   const [showCache, setShowCache] = useState(true);
   const [dataFacets, setDataFacets] = useState<DataFacets>(() => ({
     outliers: "all",
@@ -12504,9 +12513,13 @@ export function App() {
   if (!data) return null;
   const current = nav.find((item) => item.id === view)!;
   const pricingIncomplete = Boolean(data.unpricedModels?.length);
-  const sideStatusLabel = pricingIncomplete
-    ? "Cost data incomplete"
-    : "Local systems nominal";
+  // `error` beside loaded data means a later request failed; the figures on screen are retained.
+  const disconnected = Boolean(error);
+  const sideStatusLabel = disconnected
+    ? "Local server unreachable"
+    : pricingIncomplete
+      ? "Cost data incomplete"
+      : "Local systems nominal";
   return (
     <SceneEffectsContext.Provider value={sceneEffects}>
     <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
@@ -12578,7 +12591,7 @@ export function App() {
           tabIndex={sidebarCollapsed ? 0 : undefined}
         >
           <span
-            className={`status-dot ${pricingIncomplete ? "degraded" : "healthy"}`}
+            className={`status-dot ${disconnected || pricingIncomplete ? "degraded" : "healthy"}`}
           />
           <div>
             <b>{sideStatusLabel}</b>
@@ -12686,6 +12699,21 @@ export function App() {
             </button>
           </div>
         </header>
+        {disconnected && (
+          <div className="stale-banner connection-banner" role="status">
+            <span>
+              A request to the local server failed ({error}). These figures are from the last
+              successful refresh
+              {lastSuccessAt
+                ? ` at ${new Date(lastSuccessAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                : ""}
+              .
+            </span>
+            <button type="button" onClick={() => load()} disabled={loading}>
+              {loading ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        )}
         {data.refresh.stale && (
           <div className="stale-banner">
             Showing the last successful collection. {data.refresh.lastError}

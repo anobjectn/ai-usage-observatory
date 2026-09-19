@@ -911,6 +911,26 @@ main {
   padding: 8px 40px;
   font-size: var(--text-sm);
 }
+.connection-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.connection-banner button {
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: none;
+  padding: 3px 12px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.connection-banner button:disabled {
+  opacity: .6;
+  cursor: default;
+}
 
 .starfield {
   position: sticky;
