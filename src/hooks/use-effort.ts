@@ -41,22 +41,39 @@ function useConditional<T>(url: string | null) {
   const [error, setError] = useState<string | null>(null);
   const etag = useRef<string | null>(null);
   const lastUrl = useRef<string | null>(null);
+  const inFlight = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
     if (!url) return;
     // A different scope is a different resource; its ETag must not be sent.
     if (lastUrl.current !== url) { etag.current = null; lastUrl.current = url; }
+    // Only the newest request may commit. Without this, a slow response for an earlier scope
+    // can land last and show `1d` data under a `7d` selection.
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
+    const obsolete = () => inFlight.current !== controller;
     try {
-      const response = await fetch(url, { headers: etag.current ? { "If-None-Match": etag.current } : undefined });
+      const response = await fetch(url, {
+        headers: etag.current ? { "If-None-Match": etag.current } : undefined,
+        signal: controller.signal,
+      });
+      if (obsolete()) return;
       if (response.status === 304) { setError(null); return; }
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      const body = await response.json() as T;
+      if (obsolete()) return;
       etag.current = response.headers.get("ETag");
-      setData(await response.json() as T);
+      setData(body);
       setError(null);
     } catch (reason) {
+      if (obsolete()) return;
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }, [url]);
+
+  // A disabled or unmounted hook must not commit a response that is still in flight.
+  useEffect(() => () => { inFlight.current?.abort(); inFlight.current = null; }, [url]);
 
   return { data, error, load };
 }
