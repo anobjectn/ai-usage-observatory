@@ -11268,22 +11268,33 @@ function AnnotationModal({
     }
   }, [dirty, onClose]);
   const dialogRef = useModalFocusTrap(requestClose);
+  const [error, setError] = useState<string | null>(null);
+  // A failed save keeps the editor open with the draft intact, so the user can retry.
   const save = async () => {
     setSaving(true);
-    await fetch(
-      `/api/sessions/${encodeURIComponent(session.sessionId)}/annotations`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          note,
-          tags: tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean),
-        }),
-      },
-    );
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/annotations`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            note,
+            tags: tags
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean),
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason);
+      setError(`The annotation was not saved (${detail}). Your draft is kept; try again.`);
+      setSaving(false);
+      return;
+    }
     setSaving(false);
     onSaved();
     onClose();
@@ -11339,8 +11350,10 @@ function AnnotationModal({
             rows={5}
           />
         </label>
+        {error && <p className="web-import-error" role="alert">{error}</p>}
         <button className="primary-button" onClick={save} disabled={saving}>
-          {saving ? <RefreshCw className="spin" /> : <Check />} Save annotation
+          {saving ? <RefreshCw className="spin" /> : <Check />}{" "}
+          {error ? "Retry save" : "Save annotation"}
         </button>
       </div>
     </div>
