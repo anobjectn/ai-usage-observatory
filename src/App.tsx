@@ -2235,6 +2235,11 @@ export function withoutCacheDashboardData(data: DashboardData): DashboardData {
     models: data.models.map((model) => ({
       ...model,
       tokens: model.inputTokens + model.outputTokens,
+      // Scale the priced share; the payload has no per-type split of priced traffic.
+      pricedTokens:
+        model.tokens > 0
+          ? (model.inputTokens + model.outputTokens) * (model.pricedTokens / model.tokens)
+          : 0,
     })),
   };
 }
@@ -9849,7 +9854,9 @@ function Models({
           warpOnly,
           warpCredits,
           perMtok:
-            model.priced && model.tokens > 0 ? model.cost / (model.tokens / 1_000_000) : null,
+            model.priced && model.pricedTokens > 0
+              ? model.cost / (model.pricedTokens / 1_000_000)
+              : null,
           outputShare: !warpOnly && model.tokens > 0 ? model.outputTokens / model.tokens : null,
         };
       }),
@@ -9999,7 +10006,7 @@ function Models({
                   {header("cacheRead", "Cache read", true)}
                   {header("cacheWrite", "Cache write", true)}
                   {header("cost", "Cost", true, "API-equivalent cost from ccusage published rates. Warp credits never become dollars.")}
-                  {header("perMtok", "$/Mtok", true, "Blended over observed traffic, so a cache-heavy model reads cheap — a cost-tier proxy, never a capability ranking.")}
+                  {header("perMtok", "$/Mtok", true, "Blended over priced traffic only; Warp tokens carry no dollar cost and stay out of the rate. A cache-heavy model reads cheap — a cost-tier proxy, never a capability ranking.")}
                   {header("outputShare", "Out share", true, "Output tokens as a share of everything this model processed — the rest is context moved into it.")}
                   <th className="model-col model-col--toggle">
                     <span className="sr-only">Details</span>

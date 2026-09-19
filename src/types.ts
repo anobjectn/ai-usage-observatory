@@ -540,7 +540,7 @@ export type DashboardData = {
   projectActivity: ProjectActivity[];
   blocks: Array<{id:string;startTime:string;endTime:string;actualEndTime?:string|null;isActive:boolean;totalTokens:number;costUSD:number;burnRate?:{tokensPerMinute?:number;costPerHour?:number}|null;projection?:{totalTokens?:number;totalCost?:number}|null;models:string[];entries:number}>;
   projects: Array<{name:string;tokens:number;cost:number;sessions:number;models:string[];trend:ProjectTrendRow[];warpCredits?:number}>;
-  models: Array<{model:string;tokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:string[];priced:boolean;warpCredits?:number}>;
+  models: Array<{model:string;tokens:number;pricedTokens:number;cost:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;agents:string[];priced:boolean;warpCredits?:number}>;
   /** Models ccusage had no rate card for; their tokens are real but excluded from every cost total. */
   unpricedModels: string[];
   rateCard: RateCardSummary;

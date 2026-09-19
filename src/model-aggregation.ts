@@ -22,6 +22,7 @@ export function aggregateModels(rows: ModelAggregateRow[], unpricedModels: strin
         const current = models.get(entry.modelName) ?? {
           model: entry.modelName,
           tokens: 0,
+          pricedTokens: 0,
           cost: 0,
           inputTokens: 0,
           outputTokens: 0,
@@ -32,8 +33,12 @@ export function aggregateModels(rows: ModelAggregateRow[], unpricedModels: strin
         };
         // A model can appear in both Warp and ccusage. Only a ccusage-priced observation makes
         // the API-equivalent cost card meaningful; Warp's provider credits never become dollars.
-        if (!isWarp && !unpriced.has(entry.modelName)) current.priced = true;
+        const pricedObservation = !isWarp && !unpriced.has(entry.modelName);
+        if (pricedObservation) current.priced = true;
         current.tokens += modelTokens(entry);
+        // The $/Mtok denominator. Warp tokens carry no dollar cost, so counting them would
+        // dilute the rate of a model seen through both Warp and ccusage.
+        if (pricedObservation) current.pricedTokens += modelTokens(entry);
         current.cost += entry.cost;
         current.inputTokens += entry.inputTokens;
         current.outputTokens += entry.outputTokens;
