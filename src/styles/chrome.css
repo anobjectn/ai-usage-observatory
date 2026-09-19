@@ -709,6 +709,21 @@ main {
 .time-range-segmented {
   white-space: nowrap;
 }
+.time-range-select {
+  display: none;
+}
+
+/* Filters tray. Above 900px it dissolves into the topbar row; below, the Filters button opens it. */
+.filters-button {
+  display: none;
+}
+.filter-tray,
+.cache-control-slot {
+  display: contents;
+}
+.cache-control-slot--tray {
+  display: none;
+}
 .time-range-segmented .time-range-custom {
   display: flex;
   align-items: center;
@@ -1583,9 +1598,16 @@ main {
   font-size: var(--data-text-compact);
 }
 
-@media (min-width:901px) and (max-width:1520px) {
+@media (min-width:901px) and (max-width:1640px) {
+  /* Clipped, not `display: none`: the text is still the accessible name of Path and Show cache. */
   .global-controls label span {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
   }
   .benchmark-split-pill {
     display: none;
@@ -1595,7 +1617,7 @@ main {
   }
 }
 
-@media (min-width:901px) and (max-width:1180px) {
+@media (max-width:1180px) {
   .breadcrumbs {
     display: none;
   }
@@ -1626,12 +1648,6 @@ main {
 
 @media (max-width:620px) {
   .benchmark-split-pill {
-    display: none;
-  }
-  .global-controls .cache-control {
-    padding: 0 8px;
-  }
-  .global-controls .cache-control span {
     display: none;
   }
   .time-range-segmented button {
@@ -1787,6 +1803,7 @@ main {
 }
 
 .benchmark-split-pill {
+  flex: 0 0 auto;
   height: 35px;
   display: flex;
   align-items: stretch;
@@ -2445,8 +2462,16 @@ main {
     width: 250px;
     transition: transform var(--duration-slow) ease;
   }
+  /* `visibility` takes the closed drawer out of the tab order and the accessibility tree; the
+     delay lets the slide-out finish first. */
+  aside {
+    visibility: hidden;
+    transition: transform var(--duration-slow) ease,visibility 0s linear var(--duration-slow);
+  }
   aside.open {
     transform: none;
+    visibility: visible;
+    transition-delay: 0s;
   }
   .sidebar-toggle {
     display: none;
@@ -2468,7 +2493,61 @@ main {
   .content {
     padding: 30px 20px 60px;
   }
-  .global-controls .global-filter {
+  .filters-button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 35px;
+    height: 35px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .filters-button svg {
+    width: 15px;
+    height: 15px;
+  }
+  .filters-button.has-active,
+  .filters-button[aria-expanded="true"] {
+    border-color: var(--line-bright);
+    color: var(--accent);
+  }
+  .filters-button b {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--bg);
+    font: var(--weight-medium) var(--text-2xs)/15px var(--font-label);
+    text-align: center;
+  }
+  .filter-tray {
+    display: none;
+  }
+  .filter-tray.open {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2, var(--bg));
+    box-shadow: 0 14px 28px rgba(0,0,0,.35);
+  }
+  .cache-control-slot--tray {
+    display: contents;
+  }
+  .cache-control-slot--bar {
     display: none;
   }
   .time-range-segmented button {
@@ -2495,12 +2574,23 @@ main {
   .breadcrumbs {
     display: none;
   }
+  .topbar {
+    padding: 0 13px;
+  }
+  .menu-button {
+    margin-right: 4px;
+  }
   .global-controls {
     margin-left: 0;
     width: 100%;
+    gap: 6px;
   }
   .global-controls .segmented {
     margin-left: auto;
+  }
+  .filter-tray.open {
+    padding-left: 13px;
+    padding-right: 13px;
   }
   .appearance-button span,
   .refresh-button span {
@@ -2530,5 +2620,22 @@ main {
   }
   .headroom-orrery__legend small {
     grid-column: 2;
+  }
+}
+
+/* Seven presets do not fit beside the other controls below this width; the select carries them
+   and the calendar button stays. */
+@media (max-width:1360px) {
+  .time-range-segmented>button:not(.time-range-custom) {
+    display: none;
+  }
+  .time-range-control {
+    flex: 0 0 auto;
+  }
+  .time-range-select {
+    display: block;
+    height: 100%;
+    padding-right: 22px;
+    font: var(--text-xs) var(--font-label);
   }
 }

@@ -102,6 +102,7 @@ import {
   RotateCcw,
   Search,
   Settings2,
+  SlidersHorizontal,
   Plus,
   Sparkles,
   Tag,
@@ -12210,6 +12211,11 @@ export function App() {
   const [pathTag, setPathTag] = useState("all");
   const [metric, setMetric] = useState<Metric>("totalTokens");
   const [sidebar, setSidebar] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement | null>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const filtersButton = useRef<HTMLButtonElement | null>(null);
+  const filtersTray = useRef<HTMLDivElement | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(savedSidebarCollapsed);
   const sidebarHoverTimeout = useRef<number | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -12301,6 +12307,42 @@ export function App() {
       );
     } catch {}
   }, [sceneEffects]);
+  // The mobile drawer takes focus when it opens and returns it to the menu button when it
+  // closes. Escape dismisses it, as the scrim and the close button do.
+  useEffect(() => {
+    if (!sidebar) return;
+    const opener = menuButton.current;
+    sidebarRef.current?.querySelector<HTMLElement>(".sidebar-close")?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebar(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (sidebarRef.current?.contains(document.activeElement)) opener?.focus();
+    };
+  }, [sidebar]);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      // The Agent popover and the date popover handle their own Escape first.
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (filtersTray.current?.querySelector("[aria-expanded='true']")) return;
+      setFiltersOpen(false);
+      filtersButton.current?.focus();
+    };
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (filtersTray.current?.contains(target) || filtersButton.current?.contains(target)) return;
+      setFiltersOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [filtersOpen]);
   useEffect(() => {
     const navigate = () => {
       convertLegacyViewUrl();
@@ -12519,6 +12561,24 @@ export function App() {
     );
   if (!data) return null;
   const current = nav.find((item) => item.id === view)!;
+  const showScopeFilters = view !== "models" && view !== "projects";
+  const activeFilterCount =
+    (showScopeFilters && agent.length > 0 ? 1 : 0) +
+    (showScopeFilters && pathTag !== "all" ? 1 : 0) +
+    (showCache ? 0 : 1);
+  const cacheControl = (
+    <label
+      className="cache-control"
+      data-tooltip="Includes cache read and creation tokens in usage graphs and session, project, and model totals. Cost estimates, cache metrics, and the recent five-hour block are unchanged."
+    >
+      <input
+        type="checkbox"
+        checked={showCache}
+        onChange={(event) => setShowCache(event.target.checked)}
+      />
+      <span>Show cache</span>
+    </label>
+  );
   const pricingIncomplete = Boolean(data.unpricedModels?.length);
   // `error` beside loaded data means a later request failed; the figures on screen are retained.
   const disconnected = Boolean(error);
@@ -12530,7 +12590,7 @@ export function App() {
   return (
     <SceneEffectsContext.Provider value={sceneEffects}>
     <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-      <aside className={sidebar ? "open" : ""}>
+      <aside className={sidebar ? "open" : ""} ref={sidebarRef} id="app-sidebar">
         <div className="brand">
           <a
             className={`brand-home${view === "overview" ? " active" : ""}`}
@@ -12619,8 +12679,15 @@ export function App() {
           <Starfield accent={accent} effects={sceneEffects} />
         )}
         <header className="topbar">
-          <button className="menu-button" onClick={() => setSidebar(true)}>
-            <Menu />
+          <button
+            ref={menuButton}
+            className="menu-button"
+            onClick={() => setSidebar(true)}
+            aria-label="Open navigation"
+            aria-expanded={sidebar}
+            aria-controls="app-sidebar"
+          >
+            <Menu aria-hidden="true" />
           </button>
           <div className="breadcrumbs">
             <button type="button" onClick={() => navigateToView("overview")}>
@@ -12640,34 +12707,62 @@ export function App() {
               <Gauge />
             </button>
             <BenchmarkSplitLauncher onOpen={openBenchmark} />
-            {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
-                label would forward stray clicks into the first of them. */}
-            {view !== "models" && view !== "projects" && (
-              <div className="global-filter global-filter--agent">
-                <span>Agent</span>
-                <AgentFilter
-                  selection={agent}
-                  onChange={setAgent}
-                  groups={agentFilterGroups}
-                />
-              </div>
-            )}
-            {view !== "models" && view !== "projects" && (
-              <label className="global-filter global-filter--path">
-                <span>Path</span>
-                <select
-                  value={pathTag}
-                  onChange={(e) => setPathTag(e.target.value)}
-                >
-                  <option value="all">All paths</option>
-                  {pathTags.map((tag) => (
-                    <option value={tag} key={tag}>
-                      {tag}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            {/* Below 900px the topbar cannot fit the filters, so this button opens them as a
+                tray under the topbar. Above it the tray is `display: contents`. */}
+            <button
+              ref={filtersButton}
+              type="button"
+              className={`filters-button${activeFilterCount ? " has-active" : ""}`}
+              onClick={() => setFiltersOpen((open) => !open)}
+              aria-expanded={filtersOpen}
+              aria-controls="global-filters"
+              aria-label={
+                activeFilterCount
+                  ? `Filters, ${activeFilterCount} active`
+                  : "Filters"
+              }
+            >
+              <SlidersHorizontal aria-hidden="true" />
+              {activeFilterCount > 0 && <b aria-hidden="true">{activeFilterCount}</b>}
+            </button>
+            <div
+              ref={filtersTray}
+              id="global-filters"
+              className={`filter-tray${filtersOpen ? " open" : ""}`}
+              role="group"
+              aria-label="Filters"
+            >
+              {/* A div, not a label: the popover contains its own checkboxes, and a wrapping
+                  label would forward stray clicks into the first of them. */}
+              {showScopeFilters && (
+                <div className="global-filter global-filter--agent">
+                  <span>Agent</span>
+                  <AgentFilter
+                    selection={agent}
+                    onChange={setAgent}
+                    groups={agentFilterGroups}
+                  />
+                </div>
+              )}
+              {showScopeFilters && (
+                <label className="global-filter global-filter--path">
+                  <span>Path</span>
+                  <select
+                    value={pathTag}
+                    onChange={(e) => setPathTag(e.target.value)}
+                  >
+                    <option value="all">All paths</option>
+                    {pathTags.map((tag) => (
+                      <option value={tag} key={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {/* The tray's copy of Show cache; CSS shows exactly one of the two. */}
+              <span className="cache-control-slot cache-control-slot--tray">{cacheControl}</span>
+            </div>
             {view !== "overview" && (
               <TimeRangeControl
                 value={days}
@@ -12677,17 +12772,7 @@ export function App() {
                 onChange={changeTimeRange}
               />
             )}
-            <label
-              className="cache-control"
-              data-tooltip="Includes cache read and creation tokens in usage graphs and session, project, and model totals. Cost estimates, cache metrics, and the recent five-hour block are unchanged."
-            >
-              <input
-                type="checkbox"
-                checked={showCache}
-                onChange={(event) => setShowCache(event.target.checked)}
-              />
-              <span>Show cache</span>
-            </label>
+            <span className="cache-control-slot cache-control-slot--bar">{cacheControl}</span>
             <button
               className="appearance-button"
               onClick={() => setAppearance(true)}

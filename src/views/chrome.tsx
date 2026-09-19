@@ -120,7 +120,28 @@ export function TimeRangeControl({
 
   return (
     <div className="time-range-control" ref={root}>
-      <div className="segmented time-range-segmented" aria-label={label}>
+      <div className="segmented time-range-segmented" role="group" aria-label={label}>
+        {/* Narrow screens cannot fit seven presets; CSS swaps the buttons for this select. */}
+        <select
+          className="time-range-select"
+          aria-label={label}
+          value={value}
+          onChange={(event) => {
+            close();
+            onChange(event.target.value as MetricRange);
+          }}
+        >
+          {timeOptions.map((option) => (
+            <option value={option.value} key={option.value}>
+              {option.short}
+            </option>
+          ))}
+          {value === "custom" && (
+            <option value="custom" disabled>
+              Custom
+            </option>
+          )}
+        </select>
         {timeOptions.map((option) => (
           <button
             type="button"
@@ -319,6 +340,7 @@ export function AgentFilter({
       <button
         type="button"
         className="agent-filter__button"
+        aria-label={`Agent filter: ${summary}`}
         aria-expanded={open}
         aria-haspopup="true"
         onClick={() => setOpen(!open)}
