@@ -9,12 +9,7 @@ export const db = new Database(dbPath, { create: true });
 db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
 runMigrations(db);
 
-// Seed defaults only into a brand-new database; a user deleting a seeded rule must stick.
-const count = db.query("SELECT COUNT(*) AS count FROM path_rules").get() as { count: number };
-if (count.count === 0) {
-  db.query("INSERT INTO path_rules (pattern, kind, tag) VALUES (?, ?, ?)").run("**/quota-service*", "glob", "quota-service");
-  db.query("INSERT INTO path_rules (pattern, kind, tag) VALUES (?, ?, ?)").run("**/ai-usage-observatory*", "glob", "ai-usage-observatory");
-}
+// Default path rules are seeded by migration 8, once, so a user deleting every rule sticks.
 if (!db.query("SELECT value FROM settings WHERE key = 'monthlyBudget'").get()) {
   db.query("INSERT INTO settings (key, value) VALUES ('monthlyBudget', '250')").run();
 }

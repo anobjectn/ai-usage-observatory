@@ -192,6 +192,21 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 8,
+    up(db) {
+      // Default path rules are seeded exactly once, here, so `user_version` records that it
+      // happened. The earlier boot-time check seeded whenever the table was empty, which brought
+      // both defaults back after a user deleted every rule. A database that has booted before
+      // always carries the `monthlyBudget` setting; it keeps its rules as they are, even if empty.
+      const booted = db.query("SELECT 1 FROM settings WHERE key = 'monthlyBudget'").get();
+      const rules = db.query("SELECT COUNT(*) AS count FROM path_rules").get() as { count: number };
+      if (booted || rules.count > 0) return;
+      const insert = db.query("INSERT INTO path_rules (pattern, kind, tag) VALUES (?, ?, ?)");
+      insert.run("**/quota-service*", "glob", "quota-service");
+      insert.run("**/ai-usage-observatory*", "glob", "ai-usage-observatory");
+    },
+  },
 ];
 
 export function runMigrations(db: Database, applied: Migration[] = migrations) {
