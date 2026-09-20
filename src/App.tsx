@@ -12619,6 +12619,13 @@ export function App() {
     : pricingIncomplete
       ? "Cost data incomplete"
       : "Local systems nominal";
+  // In development Vite serves the UI and proxies the API; a built app serves both from one port.
+  const uiPort = window.location.port;
+  const portsLabel = Number(uiPort) === data.apiPort
+    ? `port ${data.apiPort}`
+    : uiPort
+      ? `UI :${uiPort} · API :${data.apiPort}`
+      : `API :${data.apiPort}`;
   return (
     <SceneEffectsContext.Provider value={sceneEffects}>
     <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
@@ -12685,8 +12692,8 @@ export function App() {
         </nav>
         <div
           className="side-status"
-          data-tooltip={`${sideStatusLabel} — ccusage v${data.ccusageVersion}`}
-          aria-label={`${sideStatusLabel}, ccusage version ${data.ccusageVersion}`}
+          data-tooltip={`${sideStatusLabel} — ccusage v${data.ccusageVersion} — ${portsLabel}`}
+          aria-label={`${sideStatusLabel}, ccusage version ${data.ccusageVersion}, ${portsLabel}`}
           tabIndex={sidebarCollapsed ? 0 : undefined}
         >
           <span
@@ -12695,6 +12702,7 @@ export function App() {
           <div>
             <b>{sideStatusLabel}</b>
             <small>ccusage v{data.ccusageVersion}</small>
+            <small>{portsLabel}</small>
           </div>
         </div>
         <button

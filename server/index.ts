@@ -11,9 +11,10 @@ import { buildEffortAggregate, buildEffortComboBoard, buildEffortComboDays, buil
 import { scheduleEffortIndexing } from "./effort-index";
 import { deleteEffortDerived, setEffortEnabled } from "./effort-store";
 import { requestHostAllowed } from "./request-host";
+import { serverPort } from "./server-port";
 import { createRule, deleteRule, getAnnotationVersion, getSettings, isVerdict, listAdvice, listRules, setAnnotationText, setSettings, setVerdict, updateAdviceState, updateRule } from "./store";
 
-const port = Number(process.env.PORT ?? 4318);
+const port = serverPort;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const dashboard = (request: Request, value: Awaited<ReturnType<typeof getSnapshot>>) => {
   // The annotation revision is part of the identity: a verdict edit changes the body without

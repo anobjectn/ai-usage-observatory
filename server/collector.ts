@@ -3,6 +3,7 @@ import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
 import type { MetricRow, ModelBreakdown, WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
+import { serverPort } from "./server-port";
 import { ensureUpstream, upstreamHealth } from "./ccusage-upstream";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths, pathTagsForCwd, type PathIndexResult } from "./path-indexer";
@@ -293,6 +294,7 @@ async function buildSnapshot() {
     collectedAt: new Date().toISOString(),
     timeZone,
     ccusageVersion: ccusage.version,
+    apiPort: serverPort,
     costMethodology: "ccusage",
     blockScope: "Claude Code",
     daily,

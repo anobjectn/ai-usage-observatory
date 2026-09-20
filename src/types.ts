@@ -530,6 +530,8 @@ export type DashboardData = {
   /** IANA timezone used by ccusage and every AIUO calendar boundary in this snapshot. */
   timeZone: string;
   ccusageVersion: string;
+  /** Port the local API server listens on. The UI port is the browser's own location. */
+  apiPort: number;
   costMethodology: string;
   blockScope: string;
   daily: MetricRow[];
