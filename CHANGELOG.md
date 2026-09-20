@@ -5,6 +5,18 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Measure data impact and parser parity in the `audit-ccusage-upstream` skill.
+  Two new scripts compare the pinned ccusage with a candidate release by agent,
+  model, and month, and compare the effort parser with ccusage month by month.
+  The report renders both results.
+- Extend the audit checklist to the files that re-implement ccusage rules, and
+  add steps to carry the previous audit forward and to apply an upgrade.
+- Add a `.claude/skills` pointer so Claude Code lists the audit skill.
+
 ## [1.28.0] - 2026-09-20
 
 ### Added
