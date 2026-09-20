@@ -1642,12 +1642,41 @@
   .hero-grid {
     grid-template-columns: 1fr;
   }
+  .headroom-orrery {
+    width: min(340px,100%);
+    left: 50%;
+    right: auto;
+    justify-self: center;
+    transform: translateX(-50%);
+  }
+  .headroom-orrery__legend {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
   .dashboard-grid,
   .split-grid {
     grid-template-columns: 1fr;
   }
   .recent-panel {
     grid-column: auto;
+  }
+  .headroom-orrery__legend {
+    align-items: start;
+  }
+  .headroom-orrery__legend div {
+    grid-template-columns: 6px auto auto;
+    align-content: start;
+  }
+  .headroom-orrery__legend span {
+    grid-column: 2/-1;
+  }
+  .headroom-orrery__legend b {
+    grid-column: 2;
+  }
+  .headroom-orrery__legend small {
+    grid-column: 3;
+    margin-top: 0;
   }
   .rank-card {
     grid-template-columns: 40px 1fr 90px;
