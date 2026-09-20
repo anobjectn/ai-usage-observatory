@@ -5,6 +5,32 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.0] - 2026-09-20
+
+### Added
+
+- Show how far the pinned ccusage trails upstream on the ccusage source-health
+  entry. The server reads the npm release list once a day and caches it in
+  SQLite. The entry reads as degraded after the pin trails for more than 30
+  days. `USAGE_OBSERVATORY_OFFLINE_PRICING=1` disables the request.
+- Show the local ports in the sidebar status block: the UI port and the API
+  port in development, or the single port of the built app.
+
+### Changed
+
+- Update ccusage from 20.0.17 to 20.0.23. Codex history is restated because
+  ccusage no longer counts usage that forked rollouts replay. A `copilot`
+  agent can appear when Copilot session data exists.
+
+### Fixed
+
+- Restore Claude Fable 5.1 usage. ccusage 20.0.17 dropped every Fable 5.1
+  entry that Claude Code 2.1.266 or later wrote.
+- Count Codex usage in the effort index by the ccusage 20.0.23 rules: ignore a
+  snapshot whose cumulative total did not advance, and subtract the history a
+  fork copied from its parent. Effort days no longer exceed the ccusage
+  denominator. Parser version 8 rebuilds the effort index one time.
+
 ## [1.27.0] - 2026-09-19
 
 ### Added
@@ -68,6 +94,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.28.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.27.0...v1.28.0
 [1.27.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.26.1...v1.27.0
 [1.26.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.26.0...v1.26.1
 [1.26.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.25.0...v1.26.0
