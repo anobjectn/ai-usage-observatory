@@ -207,6 +207,20 @@ export const migrations: Migration[] = [
       insert.run("**/ai-usage-observatory*", "glob", "ai-usage-observatory");
     },
   },
+  {
+    id: 9,
+    up(db) {
+      // The npm release list behind the ccusage staleness signal. Same reasoning as the rate
+      // card: a cache is not a setting, and `getSettings()` ships every setting to the dashboard.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ccusage_upstream_cache (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          fetched_at TEXT NOT NULL,
+          releases_json TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database, applied: Migration[] = migrations) {

@@ -3,6 +3,7 @@ import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
 import type { MetricRow, ModelBreakdown, WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
+import { ensureUpstream, upstreamHealth } from "./ccusage-upstream";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths, pathTagsForCwd, type PathIndexResult } from "./path-indexer";
 import { collectWarp } from "./warp";
@@ -285,6 +286,9 @@ async function buildSnapshot() {
   const { sessions: _warpSessions, ...warp } = warpCollection;
   const models = aggregateModels(daily, ccusage.unpricedModels);
   const rateCardHealthEntry = rateCardHealth(rateCardState);
+  // Like the rate card, the release list resolves from cache and refreshes in the background.
+  const upstream = upstreamHealth(ensureUpstream(), ccusage.version);
+  const upstreamDetail = upstream.detail ? ` · ${upstream.detail}` : "";
   return {
     collectedAt: new Date().toISOString(),
     timeZone,
@@ -310,10 +314,10 @@ async function buildSnapshot() {
     sources: [
       {
         name: "ccusage",
-        status: ccusage.unpricedModels.length ? "degraded" : "healthy",
+        status: ccusage.unpricedModels.length || upstream.stale ? "degraded" : "healthy",
         detail: ccusage.unpricedModels.length
-          ? `Pinned v${ccusage.version} · ${timeZone} calendar · no pricing for ${ccusage.unpricedModels.join(", ")} — cost totals exclude these models`
-          : `Pinned v${ccusage.version} · ${timeZone} calendar · live pricing`,
+          ? `Pinned v${ccusage.version} · ${timeZone} calendar · no pricing for ${ccusage.unpricedModels.join(", ")} — cost totals exclude these models${upstreamDetail}`
+          : `Pinned v${ccusage.version} · ${timeZone} calendar · live pricing${upstreamDetail}`,
         kind: "local analytics",
       },
       { name: "Pricing rate card", status: rateCardHealthEntry.status, detail: rateCardHealthEntry.detail, kind: "local analytics" },

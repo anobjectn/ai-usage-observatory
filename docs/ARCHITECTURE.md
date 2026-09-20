@@ -19,6 +19,10 @@ The React frontend only consumes normalized local API responses. It never reads 
    match exactly; Claude rows may land anywhere between the all-5-minute and all-1-hour
    cache-write bounds because ccusage prices 1-hour writes at the higher rate. Anything else is
    withheld, never repriced.
+   The same pattern tracks the pin: `server/ccusage-upstream.ts` reads the ccusage release list
+   from the npm registry once a day, caches it in SQLite, and honors the same offline switch.
+   The ccusage source-health entry shows how many stable releases the pin trails, and reads as
+   degraded once the pin has trailed for more than 30 days. The check never upgrades anything.
 3. The metadata-only path indexer incrementally reads session file heads when mtimes change.
 4. Native report sessions are joined to indexed paths without copying transcript content.
 5. Project activity groups joined session totals by provider, working directory, and local last-activity day. A session spanning multiple days is attributed to its latest activity day.
