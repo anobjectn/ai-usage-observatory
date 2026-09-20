@@ -108,6 +108,74 @@ function opportunityCards(items: unknown[]): string {
   return `<div class="card-grid">${cards.join("")}</div>`;
 }
 
+function signed(value: unknown, digits = 0): string {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const text = Math.abs(number).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return number > 0 ? `+${text}` : number < 0 ? `−${text}` : text;
+}
+
+function deltaTable(items: unknown[], label: string): string {
+  if (items.length === 0) return `<p class="muted">No ${esc(label)} changes between the two versions.</p>`;
+  const body = items
+    .map((value) => {
+      const item = asObject(value, "delta row");
+      const money = (key: string) => `$${Number(get(item, key, 0)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `<tr><td>${esc(get(item, "key", "—"))}</td><td class="num">${money("pinned_cost")}</td><td class="num">${money("candidate_cost")}</td><td class="num">${esc(signed(get(item, "cost_delta"), 2))}</td><td class="num">${esc(signed(get(item, "token_delta")))}</td></tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table><thead><tr><th>${esc(label)}</th><th class="num">Pinned cost</th><th class="num">Candidate cost</th><th class="num">Cost delta</th><th class="num">Token delta</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function contractLine(name: string, value: unknown): string {
+  const item = asObject(value ?? {}, "contract");
+  const removed = getArray(item, "keys_removed");
+  const added = getArray(item, "keys_added");
+  const ok = get(item, "pinned_zod") === "ok" && get(item, "candidate_zod") === "ok" && removed.length === 0;
+  return `<li><span class="badge ${ok ? "low" : "high"}">${ok ? "compatible" : "review"}</span> <strong>${esc(name)}</strong> · candidate Zod: ${esc(get(item, "candidate_zod", "not run"))} · ${removed.length} key(s) removed · ${added.length} key(s) added${removed.length > 0 ? `<div class="files">${pills(removed, "file")}</div>` : ""}${added.length > 0 ? `<div class="files">${pills(added, "file")}</div>` : ""}</li>`;
+}
+
+function dataImpact(value: unknown): string {
+  if (value === undefined || value === null) return '<div class="empty">No pinned-versus-candidate comparison was recorded. Treat the upgrade complexity as unverified.</div>';
+  const impact = asObject(value, "data_impact");
+  const contract = asObject(get(impact, "contract", {}), "data_impact.contract");
+  const totals = asObject(get(impact, "totals", {}), "data_impact.totals");
+  const sessions = asObject(get(impact, "sessions", {}), "data_impact.sessions");
+  const unpriced = asObject(get(impact, "unpriced_models", {}), "data_impact.unpriced_models");
+  const agentsAdded = getArray(impact, "agents_added").map((entry) => {
+    const item = asObject(entry, "agent");
+    return `${scalarString(item.agent)} → ${scalarString(item.provider)}`;
+  });
+  const cost = (key: string) => `$${Number(get(totals, key, 0)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `<div class="hero-grid"><div class="metric"><span>Pinned ${esc(get(impact, "pinned", ""))}</span><strong>${cost("pinned_cost")}</strong></div><div class="metric"><span>Candidate ${esc(get(impact, "candidate", ""))}</span><strong>${cost("candidate_cost")}</strong></div><div class="metric"><span>Sessions added / removed</span><strong>${esc(get(sessions, "added", "—"))} / ${esc(get(sessions, "removed", "—"))}</strong></div><div class="metric"><span>Unpriced models (candidate)</span><strong>${esc(getArray(unpriced, "candidate").length)}</strong></div></div>
+<h4>JSON contract</h4><ul>${contractLine("daily --sections … --by-agent", contract.unified)}${contractLine("blocks --recent", contract.blocks)}</ul>
+<h4>By agent</h4>${deltaTable(getArray(impact, "by_agent"), "Agent")}
+<h4>By model</h4>${deltaTable(getArray(impact, "by_model"), "Model")}
+<h4>By month</h4>${deltaTable(getArray(impact, "by_month"), "Month")}
+<h4>Agent labels</h4>${agentsAdded.length > 0 ? `<div class="files">${pills(agentsAdded, "file")}</div>` : '<p class="muted">No new agent labels.</p>'}${getArray(impact, "agents_removed").length > 0 ? `<p>Removed: ${esc(getArray(impact, "agents_removed").join(", "))}</p>` : ""}
+<p class="muted">Compared ${esc(get(impact, "compared_at", "at an unrecorded time"))} in ${esc(get(impact, "time_zone", "an unrecorded time zone"))}. Totals and labels only; no session content.</p>`;
+}
+
+function parityTable(value: unknown): string {
+  if (value === undefined || value === null) return '<div class="empty">No parser parity check was recorded.</div>';
+  const parity = asObject(value, "parser_parity");
+  const block = (agent: string) => {
+    const item = asObject(get(parity, agent, {}), `parser_parity.${agent}`);
+    const differing = getArray(item, "months").filter((row) => Number(asObject(row, "month").delta) !== 0);
+    const over = differing.some((row) => Number(asObject(row, "month").delta) > 0);
+    const badge = differing.length === 0 ? "low" : over ? "high" : "medium";
+    const label = differing.length === 0 ? "exact" : over ? "parser over-counts" : "parser under-counts";
+    const body = differing
+      .map((row) => {
+        const month = asObject(row, "month");
+        return `<tr><td>${esc(month.month)}</td><td class="num">${esc(Number(month.ccusage_tokens).toLocaleString("en-US"))}</td><td class="num">${esc(Number(month.parser_tokens).toLocaleString("en-US"))}</td><td class="num">${esc(signed(month.delta))}</td></tr>`;
+      })
+      .join("");
+    return `<h4>${esc(agent)} <span class="badge ${badge}">${label}</span></h4>${differing.length === 0 ? '<p class="muted">Every month equals the ccusage token total.</p>' : `<div class="table-wrap"><table><thead><tr><th>Month</th><th class="num">ccusage tokens</th><th class="num">Parser tokens</th><th class="num">Delta</th></tr></thead><tbody>${body}</tbody></table></div>`}`;
+  };
+  return `<p class="muted">Effort parser version ${esc(get(parity, "parser_version", "unknown"))} against ccusage ${esc(get(parity, "reference", "unknown"))}. A positive delta suppresses effort days; a negative delta shows as unattributed tokens.</p>${block("codex")}${block("claude")}`;
+}
+
 function rows(items: unknown[], columns: Column[]): string {
   if (items.length === 0) return `<tr><td colspan="${columns.length}" class="muted">None recorded.</td></tr>`;
   return items
@@ -121,6 +189,9 @@ function rows(items: unknown[], columns: Column[]): string {
 export function validate(data: JsonObject): void {
   for (const key of ["metadata", "versions", "assessment"]) {
     asObject(data[key], key);
+  }
+  for (const key of ["data_impact", "parser_parity"]) {
+    if (key in data && data[key] !== null) asObject(data[key], key);
   }
   const versions = asObject(data.versions, "versions");
   const assessment = asObject(data.assessment, "assessment");
@@ -143,7 +214,7 @@ export function validate(data: JsonObject): void {
 }
 
 const STYLES = `:root{--bg:#080b10;--panel:#10151d;--panel2:#151c26;--line:#263140;--text:#eef3f8;--muted:#98a7b8;--cyan:#5ee7f2;--green:#6ee7a8;--amber:#f7c66b;--red:#ff7d8c;--purple:#b9a2ff;--shadow:0 24px 70px rgba(0,0,0,.32)}
-*{box-sizing:border-box}html{color-scheme:dark;scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 16% -10%,#163445 0,transparent 32rem),radial-gradient(circle at 90% 0,#251c45 0,transparent 28rem),var(--bg);color:var(--text);font:15px/1.6 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}.shell{width:min(1180px,calc(100% - 32px));margin:auto;padding:42px 0 80px}header{padding:40px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(135deg,rgba(18,29,39,.96),rgba(14,17,27,.92));box-shadow:var(--shadow);position:relative;overflow:hidden}header:after{content:"";position:absolute;width:240px;height:240px;border:1px solid rgba(94,231,242,.18);border-radius:50%;right:-75px;top:-125px;box-shadow:0 0 70px rgba(94,231,242,.12)}.eyebrow{color:var(--cyan);font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{font-size:clamp(2rem,6vw,4.25rem);line-height:1;margin:.35rem 0 1rem;letter-spacing:-.045em;max-width:800px}h2{font-size:1.6rem;letter-spacing:-.025em;margin:0}h3{font-size:1.08rem;line-height:1.3;margin:.45rem 0}h4{margin:1.2rem 0 .25rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}p{margin:.4rem 0 1rem}.lede{font-size:1.08rem;color:#c4d0dc;max-width:820px}.hero-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:30px}.metric{padding:16px;border:1px solid var(--line);border-radius:14px;background:rgba(8,11,16,.46)}.metric span{display:block;color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}.metric strong{display:block;font-size:1.25rem;margin-top:4px;overflow-wrap:anywhere}.badge,.pill{display:inline-flex;align-items:center;border:1px solid var(--line);background:#18212c;border-radius:999px;padding:4px 9px;font-size:.72rem;font-weight:750;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}.badge.none,.badge.low,.badge.current{color:var(--green);border-color:rgba(110,231,168,.35);background:rgba(110,231,168,.09)}.badge.medium,.badge.behind{color:var(--amber);border-color:rgba(247,198,107,.35);background:rgba(247,198,107,.09)}.badge.high,.badge.failed{color:var(--red);border-color:rgba(255,125,140,.35);background:rgba(255,125,140,.09)}.badge.unknown{color:var(--purple)}nav{display:flex;gap:8px;flex-wrap:wrap;padding:18px 0}nav a{color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:7px 12px;background:rgba(16,21,29,.75)}section{padding:32px 0;border-top:1px solid rgba(38,49,64,.75)}.section-head{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:18px}.section-head p{color:var(--muted);margin:0;max-width:600px}.summary{padding:24px;border:1px solid rgba(94,231,242,.3);background:rgba(94,231,242,.06);border-radius:18px}.summary strong{color:var(--cyan)}.card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{border:1px solid var(--line);background:linear-gradient(150deg,var(--panel2),var(--panel));border-radius:18px;padding:22px;box-shadow:0 14px 40px rgba(0,0,0,.16)}.card-head{display:flex;align-items:start;justify-content:space-between;gap:18px}.card-head .pill{margin-right:6px}.card p{color:#bbc7d4}.callout{border-left:2px solid var(--purple);padding:4px 0 4px 14px;margin:18px 0}.callout p{margin:3px 0}ul{padding-left:20px}.files,.evidence{display:flex;gap:7px;flex-wrap:wrap;margin-top:16px}.pill.file{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:none;letter-spacing:0;color:#b9c8d8}.evidence a{display:inline-flex;gap:5px;align-items:center;border-bottom:1px dotted rgba(94,231,242,.55)}.source-note{display:block;color:var(--muted);font-size:.8rem}.source-list,.issue-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;list-style:none;padding:0}.source-list li,.issue-list li{padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.issue-list .pill{margin-left:8px}.issue-list p{color:var(--muted);margin:.5rem 0 0}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:16px}table{border-collapse:collapse;width:100%;min-width:700px;background:var(--panel)}th,td{padding:13px 15px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;background:#151c25}tr:last-child td{border-bottom:0}.empty{border:1px dashed var(--line);color:var(--muted);padding:24px;border-radius:16px;text-align:center}.muted{color:var(--muted)}footer{color:var(--muted);font-size:.82rem;padding-top:24px}@media(max-width:760px){header{padding:25px}.hero-grid{grid-template-columns:repeat(2,1fr)}.card-grid,.source-list,.issue-list{grid-template-columns:1fr}.section-head{display:block}}@media print{body{background:#fff;color:#111}.shell{width:100%;padding:0}header,.card,table,.source-list li,.issue-list li{box-shadow:none;background:#fff;color:#111}nav{display:none}}`;
+*{box-sizing:border-box}html{color-scheme:dark;scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 16% -10%,#163445 0,transparent 32rem),radial-gradient(circle at 90% 0,#251c45 0,transparent 28rem),var(--bg);color:var(--text);font:15px/1.6 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}.shell{width:min(1180px,calc(100% - 32px));margin:auto;padding:42px 0 80px}header{padding:40px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(135deg,rgba(18,29,39,.96),rgba(14,17,27,.92));box-shadow:var(--shadow);position:relative;overflow:hidden}header:after{content:"";position:absolute;width:240px;height:240px;border:1px solid rgba(94,231,242,.18);border-radius:50%;right:-75px;top:-125px;box-shadow:0 0 70px rgba(94,231,242,.12)}.eyebrow{color:var(--cyan);font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{font-size:clamp(2rem,6vw,4.25rem);line-height:1;margin:.35rem 0 1rem;letter-spacing:-.045em;max-width:800px}h2{font-size:1.6rem;letter-spacing:-.025em;margin:0}h3{font-size:1.08rem;line-height:1.3;margin:.45rem 0}h4{margin:1.2rem 0 .25rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}p{margin:.4rem 0 1rem}.lede{font-size:1.08rem;color:#c4d0dc;max-width:820px}.hero-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:30px}.metric{padding:16px;border:1px solid var(--line);border-radius:14px;background:rgba(8,11,16,.46)}.metric span{display:block;color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}.metric strong{display:block;font-size:1.25rem;margin-top:4px;overflow-wrap:anywhere}.badge,.pill{display:inline-flex;align-items:center;border:1px solid var(--line);background:#18212c;border-radius:999px;padding:4px 9px;font-size:.72rem;font-weight:750;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}.badge.none,.badge.low,.badge.current{color:var(--green);border-color:rgba(110,231,168,.35);background:rgba(110,231,168,.09)}.badge.medium,.badge.behind{color:var(--amber);border-color:rgba(247,198,107,.35);background:rgba(247,198,107,.09)}.badge.high,.badge.failed{color:var(--red);border-color:rgba(255,125,140,.35);background:rgba(255,125,140,.09)}.badge.unknown{color:var(--purple)}nav{display:flex;gap:8px;flex-wrap:wrap;padding:18px 0}nav a{color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:7px 12px;background:rgba(16,21,29,.75)}section{padding:32px 0;border-top:1px solid rgba(38,49,64,.75)}.section-head{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:18px}.section-head p{color:var(--muted);margin:0;max-width:600px}.summary{padding:24px;border:1px solid rgba(94,231,242,.3);background:rgba(94,231,242,.06);border-radius:18px}.summary strong{color:var(--cyan)}.card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{border:1px solid var(--line);background:linear-gradient(150deg,var(--panel2),var(--panel));border-radius:18px;padding:22px;box-shadow:0 14px 40px rgba(0,0,0,.16)}.card-head{display:flex;align-items:start;justify-content:space-between;gap:18px}.card-head .pill{margin-right:6px}.card p{color:#bbc7d4}.callout{border-left:2px solid var(--purple);padding:4px 0 4px 14px;margin:18px 0}.callout p{margin:3px 0}ul{padding-left:20px}.files,.evidence{display:flex;gap:7px;flex-wrap:wrap;margin-top:16px}.pill.file{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:none;letter-spacing:0;color:#b9c8d8}.evidence a{display:inline-flex;gap:5px;align-items:center;border-bottom:1px dotted rgba(94,231,242,.55)}.source-note{display:block;color:var(--muted);font-size:.8rem}.source-list,.issue-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;list-style:none;padding:0}.source-list li,.issue-list li{padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.issue-list .pill{margin-left:8px}.issue-list p{color:var(--muted);margin:.5rem 0 0}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:16px}table{border-collapse:collapse;width:100%;min-width:700px;background:var(--panel)}th,td{padding:13px 15px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;background:#151c25}tr:last-child td{border-bottom:0}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}h4 .badge{margin-left:8px}.empty{border:1px dashed var(--line);color:var(--muted);padding:24px;border-radius:16px;text-align:center}.muted{color:var(--muted)}footer{color:var(--muted);font-size:.82rem;padding-top:24px}@media(max-width:760px){header{padding:25px}.hero-grid{grid-template-columns:repeat(2,1fr)}.card-grid,.source-list,.issue-list{grid-template-columns:1fr}.section-head{display:block}}@media print{body{background:#fff;color:#111}.shell{width:100%;padding:0}header,.card,table,.source-list li,.issue-list li{box-shadow:none;background:#fff;color:#111}nav{display:none}}`;
 
 export function render(data: JsonObject): string {
   validate(data);
@@ -183,8 +254,10 @@ ${STYLES}
 </style></head><body><main class="shell">
 <header><span class="eyebrow">Upstream dependency intelligence</span><h1>${title}</h1><p class="lede">${esc(get(assessment, "summary", ""))}</p>
 <div class="hero-grid"><div class="metric"><span>Pinned</span><strong>${esc(get(versions, "pinned", "unknown"))}</strong></div><div class="metric"><span>Latest stable</span><strong>${esc(get(versions, "latest_stable", "unknown"))}</strong></div><div class="metric"><span>Status</span><strong><span class="badge ${esc(status)}">${esc(status)}</span></strong></div><div class="metric"><span>Upgrade complexity</span><strong><span class="badge ${esc(complexity)}">${esc(complexity)}</span></strong></div></div></header>
-<nav><a href="#assessment">Assessment</a><a href="#released">Released</a><a href="#unreleased">Unreleased</a><a href="#opportunities">Opportunities</a><a href="#issues">Issues</a><a href="#surface">Local surface</a><a href="#sources">Sources</a></nav>
+<nav><a href="#assessment">Assessment</a><a href="#impact">Data impact</a><a href="#parity">Parser parity</a><a href="#released">Released</a><a href="#unreleased">Unreleased</a><a href="#opportunities">Opportunities</a><a href="#issues">Issues</a><a href="#surface">Local surface</a><a href="#sources">Sources</a></nav>
 <section id="assessment"><div class="section-head"><div><span class="eyebrow">Decision</span><h2>Upgrade assessment</h2></div><p>Generated ${esc(get(meta, "generated_at", "unknown time"))}</p></div><div class="summary"><strong>Recommendation</strong><p>${esc(get(assessment, "recommendation", "No recommendation recorded."))}</p><span class="muted">Resolved ${esc(get(versions, "resolved", "unknown"))} · installed ${esc(get(versions, "installed", "unknown"))} · ${esc(get(versions, "released_versions_behind", "unknown"))} released version(s) behind</span></div></section>
+<section id="impact"><div class="section-head"><div><span class="eyebrow">Same transcripts, two versions</span><h2>Data impact</h2></div><p>What the dashboard would show differently after the upgrade.</p></div>${dataImpact(data.data_impact)}</section>
+<section id="parity"><div class="section-head"><div><span class="eyebrow">Mirrored rules</span><h2>Effort parser parity</h2></div><p>The effort index re-implements ccusage usage rules and must count the same tokens.</p></div>${parityTable(data.parser_parity)}</section>
 <section id="released"><div class="section-head"><div><span class="eyebrow">Stable releases</span><h2>Released changes</h2></div><p>Changes between the project pin and the latest stable package.</p></div>${changeCards(getArray(data, "released_changes"), "No released changes exist between the pin and latest stable version.")}</section>
 <section id="unreleased"><div class="section-head"><div><span class="eyebrow">Default branch</span><h2>Unreleased upstream work</h2></div><p>Not part of the latest stable package; do not treat these as upgrade requirements.</p></div>${changeCards(getArray(data, "unreleased_changes"), "No relevant unreleased changes were established.")}</section>
 <section id="opportunities"><div class="section-head"><div><span class="eyebrow">Product fit</span><h2>Observatory opportunities</h2></div><p>Optional capabilities assessed independently from upgrade necessity.</p></div>${opportunityCards(getArray(data, "opportunities"))}</section>

@@ -46,10 +46,15 @@ export function findUnpricedModels(unified: UnifiedReport) {
   return [...unpriced].sort();
 }
 
+/** The two invocations the collector depends on. Exported so the upstream audit compares a
+ * candidate release with exactly these flags, never with a copy that can drift. */
+export const unifiedArgs = (timeZone: string) => ["daily", "--sections", "daily,weekly,monthly,session", "--by-agent", "--timezone", timeZone, "--json"];
+export const blocksArgs = (timeZone: string) => ["blocks", "--recent", "--timezone", timeZone, "--json"];
+
 export async function collectCcusage(timeZone: string) {
   const [unified, blocks, version] = await Promise.all([
-    invoke(["daily", "--sections", "daily,weekly,monthly,session", "--by-agent", "--timezone", timeZone, "--json"]).then((value) => unifiedReportSchema.parse(value)),
-    invoke(["blocks", "--recent", "--timezone", timeZone, "--json"]).then((value) => blocksReportSchema.parse(value)),
+    invoke(unifiedArgs(timeZone)).then((value) => unifiedReportSchema.parse(value)),
+    invoke(blocksArgs(timeZone)).then((value) => blocksReportSchema.parse(value)),
     ccusageVersion(),
   ]);
   return { unified, blocks, version, unpricedModels: findUnpricedModels(unified) };
