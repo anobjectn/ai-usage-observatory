@@ -5,6 +5,31 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.0] - 2026-09-19
+
+### Added
+
+- Preserve the date range, Agent, Path, and cache selections in the URL. A
+  bookmark or shared link now reproduces the same analysis. View, session, and
+  model links carry the selections. A Path tag that no longer exists falls back
+  to all paths.
+- Show connection status on the dashboard when a refresh fails.
+
+### Fixed
+
+- Keep the session annotation draft, show an inline error, and label the button
+  "Retry save" when the save request fails. Before, the editor closed and lost
+  the note.
+- Ignore effort responses that are not from the newest request. Before, a slow
+  response for an earlier scope could make the range control and the data
+  disagree.
+- Calculate $/Mtok on the models view from priced traffic only.
+- Add a mobile filter tray and correct topbar accessibility.
+- Seed the default path rules once through a migration.
+- Center the hero orrery and its legend on screens 900px wide and narrower.
+  Show each legend entry on two rows, so the Warp "stale" label no longer
+  makes the columns uneven.
+
 ## [1.26.1] - 2026-09-17
 
 ### Fixed
@@ -43,6 +68,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.27.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.26.1...v1.27.0
 [1.26.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.26.0...v1.26.1
 [1.26.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.25.0...v1.26.0
 [1.25.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.24.0...v1.25.0
