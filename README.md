@@ -216,7 +216,7 @@ use the same collected dataset. Date, agent, path, and cache controls carry
 analytical context between the views that support each filter.
 
 - Track usage daily, weekly, monthly, by session, by project instance, and by
-  reconstructed five-hour block with pinned `ccusage@20.0.17`.
+  reconstructed five-hour block with pinned `ccusage@20.0.23`.
 - Separate input, output, cache-read, and cache-creation tokens, or exclude cache
   traffic when it would obscure the comparison.
 - Compare API-equivalent cost, model mix, and provider-recorded reasoning effort
@@ -608,7 +608,7 @@ assignment can replace a generic `snapshot_json.extra.subscriptionType` value.
 
 ## Sources and acknowledgments
 
-- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.17 by ryoppippi (MIT)
+- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.23 by ryoppippi (MIT)
   supplies local usage analytics and API-equivalent price estimates.
 - Local Claude Code and Codex session files supply session identifiers and
   working-directory metadata during indexing, recent prompts and bounded
