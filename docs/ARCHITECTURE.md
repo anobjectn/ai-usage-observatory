@@ -55,9 +55,15 @@ together, so interrupted work can resume without double-counting.
 
 Claude assistant usage events and Codex turn contexts are observation boundaries. Codex token
 events use `last_token_usage`; cached input remains a subset of input and reasoning output remains
-a subset of output. Forked Codex parent history and repeated token events are de-duplicated to
-match the pinned ccusage denominator. Malformed relevant records clear active attribution and
-surface quality counters.
+a subset of output. Codex usage follows the rules of the pinned ccusage so both count the same
+records: a `last_token_usage` snapshot counts only when the cumulative `total_token_usage`
+advanced, and a record that states only the cumulative total adds the growth since the previous
+one. A fork or subagent rollout subtracts the usage its parent recorded up to the fork instant
+(`server/codex-replay.ts` reads the parent log through the path index); when no parent record
+lines up, it skips the burst of records Codex rewrote to the fork instant, for as long as
+successive records stay within one second of each other. The cumulative total and the replay
+position persist with the parser state, so a resumed span continues where the last one stopped.
+Malformed relevant records clear active attribution and surface quality counters.
 
 The database never stores prompt or response content, reasoning text, commands, tool payloads,
 file contents, or transcript fragments. Disabling retains derived rows but excludes them from

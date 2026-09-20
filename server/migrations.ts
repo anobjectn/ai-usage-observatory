@@ -221,6 +221,18 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 10,
+    up(db) {
+      // ccusage 20.0.19 and later count a Codex usage record only when the cumulative total
+      // advanced, and subtract the history a fork copied from its parent. The effort parser
+      // resumes mid-file, so both positions must survive between spans.
+      const columns = db.query("PRAGMA table_info(session_effort_state)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "codex_usage_state")) {
+        db.exec("ALTER TABLE session_effort_state ADD COLUMN codex_usage_state TEXT");
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database, applied: Migration[] = migrations) {

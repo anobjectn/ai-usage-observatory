@@ -65,18 +65,24 @@ export function codexTurnContext(options: { effort?: string | null; model?: stri
   });
 }
 
+let codexCumulativeSteps = 0;
+
+/** The default cumulative total advances on every call, as a real rollout's does: a record whose
+ * `total_token_usage` repeats the previous one is a re-emitted snapshot and adds no usage. Pass
+ * `total` to build that case. */
 export function codexTokenCount(options: {
   last?: Record<string, number> | null;
   total?: Record<string, number>;
   timestamp?: string;
 }) {
+  const step = ++codexCumulativeSteps;
   return JSON.stringify({
     timestamp: options.timestamp ?? "2026-07-01T15:00:00.000Z",
     type: "event_msg",
     payload: {
       type: "token_count",
       info: options.last === null ? null : {
-        total_token_usage: options.total ?? { input_tokens: 999_999, cached_input_tokens: 999, output_tokens: 999, reasoning_output_tokens: 99, total_tokens: 1_000_998 },
+        total_token_usage: options.total ?? { input_tokens: 999_999 + step, cached_input_tokens: 999, output_tokens: 999, reasoning_output_tokens: 99, total_tokens: 1_000_998 + step },
         last_token_usage: options.last ?? { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 60, reasoning_output_tokens: 25, total_tokens: 1060 },
         model_context_window: 258_400,
       },

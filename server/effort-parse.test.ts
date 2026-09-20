@@ -18,6 +18,7 @@ import {
   hasProviderMarker,
   parseEffortLine,
   type Agent,
+  type CodexReplayPlan,
   type EffortAccumulator,
 } from "./effort-parse";
 
@@ -237,25 +238,78 @@ describe("Codex attribution contract", () => {
     expect(state.lastUsageKey).not.toBeNull();
   });
 
-  test("forked parent history is ignored until the child rollout resumes", () => {
-    const child = JSON.stringify({ type: "session_meta", payload: { id: "child" } });
-    const parent = JSON.stringify({ type: "session_meta", payload: { id: "parent" } });
-    const rollback = JSON.stringify({ type: "event_msg", payload: { type: "thread_rolled_back" } });
-    const { accumulator, state } = run([
-      child,
-      parent,
+  test("a re-emitted snapshot whose cumulative total did not advance adds no usage", () => {
+    const total = { input_tokens: 5000, cached_input_tokens: 0, output_tokens: 300, reasoning_output_tokens: 0, total_tokens: 5300 };
+    const { accumulator } = run([
       codexTurnContext({ effort: "high" }),
-      codexTokenCount({ timestamp: "2026-07-01T15:01:00.000Z" }),
-      rollback,
-      codexTurnContext({ effort: "low" }),
-      codexTokenCount({ timestamp: "2026-07-01T15:02:00.000Z" }),
+      codexTokenCount({ total, timestamp: "2026-07-01T15:01:00.000Z" }),
+      codexTokenCount({ total, timestamp: "2026-07-01T15:01:30.000Z" }),
     ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(1060);
+  });
+
+  test("a record that states only the cumulative total adds the growth since the previous one", () => {
+    const cumulative = (input: number, output: number) => JSON.stringify({
+      timestamp: "2026-07-01T15:01:00.000Z",
+      type: "event_msg",
+      payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, cached_input_tokens: 0, output_tokens: output, reasoning_output_tokens: 0, total_tokens: input + output } } },
+    });
+    const { accumulator } = run([codexTurnContext({ effort: "high" }), cumulative(1000, 100), cumulative(1500, 150)], "codex");
+    expect(accumulator.observedUsageTokens).toBe(1650);
+  });
+
+  const parentUsage = { inputTokens: 1000, cachedInputTokens: 400, cacheCreationTokens: 0, outputTokens: 60, reasoningOutputTokens: 25, totalTokens: 1060 };
+  const forkLines = (ownTimestamp: string) => [
+    JSON.stringify({ type: "session_meta", payload: { id: "child", forked_from_id: "parent" } }),
+    JSON.stringify({ type: "session_meta", payload: { id: "parent" } }),
+    codexTurnContext({ effort: "high" }),
+    codexTokenCount({ timestamp: "2026-07-01T15:01:00.000Z" }),
+    codexTokenCount({ timestamp: "2026-07-01T15:01:00.020Z" }),
+    JSON.stringify({ type: "event_msg", payload: { type: "thread_rolled_back" } }),
+    codexTurnContext({ effort: "low" }),
+    codexTokenCount({ timestamp: ownTimestamp }),
+  ];
+  const runFork = (plan: CodexReplayPlan, ownTimestamp = "2026-07-01T15:02:00.000Z") => {
+    const accumulator = createAccumulator();
+    const state = { ...emptyState(), codexReplayPlan: plan, codexReplay: { phase: "matching" as const, index: 0 } };
+    for (const line of forkLines(ownTimestamp)) consumeEffortLine(line, "codex", accumulator, state);
+    return { accumulator, state };
+  };
+
+  test("a fork subtracts the usage its parent recorded and keeps its own", () => {
+    const { accumulator, state } = runFork({ prefix: [parentUsage, parentUsage], burstStart: null });
     expect(accumulator.observations).toBe(1);
     expect(accumulator.observedUsageTokens).toBe(1060);
     expect(rowFor(accumulator, "low")[0].totalTokens).toBe(1060);
     expect(rowFor(accumulator, "high")).toEqual([]);
     expect(state.codexSessionKey).toBe("child");
     expect(state.codexReplaying).toBe(false);
+    expect(state.codexReplay).toBeNull();
+  });
+
+  test("a parent prefix shorter than the copied history stops masking at its end", () => {
+    const { accumulator } = runFork({ prefix: [parentUsage], burstStart: null });
+    expect(accumulator.observedUsageTokens).toBe(2120);
+  });
+
+  test("a fork without its parent log skips the rewritten burst, then counts after the pause", () => {
+    const { accumulator, state } = runFork({ prefix: [], burstStart: Date.parse("2026-07-01T15:01:00.000Z") });
+    expect(accumulator.observedUsageTokens).toBe(1060);
+    expect(rowFor(accumulator, "low")[0].totalTokens).toBe(1060);
+    expect(state.codexReplay).toBeNull();
+  });
+
+  test("a fork whose first records pause between them copied nothing", () => {
+    const { accumulator } = runFork({ prefix: [], burstStart: null });
+    expect(accumulator.observedUsageTokens).toBe(3180);
+  });
+
+  test("embedded history in a rollout that is not a fork is counted, as ccusage counts it, but never attributed", () => {
+    const { accumulator } = run(forkLines("2026-07-01T15:02:00.000Z"), "codex");
+    expect(accumulator.observedUsageTokens).toBe(3180);
+    expect(rowFor(accumulator, "high")).toEqual([]);
+    expect(rowFor(accumulator, "")[0].totalTokens).toBe(2120);
+    expect(rowFor(accumulator, "low")[0].totalTokens).toBe(1060);
   });
 
   test("an ordinary rollback preserves the active effort context", () => {

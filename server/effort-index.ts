@@ -11,6 +11,7 @@ import {
   type EffortAccumulator,
   type EffortParserState,
 } from "./effort-parse";
+import { decodeCodexUsageState, encodeCodexUsageState, planCodexReplay } from "./codex-replay";
 import {
   commitEffortSpan,
   getEffortMeta,
@@ -152,7 +153,14 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
     lastUsageKey: prior?.lastUsageKey ?? null,
     codexSessionKey: prior?.codexSessionKey ?? null,
     codexReplaying: prior?.codexReplaying ?? false,
+    ...decodeCodexUsageState(prior?.codexUsageState ?? null),
   };
+  // A rebuild starts every Codex rollout as a possible fork; only a fork gets a plan. A resumed
+  // fork needs its parent prefix again only while it is still matching against it.
+  if (agent === "codex" && (entry.kind === "rebuild" || state.codexReplay?.phase === "matching")) {
+    state.codexReplayPlan = await planCodexReplay(source.sourceFile);
+    if (entry.kind === "rebuild" && state.codexReplayPlan) state.codexReplay = { phase: "matching", index: 0 };
+  }
 
   let cursor = entry.kind === "append" ? prior?.lastOffset ?? 0 : 0;
   let carry: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
@@ -282,6 +290,7 @@ async function commitSpan(
     lastUsageKey: state.lastUsageKey,
     codexSessionKey: state.codexSessionKey,
     codexReplaying: state.codexReplaying,
+    codexUsageState: encodeCodexUsageState(state),
     rows: [...accumulator.rows.values()],
     observations: accumulator.observations,
     unknownObservations: accumulator.unknownObservations,

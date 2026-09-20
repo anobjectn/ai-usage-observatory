@@ -17,6 +17,8 @@ export type EffortSessionState = {
   lastUsageKey: string | null;
   codexSessionKey: string | null;
   codexReplaying: boolean;
+  /** Cumulative total and fork replay position, as JSON; see `CodexUsageState`. */
+  codexUsageState: string | null;
   observations: number;
   unknownObservations: number;
   observedUsageTokens: number;
@@ -108,6 +110,7 @@ function stateRow(row: Record<string, unknown>): EffortSessionState {
     lastUsageKey: row.last_usage_key === null || row.last_usage_key === undefined ? null : String(row.last_usage_key),
     codexSessionKey: row.codex_session_key === null || row.codex_session_key === undefined ? null : String(row.codex_session_key),
     codexReplaying: Boolean(row.codex_replaying),
+    codexUsageState: row.codex_usage_state === null || row.codex_usage_state === undefined ? null : String(row.codex_usage_state),
     observations: Number(row.observations),
     unknownObservations: Number(row.unknown_observations),
     observedUsageTokens: Number(row.observed_usage_tokens),
@@ -161,11 +164,11 @@ const upsertUsage = db.query(`INSERT INTO session_effort_usage
 
 const upsertState = db.query(`INSERT INTO session_effort_state
   (session_id, parser_version, source_size, source_mtime, source_identity, last_offset, resume_hash,
-   current_effort, current_model, last_usage_key, codex_session_key, codex_replaying,
+   current_effort, current_model, last_usage_key, codex_session_key, codex_replaying, codex_usage_state,
    observations, unknown_observations, observed_usage_tokens, attributed_tokens,
    parse_errors, context_gaps, skipped_bytes, coverage_state, last_indexed_at)
   VALUES ($session, $parserVersion, $sourceSize, $sourceMtime, $sourceIdentity, $lastOffset, $resumeHash,
-   $currentEffort, $currentModel, $lastUsageKey, $codexSessionKey, $codexReplaying,
+   $currentEffort, $currentModel, $lastUsageKey, $codexSessionKey, $codexReplaying, $codexUsageState,
    $observations, $unknownObservations, $observedUsageTokens, $attributedTokens,
    $parseErrors, $contextGaps, $skippedBytes, $coverageState, CURRENT_TIMESTAMP)
   ON CONFLICT(session_id) DO UPDATE SET
@@ -180,6 +183,7 @@ const upsertState = db.query(`INSERT INTO session_effort_state
     last_usage_key = excluded.last_usage_key,
     codex_session_key = excluded.codex_session_key,
     codex_replaying = excluded.codex_replaying,
+    codex_usage_state = excluded.codex_usage_state,
     observations = session_effort_state.observations + excluded.observations,
     unknown_observations = session_effort_state.unknown_observations + excluded.unknown_observations,
     observed_usage_tokens = session_effort_state.observed_usage_tokens + excluded.observed_usage_tokens,
@@ -217,6 +221,8 @@ export type EffortSpanCommit = {
   lastUsageKey: string | null;
   codexSessionKey: string | null;
   codexReplaying: boolean;
+  /** Cumulative total and fork replay position, as JSON; see `CodexUsageState`. */
+  codexUsageState: string | null;
   rows: EffortUsageRow[];
   observations: number;
   unknownObservations: number;
@@ -248,6 +254,7 @@ export const commitEffortSpan = db.transaction((commit: EffortSpanCommit) => {
     $lastUsageKey: commit.lastUsageKey,
     $codexSessionKey: commit.codexSessionKey,
     $codexReplaying: commit.codexReplaying ? 1 : 0,
+    $codexUsageState: commit.codexUsageState,
     $observations: commit.observations,
     $unknownObservations: commit.unknownObservations,
     $observedUsageTokens: commit.observedUsageTokens,

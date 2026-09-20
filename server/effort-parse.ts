@@ -3,7 +3,7 @@ import { dateKeyInTimeZone } from "../src/reporting-time";
 
 /** Bumping this rebuilds every session from byte zero. The constant lives in code, never in the
  * database, so a checkout can never disagree with the rows it is reading. */
-export const PARSER_VERSION = 6;
+export const PARSER_VERSION = 8;
 
 /** A single line is buffered only up to this size. Crossing it records a gap and a skipped-byte
  * count; no transcript fragment is ever persisted. */
@@ -38,7 +38,36 @@ export type EffortParserState = {
    * embed parent history under another id; those replayed events are not new billable activity. */
   codexSessionKey: string | null;
   codexReplaying: boolean;
+  /** The last cumulative `total_token_usage` seen. Codex re-emits a `last_token_usage` snapshot
+   * without advancing the cumulative total; ccusage counts such a snapshot once. */
+  codexPreviousTotals: CodexRawUsage | null;
+  /** Where a forked rollout stands in the usage it copied from its parent. Null for a rollout
+   * that is not a fork, and again once the copied history has been passed. */
+  codexReplay: CodexReplayProgress | null;
+  /** Supplied by the indexer for a fork, never persisted: it is rebuilt from the parent log. */
+  codexReplayPlan: CodexReplayPlan | null;
 };
+
+/** One Codex usage record exactly as the rollout states it, before input is split from cache. */
+export type CodexRawUsage = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheCreationTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+};
+
+/** `prefix` is the usage the parent recorded up to the fork instant; empty when the parent log
+ * is unavailable. `burstStart` is the timestamp of the rollout's first usage record when its
+ * first two records were written within a second of each other, the mark of a rewritten replay. */
+export type CodexReplayPlan = { prefix: CodexRawUsage[]; burstStart: number | null };
+
+export type CodexReplayProgress = { phase: "matching"; index: number } | { phase: "burst"; last: number };
+
+/** Longest pause inside a rewritten replay burst. Mirrors ccusage: bursts span tens of
+ * milliseconds, while a fork's own first turn follows a pause of several seconds. */
+export const CODEX_REPLAY_BURST_PAUSE_MS = 1_000;
 
 export type EffortAccumulator = {
   rows: Map<string, EffortUsageRow>;
@@ -70,6 +99,9 @@ export const emptyState = (): EffortParserState => ({
   lastUsageKey: null,
   codexSessionKey: null,
   codexReplaying: false,
+  codexPreviousTotals: null,
+  codexReplay: null,
+  codexReplayPlan: null,
 });
 
 export function createAccumulator(): EffortAccumulator {
@@ -244,8 +276,71 @@ function codexTurnContext(row: Record<string, unknown>, payload: Record<string, 
   addObservation(accumulator, bucket(accumulator, occurredOn, state.model, state.effort));
 }
 
-function codexTokenCount(row: Record<string, unknown>, payload: Record<string, unknown>, accumulator: EffortAccumulator, state: EffortParserState) {
-  if (state.codexReplaying) return;
+const rawUsage = (value: Record<string, unknown>): CodexRawUsage => ({
+  inputTokens: count(value.input_tokens) ?? 0,
+  cachedInputTokens: count(value.cached_input_tokens) ?? 0,
+  cacheCreationTokens: count(value.cache_write_input_tokens) ?? 0,
+  outputTokens: count(value.output_tokens) ?? 0,
+  reasoningOutputTokens: count(value.reasoning_output_tokens) ?? 0,
+  totalTokens: count(value.total_tokens) ?? 0,
+});
+
+const rawUsageFields = ["inputTokens", "cachedInputTokens", "cacheCreationTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"] as const;
+
+const sameUsage = (left: CodexRawUsage, right: CodexRawUsage) => rawUsageFields.every((field) => left[field] === right[field]);
+
+/** The usage one `token_count` adds, by the rules ccusage applies, or null when it adds none.
+ * `last_token_usage` is the record; a snapshot re-emitted without advancing the cumulative
+ * `total_token_usage` is not new usage, and a record that carries only the cumulative total
+ * contributes the growth since the previous one. Advances `previousTotals` as a side effect, so
+ * every record of a rollout must pass through here in order. */
+export function codexUsageDelta(info: Record<string, unknown>, state: Pick<EffortParserState, "codexPreviousTotals">): CodexRawUsage | null {
+  const total = record(info.total_token_usage) ? rawUsage(info.total_token_usage) : null;
+  const previous = state.codexPreviousTotals;
+  const advanced = total === null || previous === null || !sameUsage(total, previous);
+  let usage: CodexRawUsage | null = null;
+  if (record(info.last_token_usage) && advanced) {
+    usage = rawUsage(info.last_token_usage);
+  } else if (total) {
+    usage = { ...total };
+    for (const field of rawUsageFields) usage[field] = Math.max(0, total[field] - (previous?.[field] ?? 0));
+  }
+  if (total) state.codexPreviousTotals = total;
+  if (!usage) return null;
+  // Empty usage sentinels keep a cumulative-looking nonzero total_tokens; importing it would
+  // invent billable activity that never happened.
+  if (usage.inputTokens === 0 && usage.cachedInputTokens === 0 && usage.cacheCreationTokens === 0 && usage.outputTokens === 0 && usage.reasoningOutputTokens === 0) return null;
+  return usage;
+}
+
+/** True while `usage` is still history a fork copied from its parent. Mirrors ccusage: subtract
+ * the exact parent prefix when it lines up; when nothing lines up, skip the burst Codex rewrote
+ * to the fork instant, following the run for as long as records stay within a second of each
+ * other and move forward. */
+export function codexUsageIsReplayed(usage: CodexRawUsage, timestamp: number | null, state: Pick<EffortParserState, "codexReplay" | "codexReplayPlan">) {
+  for (;;) {
+    const replay = state.codexReplay;
+    if (replay === null) return false;
+    if (replay.phase === "matching") {
+      const expected = state.codexReplayPlan?.prefix[replay.index];
+      if (expected && sameUsage(expected, usage)) {
+        state.codexReplay = { phase: "matching", index: replay.index + 1 };
+        return true;
+      }
+      const burstStart = replay.index === 0 ? state.codexReplayPlan?.burstStart ?? null : null;
+      state.codexReplay = burstStart === null ? null : { phase: "burst", last: burstStart };
+      continue;
+    }
+    const step = timestamp === null ? -1 : timestamp - replay.last;
+    if (timestamp !== null && step >= 0 && step <= CODEX_REPLAY_BURST_PAUSE_MS) {
+      state.codexReplay = { phase: "burst", last: timestamp };
+      return true;
+    }
+    state.codexReplay = null;
+  }
+}
+
+function codexQuotaObservations(row: Record<string, unknown>, payload: Record<string, unknown>, accumulator: EffortAccumulator) {
   const observedAt = recordActivity(accumulator, row, payload);
   const rateLimits = record(payload.rate_limits) ? payload.rate_limits : null;
   if (observedAt !== null && rateLimits) {
@@ -277,39 +372,40 @@ function codexTokenCount(row: Record<string, unknown>, payload: Record<string, u
       });
     }
   }
-  const info = payload.info;
-  if (!record(info)) return;
-  // Never `total_token_usage`: it is cumulative and would multiply every session's totals.
-  const last = info.last_token_usage;
-  if (!record(last)) return;
+}
 
-  const rawInput = count(last.input_tokens) ?? 0;
-  const cacheReadTokens = count(last.cached_input_tokens) ?? 0;
-  const cacheCreationTokens = count(last.cache_write_input_tokens) ?? 0;
-  const outputTokens = count(last.output_tokens) ?? 0;
-  const reasoningOutputTokens = count(last.reasoning_output_tokens) ?? 0;
-  // Empty usage sentinels keep a cumulative-looking nonzero total_tokens; importing it would
-  // invent billable activity that never happened.
-  if (rawInput === 0 && cacheReadTokens === 0 && cacheCreationTokens === 0 && outputTokens === 0 && reasoningOutputTokens === 0) return;
+function codexTokenCount(row: Record<string, unknown>, payload: Record<string, unknown>, accumulator: EffortAccumulator, state: EffortParserState) {
+  const info = record(payload.info) ? payload.info : null;
+  // Usage accounting follows ccusage even inside embedded parent history, so the cumulative
+  // total and the fork replay position stay in step with what ccusage reads from the same file.
+  const usage = info ? codexUsageDelta(info, state) : null;
+  const stamp = typeof row.timestamp === "string" ? row.timestamp : typeof payload.timestamp === "string" ? payload.timestamp : "";
+  const stampMs = stamp === "" ? Number.NaN : Date.parse(stamp);
+  const replayed = usage !== null && codexUsageIsReplayed(usage, Number.isNaN(stampMs) ? null : stampMs, state);
+  // Copied history carries rewritten timestamps: neither its activity nor its quota readings
+  // describe this rollout.
+  if (!replayed && !state.codexReplaying && state.codexReplay === null) codexQuotaObservations(row, payload, accumulator);
+  if (usage === null || replayed) return;
 
+  const reasoningSource = record(info?.last_token_usage) ? info.last_token_usage : record(info?.total_token_usage) ? info.total_token_usage : null;
+  const rawInput = usage.inputTokens;
+  const cacheReadTokens = usage.cachedInputTokens;
+  const cacheCreationTokens = usage.cacheCreationTokens;
+  const outputTokens = usage.outputTokens;
+  const reasoningOutputTokens = usage.reasoningOutputTokens;
   const inputTokens = rawInput - cacheReadTokens - cacheCreationTokens;
   const totalTokens = inputTokens + cacheReadTokens + cacheCreationTokens + outputTokens;
-  const reported = count(last.total_tokens);
+  const reported = usage.totalTokens === 0 ? null : usage.totalTokens;
   if (inputTokens < 0 || reasoningOutputTokens > outputTokens || (reported !== null && reported !== totalTokens)) {
     throw new Error("unsupported Codex usage shape");
   }
 
   // Some older rollouts write the same token_count more than once. ccusage treats identical
   // timestamp + last-usage records as one event, so effort attribution must do the same.
-  const timestamp = typeof row.timestamp === "string"
-    ? row.timestamp
-    : typeof payload.timestamp === "string"
-      ? payload.timestamp
-      : "";
-  const usageKey = timestamp === ""
+  const usageKey = stamp === ""
     ? null
     : [
-        timestamp,
+        stamp,
         rawInput,
         cacheReadTokens,
         cacheCreationTokens,
@@ -325,7 +421,7 @@ function codexTokenCount(row: Record<string, unknown>, payload: Record<string, u
   const target = bucket(accumulator, occurredOn, state.active ? state.model ?? "" : "", state.active ? state.effort ?? "" : "");
   addTokens(accumulator, target, {
     inputTokens, cacheReadTokens, cacheCreationTokens, outputTokens, reasoningOutputTokens,
-    reasoningReportedEvents: last.reasoning_output_tokens === undefined ? 0 : 1,
+    reasoningReportedEvents: reasoningSource?.reasoning_output_tokens === undefined ? 0 : 1,
     totalTokens,
   });
 }

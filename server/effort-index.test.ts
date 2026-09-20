@@ -144,6 +144,42 @@ describe("incremental indexing", () => {
     }
   });
 
+  test("a fork subtracts the history it copied from its parent, across resumed spans", async () => {
+    const usage = (input: number) => ({ input_tokens: input, cached_input_tokens: 0, output_tokens: 100, reasoning_output_tokens: 0, total_tokens: input + 100 });
+    const at = (second: number, ms = 0) => `2026-07-01T15:00:${String(second).padStart(2, "0")}.${String(ms).padStart(3, "0")}Z`;
+    const meta = (payload: Record<string, unknown>, timestamp: string) => JSON.stringify({ timestamp, type: "session_meta", payload });
+    const parent = await writeSource("codex", fixtures.transcript([
+      meta({ id: "parent-rollout" }, at(0)),
+      fixtures.codexTurnContext({ effort: "high" }),
+      fixtures.codexTokenCount({ last: usage(1000), timestamp: at(1) }),
+      fixtures.codexTokenCount({ last: usage(2000), timestamp: at(2) }),
+      // Recorded after the fork instant: the fork never copied it, so it must not mask anything.
+      fixtures.codexTokenCount({ last: usage(3000), timestamp: at(40) }),
+    ]), { sessionId: "parent-rollout" });
+    const child = await writeSource("codex", fixtures.transcript([
+      meta({ id: "child-rollout", forked_from_id: "parent-rollout" }, at(30)),
+      meta({ id: "parent-rollout" }, at(30)),
+      fixtures.codexTokenCount({ last: usage(1000), timestamp: at(30, 5) }),
+      fixtures.codexTokenCount({ last: usage(2000), timestamp: at(30, 9) }),
+      JSON.stringify({ timestamp: at(30, 10), type: "event_msg", payload: { type: "thread_rolled_back" } }),
+      fixtures.codexTurnContext({ effort: "low" }),
+      fixtures.codexTokenCount({ last: usage(3000), timestamp: at(45) }),
+    ]), { sessionId: "child-rollout" });
+
+    await index.indexOneSession(parent, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    expect(store.getEffortState(parent.sessionId)!.observedUsageTokens).toBe(6300);
+
+    // A zero budget with small chunks stops after every span, including mid-replay, so the position has to be persisted.
+    let result = await index.indexOneSession(child, { kind: "rebuild", reason: "new" }, { budgetMs: 0, chunkBytes: 1024 });
+    for (let pass = 0; !result.done && pass < 200; pass++) {
+      result = await index.indexOneSession(child, { kind: "append" }, { budgetMs: 0, chunkBytes: 1024 });
+    }
+    expect(result.done).toBe(true);
+    const state = store.getEffortState(child.sessionId)!;
+    expect(state.observedUsageTokens).toBe(3100);
+    expect(derived(child.sessionId)).toEqual([expect.objectContaining({ effort: "low", total_tokens: 3100 })]);
+  });
+
   test("an append does work proportional to the appended bytes and never re-counts", async () => {
     let source = await writeSource("codex", codexBody(1));
     await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
