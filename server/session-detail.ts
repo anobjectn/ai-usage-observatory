@@ -363,6 +363,9 @@ async function warpSessionDetail(sessionId: string): Promise<SessionDetail> {
 async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   const source = getSessionSource(sessionId);
   if (!source || !await Bun.file(source.sourceFile).exists()) return detailUnavailable;
+  // Copilot sessions are indexed for their working directory only; the detail parser reads the
+  // Claude and Codex transcript formats.
+  if (source.agent === "copilot") return detailUnavailable;
 
   const raw = await Bun.file(source.sourceFile).slice(0, 12_000_000).text();
   return parseSessionDetailJsonl(raw);

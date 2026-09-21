@@ -235,5 +235,9 @@ describe("selection to query parameters", () => {
   });
   test("collapses agent labels that map to the same provider", () => {
     expect(agentSelectionParams([agentEntry("claude"), agentEntry("claude-code")]).providers).toEqual(["anthropic"]);
+  });  test("sends an agent with no recognized provider as other, never as an empty list", () => {
+    // An empty provider list asks the server for every provider.
+    expect(agentSelectionParams([agentEntry("copilot")])).toEqual({ providers: ["other"], modelFamilies: [] });
+    expect(agentSelectionParams([agentEntry("copilot"), agentEntry("grok"), agentEntry("codex")]).providers).toEqual(["other", "codex"]);
   });
 });

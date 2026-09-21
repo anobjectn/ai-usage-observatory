@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { basename, relative } from "node:path";
+import { basename, dirname, relative } from "node:path";
 import { stat } from "node:fs/promises";
 import { db, listRules } from "./store";
 
@@ -12,7 +12,8 @@ export function stableSessionId(agent: string, sourceRelativePath: string, nativ
 }
 
 export function sessionReportKeys(agent: string, nativeKey: string, sourceFile: string) {
-  const keys = new Set([nativeKey, basename(sourceFile, ".jsonl")]);
+  // Every Copilot session file is named `events.jsonl`, so its basename identifies nothing.
+  const keys = new Set(agent === "copilot" ? [nativeKey] : [nativeKey, basename(sourceFile, ".jsonl")]);
   if (agent === "codex") {
     const normalized = sourceFile.replaceAll("\\", "/");
     const marker = "/.codex/sessions/";
@@ -29,7 +30,7 @@ export function sessionReportKeys(agent: string, nativeKey: string, sourceFile: 
 // (blank cwd) for as long as it exists, not just until the next scan.
 const headScanBytes = 4_000_000;
 
-export async function parseHead(file: string, agent: "claude" | "codex") {
+export async function parseHead(file: string, agent: IndexedAgent) {
   const text = await Bun.file(file).slice(0, headScanBytes).text();
   // Only the first 80 lines matter; find where they end instead of splitting all 4 MB into
   // an array of every line in the window.
@@ -40,7 +41,8 @@ export async function parseHead(file: string, agent: "claude" | "codex") {
   }
   const lines = (end === -1 ? text : text.slice(0, end)).split("\n");
   let cwd: string | null = null;
-  let nativeKey = basename(file, ".jsonl");
+  // Every Copilot session writes `events.jsonl`; its directory carries the session id.
+  let nativeKey = agent === "copilot" ? basename(dirname(file)) : basename(file, ".jsonl");
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
@@ -49,6 +51,10 @@ export async function parseHead(file: string, agent: "claude" | "codex") {
         const payload = row.type === "session_meta" ? row.payload : row;
         cwd ??= typeof payload?.cwd === "string" ? payload.cwd : null;
         nativeKey = typeof payload?.id === "string" ? payload.id : nativeKey;
+      } else if (agent === "copilot") {
+        if (row.type !== "session.start") continue;
+        cwd ??= typeof row.data?.context?.cwd === "string" ? row.data.context.cwd : null;
+        nativeKey = typeof row.data?.sessionId === "string" ? row.data.sessionId : nativeKey;
       } else {
         cwd ??= typeof row.cwd === "string" ? row.cwd : null;
         nativeKey = typeof row.sessionId === "string" ? row.sessionId : nativeKey;
@@ -58,6 +64,11 @@ export async function parseHead(file: string, agent: "claude" | "codex") {
   }
   return { cwd, nativeKey };
 }
+
+/** Agents whose local session files are indexed for a working directory. The effort parser reads
+ * only Claude and Codex transcripts; a Copilot session is indexed for path and project
+ * attribution alone. */
+export type IndexedAgent = "claude" | "codex" | "copilot";
 
 /** One row per transcript that exists right now. The effort backlog is a left join of this
  * catalog against parser state, so a first enable finds work even when no path changed. */
@@ -76,15 +87,18 @@ export type PathIndexResult = {
   catalog: SessionSource[];
   changed: SessionSource[];
   removedSessionIds: string[];
+  /** Files indexed for attribution only. They never enter the effort catalog, but ccusage reads
+   * them, so they belong in the fingerprint that decides whether ccusage has to run again. */
+  attributionOnly?: Array<Pick<SessionSource, "sourceFile" | "mtimeMs" | "size">>;
 };
 
 // Codex moves a session's transcript here once it ages the session out of
 // `.codex/sessions/`, without renaming it — ccusage still reports it (by its
 // bare `rollout-...` id, no date prefix) so a session must stay indexed after
 // the move or it silently drops out of `session_paths` and looks gone.
-const managedRoots = [".claude/projects/", ".codex/sessions/", ".codex/archived_sessions/"];
+const managedRoots = [".claude/projects/", ".codex/sessions/", ".codex/archived_sessions/", ".copilot/session-state/"];
 
-async function indexGlob(agent: "claude" | "codex", pattern: string) {
+async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string) {
   const root = homedir();
   const glob = new Bun.Glob(pattern);
   const upsert = db.query(`INSERT INTO session_paths
@@ -95,8 +109,9 @@ async function indexGlob(agent: "claude" | "codex", pattern: string) {
   const touchSize = db.query("UPDATE session_paths SET source_size = ? WHERE session_id = ?");
   const touchCwd = db.query("UPDATE session_paths SET cwd = ? WHERE session_id = ?");
   const touchStats = db.query("UPDATE session_paths SET source_mtime = ?, source_size = ?, indexed_at = CURRENT_TIMESTAMP WHERE session_id = ?");
-  const catalog: SessionSource[] = [];
-  const changed: SessionSource[] = [];
+  type Source = Omit<SessionSource, "agent"> & { agent: A };
+  const catalog: Source[] = [];
+  const changed: Source[] = [];
   for await (const sourceRelativePath of glob.scan({ cwd: root, absolute: false, onlyFiles: true, dot: true })) {
     const sourceFile = `${root}/${sourceRelativePath}`;
     const info = await stat(sourceFile);
@@ -125,7 +140,7 @@ async function indexGlob(agent: "claude" | "codex", pattern: string) {
       sessionId = stableSessionId(agent, sourceRelativePath, nativeKey);
       upsert.run(sessionId, agent, nativeKey, sourceFile, cwd, info.mtimeMs, info.size);
     }
-    const source: SessionSource = { sessionId, agent, sourceFile, mtimeMs: info.mtimeMs, size: info.size, sourceIdentity: identity };
+    const source: Source = { sessionId, agent, sourceFile, mtimeMs: info.mtimeMs, size: info.size, sourceIdentity: identity };
     catalog.push(source);
     if (existing?.source_mtime !== info.mtimeMs) changed.push(source);
   }
@@ -135,14 +150,15 @@ async function indexGlob(agent: "claude" | "codex", pattern: string) {
 export async function indexSessionPaths(): Promise<PathIndexResult & { indexed: number }> {
   // A partial or failed scan must never look like "these transcripts disappeared", so all globs
   // are awaited to completion before anything is pruned.
-  const [claude, codex, codexArchived] = await Promise.all([
+  const [claude, codex, codexArchived, copilot] = await Promise.all([
     indexGlob("claude", ".claude/projects/**/*.jsonl"),
     indexGlob("codex", ".codex/sessions/**/*.jsonl"),
     indexGlob("codex", ".codex/archived_sessions/**/*.jsonl"),
+    indexGlob("copilot", ".copilot/session-state/*/events.jsonl"),
   ]);
   const catalog = [...claude.catalog, ...codex.catalog, ...codexArchived.catalog];
   const changed = [...claude.changed, ...codex.changed, ...codexArchived.changed];
-  const seen = new Set(catalog.map((source) => source.sessionId));
+  const seen = new Set([...catalog, ...copilot.catalog].map((source) => source.sessionId));
   const root = homedir();
   const rows = db.query("SELECT session_id, source_file FROM session_paths").all() as Array<{ session_id: string; source_file: string }>;
   const removedSessionIds = rows
@@ -152,7 +168,7 @@ export async function indexSessionPaths(): Promise<PathIndexResult & { indexed: 
     const remove = db.query("DELETE FROM session_paths WHERE session_id = ?");
     db.transaction(() => removedSessionIds.forEach((sessionId) => remove.run(sessionId)))();
   }
-  return { catalog, changed, removedSessionIds, indexed: changed.length };
+  return { catalog, changed, removedSessionIds, attributionOnly: copilot.catalog, indexed: changed.length + copilot.changed.length };
 }
 
 function globRegex(pattern: string) {

@@ -20,7 +20,7 @@ import { LED_SESSION_FLOOR, RATED_SESSION_FLOOR } from "../src/types";
 import { comboKey, comboKind, comboOf, parseComboFacet, parseComboKey, type Combo } from "../src/combo";
 import { compareEffort, foldEffort, sortEffortBuckets } from "../src/effort-model";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
-import { providerFromAgent } from "../src/provider";
+import { OTHER_PROVIDER, providerFromAgent } from "../src/provider";
 import { PARSER_VERSION } from "./effort-parse";
 import { effortProgress, isEffortIndexing } from "./effort-index";
 import { familyOf } from "../src/model-family";
@@ -43,8 +43,10 @@ export type EffortScope = {
   rangeDays: number | null;
   fromDate: string | null;
   toDate: string | null;
-  /** Selected providers, unioned with `modelFamilies`. Empty means every provider. */
-  providers: Array<"anthropic" | "codex" | "warp">;
+  /** Selected providers, unioned with `modelFamilies`. Empty means every provider. `other` is
+   * every agent `providerFromAgent` does not recognize; without it, selecting only such an agent
+   * would send an empty list, which means "everything". */
+  providers: ScopeProvider[];
   /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
   modelFamilies: string[];
   pathTag: string;
@@ -63,9 +65,11 @@ export function resolveEffortGroup(value: string | null): EffortGroup {
 
 /** Comma-separated list parameter. Unknown provider names are dropped rather than rejected: a
  * stale bookmark should narrow to what still exists, not fail the request. */
-export function resolveProviders(value: string | null): Array<"anthropic" | "codex" | "warp"> {
+export type ScopeProvider = "anthropic" | "codex" | "warp" | typeof OTHER_PROVIDER;
+
+export function resolveProviders(value: string | null): ScopeProvider[] {
   const wanted = (value ?? "").split(",").map((part) => part.trim()).filter(Boolean);
-  return [...new Set(wanted.filter((part): part is "anthropic" | "codex" | "warp" => part === "anthropic" || part === "codex" || part === "warp"))];
+  return [...new Set(wanted.filter((part): part is ScopeProvider => part === "anthropic" || part === "codex" || part === "warp" || part === OTHER_PROVIDER))];
 }
 
 export function resolveModelFamilies(value: string | null): string[] {
@@ -139,8 +143,7 @@ function dominantModelOf(session: Session) {
  * nothing, since no session is simultaneously Claude and a Codex model. */
 export function matchesAgentScope(session: Session, scope: EffortScope) {
   if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return true;
-  const provider = providerFromAgent(session.agent);
-  if (provider && scope.providers.includes(provider)) return true;
+  if (scope.providers.includes(providerFromAgent(session.agent) ?? OTHER_PROVIDER)) return true;
   return session.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyOf(model.modelName)));
 }
 
@@ -170,7 +173,9 @@ export function scopedSessions(snapshot: DashboardData, scope: EffortScope) {
   const annotated = base.map((session) => ({
     session,
     sessionId: session.sessionId,
-    provider: providerFromAgent(session.agent) ?? "anthropic",
+    // An agent with no recognized provider (Copilot, say) forms its own cohort. Counting it as
+    // Anthropic would move the median the Claude sessions are judged against.
+    provider: providerFromAgent(session.agent) ?? session.agent,
     family: familyOf(dominantModelOf(session)),
     cacheReadTokens: session.cacheReadTokens,
     processed: sessionTokens(session),
@@ -186,7 +191,8 @@ export function scopedSessions(snapshot: DashboardData, scope: EffortScope) {
  * families must not push it down — the session-id allowlist already carries the union. */
 function agentsFor(scope: EffortScope): Array<"claude" | "codex"> | null {
   if (scope.modelFamilies.length > 0 || scope.providers.length === 0 || scope.providers.includes("warp")) return null;
-  return scope.providers.map((provider) => (provider === "anthropic" ? "claude" : "codex"));
+  // `other` agents have no derived effort rows, so they add nothing to the prefilter.
+  return scope.providers.flatMap((provider) => (provider === "anthropic" ? ["claude" as const] : provider === "codex" ? ["codex" as const] : []));
 }
 
 function effortQuery(group: EffortGroup, scope: EffortScope, sessionIds: string[], timeZone: string): EffortQuery {
@@ -216,7 +222,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
   // Neither authoritative source is broken down by model family, so a family-scoped request falls
   // through to session allocation rather than reporting a provider-wide denominator.
   const providerOnly = scope.modelFamilies.length === 0;
-  const wantsProvider = (provider: "anthropic" | "codex" | "warp") =>
+  const wantsProvider = (provider: ScopeProvider) =>
     (only === null || provider === only) && (scope.providers.length === 0 || scope.providers.includes(provider));
   if (providerOnly && scope.pathTag === "all" && scope.project && !scope.model) {
     // Project activity already carries the app's authoritative provider/day allocation. Using it
@@ -238,10 +244,7 @@ function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions
       const tokens = scope.providers.length === 0 && only === null
         ? row.totalTokens
         : (row.agents ?? [])
-            .filter((agent) => {
-              const provider = providerFromAgent(agent.agent);
-              return provider !== null && wantsProvider(provider);
-            })
+            .filter((agent) => wantsProvider(providerFromAgent(agent.agent) ?? OTHER_PROVIDER))
             .reduce((sum, agent) => sum + agent.totalTokens, 0);
       if (tokens > 0) totals.set(date, (totals.get(date) ?? 0) + tokens);
     }

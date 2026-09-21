@@ -23,7 +23,12 @@ The React frontend only consumes normalized local API responses. It never reads 
    from the npm registry once a day, caches it in SQLite, and honors the same offline switch.
    The ccusage source-health entry shows how many stable releases the pin trails, and reads as
    degraded once the pin has trailed for more than 30 days. The check never upgrades anything.
-3. The metadata-only path indexer incrementally reads session file heads when mtimes change.
+3. The metadata-only path indexer incrementally reads session file heads when mtimes change. It
+   indexes Claude and Codex transcripts, and the `events.jsonl` of each Copilot session for its
+   working directory only. Copilot files never enter the effort catalog, but they are part of
+   the fingerprint that decides whether ccusage runs again. An agent that `providerFromAgent`
+   does not recognize has no quota, effort index, or chart series; the Agent filter still lists
+   it, and both analysis endpoints scope it through the `other` provider value.
 4. Native report sessions are joined to indexed paths without copying transcript content.
 5. Project activity groups joined session totals by provider, working directory, and local last-activity day. A session spanning multiple days is attributed to its latest activity day.
 6. Path rules are evaluated on demand, so edits apply retroactively.

@@ -12440,9 +12440,15 @@ export function App() {
   }, [agents, data]);
   const agentFilterGroups = useMemo<AgentFilterGroup[]>(() => {
     const groups: AgentFilterGroup[] = agentTree.branches
-      .filter((branch) => branch.models.length > 0)
+      // A model family is parented by its name, so an agent with no recognized provider (Copilot
+      // running gpt-5.4) never gets one. It still has sessions, and the agent entry is the only
+      // way to select them, so its branch stays, without children.
+      .filter((branch) => branch.models.length > 0 || providerFromAgent(branch.agent) === null)
       .map((branch) => ({
         label: branch.agent,
+        ...(branch.models.length === 0
+          ? { note: "Provider not recognized; its models are listed under the provider their names match." }
+          : {}),
         summaryColor: providerSeries.find(
           (provider) => provider.key === providerFromAgent(branch.agent),
         )?.color,

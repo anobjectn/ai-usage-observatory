@@ -446,7 +446,7 @@ export function InformationSources({ data }: { data: DashboardData }) {
         <li>
           <b>Local agent records</b>
           <span>
-            Claude Code and Codex session headers · working-directory metadata
+            Claude Code, Codex, and Copilot session headers · working-directory metadata
             only
           </span>
         </li>

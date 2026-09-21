@@ -5,7 +5,14 @@ import { summarizeQuotaHistory } from "./quota";
 
 describe("insights scope", () => {
   test("clamps the analysis window and keeps unsupported filters harmless", () => {
-    expect(resolveScope(new URLSearchParams("range=500&providers=other&outliers=wat&finding=nope&policy=wat&findingPage=-3"))).toEqual({ rangeDays: 120, fromDate: null, toDate: null, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all", findingPage: 1, policy: "capture" });
+    expect(resolveScope(new URLSearchParams("range=500&providers=bogus&outliers=wat&finding=nope&policy=wat&findingPage=-3"))).toEqual({ rangeDays: 120, fromDate: null, toDate: null, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all", findingPage: 1, policy: "capture" });
+  });
+  test("a selection of only excluded providers means nothing, not everything", () => {
+    expect(resolveScope(new URLSearchParams("providers=other"))).toMatchObject({ providers: [], providersExcluded: true });
+    expect(resolveScope(new URLSearchParams("providers=warp,other"))).toMatchObject({ providers: [], providersExcluded: true });
+    expect(resolveScope(new URLSearchParams("providers=other,codex"))).toMatchObject({ providers: ["codex"] });
+    expect(resolveScope(new URLSearchParams("providers=other,codex")).providersExcluded).toBeUndefined();
+    expect(resolveScope(new URLSearchParams("")).providersExcluded).toBeUndefined();
   });
   test("accepts all time as an unbounded analysis window", () => {
     expect(resolveScope(new URLSearchParams("range=all"))).toMatchObject({ rangeDays: null });

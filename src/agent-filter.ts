@@ -1,6 +1,6 @@
 import type { MetricRow, ModelBreakdown, Session } from "./types";
 import { familyOf } from "./model-family";
-import { providerFromAgent, providerFromModel } from "./provider";
+import { OTHER_PROVIDER, providerFromAgent, providerFromModel } from "./provider";
 
 /** One checked entry in the Agent filter. `agent:` covers a whole coarse agent ("claude"),
  * `model:` covers one release-stripped model family ("claude-opus-5"). The two live in one list
@@ -203,6 +203,8 @@ export function selectionProvider(selection: AgentSelection) {
  * because both endpoints scope by provider, not by the raw ccusage agent label. */
 export function agentSelectionParams(selection: AgentSelection) {
   const { agents, models } = splitSelection(selection);
-  const providers = [...new Set([...agents].map(providerFromAgent).filter(Boolean))] as string[];
+  // An agent with no recognized provider is sent as `other`. Dropping it would leave the list
+  // empty, and an empty list asks the server for every provider.
+  const providers = [...new Set([...agents].map((name) => providerFromAgent(name) ?? OTHER_PROVIDER))] as string[];
   return { providers, modelFamilies: [...models] };
 }

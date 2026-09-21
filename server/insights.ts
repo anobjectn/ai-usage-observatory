@@ -17,6 +17,10 @@ export type AnalysisScope = {
   toDate: string | null;
   /** Selected providers, unioned with `modelFamilies`. Empty means every provider. */
   providers: Provider[];
+  /** Set when providers were requested and none of them enters this analysis (Warp, or an agent
+   * with no recognized provider). The empty `providers` list then means "nothing", not
+   * "everything"; without this, selecting only Copilot would show the whole corpus. */
+  providersExcluded?: true;
   /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
   modelFamilies: string[];
   pathTag: string;
@@ -151,13 +155,16 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
     (!requestedFrom || validDateKey(requestedFrom)) &&
     (!requestedTo || validDateKey(requestedTo)) &&
     (!requestedFrom || !requestedTo || requestedFrom <= requestedTo);
+  const requestedProviders = resolveProviders(input.get("providers"));
+  const providers = requestedProviders.filter((provider): provider is Provider => provider === "anthropic" || provider === "codex");
   const requestedOutliers = input.get("outliers");
   const requestedFinding = input.get("finding");
   return {
     rangeDays: requestedRange === "all" ? null : Math.max(1, Math.min(120, Number.isFinite(range) ? Math.floor(range) : 30)),
     fromDate: validBounds && requestedFrom ? requestedFrom : null,
     toDate: validBounds && requestedTo ? requestedTo : null,
-    providers: resolveProviders(input.get("providers")).filter((provider): provider is Provider => provider !== "warp"),
+    providers,
+    ...(requestedProviders.length > 0 && providers.length === 0 ? { providersExcluded: true as const } : {}),
     modelFamilies: resolveModelFamilies(input.get("modelFamilies")),
     pathTag: input.get("pathTag") || "all",
     cache: input.get("cache") === "exclude" ? "exclude" : "include",
@@ -425,7 +432,7 @@ export function flaggedSessionIds(sessions: Session[], timeZone: string, cache: 
 
 /** The Agent filter's provider and model grains are unioned; see `matchesAgentScope`. */
 function matchesAgentScope(row: Session, itemProvider: Provider, scope: AnalysisScope) {
-  if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return true;
+  if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return !scope.providersExcluded;
   if (scope.providers.includes(itemProvider)) return true;
   return row.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyOf(model.modelName)));
 }

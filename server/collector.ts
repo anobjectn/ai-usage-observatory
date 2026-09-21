@@ -244,7 +244,7 @@ let ccusageCache: { fingerprint: string; result: Awaited<ReturnType<typeof colle
 async function collectCcusageCached(timeZone: string, paths: PathIndexResult) {
   const hash = new Bun.CryptoHasher("sha256");
   hash.update(timeZone);
-  for (const line of paths.catalog.map((source) => `${source.sourceFile}\0${source.mtimeMs}\0${source.size}`).sort()) {
+  for (const line of [...paths.catalog, ...(paths.attributionOnly ?? [])].map((source) => `${source.sourceFile}\0${source.mtimeMs}\0${source.size}`).sort()) {
     hash.update(`\0${line}`);
   }
   const fingerprint = hash.digest("hex");

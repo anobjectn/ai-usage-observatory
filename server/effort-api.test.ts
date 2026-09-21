@@ -837,3 +837,21 @@ describe("payload budgets", () => {
     expect(digestBytes / sessions.length, `digest was ${digestBytes} bytes for ${sessions.length} sessions`).toBeLessThanOrEqual(96);
   });
 });
+
+describe("agents with no recognized provider", () => {
+  const copilot = session({ sessionId: "copilot-1", agent: "copilot", modelsUsed: ["gpt-5.4"], modelBreakdowns: [{ modelName: "gpt-5.4", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }] });
+  const claude = session({ sessionId: "claude-1" });
+
+  test("the other scope selects them and nothing else", () => {
+    const scope = api.resolveEffortScope(params("providers=other"));
+    expect(scope.providers).toEqual(["other"]);
+    expect(api.matchesAgentScope(copilot, scope)).toBe(true);
+    expect(api.matchesAgentScope(claude, scope)).toBe(false);
+    expect(api.scopedSessions(snapshotOf([copilot, claude]), scope).map((item) => item.sessionId)).toEqual(["copilot-1"]);
+  });
+
+  test("a provider scope does not select them", () => {
+    const scope = api.resolveEffortScope(params("providers=anthropic,codex"));
+    expect(api.matchesAgentScope(copilot, scope)).toBe(false);
+  });
+});

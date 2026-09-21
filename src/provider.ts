@@ -1,5 +1,10 @@
 export type ActivityProvider = "anthropic" | "codex" | "warp";
 
+/** Scope value for every agent `providerFromAgent` does not recognize (Copilot, for one). It is
+ * a filter value only, never an `ActivityProvider`: such agents have no quota, no effort index,
+ * and no chart series. */
+export const OTHER_PROVIDER = "other";
+
 /** The single agent → API-provider mapper. Collector, insights, and effort code all route
  * through this so a session can never be Anthropic in one view and Codex in another.
  * Substring matching (rather than equality) is deliberate: ccusage agent labels have carried

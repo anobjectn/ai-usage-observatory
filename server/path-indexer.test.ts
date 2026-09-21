@@ -76,3 +76,31 @@ test("a subagent transcript never claims the session key it shares with its pare
   expect(index["claude:agent-a1"]).toBeUndefined();
   db.query("DELETE FROM session_paths").run();
 });
+
+test("a Copilot session resolves its working directory and keys only on its session id", async () => {
+  const { mkdir } = await import("node:fs/promises");
+  const directory = join(workspace, "session-state", "copilot-native-1");
+  await mkdir(directory, { recursive: true });
+  const file = join(directory, "events.jsonl");
+  await writeFile(file, [
+    JSON.stringify({ type: "session.start", data: { sessionId: "copilot-native-1", context: { cwd: "/Users/example/copilot-project", gitRoot: "/Users/example" } } }),
+    JSON.stringify({ type: "user.message", data: { cwd: "/Users/example/not-this-one" } }),
+  ].join("\n"));
+  expect(await parseHead(file, "copilot")).toEqual({ cwd: "/Users/example/copilot-project", nativeKey: "copilot-native-1" });
+
+  // Without a readable start record the directory name still identifies the session.
+  const bare = join(workspace, "session-state", "copilot-native-2");
+  await mkdir(bare, { recursive: true });
+  await writeFile(join(bare, "events.jsonl"), "{\"type\":\"session.start\", truncated");
+  expect(await parseHead(join(bare, "events.jsonl"), "copilot")).toEqual({ cwd: null, nativeKey: "copilot-native-2" });
+
+  // Every Copilot file is named events.jsonl; that basename must never become a shared key.
+  expect(sessionReportKeys("copilot", "copilot-native-1", file)).toEqual(["copilot-native-1"]);
+
+  db.query("DELETE FROM session_paths").run();
+  db.query("INSERT INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size) VALUES ('copilot-id', 'copilot', 'copilot-native-1', ?, '/Users/example/copilot-project', 1, 1)").run(file);
+  const index = getPathIndex();
+  expect(index["copilot:copilot-native-1"].cwd).toBe("/Users/example/copilot-project");
+  expect(index["copilot:events"]).toBeUndefined();
+  db.query("DELETE FROM session_paths").run();
+});
