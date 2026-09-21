@@ -7,6 +7,26 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Read the unpriced-model fields that ccusage 20.0.21 and later report
+  (`totals.unpricedModels` and `missingPricing`). The cost-incomplete warning
+  now also covers a model that is only partly priced. The earlier inference
+  from tokens without cost stays for older ccusage versions.
+- Index Copilot sessions for their working directory. Copilot rows in Sessions
+  now show the path and receive Path tags.
+- List an agent with no recognized provider, such as Copilot, in the Agent
+  filter.
+
+### Fixed
+
+- Scope effort and insights correctly when the Agent filter selects only an
+  agent with no recognized provider. Before, the request carried no provider
+  and returned every session. Insights now shows no sessions for a selection
+  of only Warp or such an agent, because neither enters that analysis.
+- Stop counting sessions of an unrecognized agent as Anthropic sessions in
+  effort outlier detection.
+
 ### Changed
 
 - Measure data impact and parser parity in the `audit-ccusage-upstream` skill.
