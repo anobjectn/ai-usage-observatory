@@ -136,7 +136,7 @@ function contractLine(name: string, value: unknown): string {
 }
 
 function dataImpact(value: unknown): string {
-  if (value === undefined || value === null) return '<div class="empty">No pinned-versus-candidate comparison was recorded. Treat the upgrade complexity as unverified.</div>';
+  if (value === undefined || value === null) return '<div class="empty">No pinned-versus-candidate comparison was recorded. That is expected when the pin is the latest stable release; when a newer release exists, treat the upgrade complexity as unverified.</div>';
   const impact = asObject(value, "data_impact");
   const contract = asObject(get(impact, "contract", {}), "data_impact.contract");
   const totals = asObject(get(impact, "totals", {}), "data_impact.totals");
