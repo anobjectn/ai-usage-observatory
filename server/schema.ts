@@ -7,6 +7,9 @@ const modelBreakdownSchema = z.object({
   cacheReadTokens: z.number(),
   cacheCreationTokens: z.number(),
   cost: z.number(),
+  /** ccusage 20.0.21 and later set this when it had to price the entry and found no rate.
+   * Priced entries omit the key. */
+  missingPricing: z.boolean().optional(),
 });
 
 const agentBreakdownSchema = z.object({
@@ -48,6 +51,8 @@ export const unifiedReportSchema = z.object({
     cacheCreationTokens: z.number(),
     totalTokens: z.number(),
     totalCost: z.number(),
+    /** Present only when at least one entry of the invoked section had no price. */
+    unpricedModels: z.array(z.string()).optional(),
   }),
 });
 

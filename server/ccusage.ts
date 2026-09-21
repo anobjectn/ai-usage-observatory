@@ -26,6 +26,12 @@ export async function ccusageVersion() {
  *
  * Any real rate card produces a non-zero float for non-zero tokens, so tokens-without-cost is a
  * reliable signal that the price is missing rather than genuinely zero.
+ *
+ * ccusage 20.0.21 and later also report the fact themselves: `missingPricing` on a model
+ * breakdown and `totals.unpricedModels`. Both are read, and the inference stays. The native flag
+ * catches a model that is only partly priced, whose stored costs keep its total above zero. The
+ * inference covers an older binary, and the weekly, monthly, and session sections, which
+ * `totals.unpricedModels` does not describe (it covers the invoked section only).
  */
 export function findUnpricedModels(unified: UnifiedReport) {
   const unpriced = new Set<string>();
@@ -34,7 +40,7 @@ export function findUnpricedModels(unified: UnifiedReport) {
       for (const source of [row, ...(row.agents ?? [])]) {
         for (const model of source.modelBreakdowns) {
           const tokens = model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-          if (tokens > 0 && model.cost === 0) unpriced.add(model.modelName);
+          if (model.missingPricing || (tokens > 0 && model.cost === 0)) unpriced.add(model.modelName);
         }
       }
     }
@@ -43,6 +49,7 @@ export function findUnpricedModels(unified: UnifiedReport) {
   scan(unified.weekly);
   scan(unified.monthly);
   scan(unified.session);
+  for (const model of unified.totals.unpricedModels ?? []) unpriced.add(model);
   return [...unpriced].sort();
 }
 
