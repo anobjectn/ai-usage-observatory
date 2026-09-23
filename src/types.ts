@@ -378,6 +378,11 @@ export type QuotaProvider = {
    * older quota-service builds that omit it. */
   dataAgeMs?: number | null;
   capturedAt?: number | null;
+  /** When quota-service last tried to collect, successful or not. */
+  lastAttemptAt?: number | null;
+  /** True when the newest collection failed and `snapshot` is the last
+   * successful reading. `status` is then "stale". */
+  servingLastGood?: boolean;
   manualEntries?: QuotaManualEntry[];
   /** Present only for Anthropic once a Claude Web credit snapshot is imported. */
   anthropicWebCredits?: AnthropicWebCredits | null;

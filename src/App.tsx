@@ -143,7 +143,7 @@ import {
   type CreditFreshness,
 } from "./quota-credits";
 import { warpQuotaSummary } from "./warp-quota";
-import { quotaProviderNotice, type QuotaNotice } from "./quota-notice";
+import { formatReadingAge, quotaProviderNotice, type QuotaNotice } from "./quota-notice";
 import {
   Area,
   AreaChart,
@@ -3377,6 +3377,9 @@ type QuotaCard = {
   usedResets: Array<{ id: string; title: string; usedAt: number }>;
   /** Why the provider is not fully reported and what to do about it. */
   notice: QuotaNotice | null;
+  /** Head label: "current", "unavailable", or a stale state with the age of
+   * the reading still on screen ("stale · 18m"). */
+  stateLabel: string;
 };
 
 function quotaBucket(
@@ -3423,6 +3426,26 @@ function quotaBucket(
     reachedAt,
     reaches,
   };
+}
+
+function quotaCardState(report: QuotaProvider | undefined): QuotaState {
+  return report?.status === "ok"
+    ? "ok"
+    : report?.status === "stale"
+      ? "stale"
+      : "unavailable";
+}
+
+/** A stale card names how old its values are, so an old reading is never
+ * mistaken for a current one. */
+function quotaCardStateLabel(report: QuotaProvider | undefined): string {
+  const state = quotaCardState(report);
+  if (state === "ok") return "current";
+  const age = report?.dataAgeMs;
+  if (state === "stale" && report?.snapshot && typeof age === "number" && Number.isFinite(age)) {
+    return `stale · ${formatDuration(age)}`;
+  }
+  return state;
 }
 
 function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
@@ -3538,12 +3561,8 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
     {
       provider: "anthropic",
       providerLabel: "Anthropic",
-      state:
-        anthropic?.status === "ok"
-          ? "ok"
-          : anthropic?.status === "stale"
-            ? "stale"
-            : "unavailable",
+      state: quotaCardState(anthropic),
+      stateLabel: quotaCardStateLabel(anthropic),
       buckets: anthropicBuckets,
       bankedResets: [],
       usedResetCount: 0,
@@ -3553,12 +3572,8 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
     {
       provider: "codex",
       providerLabel: "OpenAI",
-      state:
-        codex?.status === "ok"
-          ? "ok"
-          : codex?.status === "stale"
-            ? "stale"
-            : "unavailable",
+      state: quotaCardState(codex),
+      stateLabel: quotaCardStateLabel(codex),
       buckets: codexBuckets,
       bankedResets,
       usedResetCount: quotas.history?.codexBankedResets.usedCount ?? 0,
@@ -3568,12 +3583,8 @@ function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
     {
       provider: "warp",
       providerLabel: "Warp",
-      state:
-        warp?.status === "ok"
-          ? "ok"
-          : warp?.status === "stale"
-            ? "stale"
-            : "unavailable",
+      state: quotaCardState(warp),
+      stateLabel: quotaCardStateLabel(warp),
       buckets: warpBuckets,
       bankedResets: [],
       usedResetCount: 0,
@@ -4074,7 +4085,7 @@ function QuotaDials({
       </div>
       <div className="quota-grid">
         {cards.map((card) => {
-          const stateLabel = card.state === "ok" ? "current" : card.state;
+          const stateLabel = card.stateLabel;
           return (
             <article
               className={`quota-card ${card.provider} ${card.state}`}
@@ -10350,12 +10361,7 @@ const EXTRA_USAGE_HELP_URL =
 
 function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return "unknown";
-  if (ms < 60_000) return `${Math.max(0, Math.round(ms / 1000))}s`;
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
+  return formatReadingAge(ms);
 }
 
 function QuotaProvenance({
@@ -10409,6 +10415,12 @@ function QuotaProvenance({
               <dt>Data age</dt>
               <dd>{formatDuration(anthropic?.dataAgeMs)}</dd>
             </div>
+            {anthropic?.servingLastGood && anthropic.lastAttemptAt ? (
+              <div>
+                <dt>Last attempt</dt>
+                <dd><DateStamp value={new Date(anthropic.lastAttemptAt).toISOString()} /></dd>
+              </div>
+            ) : null}
             {snapshot?.fiveHour && (
               <div>
                 <dt>5-hour</dt>
@@ -11981,7 +11993,7 @@ export function QuickOverviewModal({
               >
                 <header>
                   <span>{card.providerLabel}</span>
-                  <i>{card.state === "ok" ? "current" : card.state}</i>
+                  <i>{card.stateLabel}</i>
                 </header>
                 {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                 <div className="quick-overview__dials">
@@ -12036,7 +12048,7 @@ export function QuickOverviewModal({
               >
                 <header>
                   <span>{card.providerLabel}</span>
-                  <i>{card.state === "ok" ? "current" : card.state}</i>
+                  <i>{card.stateLabel}</i>
                 </header>
                 {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                 {card.buckets.map((bucket) => {

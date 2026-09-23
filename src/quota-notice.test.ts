@@ -85,3 +85,33 @@ test("a frozen Warp plist suggests opening Warp", () => {
   expect(notice?.headline).toContain("Warp");
   expect(notice?.nextStep).toContain("Open Warp");
 });
+
+test("a rate limit with the last reading kept leads with the reading's age", () => {
+  const notice = quotaProviderNotice(
+    report({
+      status: "stale",
+      error: "oauth/usage HTTP 429",
+      servingLastGood: true,
+      dataAgeMs: 18 * 60_000 + 5_000,
+      snapshot: { kind: "window", fiveHour: { usedPercent: 42, resetsAt: null }, weekly: null },
+    }),
+  );
+  expect(notice?.kind).toBe("wait");
+  expect(notice?.headline).toBe("Showing the last reading, from 18m ago.");
+  expect(notice?.nextStep).toContain("Anthropic is rate-limiting quota checks.");
+  expect(notice?.readingAgeMs).toBe(18 * 60_000 + 5_000);
+  expect(notice?.raw).toBe("oauth/usage HTTP 429");
+});
+
+test("an expired token still asks for action when the last reading is kept", () => {
+  const notice = quotaProviderNotice(
+    report({
+      error: "401 from oauth/usage — access token stale",
+      servingLastGood: true,
+      dataAgeMs: 60_000,
+      snapshot: { kind: "window", fiveHour: { usedPercent: 42, resetsAt: null }, weekly: null },
+    }),
+  );
+  expect(notice?.kind).toBe("act");
+  expect(notice?.headline).toContain("expired");
+});

@@ -15,6 +15,8 @@ export type QuotaNotice = {
   nextStep: string;
   /** The producer's raw message, for people who want the exact wording. */
   raw: string;
+  /** Age of the reading still on screen, when the report kept the last values. */
+  readingAgeMs: number | null;
 };
 
 const CLAUDE_TOKEN_STALE =
@@ -64,7 +66,7 @@ function anthropicNotice(error: string): Pick<QuotaNotice, "kind" | "headline" |
     return {
       kind: "wait",
       headline: "Anthropic’s usage endpoint returned a server error.",
-      nextStep: "Nothing to do. Retries are automatic; the last good reading stays on screen.",
+      nextStep: "Nothing to do. Retries are automatic.",
     };
   }
   if (/timeout|timed out|fetch failed|econnrefused|enotfound|network|abort/.test(text)) {
@@ -164,5 +166,35 @@ export function quotaProviderNotice(
       : provider.provider === "codex"
         ? codexNotice(provider.error)
         : warpNotice(provider.error);
-  return { provider: provider.provider, raw: provider.error, ...body };
+  const readingAgeMs =
+    provider.snapshot && typeof provider.dataAgeMs === "number" && Number.isFinite(provider.dataAgeMs)
+      ? Math.max(0, provider.dataAgeMs)
+      : null;
+  // A transient failure (rate limit, server error, network) with the last
+  // reading still available is not news: the values stay on screen, and the
+  // notice leads with how old they are instead of with the failure.
+  if (provider.snapshot && body.kind === "wait") {
+    return {
+      provider: provider.provider,
+      raw: provider.error,
+      readingAgeMs,
+      kind: "wait",
+      headline:
+        readingAgeMs === null
+          ? "Showing the last reading."
+          : `Showing the last reading, from ${formatReadingAge(readingAgeMs)} ago.`,
+      nextStep: `${body.headline} ${body.nextStep}`,
+    };
+  }
+  return { provider: provider.provider, raw: provider.error, readingAgeMs, ...body };
+}
+
+/** "45s", "18m", "3h", "2d": the same steps as the dashboard's duration labels. */
+export function formatReadingAge(ms: number): string {
+  if (ms < 60_000) return `${Math.max(0, Math.round(ms / 1000))}s`;
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }

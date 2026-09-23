@@ -222,3 +222,46 @@ test("a stale Claude Code token renders a next-step notice in both modes", () =>
     expect(html).not.toContain("401 from oauth/usage");
   }
 });
+
+test("a rate-limited provider keeps its last values under an aged stale label", () => {
+  const quotas = {
+    available: true,
+    collectedAt: new Date().toISOString(),
+    usage: {
+      generatedAt: Date.now(),
+      providers: [
+        {
+          provider: "anthropic",
+          status: "stale",
+          source: "anthropic_api",
+          dataAgeMs: 18 * 60_000,
+          servingLastGood: true,
+          snapshot: {
+            kind: "window",
+            fiveHour: { usedPercent: 40, resetsAt: Date.now() + 3_600_000 },
+            weekly: { usedPercent: 70, resetsAt: Date.now() + 86_400_000 },
+          },
+          error: "oauth/usage HTTP 429",
+        },
+      ],
+    },
+  } as DashboardData["quotas"];
+  const [card] = quickOverviewCards(quotas);
+  expect(card.state).toBe("stale");
+  expect(card.stateLabel).toBe("stale · 18m");
+  expect(card.buckets.map((bucket) => bucket.usedPercent)).toEqual([40, 70]);
+  const html = renderToStaticMarkup(
+    createElement(QuickOverviewModal, {
+      quotas,
+      mode: "gauges",
+      onModeChange: () => {},
+      accent: "#78a8ff",
+      providerColors,
+      sceneEffects,
+      onClose: () => {},
+    }),
+  );
+  expect(html).toContain("stale · 18m");
+  expect(html).toContain("60%");
+  expect(html).toContain("Showing the last reading, from 18m ago.");
+});

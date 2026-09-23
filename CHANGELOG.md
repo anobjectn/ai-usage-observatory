@@ -5,6 +5,17 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Keep the last quota reading on screen when quota-service reports that its
+  newest collection failed (`servingLastGood`). The provider label shows the
+  age of the reading, for example "stale · 18m". For a rate limit, server
+  error, or network failure, the notice starts with "Showing the last
+  reading, from 18m ago." and then gives the cause. The quota evidence panel
+  also shows the time of the last collection attempt.
+
 ## [1.29.0] - 2026-09-20
 
 ### Added
