@@ -2236,9 +2236,9 @@ main {
 
 .quick-overview__row {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto auto;
+  grid-template-columns: minmax(0,1fr) auto;
   align-items: baseline;
-  gap: 12px;
+  gap: 4px 12px;
   padding: 6px 0;
 }
 
@@ -2250,6 +2250,27 @@ main {
   font-size: var(--text-xs);
 }
 
+.quick-overview__headroom-dot {
+  display: inline-block;
+  width: .48em;
+  height: .48em;
+  margin-right: .5em;
+  border-radius: 50%;
+  vertical-align: .06em;
+  background: var(--color-up);
+  box-shadow: 0 0 7px color-mix(in srgb,var(--color-up) 55%,transparent);
+}
+
+.quick-overview__headroom-dot.coast {
+  background: var(--color-warn);
+  box-shadow: 0 0 7px color-mix(in srgb,var(--color-warn) 55%,transparent);
+}
+
+.quick-overview__headroom-dot.low {
+  background: var(--color-danger);
+  box-shadow: 0 0 7px color-mix(in srgb,var(--color-danger) 55%,transparent);
+}
+
 .quick-overview__row strong {
   font-size: var(--text-sm);
   letter-spacing: -.02em;
@@ -2257,9 +2278,11 @@ main {
 }
 
 .quick-overview__row .quick-overview__reset {
+  grid-column: 1/-1;
   font-size: var(--text-2xs);
-  text-align: right;
-  min-width: 150px;
+  text-align: left;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .quick-overview__row.expired strong {

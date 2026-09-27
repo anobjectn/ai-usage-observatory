@@ -11923,6 +11923,13 @@ function ResetCountdown({
   );
 }
 
+function quickHeadroomState(left: number | null) {
+  if (left === null) return null;
+  if (left > 50) return { tone: "go", label: "Plenty remaining" } as const;
+  if (left > 20) return { tone: "coast", label: "Use with care" } as const;
+  return { tone: "low", label: "Very low remaining" } as const;
+}
+
 export function QuickOverviewModal({
   quotas,
   mode,
@@ -12056,12 +12063,23 @@ export function QuickOverviewModal({
                     bucket.usedPercent === null
                       ? null
                       : Math.max(0, Math.min(100, 100 - bucket.usedPercent));
+                  const headroom = quickHeadroomState(left);
                   return (
                     <div
                       className={`quick-overview__row ${bucket.state}`}
                       key={bucket.id}
                     >
-                      <b>{bucket.windowLabel}</b>
+                      <b>
+                        {headroom && (
+                          <i
+                            className={`quick-overview__headroom-dot ${headroom.tone}`}
+                            role="img"
+                            aria-label={headroom.label}
+                            title={headroom.label}
+                          />
+                        )}
+                        {bucket.windowLabel}
+                      </b>
                       <strong>
                         {left === null ? "—" : `${left.toFixed(0)}% left`}
                       </strong>
