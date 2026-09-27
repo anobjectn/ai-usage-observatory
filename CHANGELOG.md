@@ -5,6 +5,26 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.0] - 2026-09-27
+
+### Added
+
+- Show a colored headroom dot before each window in the quick quota
+  overview: green when more than 50% remains, amber ("Use with care") above
+  20%, and red ("Very low remaining") at 20% or less. The dot has an
+  accessible label and a tooltip.
+
+### Changed
+
+- Move the reset text of each quick-overview row to its own line below the
+  window label, so long reset text wraps instead of widening the modal.
+- Update the pinned ccusage version from 20.0.23 to 20.0.26. The new version
+  prefers an exact pricing tier over a fuzzy base-model match, and it removes
+  duplicate Claude records that have no request ID by timestamp. On local
+  data, the totals, sessions, and JSON contract do not change, and all current
+  models, including claude-fable-5-1, claude-opus-5-5, and gpt-6-astra, have
+  prices.
+
 ## [1.30.0] - 2026-09-23
 
 ### Changed
@@ -137,6 +157,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.31.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.30.0...v1.31.0
 [1.30.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.29.0...v1.30.0
 [1.29.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.27.0...v1.28.0
