@@ -5,6 +5,22 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.1] - 2026-10-02
+
+### Changed
+
+- Load dashboard views and dialogs on demand.
+
+### Fixed
+
+- Validate API write origins and JSON bodies before processing requests.
+- Include refresh failures in dashboard cache validation and stop ccusage
+  subprocesses after 60 seconds.
+- Preserve Codex session IDs, annotations, and derived data across archive
+  moves and reparses. Recover annotations from sessions archived before this
+  fix.
+- Use readable text sizes in the annotation modal.
+
 ## [1.31.0] - 2026-09-27
 
 ### Added
@@ -157,6 +173,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.31.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.31.0...v1.31.1
 [1.31.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.30.0...v1.31.0
 [1.30.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.29.0...v1.30.0
 [1.29.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.28.0...v1.29.0
