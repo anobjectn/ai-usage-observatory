@@ -627,7 +627,7 @@ export function AnnotationModal({
     >
       <div
         ref={dialogRef}
-        className="modal"
+        className="modal annotation-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="annotation-modal-title"

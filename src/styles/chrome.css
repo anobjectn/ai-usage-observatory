@@ -1029,6 +1029,18 @@ main {
   font-size: var(--text-2xs);
   color: var(--dim);
 }
+.annotation-modal>p {
+  font-size: var(--text-sm);
+}
+.annotation-modal label {
+  font-size: var(--text-sm);
+}
+.annotation-modal input,.annotation-modal textarea {
+  font-size: var(--text-md);
+}
+.annotation-modal label small {
+  font-size: var(--text-xs);
+}
 .primary-button {
   background: var(--accent);
   color: #12200d;
