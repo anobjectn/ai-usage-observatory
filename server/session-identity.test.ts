@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, rename, utimes, writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -68,6 +68,48 @@ test("an already archived session recovers its orphaned active-path annotation",
   const afterRecovery = getAnnotationVersion();
   await indexSessionPaths(root);
   expect(getAnnotationVersion()).toBe(afterRecovery);
+});
+
+test.each(["shrink", "unresolved cwd"])("restored sessions retain identity after a %s reparse", async (reason) => {
+  const archived = await create(archivedRelative);
+  const header = JSON.stringify({ type: "session_meta", payload: {
+    id: nativeKey, ...(reason === "shrink" ? { cwd: "/fixture/project" } : {}),
+  } }) + "\n";
+  await writeFile(archived, header + JSON.stringify({ type: "event_msg", payload: { message: "Original event" } }) + "\n");
+  const sessionId = (await indexSessionPaths(root)).catalog[0].sessionId;
+  setAnnotationText(sessionId, { tags: ["keep"], note: "Keep this note" });
+  setVerdict(sessionId, "good");
+  db.query(`INSERT INTO session_effort_state (session_id, parser_version, source_size, source_mtime,
+    last_offset, resume_hash, coverage_state, last_indexed_at) VALUES (?, 1, 1, 1, 1, 'hash', 'known', CURRENT_TIMESTAMP)`).run(sessionId);
+  const active = join(root, activeRelative);
+  await mkdir(dirname(active), { recursive: true });
+  await rename(archived, active);
+  expect((await indexSessionPaths(root)).catalog[0].sessionId).toBe(sessionId);
+
+  await writeFile(active, reason === "shrink" ? header : header + transcript);
+  // Force the reparse independently of filesystem timestamp resolution.
+  const modified = new Date(Date.now() + 2000);
+  await utimes(active, modified, modified);
+  const next = await indexSessionPaths(root);
+  expect(next.catalog[0].sessionId).toBe(sessionId);
+  expect(next.removedSessionIds).toEqual([]);
+  expect(getAnnotation(sessionId)).toMatchObject({ tags: ["keep"], note: "Keep this note", verdict: "good" });
+  expect(getSessionSource(stableSessionId("codex", activeRelative, nativeKey))?.sourceFile).toBe(active);
+  expect(db.query("SELECT resume_hash FROM session_effort_state WHERE session_id = ?").get(sessionId)).toEqual({ resume_hash: "hash" });
+});
+
+test("a replacement transcript with a different native key gets a new identity", async () => {
+  const active = await create(activeRelative);
+  await writeFile(active, transcript + JSON.stringify({ type: "event_msg", payload: { message: "Original event" } }) + "\n");
+  const original = (await indexSessionPaths(root)).catalog[0].sessionId;
+  setAnnotationText(original, { tags: ["original"], note: "Original session" });
+  await writeFile(active, JSON.stringify({ type: "session_meta", payload: { id: "replacement", cwd: "/fixture/project" } }) + "\n");
+  const modified = new Date(Date.now() + 2000);
+  await utimes(active, modified, modified);
+  const next = await indexSessionPaths(root);
+  expect(next.catalog[0].sessionId).not.toBe(original);
+  expect(next.removedSessionIds).toEqual([original]);
+  expect(getAnnotation(next.catalog[0].sessionId).note).toBe("");
 });
 
 test("recovery retains text, tags, and evidence of conflicting user ratings", async () => {

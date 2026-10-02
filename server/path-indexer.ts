@@ -134,8 +134,12 @@ async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string, root
     } else {
       const { cwd, nativeKey } = await parseHead(sourceFile, agent);
       nativeSessionKey = nativeKey;
-      sessionId = (agent === "codex" ? await archivedSessionId(db, root, sourceRelativePath, nativeKey) : null)
-        ?? stableSessionId(agent, sourceRelativePath, nativeKey);
+      // A restored transcript can still carry its archive-path ID. Re-reading the
+      // same native session must preserve that ID and its annotations and derived rows.
+      sessionId = existing?.native_session_key === nativeKey
+        ? existing.session_id
+        : (agent === "codex" ? await archivedSessionId(db, root, sourceRelativePath, nativeKey) : null)
+          ?? stableSessionId(agent, sourceRelativePath, nativeKey);
       upsert.run(sessionId, agent, nativeKey, sourceFile, cwd, info.mtimeMs, info.size);
     }
     if (agent === "codex" && sourceRelativePath.startsWith(".codex/archived_sessions/")) {
