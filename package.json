@@ -12,6 +12,7 @@
     "build": "vite build",
     "start": "bun run server/index.ts",
     "test": "bun test",
+    "test:browser": "bun run scripts/test-browser.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

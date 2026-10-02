@@ -233,6 +233,15 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    id: 11,
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS session_id_aliases (
+        old_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES session_paths(session_id) ON DELETE CASCADE
+      );`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database, applied: Migration[] = migrations) {

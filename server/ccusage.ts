@@ -1,19 +1,15 @@
 import { join } from "node:path";
 import { blocksReportSchema, unifiedReportSchema, type UnifiedReport, type UsageRow } from "./schema";
+import { runCommand } from "./subprocess";
 
 const binary = join(process.cwd(), "node_modules", ".bin", "ccusage");
 
 async function invoke(args: string[]) {
-  const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, NO_COLOR: "1" } });
-  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  if (code !== 0) throw new Error(stderr.trim() || `ccusage exited with ${code}`);
-  return JSON.parse(stdout);
+  return JSON.parse(await runCommand([binary, ...args]));
 }
 
 export async function ccusageVersion() {
-  const child = Bun.spawn([binary, "--version"], { stdout: "pipe", stderr: "pipe" });
-  const output = await new Response(child.stdout).text();
-  await child.exited;
+  const output = await runCommand([binary, "--version"]);
   return output.trim().replace(/^ccusage\s+/, "");
 }
 

@@ -2,14 +2,10 @@ import { homedir } from "node:os";
 import { basename, dirname, relative } from "node:path";
 import { stat } from "node:fs/promises";
 import { db, listRules } from "./store";
+import { archivedSessionId, recoverArchivedAnnotation, resolveSessionAlias, stableSessionId } from "./session-identity";
+export { stableSessionId } from "./session-identity";
 
 type IndexedPath = { sessionId: string; agent: string; nativeKey: string; cwd: string | null; sourceFile: string };
-
-export function stableSessionId(agent: string, sourceRelativePath: string, nativeSessionKey: string) {
-  const hash = new Bun.CryptoHasher("sha256");
-  hash.update(`${agent}\0${sourceRelativePath}\0${nativeSessionKey}`);
-  return hash.digest("hex").slice(0, 24);
-}
 
 export function sessionReportKeys(agent: string, nativeKey: string, sourceFile: string) {
   // Every Copilot session file is named `events.jsonl`, so its basename identifies nothing.
@@ -98,14 +94,13 @@ export type PathIndexResult = {
 // the move or it silently drops out of `session_paths` and looks gone.
 const managedRoots = [".claude/projects/", ".codex/sessions/", ".codex/archived_sessions/", ".copilot/session-state/"];
 
-async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string) {
-  const root = homedir();
+async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string, root: string) {
   const glob = new Bun.Glob(pattern);
   const upsert = db.query(`INSERT INTO session_paths
     (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size, indexed_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd, source_mtime = excluded.source_mtime, source_size = excluded.source_size, indexed_at = CURRENT_TIMESTAMP`);
-  const existingQuery = db.query("SELECT session_id, source_mtime, source_size, cwd FROM session_paths WHERE source_file = ?");
+    ON CONFLICT(session_id) DO UPDATE SET source_file = excluded.source_file, cwd = excluded.cwd, source_mtime = excluded.source_mtime, source_size = excluded.source_size, indexed_at = CURRENT_TIMESTAMP`);
+  const existingQuery = db.query("SELECT session_id, native_session_key, source_mtime, source_size, cwd FROM session_paths WHERE source_file = ?");
   const touchSize = db.query("UPDATE session_paths SET source_size = ? WHERE session_id = ?");
   const touchCwd = db.query("UPDATE session_paths SET cwd = ? WHERE session_id = ?");
   const touchStats = db.query("UPDATE session_paths SET source_mtime = ?, source_size = ?, indexed_at = CURRENT_TIMESTAMP WHERE session_id = ?");
@@ -116,8 +111,9 @@ async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string) {
     const sourceFile = `${root}/${sourceRelativePath}`;
     const info = await stat(sourceFile);
     const identity = Number.isFinite(info.dev) && Number.isFinite(info.ino) ? `${info.dev}:${info.ino}` : null;
-    const existing = existingQuery.get(sourceFile) as { session_id: string; source_mtime: number; source_size: number; cwd: string | null } | null;
+    const existing = existingQuery.get(sourceFile) as { session_id: string; native_session_key: string; source_mtime: number; source_size: number; cwd: string | null } | null;
     let sessionId = existing?.session_id ?? "";
+    let nativeSessionKey = existing?.native_session_key ?? "";
     if (existing?.source_mtime === info.mtimeMs) {
       // Backfills the size column for databases migrated from before it existed.
       if (existing.source_size !== info.size) touchSize.run(info.size, existing.session_id);
@@ -137,8 +133,13 @@ async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string) {
       touchStats.run(info.mtimeMs, info.size, existing.session_id);
     } else {
       const { cwd, nativeKey } = await parseHead(sourceFile, agent);
-      sessionId = stableSessionId(agent, sourceRelativePath, nativeKey);
+      nativeSessionKey = nativeKey;
+      sessionId = (agent === "codex" ? await archivedSessionId(db, root, sourceRelativePath, nativeKey) : null)
+        ?? stableSessionId(agent, sourceRelativePath, nativeKey);
       upsert.run(sessionId, agent, nativeKey, sourceFile, cwd, info.mtimeMs, info.size);
+    }
+    if (agent === "codex" && sourceRelativePath.startsWith(".codex/archived_sessions/")) {
+      recoverArchivedAnnotation(db, sourceRelativePath, nativeSessionKey, sessionId);
     }
     const source: Source = { sessionId, agent, sourceFile, mtimeMs: info.mtimeMs, size: info.size, sourceIdentity: identity };
     catalog.push(source);
@@ -147,19 +148,18 @@ async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string) {
   return { catalog, changed };
 }
 
-export async function indexSessionPaths(): Promise<PathIndexResult & { indexed: number }> {
+export async function indexSessionPaths(root = homedir()): Promise<PathIndexResult & { indexed: number }> {
   // A partial or failed scan must never look like "these transcripts disappeared", so all globs
   // are awaited to completion before anything is pruned.
   const [claude, codex, codexArchived, copilot] = await Promise.all([
-    indexGlob("claude", ".claude/projects/**/*.jsonl"),
-    indexGlob("codex", ".codex/sessions/**/*.jsonl"),
-    indexGlob("codex", ".codex/archived_sessions/**/*.jsonl"),
-    indexGlob("copilot", ".copilot/session-state/*/events.jsonl"),
+    indexGlob("claude", ".claude/projects/**/*.jsonl", root),
+    indexGlob("codex", ".codex/sessions/**/*.jsonl", root),
+    indexGlob("codex", ".codex/archived_sessions/**/*.jsonl", root),
+    indexGlob("copilot", ".copilot/session-state/*/events.jsonl", root),
   ]);
   const catalog = [...claude.catalog, ...codex.catalog, ...codexArchived.catalog];
   const changed = [...claude.changed, ...codex.changed, ...codexArchived.changed];
   const seen = new Set([...catalog, ...copilot.catalog].map((source) => source.sessionId));
-  const root = homedir();
   const rows = db.query("SELECT session_id, source_file FROM session_paths").all() as Array<{ session_id: string; source_file: string }>;
   const removedSessionIds = rows
     .filter((row) => managedRoots.some((managed) => row.source_file.startsWith(`${root}/${managed}`)) && !seen.has(row.session_id))
@@ -247,11 +247,13 @@ export function getPathIndex(): Record<string, IndexedPath & { tags: string[] }>
 }
 
 export function getSessionSource(sessionId: string) {
+  sessionId = resolveSessionAlias(db, sessionId);
   const row = db.query("SELECT agent, source_file, cwd FROM session_paths WHERE session_id = ?").get(sessionId) as {agent:string;source_file:string;cwd:string|null} | null;
   return row ? { agent: row.agent, sourceFile: row.source_file, cwd: row.cwd } : null;
 }
 
 export function getNativeSessionKey(sessionId: string) {
+  sessionId = resolveSessionAlias(db, sessionId);
   const row = db.query("SELECT native_session_key AS nativeKey FROM session_paths WHERE session_id = ?").get(sessionId) as { nativeKey: string } | null;
   return row?.nativeKey ?? null;
 }

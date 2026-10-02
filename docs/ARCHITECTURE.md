@@ -4,11 +4,24 @@
 
 The React frontend only consumes normalized local API responses. It never reads agent records or raw `ccusage` JSON directly.
 
+`src/App.tsx` owns navigation, global filters, and the application shell. Each of the six views
+loads through a dynamic import. Shared calculations live in `src/app/analytics.ts`; charts,
+session detail, quota cards, and dialogs have separate component modules. The dashboard hook
+lives in `src/hooks/use-dashboard.ts`.
+
+`server/app.ts` exports the request handler separately from `server/index.ts`, which starts the
+listener. API mutations reject unapproved browser origins and cross-site requests. Originless
+clients can write only through a loopback host. Endpoints with JSON bodies require
+`application/json` and validate their payloads before writing. Invalid input returns 400;
+an unsupported content type returns 415.
+
 ## Collection flow
 
 1. The server invokes the project-pinned `node_modules/.bin/ccusage` binary. It runs without
    `--offline`, so ccusage fetches LiteLLM pricing and falls back to its embedded catalog when
    that fetch fails.
+   Each subprocess has a 60-second deadline. A timeout terminates only that child and follows
+   the existing collection-failure path that retains the prior snapshot.
 2. Zod validates unified, block, and Claude project-instance reports.
 3. The pricing rate card resolves from the SQLite cache or the bundled
    `server/rate-card-fallback.json`, and refreshes from LiteLLM in the background once a day
@@ -43,6 +56,13 @@ session_id = sha256(agent + NUL + source_file_relative_path + NUL + native_sessi
 ```
 
 Agent and source path namespace native identifiers. The source path and key are taken from the agent record, not from mutable `ccusage` display ordering. If a future pinned ccusage version changes native session keys, an explicit compatibility map must be added before upgrade; unmapped rows must be surfaced in source health rather than silently orphaning annotations.
+
+A Codex transcript moved between the active and archive roots retains its existing ID when
+the native key and filename match and the prior file no longer exists. Existing archived IDs
+remain unchanged. For standard dated `rollout-YYYY-MM-DDT...` filenames, indexing can reconstruct
+the former active-path ID and recover orphaned annotations. Migration 11 records that ID as an
+alias. Recovery unions tags and retains both notes. The current verdict wins a conflict; the
+former verdict is retained in the note. Unrecognized filenames are not guessed.
 
 ## Local storage
 
@@ -125,6 +145,9 @@ A verdict changes neither `collectedAt` nor the effort index version, so `annota
 is bumped in the same transaction as every write. The cached dashboard snapshot re-overlays
 annotations when that revision changes — no ccusage recollection — and the revision is part of both
 the dashboard ETag and the combo-scoreboard ETag.
+
+The dashboard ETag also includes refresh status and its error, so a collection failure or
+recovery reaches the browser even when the last successful collection time stays unchanged.
 
 ## Quota integration
 

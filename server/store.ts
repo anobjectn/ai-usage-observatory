@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runMigrations } from "./migrations";
+import { resolveSessionAlias } from "./session-identity";
 
 const dbPath = process.env.USAGE_OBSERVATORY_DB ?? join(process.cwd(), ".usage-observatory", "data.db");
 mkdirSync(dirname(dbPath), { recursive: true });
@@ -21,6 +22,7 @@ export const verdicts: Verdict[] = ["good", "mixed", "bad"];
 export const isVerdict = (value: unknown): value is Verdict => verdicts.includes(value as Verdict);
 export type Annotation = { tags: string[]; note: string; verdict: Verdict | null; updatedAt?: string };
 export const emptyAnnotation = (): Annotation => ({ tags: [], note: "", verdict: null });
+export const resolveSessionId = (sessionId: string) => resolveSessionAlias(db, sessionId);
 
 export function listRules(): PathRule[] {
   return db.query("SELECT * FROM path_rules ORDER BY tag, pattern").all() as PathRule[];
@@ -55,6 +57,7 @@ export function getAnnotations(): Record<string, Annotation> {
 }
 
 export function getAnnotation(sessionId: string): Annotation {
+  sessionId = resolveSessionAlias(db, sessionId);
   const row = db.query("SELECT session_id, tags, note, verdict, updated_at FROM annotations WHERE session_id = ?").get(sessionId) as AnnotationRow | null;
   return row ? annotationOf(row) : emptyAnnotation();
 }
@@ -70,6 +73,7 @@ const bumpAnnotationVersion = () => db.query("UPDATE annotation_meta SET version
 /** Tags and note only. The two setters are field-preserving on purpose: a single replacement
  * setter would let a tag edit silently clear a verdict the user recorded. */
 export const setAnnotationText = db.transaction((sessionId: string, annotation: Pick<Annotation, "tags" | "note">) => {
+  sessionId = resolveSessionAlias(db, sessionId);
   db.query(`INSERT INTO annotations (session_id, tags, note, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(session_id) DO UPDATE SET tags = excluded.tags, note = excluded.note, updated_at = CURRENT_TIMESTAMP`)
     .run(sessionId, JSON.stringify(annotation.tags), annotation.note);
@@ -79,6 +83,7 @@ export const setAnnotationText = db.transaction((sessionId: string, annotation: 
 
 /** Verdict only; `null` clears it. Tags and note are preserved. */
 export const setVerdict = db.transaction((sessionId: string, verdict: Verdict | null) => {
+  sessionId = resolveSessionAlias(db, sessionId);
   db.query(`INSERT INTO annotations (session_id, verdict, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(session_id) DO UPDATE SET verdict = excluded.verdict, updated_at = CURRENT_TIMESTAMP`)
     .run(sessionId, verdict);

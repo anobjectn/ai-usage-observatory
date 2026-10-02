@@ -1,38 +1,10 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  averageMetricSlices,
-  currentFiveHourWindows,
-  currentWindowSessions,
-  effortAbsenceReason,
-  metricRowCacheShare,
-  SessionDetailPanel,
-  SessionMixGroupBreakdown,
-  observedTermini,
-  pathFilteredRows,
-  periodTickLabel,
-  projectDayRows,
-  projectModelSessionRows,
-  projectSummaryInRange,
-  projectTrendRowsInRange,
-  sessionProviderMix,
-  sessionModelNames,
-  SessionQuotaBalanceCell,
-  sessionQuotaBalanceItems,
-  sessionQuotaEvents,
-  quotaRemainingRangeItems,
-  quotaRemainingRanges,
-  quotaResetBoundaries,
-  recentSessionFloor,
-  recentSessionRows,
-  reportedTermini,
-  sessionRangeLabel,
-  shareStructure,
-  withoutCacheMetricRow,
-  normalizeTextScale,
-  textScaleBounds,
-} from "./App";
+import { averageMetricSlices, currentFiveHourWindows, currentWindowSessions, effortAbsenceReason, metricRowCacheShare, observedTermini, pathFilteredRows, projectDayRows, projectModelSessionRows, projectSummaryInRange, projectTrendRowsInRange, sessionModelNames, sessionQuotaBalanceItems, sessionQuotaEvents, quotaRemainingRangeItems, quotaRemainingRanges, quotaResetBoundaries, recentSessionFloor, recentSessionRows, reportedTermini, sessionRangeLabel, shareStructure, withoutCacheMetricRow } from "./app/analytics";
+import { SessionDetailPanel, SessionMixGroupBreakdown, sessionProviderMix, SessionQuotaBalanceCell } from "./components/session-detail";
+import { periodTickLabel } from "./app/format";
+import { normalizeTextScale, textScaleBounds } from "./app/preferences";
 import type {
   EffortIndexStatus,
   EffortSummary,

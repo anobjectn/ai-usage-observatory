@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { getSessionDetail } from "./session-detail";
 import { getSessionSource } from "./path-indexer";
-import { hostnameAllowed, parseAllowedHosts, requestHostIsLoopback } from "./request-host";
+import { requestOriginAllowed } from "./request-host";
 
 export const externalOpenActions = [
   "reveal",
@@ -33,20 +33,7 @@ export function isExternalOpenAction(
 
 /** Browser POSTs carry Origin. Reject cross-site callers before allowing an approved app origin
  * to launch a desktop app; origin-less local clients such as curl remain usable. */
-export function externalOpenOriginAllowed(headers: Headers, allowedHosts = parseAllowedHosts()) {
-  if (headers.get("sec-fetch-site") === "cross-site") return false;
-  const origin = headers.get("origin");
-  if (!origin) return requestHostIsLoopback(headers.get("host"));
-  try {
-    const url = new URL(origin);
-    return (
-      ["http:", "https:"].includes(url.protocol) &&
-      hostnameAllowed(url.hostname, allowedHosts)
-    );
-  } catch {
-    return false;
-  }
-}
+export const externalOpenOriginAllowed = requestOriginAllowed;
 
 export function resolveListedFilePath(cwd: string | null, listedPath: string) {
   if (isAbsolute(listedPath)) return resolve(listedPath);

@@ -87,6 +87,16 @@ bun run start
 
 Open `http://127.0.0.1:4318`.
 
+### Development checks
+
+Run `bun test` and `bun run typecheck`. To check the production build, run `bun run build`.
+
+For browser regressions, run `bun run test:browser` and open the URL it prints. The page
+automatically checks all six views, collection failure and recovery, connection retry, and
+annotation persistence. The command uses a temporary database, a separate Vite cache, and
+separate ports. It exits with the result and removes its temporary data. Open only the printed
+test URL; the normal app remains available on its existing port.
+
 ### Private remote access with Tailscale
 
 Remote access is disabled by default. AI Usage Observatory stays bound to

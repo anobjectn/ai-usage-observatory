@@ -1,13 +1,9 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  QuickOverviewModal,
-  benchmarkLoadedAtLabel,
-  condensedResetCopy,
-  quickOverviewCards,
-  savedQuickOverviewMode,
-} from "./App";
+import { QuickOverviewModal, benchmarkLoadedAtLabel } from "./components/app-modals";
+import { condensedResetCopy, quickOverviewCards } from "./app/analytics";
+import { savedQuickOverviewMode } from "./app/preferences";
 import type { SceneEffects, ProviderColors } from "./scene";
 import type { DashboardData } from "./types";
 

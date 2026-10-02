@@ -45,3 +45,18 @@ export function requestHostAllowed(host: string | null, allowedHosts = parseAllo
   const hostname = requestHostname(host);
   return hostname !== null && hostnameAllowed(hostname, allowedHosts);
 }
+
+/** Browser mutations require an approved origin. Originless CLI requests are local only. */
+export function requestOriginAllowed(headers: Headers, allowedHosts = parseAllowedHosts()) {
+  if (headers.get("sec-fetch-site") === "cross-site") return false;
+  const origin = headers.get("origin");
+  if (!origin) return requestHostIsLoopback(headers.get("host"));
+  try {
+    const url = new URL(origin);
+    return ["http:", "https:"].includes(url.protocol) &&
+      !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash &&
+      hostnameAllowed(url.hostname, allowedHosts);
+  } catch {
+    return false;
+  }
+}

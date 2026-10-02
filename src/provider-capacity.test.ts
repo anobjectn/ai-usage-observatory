@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { providerCapacityRows } from "./App";
+import { providerCapacityRows } from "./app/analytics";
 import type { DashboardData, MetricRow } from "./types";
 
 function metric(agent: string, totalTokens: number): MetricRow {
