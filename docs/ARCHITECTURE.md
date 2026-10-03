@@ -1,6 +1,10 @@
 # Architecture and data contracts
 
-![Diagram of the local setup: agent session records feed five collectors in the Observatory server, which build an in-memory snapshot backed by SQLite and serve it to the browser through /api. The optional quota-service companion supplies provider allowance data. Four wires cross the edge of the machine: provider usage endpoints, the LiteLLM price list, the npm registry, and an optional Tailscale Serve path.](setup-diagram.svg)
+<a href="setup-diagram.png">
+  <img src="setup-diagram.png" width="100%" alt="Diagram of the local setup: agent session records feed five collectors in the Observatory server, which build an in-memory snapshot backed by SQLite and serve it to the browser through /api. The optional quota-service companion supplies provider allowance data. Four wires cross the edge of the machine: provider usage endpoints, the LiteLLM price list, the npm registry, and an optional Tailscale Serve path.">
+</a>
+
+<sub>Click for full size. The editable source is <a href="setup-diagram.svg"><code>setup-diagram.svg</code></a>.</sub>
 
 ## Boundary
 
