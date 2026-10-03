@@ -1,5 +1,7 @@
 # Architecture and data contracts
 
+![Diagram of the local setup: agent session records feed five collectors in the Observatory server, which build an in-memory snapshot backed by SQLite and serve it to the browser through /api. The optional quota-service companion supplies provider allowance data. Four wires cross the edge of the machine: provider usage endpoints, the LiteLLM price list, the npm registry, and an optional Tailscale Serve path.](setup-diagram.svg)
+
 ## Boundary
 
 The React frontend only consumes normalized local API responses. It never reads agent records or raw `ccusage` JSON directly.
