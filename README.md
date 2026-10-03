@@ -243,6 +243,12 @@ analytical context between the views that support each filter.
 
 ## How the data is assembled
 
+<a href="docs/setup-diagram.svg">
+  <img src="docs/setup-diagram.svg" width="100%" alt="Diagram of the local setup: agent session records feed five collectors in the Observatory server on 127.0.0.1:4318, which build an in-memory snapshot backed by SQLite and serve it to the browser through /api. Four wires cross the edge of the machine: provider usage endpoints through the optional quota-service, the LiteLLM price list, the npm registry, and an optional Tailscale Serve path to your own devices.">
+</a>
+
+<sub>How the pieces connect — everything inside the frame runs on 127.0.0.1; the four wires that cross its edge say what they carry</sub>
+
 | Signal | Source | Role |
 | --- | --- | --- |
 | Tokens and API-equivalent cost | Pinned [`ccusage`](https://github.com/ccusage/ccusage) analytics | Produces usage rollups and reconstructed activity blocks from local records. |

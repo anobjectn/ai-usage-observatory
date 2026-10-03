@@ -1,0 +1,292 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1056" width="1600" height="1056" role="img" aria-labelledby="diagram-title diagram-desc">
+  <title id="diagram-title">How AI Usage Observatory is wired</title>
+  <desc id="diagram-desc">Agent session records on your Mac feed five collectors inside the Observatory server on 127.0.0.1:4318. The collectors build an in-memory snapshot, backed by a local SQLite database, which your browser reads through /api. The optional quota-service companion on 127.0.0.1:8787 supplies provider allowance data. Four wires cross the edge of the machine: provider usage endpoints, the LiteLLM price list, the npm registry, and an optional Tailscale Serve path to your own devices.</desc>
+
+  <defs>
+    <radialGradient id="field" cx="800" cy="430" r="980" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0c1917"/>
+      <stop offset="1" stop-color="#07100f"/>
+    </radialGradient>
+    <marker id="arrow-local" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M1 1.5 9 5 1 8.5z" fill="#58d9cf"/>
+    </marker>
+    <marker id="arrow-outside" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M1 1.5 9 5 1 8.5z" fill="#ff9e64"/>
+    </marker>
+    <marker id="arrow-tailnet" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M1 1.5 9 5 1 8.5z" fill="#78a8ff"/>
+    </marker>
+    <style>
+      text { font-family: "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+      .mono { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; }
+      .title { font-size: 34px; font-weight: 500; fill: #ecf2ef; letter-spacing: -.6px; }
+      .subtitle { font-size: 16px; fill: #91a19b; }
+      .heading { font-size: 20px; font-weight: 600; fill: #ecf2ef; letter-spacing: -.2px; }
+      .name { font-size: 16px; font-weight: 600; fill: #ecf2ef; }
+      .body { font-size: 13px; fill: #91a19b; }
+      .note { font-size: 12px; fill: #7f8e88; }
+      .path { font-size: 12px; fill: #b4c4bd; }
+      .port { font-size: 13px; fill: #58d9cf; }
+      .chip { font-size: 13px; font-weight: 500; fill: #dbe5e1; }
+      .box { fill: #0d1715; stroke: #24322e; }
+      .row { fill: #111d1a; stroke: #24322e; }
+      .optional { stroke: #4a5f57; stroke-dasharray: 5 5; }
+      .outside { fill: #091211; stroke: #24322e; }
+      .wire { fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+      .local { stroke: #58d9cf; }
+      .out { stroke: #ff9e64; }
+      .tailnet { stroke: #78a8ff; }
+      .label-out { font-size: 12.5px; fill: #ff9e64; }
+      .label-tailnet { font-size: 12.5px; fill: #78a8ff; }
+    </style>
+    <symbol id="i-database" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></g></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></g></symbol>
+    <symbol id="i-coins" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13.744 17.736a6 6 0 1 1-7.48-7.48"/><path d="M15 6h1v4"/><path d="m6.134 14.768.866-.5 2 3.464"/><circle cx="16" cy="8" r="6"/></g></symbol>
+    <symbol id="i-folder-tree" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 5a2 2 0 0 0 2 2h3"/><path d="M3 3v13a2 2 0 0 0 2 2h3"/></g></symbol>
+    <symbol id="i-brain" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></g></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></g></symbol>
+    <symbol id="i-memory-stick" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12v-2"/><path d="M12 18v-2"/><path d="M16 12v-2"/><path d="M16 18v-2"/><path d="M2 11h1.5"/><path d="M20 18v-2"/><path d="M20.5 11H22"/><path d="M4 18v-2"/><path d="M8 12v-2"/><path d="M8 18v-2"/><rect x="2" y="6" width="20" height="10" rx="2"/></g></symbol>
+    <symbol id="i-calendar-clock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v4"/><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M3 10h5"/><path d="M8 2v4"/><circle cx="16" cy="16" r="6"/></g></symbol>
+    <symbol id="i-smartphone" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></g></symbol>
+    <symbol id="i-book-text" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M8 11h8"/><path d="M8 7h6"/></g></symbol>
+    <symbol id="i-tags" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13.172 2a2 2 0 0 1 1.414.586l6.71 6.71a2.4 2.4 0 0 1 0 3.408l-4.592 4.592a2.4 2.4 0 0 1-3.408 0l-6.71-6.71A2 2 0 0 1 6 9.172V3a1 1 0 0 1 1-1z"/><path d="M2 7v6.172a2 2 0 0 0 .586 1.414l6.71 6.71a2.4 2.4 0 0 0 3.191.193"/><circle cx="10.5" cy="6.5" r=".5" fill="currentColor"/></g></symbol>
+    <symbol id="i-claude" viewBox="0 0 24 24"><path fill="currentColor" d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></symbol>
+    <symbol id="i-openai" viewBox="0 0 24 24"><path fill="currentColor" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></symbol>
+    <symbol id="i-githubcopilot" viewBox="0 0 24 24"><path fill="currentColor" d="M23.922 16.997C23.061 18.492 18.063 22.02 12 22.02 5.937 22.02.939 18.492.078 16.997A.641.641 0 0 1 0 16.741v-2.869a.883.883 0 0 1 .053-.22c.372-.935 1.347-2.292 2.605-2.656.167-.429.414-1.055.644-1.517a10.098 10.098 0 0 1-.052-1.086c0-1.331.282-2.499 1.132-3.368.397-.406.89-.717 1.474-.952C7.255 2.937 9.248 1.98 11.978 1.98c2.731 0 4.767.957 6.166 2.093.584.235 1.077.546 1.474.952.85.869 1.132 2.037 1.132 3.368 0 .368-.014.733-.052 1.086.23.462.477 1.088.644 1.517 1.258.364 2.233 1.721 2.605 2.656a.841.841 0 0 1 .053.22v2.869a.641.641 0 0 1-.078.256Zm-11.75-5.992h-.344a4.359 4.359 0 0 1-.355.508c-.77.947-1.918 1.492-3.508 1.492-1.725 0-2.989-.359-3.782-1.259a2.137 2.137 0 0 1-.085-.104L4 11.746v6.585c1.435.779 4.514 2.179 8 2.179 3.486 0 6.565-1.4 8-2.179v-6.585l-.098-.104s-.033.045-.085.104c-.793.9-2.057 1.259-3.782 1.259-1.59 0-2.738-.545-3.508-1.492a4.359 4.359 0 0 1-.355-.508Zm2.328 3.25c.549 0 1 .451 1 1v2c0 .549-.451 1-1 1-.549 0-1-.451-1-1v-2c0-.549.451-1 1-1Zm-5 0c.549 0 1 .451 1 1v2c0 .549-.451 1-1 1-.549 0-1-.451-1-1v-2c0-.549.451-1 1-1Zm3.313-6.185c.136 1.057.403 1.913.878 2.497.442.544 1.134.938 2.344.938 1.573 0 2.292-.337 2.657-.751.384-.435.558-1.15.558-2.361 0-1.14-.243-1.847-.705-2.319-.477-.488-1.319-.862-2.824-1.025-1.487-.161-2.192.138-2.533.529-.269.307-.437.808-.438 1.578v.021c0 .265.021.562.063.893Zm-1.626 0c.042-.331.063-.628.063-.894v-.02c-.001-.77-.169-1.271-.438-1.578-.341-.391-1.046-.69-2.533-.529-1.505.163-2.347.537-2.824 1.025-.462.472-.705 1.179-.705 2.319 0 1.211.175 1.926.558 2.361.365.414 1.084.751 2.657.751 1.21 0 1.902-.394 2.344-.938.475-.584.742-1.44.878-2.497Z"/></symbol>
+    <symbol id="i-warp" viewBox="0 0 24 24"><path fill="currentColor" d="M12.035 2.723h9.253A2.712 2.712 0 0 1 24 5.435v10.529a2.712 2.712 0 0 1-2.712 2.713H8.047Zm-1.681 2.6L6.766 19.677h5.598l-.399 1.6H2.712A2.712 2.712 0 0 1 0 18.565V8.036a2.712 2.712 0 0 1 2.712-2.712Z"/></symbol>
+    <symbol id="i-bun" viewBox="0 0 24 24"><path fill="currentColor" d="M12 22.596c6.628 0 12-4.338 12-9.688 0-3.318-2.057-6.248-5.219-7.986-1.286-.715-2.297-1.357-3.139-1.89C14.058 2.025 13.08 1.404 12 1.404c-1.097 0-2.334.785-3.966 1.821a49.92 49.92 0 0 1-2.816 1.697C2.057 6.66 0 9.59 0 12.908c0 5.35 5.372 9.687 12 9.687v.001ZM10.599 4.715c.334-.759.503-1.58.498-2.409 0-.145.202-.187.23-.029.658 2.783-.902 4.162-2.057 4.624-.124.048-.199-.121-.103-.209a5.763 5.763 0 0 0 1.432-1.977Zm2.058-.102a5.82 5.82 0 0 0-.782-2.306v-.016c-.069-.123.086-.263.185-.172 1.962 2.111 1.307 4.067.556 5.051-.082.103-.23-.003-.189-.126a5.85 5.85 0 0 0 .23-2.431Zm1.776-.561a5.727 5.727 0 0 0-1.612-1.806v-.014c-.112-.085-.024-.274.114-.218 2.595 1.087 2.774 3.18 2.459 4.407a.116.116 0 0 1-.049.071.11.11 0 0 1-.153-.026.122.122 0 0 1-.022-.083 5.891 5.891 0 0 0-.737-2.331Zm-5.087.561c-.617.546-1.282.76-2.063 1-.117 0-.195-.078-.156-.181 1.752-.909 2.376-1.649 2.999-2.778 0 0 .155-.118.188.085 0 .304-.349 1.329-.968 1.874Zm4.945 11.237a2.957 2.957 0 0 1-.937 1.553c-.346.346-.8.565-1.286.62a2.178 2.178 0 0 1-1.327-.62 2.955 2.955 0 0 1-.925-1.553.244.244 0 0 1 .064-.198.234.234 0 0 1 .193-.069h3.965a.226.226 0 0 1 .19.07c.05.053.073.125.063.197Zm-5.458-2.176a1.862 1.862 0 0 1-2.384-.245 1.98 1.98 0 0 1-.233-2.447c.207-.319.503-.566.848-.713a1.84 1.84 0 0 1 1.092-.11c.366.075.703.261.967.531a1.98 1.98 0 0 1 .408 2.114 1.931 1.931 0 0 1-.698.869v.001Zm8.495.005a1.86 1.86 0 0 1-2.381-.253 1.964 1.964 0 0 1-.547-1.366c0-.384.11-.76.32-1.079.207-.319.503-.567.849-.713a1.844 1.844 0 0 1 1.093-.108c.367.076.704.262.968.534a1.98 1.98 0 0 1 .4 2.117 1.932 1.932 0 0 1-.702.868Z"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></g></symbol>
+    <symbol id="i-tailscale" viewBox="0 0 24 24"><path fill="currentColor" d="M24 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm-9 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm0-9a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm6-6a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 24a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zm18 .5a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM6 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm9-9a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm-3 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM6 3a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM3 5.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></symbol>
+    <symbol id="i-npm" viewBox="0 0 24 24"><path fill="currentColor" d="M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z"/></symbol>
+    <symbol id="i-anthropic" viewBox="0 0 24 24"><path fill="currentColor" d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></symbol>
+  </defs>
+
+  <rect width="1600" height="1056" fill="url(#field)"/>
+
+  <!-- Orbit mark -->
+  <g fill="none" stroke="#1b2a26">
+    <circle cx="1508" cy="44" r="58"/>
+    <circle cx="1508" cy="44" r="112"/>
+  </g>
+  <circle cx="1411" cy="100" r="4" fill="#58d9cf"/>
+
+  <text class="title" x="64" y="90">How AI Usage Observatory is wired</text>
+  <text class="subtitle" x="64" y="124">Everything inside the frame runs on 127.0.0.1. Four wires cross its edge, and each one says what it carries.</text>
+
+  <!-- Machine frame -->
+  <rect x="40" y="160" width="1520" height="640" rx="28" fill="#0a1513" stroke="#35463f" stroke-width="1.5"/>
+  <rect x="64" y="146" width="204" height="28" rx="14" fill="#0d1715" stroke="#35463f" stroke-width="1.5"/>
+  <text x="80" y="165" font-size="14" font-weight="600" fill="#ecf2ef">Your Mac</text>
+  <text class="mono" x="150" y="165" font-size="12" fill="#58d9cf">127.0.0.1 only</text>
+
+  <!-- Local records -->
+  <text class="body" x="72" y="240" font-size="14">Records your agents already write</text>
+
+  <rect class="box" x="72" y="262" width="340" height="74" rx="10"/>
+  <text class="name" x="92" y="293">Claude Code</text>
+  <use href="#i-claude" x="376" y="274" width="18" height="18" color="#d97757"/>
+  <text class="mono path" x="92" y="317">~/.claude/projects</text>
+
+  <rect class="box" x="72" y="346" width="340" height="74" rx="10"/>
+  <text class="name" x="92" y="377">Codex</text>
+  <use href="#i-openai" x="376" y="358" width="18" height="18" color="#eaeaea" opacity=".9"/>
+  <text class="mono path" x="92" y="401">~/.codex/sessions, archived_sessions</text>
+
+  <rect class="box" x="72" y="430" width="340" height="74" rx="10"/>
+  <text class="name" x="92" y="461">Copilot</text>
+  <text class="note" x="364" y="461" text-anchor="end">working directory only</text>
+  <use href="#i-githubcopilot" x="376" y="442" width="18" height="18" color="#b4c4bd"/>
+  <text class="mono path" x="92" y="485">~/.copilot/session-state</text>
+
+  <rect class="box" x="72" y="514" width="340" height="74" rx="10"/>
+  <text class="name" x="92" y="545">Warp</text>
+  <text class="note" x="364" y="545" text-anchor="end">local ledger</text>
+  <use href="#i-warp" x="376" y="526" width="18" height="18" color="#d7b3ff"/>
+  <text class="mono path" x="92" y="569">warp.sqlite</text>
+
+  <!-- quota-service -->
+  <rect class="box optional" x="72" y="598" width="340" height="170" rx="10"/>
+  <text class="name" x="92" y="629">quota-service</text>
+  <text class="mono port" x="364" y="629" text-anchor="end" font-size="12">127.0.0.1:8787</text>
+  <use href="#i-gauge" x="376" y="610" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="92" y="654">Optional companion. Reads provider</text>
+  <text class="body" x="92" y="672">allowance and never spends credits.</text>
+  <text class="mono path" x="92" y="702">~/.quota-service/quota.db</text>
+  <text class="note" x="92" y="728">Signs in with the Claude Code Keychain item</text>
+  <text class="note" x="92" y="745">and ~/.codex/auth.json.</text>
+
+  <!-- Observatory server -->
+  <rect x="480" y="196" width="580" height="572" rx="18" fill="#0d1715" stroke="#2f403a"/>
+  <text class="heading" x="504" y="234">Observatory server</text>
+  <text class="mono port" x="1008" y="233" text-anchor="end">Bun, 127.0.0.1:4318</text>
+  <use href="#i-bun" x="1018" y="216" width="18" height="18" color="#8fa39b"/>
+
+  <g class="wire local">
+    <path d="M790 299H812M790 383H812M790 467H812M790 551H812M790 635H812"/>
+    <path d="M812 299V635"/>
+    <path d="M812 357H836" marker-end="url(#arrow-local)"/>
+    <path d="M936 452V482"/>
+  </g>
+
+  <rect class="row" x="504" y="262" width="286" height="74" rx="10"/>
+  <text class="name" x="522" y="293">ccusage</text>
+  <text class="note" x="742" y="293" text-anchor="end">pinned subprocess</text>
+  <use href="#i-coins" x="754" y="274" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="522" y="316">Tokens and API-equivalent cost</text>
+
+  <rect class="row" x="504" y="346" width="286" height="74" rx="10"/>
+  <text class="name" x="522" y="377">Path index</text>
+  <text class="body" x="522" y="400">IDs and folders, file heads only</text>
+  <use href="#i-folder-tree" x="754" y="358" width="18" height="18" color="#8fa39b"/>
+
+  <rect class="row optional" x="504" y="430" width="286" height="74" rx="10"/>
+  <text class="name" x="522" y="461">Effort index</text>
+  <text class="note" x="742" y="461" text-anchor="end">opt-in</text>
+  <use href="#i-brain" x="754" y="442" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="522" y="484">Model × effort counts, never text</text>
+
+  <rect class="row" x="504" y="514" width="286" height="74" rx="10"/>
+  <text class="name" x="522" y="545">Warp ledger</text>
+  <text class="body" x="522" y="568">Conversations and credits</text>
+  <use href="#i-book-text" x="754" y="526" width="18" height="18" color="#8fa39b"/>
+
+  <rect class="row" x="504" y="598" width="286" height="74" rx="10"/>
+  <text class="name" x="522" y="629">Quota adapter</text>
+  <text class="body" x="522" y="652">HTTP, with quota.db as fallback</text>
+  <use href="#i-plug" x="754" y="610" width="18" height="18" color="#8fa39b"/>
+
+  <rect class="row" x="836" y="262" width="200" height="190" rx="10" stroke="#3a6b66"/>
+  <text class="name" x="854" y="293">Snapshot</text>
+  <use href="#i-memory-stick" x="1000" y="274" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="854" y="320">Held in memory.</text>
+  <text class="body" x="854" y="338">Rebuilt when older</text>
+  <text class="body" x="854" y="356">than 60 seconds.</text>
+  <text class="body" x="854" y="386">A failed run keeps the</text>
+  <text class="body" x="854" y="404">last good one, marked</text>
+  <text class="body" x="854" y="422">stale.</text>
+
+  <rect class="row" x="836" y="482" width="200" height="190" rx="10"/>
+  <text class="name" x="854" y="513">SQLite</text>
+  <use href="#i-database" x="1000" y="494" width="18" height="18" color="#8fa39b"/>
+  <text class="mono path" x="854" y="536">.usage-observatory/</text>
+  <text class="mono path" x="854" y="552">data.db</text>
+  <text class="body" x="854" y="582">Path rules, verdicts,</text>
+  <text class="body" x="854" y="600">tags, notes, settings,</text>
+  <text class="body" x="854" y="618">effort counts, caches.</text>
+  <text class="note" x="854" y="648">No transcript text.</text>
+
+  <rect class="row" x="504" y="694" width="532" height="52" rx="10"/>
+  <text x="522" y="716" font-size="14" font-weight="600" fill="#ecf2ef">Daily background checks</text>
+  <use href="#i-calendar-clock" x="1000" y="711" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="522" y="734" font-size="12.5">Price list and ccusage releases. A collection never waits for them.</text>
+
+  <!-- Records to collectors -->
+  <g class="wire local">
+    <path d="M412 299H504" marker-end="url(#arrow-local)"/>
+    <path d="M412 383H504" marker-end="url(#arrow-local)"/>
+    <path d="M412 467H504" marker-end="url(#arrow-local)"/>
+    <path d="M446 299V467"/>
+    <path d="M412 551H504" marker-end="url(#arrow-local)"/>
+    <path d="M412 635H504" marker-end="url(#arrow-local)"/>
+  </g>
+  <g fill="#58d9cf">
+    <circle cx="446" cy="299" r="3"/>
+    <circle cx="446" cy="383" r="3"/>
+    <circle cx="446" cy="467" r="3"/>
+  </g>
+
+  <!-- Server to browser -->
+  <path class="wire local" d="M1036 357H1128" marker-end="url(#arrow-local)"/>
+  <text class="mono" x="1094" y="345" text-anchor="middle" font-size="12.5" fill="#58d9cf">/api</text>
+
+  <!-- Browser -->
+  <rect class="box" x="1128" y="196" width="400" height="364" rx="18" stroke="#2f403a"/>
+  <text class="heading" x="1152" y="234">Your browser</text>
+  <use href="#i-compass" x="1492" y="214" width="20" height="20" color="#8fa39b"/>
+  <text class="body" x="1152" y="262">A React app that reads only the server's</text>
+  <text class="body" x="1152" y="280">normalized JSON, never the raw records.</text>
+
+  <g>
+    <rect class="row" x="1152" y="304" width="112" height="34" rx="8"/>
+    <rect class="row" x="1274" y="304" width="112" height="34" rx="8"/>
+    <rect class="row" x="1396" y="304" width="112" height="34" rx="8"/>
+    <rect class="row" x="1152" y="348" width="112" height="34" rx="8"/>
+    <rect class="row" x="1274" y="348" width="112" height="34" rx="8"/>
+    <rect class="row" x="1396" y="348" width="112" height="34" rx="8"/>
+    <g class="chip" text-anchor="middle">
+      <text x="1208" y="326">Dashboard</text>
+      <text x="1330" y="326">Explorer</text>
+      <text x="1452" y="326">Sessions</text>
+      <text x="1208" y="370">Projects</text>
+      <text x="1330" y="370">Models</text>
+      <text x="1452" y="370">Data</text>
+    </g>
+  </g>
+  <text class="body" x="1152" y="414">Asks for a fresh dashboard every 60 seconds.</text>
+
+  <path d="M1152 438H1508" stroke="#24322e"/>
+  <text class="body" x="1152" y="468" fill="#dbe5e1">Development</text>
+  <text class="mono port" x="1508" y="468" text-anchor="end">127.0.0.1:5173</text>
+  <text class="body" x="1152" y="496">Production build</text>
+  <text class="mono port" x="1508" y="496" text-anchor="end">127.0.0.1:4318</text>
+  <text class="note" x="1152" y="530">In development, Vite serves the UI and proxies /api.</text>
+
+  <!-- Wires that cross the edge -->
+  <path class="wire out" d="M242 880V768" marker-end="url(#arrow-outside)"/>
+  <path class="wire out" d="M632 880V746" marker-end="url(#arrow-outside)"/>
+  <path class="wire out" d="M908 880V746" marker-end="url(#arrow-outside)"/>
+  <path class="wire tailnet" d="M1060 630H1188Q1200 630 1200 642V880" marker-end="url(#arrow-tailnet)"/>
+
+  <circle cx="1060" cy="630" r="3" fill="#78a8ff"/>
+  <g fill="#07100f" stroke-width="1.75">
+    <circle cx="242" cy="800" r="5.5" stroke="#ff9e64"/>
+    <circle cx="632" cy="800" r="5.5" stroke="#ff9e64"/>
+    <circle cx="908" cy="800" r="5.5" stroke="#ff9e64"/>
+    <circle cx="1200" cy="800" r="5.5" stroke="#78a8ff"/>
+  </g>
+
+  <text class="label-out" x="258" y="846">allowance and resets in</text>
+  <text class="label-out" x="648" y="846">rates in</text>
+  <text class="label-out" x="924" y="846">release list in</text>
+  <text class="label-tailnet" x="1216" y="846">your dashboard out</text>
+
+  <use href="#i-tailscale" x="1220" y="659" width="15" height="15" color="#78a8ff"/>
+  <text x="1243" y="672" font-size="14" font-weight="600" fill="#78a8ff">Tailscale Serve</text>
+  <text class="body" x="1220" y="694">Private HTTPS, off by default.</text>
+  <text class="body" x="1220" y="712">Answers only the hostnames listed in</text>
+  <text class="mono path" x="1220" y="732">USAGE_OBSERVATORY_ALLOWED_HOSTS</text>
+
+  <!-- Outside the machine -->
+  <rect class="outside" x="72" y="880" width="340" height="88" rx="10"/>
+  <text class="name" x="92" y="914">Provider usage endpoints</text>
+  <use href="#i-anthropic" x="348" y="892" width="18" height="18" color="#d97757"/>
+  <use href="#i-openai" x="376" y="892" width="18" height="18" color="#eaeaea" opacity=".9"/>
+  <text class="body" x="92" y="938">Anthropic and OpenAI, your own accounts</text>
+
+  <rect class="outside" x="504" y="880" width="256" height="88" rx="10"/>
+  <text class="name" x="524" y="914">LiteLLM price list</text>
+  <use href="#i-tags" x="724" y="892" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="524" y="938">Published per-token rates</text>
+
+  <rect class="outside" x="780" y="880" width="256" height="88" rx="10"/>
+  <text class="name" x="800" y="914">npm registry</text>
+  <use href="#i-npm" x="1000" y="892" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="800" y="938">ccusage release list</text>
+
+  <rect class="outside optional" x="1128" y="880" width="400" height="88" rx="10"/>
+  <text class="name" x="1148" y="914">Another device of yours</text>
+  <use href="#i-smartphone" x="1492" y="892" width="18" height="18" color="#8fa39b"/>
+  <text class="body" x="1148" y="938">On the same tailnet</text>
+
+  <!-- Legend -->
+  <g class="body">
+    <path class="wire local" d="M72 1016H102"/>
+    <text x="112" y="1020.5">Stays on your Mac</text>
+    <path class="wire out" d="M262 1016H292"/>
+    <text x="302" y="1020.5">Fetched from outside. Sends no prompts, replies, or usage records.</text>
+    <path class="wire tailnet" d="M720 1016H750"/>
+    <text x="760" y="1020.5">Private path to your own devices</text>
+    <rect class="optional" x="994" y="1008" width="26" height="16" rx="4" fill="none"/>
+    <text x="1030" y="1020.5">Optional</text>
+  </g>
+</svg>
