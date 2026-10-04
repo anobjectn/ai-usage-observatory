@@ -5,67 +5,20 @@
 ![Language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Privacy](https://img.shields.io/badge/privacy-local--first%20%26%20no%20telemetry-0f766e)
 
-AI Usage Observatory is a local-first analytics workspace for people who want to
-understand and improve how they use AI coding agents.
+A local-first analytics workspace for people who want to understand and improve how they use AI coding agents.
 
-Provider dashboards can show how much capacity remains. The Observatory connects
-that usage to the work behind it: projects, sessions, models, token composition,
-reasoning effort, and changes over time. It creates a practical feedback loop for
-measuring current habits, investigating changes or outliers, and making more
-informed decisions about model choice, effort, and workflow.
+Provider dashboards show how much capacity remains. The Observatory ties that usage to the work behind it: projects, sessions, models, token composition, reasoning effort, and change over time. It runs on your machine against data already stored there. No cloud account or telemetry service is required.
 
-The analysis runs on your machine against data already stored there. No separate
-cloud account or telemetry service is required.
-
-## Questions the Observatory helps answer
-
-| Question | Evidence available |
+| Question | Where the answer comes from |
 | --- | --- |
-| How is my usage changing? | Daily, weekly, monthly, per-session, and five-hour activity, with comparable date ranges. |
-| Which work is driving it? | Cross-provider attribution to projects and sessions, including model breakdowns. |
-| How are model and effort choices shifting? | Token composition, API-equivalent cost, model mix, and provider-recorded reasoning effort beside the model family that recorded it, where available. |
-| How much provider capacity remains? | Optional provider-reported allowance windows, headroom, resets, credits, and locally observed quota history. |
-| Which activity deserves closer review? | Outlier sessions, allowance-capture and efficiency signals, transcript context, tool activity, and patch summaries. |
-| What model should I use for my next task? | Remaining provider quota, published cost/performance benchmarks, and how past sessions with each model actually went. |
+| How is my usage changing? | Daily, weekly, monthly, per-session, and five-hour activity over comparable date ranges. |
+| Which work drives it? | Claude Code and Codex usage attributed to projects, sessions, and models. |
+| How are my model and effort choices shifting? | Token mix, API-equivalent cost, and provider-recorded effort beside the model that recorded it. |
+| How much capacity remains? | Optional provider allowance windows, resets, credits, and quota history. |
+| What deserves a second look? | Outlier sessions, efficiency signals, transcript context, tool activity, and patch summaries. |
+| Which model for my next task? | Remaining quota, published cost/performance benchmarks, and how past sessions with each model went. |
 
-The Observatory does not treat higher or lower usage as inherently better. It
-provides a consistent record so you can establish a baseline, change how you
-work, and evaluate the result over time.
-
-## Features
-
-### Features as standalone
-
-No provider quota connection required.
-
-- Local-first: your data never leaves your machine, and nothing is telemetered.
-- Cross-provider attribution — Claude Code and Codex sessions, projects, and
-  models in one place.
-- Model and effort history, alongside published cost/performance benchmarks,
-  is available to inform your next choice.
-- Outlier sessions and efficiency signals are surfaced automatically, so you
-  know what's actually worth a second look.
-- Will not rm -rf your data.
-- Not your momma's or daddy's AI meter.
-
-### Features with optional companion quota-service setup
-
-Requires the [`quota-service`](https://github.com/anobjectn/quota-service)
-companion described below.
-
-- Live provider quota headroom, resets, and credits across Claude, Codex, and
-  Warp.
-- Locally observed quota history, for trend and reach analysis over time.
-- Account-tier attribution for each observed quota reach, from provider data or
-  an effective-dated local assignment.
-- Per-session quota movement and closing balances, down to the resolved quota
-  cycle.
-
-The history and per-session bullets need `quota-service` v1.3.0 or newer,
-which introduced the connected `/history` API; older services and other
-collectors can supply the same data through the SQLite compatibility path
-described in [BYOQS — Bring Your Own Quota Service](#byoqs) below.
-Effective-dated account-tier assignments need quota-service v1.4.0 or newer.
+Higher or lower usage is not treated as better. The Observatory gives you a consistent record: set a baseline, change how you work, and measure the result.
 
 ## Run locally
 
@@ -73,21 +26,13 @@ Requires Bun 1.3 or newer.
 
 ```bash
 bun install
-bun run dev
+bun run dev      # http://127.0.0.1:5173
 ```
 
-Open `http://127.0.0.1:5173`.
+For a production build, run `bun run build && bun run start` and open `http://127.0.0.1:4318`. To update a clone, run `git pull` and `bun install`.
 
-For a production build:
-
-```bash
-bun run build
-bun run start
-```
-
-Open `http://127.0.0.1:4318`.
-
-### Development checks
+<details>
+<summary>Development checks</summary>
 
 Run `bun test` and `bun run typecheck`. To check the production build, run `bun run build`.
 
@@ -97,13 +42,12 @@ annotation persistence. The command uses a temporary database, a separate Vite c
 separate ports. It exits with the result and removes its temporary data. Open only the printed
 test URL; the normal app remains available on its existing port.
 
-### Private remote access with Tailscale
+</details>
 
-Remote access is disabled by default. AI Usage Observatory stays bound to
-localhost unless you explicitly allow a remote hostname. To expose it privately
-through [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve),
-add the Mac's exact Tailscale DNS name to an ignored `.env.local` file without a
-scheme or port:
+<details>
+<summary>Private remote access with Tailscale</summary>
+
+Remote access is disabled by default. The app stays bound to localhost unless you explicitly allow a remote hostname. To expose it privately through [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve), add the Mac's exact Tailscale DNS name to an ignored `.env.local` file without a scheme or port:
 
 ```dotenv
 USAGE_OBSERVATORY_ALLOWED_HOSTS=your-mac.your-tailnet.ts.net
@@ -130,8 +74,7 @@ Do not use Tailscale Funnel. Observatory responses can include private session
 details. Browser actions that open local files accept an approved remote browser
 origin, but originless requests for those actions remain restricted to localhost.
 
-To update a clone, run `git pull` followed by `bun install`. A downloaded copy
-must be replaced with a newer one.
+</details>
 
 ## Inside the Observatory
 
@@ -219,27 +162,27 @@ For Projects captures, open `ai-usage-observatory` and scroll it into view so
 
 </details>
 
-## Designed for ongoing analysis
+## Features
 
-Six connected views — Overview, Explorer, Sessions, Projects, Models, and Data —
-use the same collected dataset. Date, agent, path, and cache controls carry
-analytical context between the views that support each filter.
+**On its own** (no provider quota connection):
 
-- Track usage daily, weekly, monthly, by session, by project instance, and by
-  reconstructed five-hour block with pinned `ccusage@20.0.26`.
-- Separate input, output, cache-read, and cache-creation tokens, or exclude cache
-  traffic when it would obscure the comparison.
-- Compare API-equivalent cost, model mix, and provider-recorded reasoning effort
-  as model family x effort — the unit an effort label is actually comparable in —
-  without presenting missing effort labels as known data.
-- Trace work across Claude Code and Codex from session to project and model.
-- Apply glob or regular-expression path rules retroactively to the indexed
-  history.
-- Add durable session tags and notes to preserve your own analytical context.
-- Review allowance capture, efficiency signals, and outlier sessions in the
-  experimental Data analysis.
-- Refresh on startup, every 60 seconds, or on demand; if collection fails, the
-  last successful result remains available and is marked stale.
+- Six connected views — Overview, Explorer, Sessions, Projects, Models, and Data — share one dataset. Date, agent, path, and cache controls carry context between them.
+- Usage by day, week, month, session, project instance, and reconstructed five-hour block, using pinned `ccusage@20.0.26`.
+- Input, output, cache-read, and cache-creation tokens, with an option to exclude cache traffic.
+- Cost, model mix, and effort as model family x effort, the unit an effort label is comparable in. Missing effort labels are never shown as known data.
+- Path rules (glob or regular expression) applied retroactively to indexed history, plus durable session tags, notes, and verdicts.
+- Experimental Data analysis of allowance capture, efficiency signals, and outlier sessions.
+- Refresh on startup, every 60 seconds, or on demand. If collection fails, the last good result stays visible and is marked stale.
+- Will not rm -rf your data.
+- Not your momma's or daddy's AI meter.
+
+**With the optional [`quota-service`](https://github.com/anobjectn/quota-service)** ([setup](#provider-allowance-data)):
+
+- Live headroom, resets, and credits for Claude, Codex, and Warp.
+- Locally observed quota history for trend and reach analysis, with account-tier attribution.
+- Per-session quota movement and closing balances, resolved to the quota cycle.
+
+History and per-session views need quota-service v1.3.0 or newer; tier assignments need v1.4.0 or newer. Older services and other collectors can supply the same data through the SQLite path in [BYOQS](#byoqs).
 
 ## How the data is assembled
 
@@ -249,27 +192,29 @@ analytical context between the views that support each filter.
 
 <sub>How the pieces connect (click for full size; the editable source is [`docs/setup-diagram.svg`](docs/setup-diagram.svg)) — everything inside the frame runs on 127.0.0.1; the four wires that cross its edge say what they carry</sub>
 
-| Signal | Source | Role |
-| --- | --- | --- |
-| Tokens and API-equivalent cost | Pinned [`ccusage`](https://github.com/ccusage/ccusage) analytics | Produces usage rollups and reconstructed activity blocks from local records. |
-| Session and project attribution | Local Claude Code and Codex session files | Recovers native session identifiers and working directories through a metadata-only path index. |
-| Model x effort | Optional derived index of local session files | Reads provider-recorded effort labels beside the model that recorded them and stores categorical aggregates, never reasoning text. |
-| Session verdict | You | A rating you record yourself. It is never inferred, and it is the only signal in the app that does not come from a local record or a provider. |
-| Provider capacity | Optional [`quota-service`](https://github.com/anobjectn/quota-service) instance | Supplies provider-reported allowance windows, resets, credits, and status without changing local usage totals. |
+| Signal | Source |
+| --- | --- |
+| Tokens and API-equivalent cost | Pinned [`ccusage`](https://github.com/ccusage/ccusage) analytics over local records. |
+| Session and project attribution | Local Claude Code and Codex session files, read through a metadata-only path index. |
+| Model x effort | Optional derived index of session files. Stores categorical aggregates, never reasoning text. |
+| Session verdict | A rating you record. It is never inferred. |
+| Provider capacity | Optional `quota-service` instance. Does not change local usage totals. |
 
 > [!IMPORTANT]
-> The current data model assumes one Claude Code account and one Codex account
-> per machine. If you switch accounts within a provider, their local activity is
-> combined rather than attributed separately. See
-> [Measurement boundaries](#measurement-boundaries).
+> The data model assumes one Claude Code account and one Codex account per machine. Activity from several accounts on one provider is combined. See [Measurement boundaries](#measurement-boundaries).
 
-## Privacy model
+## Privacy
 
-Usage records, derived indexes, annotations, and application state remain on the
-machine running the Observatory. The server binds to localhost, sends no
-telemetry, and does not upload prompts, responses, or usage records. `ccusage`
-may retrieve current pricing data; that request does not contain your usage
-records.
+Usage records, derived indexes, annotations, and app state stay on the machine running the Observatory. The server binds to localhost, sends no telemetry, and uploads no prompts, responses, or usage records. `ccusage` may fetch current pricing data; that request carries none of your usage.
+
+- **Path index:** default, metadata-only. Reads only the opening bytes of each session file to recover the session ID and working directory.
+- **Effort indexing:** opt-in, off by default. Stores categories and counts only, never prompts, responses, reasoning, commands, tool data, or file contents.
+- **Session detail:** the one place your own prompts and sampled assistant output appear. Read on demand, sent only to your localhost browser, never stored.
+
+State lives in `.usage-observatory/data.db` (ignored by Git). Set `USAGE_OBSERVATORY_DB` to move it and `QUOTA_SERVICE_URL` to use another quota-service address.
+
+<details>
+<summary>Full privacy details</summary>
 
 The default path index is metadata-only. It reads only the opening bytes of each
 session file — enough to recover the native session ID and working directory.
@@ -297,11 +242,18 @@ editor. Each action requires an explicit click. The server resolves the target
 from its indexed session record and never executes a browser-supplied shell
 command.
 
-Application state is stored in `.usage-observatory/data.db`, which Git ignores.
-Set `USAGE_OBSERVATORY_DB` to move the database. Set `QUOTA_SERVICE_URL` to use a
-different quota-service base URL.
+</details>
 
 ## Measurement boundaries
+
+- **Two evidence sources.** Local activity and provider-reported allowance percentages are shown together for context. They are not expected to reconcile one-for-one.
+- **One account per provider.** Multi-account activity on one provider is displayed as one combined stream.
+- **Cost is an estimate.** It comes only from `ccusage` and is API-equivalent, not a subscription bill. Models without a current rate card are flagged and excluded from totals, not counted as free.
+- **Effort is observed, not scored.** Labels are shown as recorded, never inferred, and are comparable only within a model family. They are not a quality score or recommendation.
+- **Five-hour blocks** are reconstructed locally by `ccusage` and cover Claude Code only.
+
+<details>
+<summary>All measurement boundaries</summary>
 
 - Local activity and provider-reported allowance percentages are separate
   evidence sources. They are presented together for context, not treated as
@@ -346,28 +298,15 @@ different quota-service base URL.
 - Session verdicts are yours. Nothing in the app infers one, and a rate is shown
   only once a cohort has at least five ratings.
 
+</details>
+
 ## Provider allowance data
 
-The Observatory is useful with or without live quota data. Most installations
-use one of these two modes.
+The Observatory works with or without live quota data.
 
-### Run without a quota service
+**Without a quota service**, tokens, cost, sessions, projects, models, effort analysis, and Claude Code activity blocks all work. Live headroom, resets, and credits are unavailable, and the Observatory never invents an allowance estimate. Quota-event markers and history-based analysis need a previously collected, compatible quota-history database.
 
-No additional setup is required. Tokens, API-equivalent cost, sessions,
-projects, models, reasoning-effort analysis, and locally reconstructed Claude
-Code activity blocks remain available. The Observatory does not invent an
-allowance estimate when no provider source is connected, so live headroom and
-current reset or credit details remain unavailable. Quota-event markers and
-history-dependent allowance analysis also require a previously collected,
-compatible quota-history database.
-
-### Use the provided `quota-service`
-
-The supported companion is
-[`quota-service`](https://github.com/anobjectn/quota-service), a separate
-local-first service for provider-reported allowance data. It currently targets
-macOS, reads existing local provider credentials and preferences, enables Codex
-and Anthropic by default, and can include Warp when configured.
+**With [`quota-service`](https://github.com/anobjectn/quota-service)**, a separate local-first macOS service, you get provider-reported allowance windows, resets, credits (Anthropic usage credits, Codex banked resets, optional Warp request pool), source freshness, and quota history. It reads existing local provider credentials, enables Codex and Anthropic by default, and can include Warp.
 
 ```bash
 git clone https://github.com/anobjectn/quota-service.git
@@ -377,9 +316,10 @@ cp .env.example .env
 bun run serve
 ```
 
-With the service running at its default `http://127.0.0.1:8787` address, the
-Observatory connects automatically. Set `QUOTA_SERVICE_URL` only when the
-service uses another base URL.
+At its default `http://127.0.0.1:8787` address the Observatory connects automatically. Set `QUOTA_SERVICE_URL` only for another address. Provider collection is read-only: it never spends credits, buys anything, or changes provider accounts.
+
+<details>
+<summary>Service behavior, history, and Claude Web credits</summary>
 
 The provided service supplies provider-reported allowance windows and reset
 times, from which the Observatory derives current headroom. It also supplies
@@ -402,7 +342,10 @@ quota-service setup uses `QUOTA_RETENTION_DAYS=forever`. A positive value opts
 into destructive pruning on the next service poll, which shortens the history
 available to this app.
 
-### Record Anthropic account tiers
+</details>
+
+<details>
+<summary>Record Anthropic account tiers</summary>
 
 Recent quota-service builds record the specific Anthropic OAuth profile tier in
 `snapshot.extra.planType`, including `max_5x` and `max_20x`. The Observatory
@@ -441,6 +384,11 @@ Use receipts or account records to backfill historical changes. Compatible
 quota-service builds detect current tier changes automatically. If only the
 calendar date is known, use midnight in the account's reporting timezone.
 
+</details>
+
+<details>
+<summary>Per-session quota movement and the "Quota left" column</summary>
+
 Session detail can show account allowance movement observed during one active
 session, rendered as remaining-quota ranges per resolved quota cycle (a session
 that spanned a reset reads `25→0%, 100→75%`; nothing is summed across resets).
@@ -457,6 +405,8 @@ account quota remaining at the closing reading after each session — a balance
 observation in the bank-statement sense, not that session's consumption — with
 divider rows marking window resets between adjacent sessions. The column hides
 itself under any other sort order, where end-time balances would read as noise.
+
+</details>
 
 <details id="byoqs">
 <summary><strong>BYOQS — Bring Your Own Quota Service</strong> (advanced compatibility contract)</summary>
@@ -622,18 +572,14 @@ assignment can replace a generic `snapshot_json.extra.subscriptionType` value.
 
 </details>
 
-## Sources and acknowledgments
+## Sources and scope
 
-- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.26 by ryoppippi (MIT)
-  supplies local usage analytics and API-equivalent price estimates.
-- Local Claude Code and Codex session files supply session identifiers and
-  working-directory metadata during indexing, recent prompts and bounded
-  assistant-output samples on demand, and opt-in categorical effort metadata.
-- [`quota-service`](https://github.com/anobjectn/quota-service) optionally
-  supplies provider-reported allowance windows, resets, credits, and status. It
-  is a separate localhost service, not a bundled dependency.
+- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.26 by ryoppippi (MIT) supplies local usage analytics and API-equivalent price estimates.
+- Local Claude Code and Codex session files supply session metadata, on-demand prompt and output samples, and opt-in effort categories.
+- [`quota-service`](https://github.com/anobjectn/quota-service) optionally supplies provider allowance data. It is a separate localhost service, not a bundled dependency.
 
-## Current scope and potential enhancements
+<details>
+<summary>Current scope and potential enhancements</summary>
 
 The current product deliberately excludes additional theme packs, wallpaper
 engines, and a desktop wrapper.
@@ -647,9 +593,8 @@ Updating is the most likely next improvement. Today a new version means
 replacing a downloaded copy or running `git pull` in a clone; a built-in check
 that reports a new release and applies it in place would remove that step.
 
+</details>
+
 ## Suggestions welcome
 
-There is room for improvement here, and suggestions are welcome. If something is
-missing, awkward, or wrong for the way you work,
-[open an issue](https://github.com/anobjectn/ai-usage-observatory/issues) —
-including questions, corrections, and ideas that fall outside the current scope.
+If something is missing, awkward, or wrong for the way you work, [open an issue](https://github.com/anobjectn/ai-usage-observatory/issues). Questions, corrections, and ideas beyond the current scope are welcome.
