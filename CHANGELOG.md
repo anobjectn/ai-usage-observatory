@@ -5,6 +5,19 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.32.0] - 2026-10-07
+
+### Added
+
+- Add Slopalytics as the first option in the benchmark launcher and tabs.
+- Add a setup diagram to the README and architecture guide.
+
+### Changed
+
+- Open Slopalytics by default from the Overview benchmark button.
+- Condense the README and place extended setup, privacy, and measurement
+  details in collapsible sections.
+
 ## [1.31.1] - 2026-10-02
 
 ### Changed
@@ -173,6 +186,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.32.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.31.1...v1.32.0
 [1.31.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.31.0...v1.31.1
 [1.31.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.30.0...v1.31.0
 [1.30.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.29.0...v1.30.0
