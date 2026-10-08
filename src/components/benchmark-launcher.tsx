@@ -3,11 +3,18 @@
 
 export const BENCHMARK_SITES = [
   {
+    id: "slopalytics",
+    label: "Slopalytics",
+    url: "https://slopalytics.com/",
+    favicon: "https://slopalytics.com/favicon.svg",
+    description: "Compare AI models by intelligence, cost, speed, and thinking effort.",
+  },
+  {
     id: "deepswe",
     label: "DeepSWE",
     url: "https://deepswe.datacurve.ai/#leaderboard",
     favicon: "https://deepswe.datacurve.ai/favicon.ico",
-    description: "Cost-vs-performance leaderboard across coding agents — the primary reference for this comparison.",
+    description: "Cost-vs-performance leaderboard across coding agents.",
   },
   {
     id: "artificialanalysis",

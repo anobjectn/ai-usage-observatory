@@ -73,7 +73,7 @@ import {
 } from "../components/activity-charts";
 import { QuotaDials } from "../components/quota-cards";
 import { SessionQuotaBalanceCell, SessionEffortCell } from "../components/session-detail";
-import { type BenchmarkSiteId, BenchmarkTriggerIcons } from "../components/benchmark-launcher";
+import { type BenchmarkSiteId, BENCHMARK_SITES, BenchmarkTriggerIcons } from "../components/benchmark-launcher";
 
 export function Overview({
   data,
@@ -490,7 +490,7 @@ export function Overview({
               <button
                 type="button"
                 className="accent-icon-button benchmark-trigger"
-                onClick={() => onOpenBenchmark("deepswe")}
+                onClick={() => onOpenBenchmark(BENCHMARK_SITES[0].id)}
                 aria-label="Compare model cost and efficiency benchmarks"
                 title="Compare model cost and efficiency benchmarks"
               >

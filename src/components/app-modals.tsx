@@ -938,12 +938,13 @@ export function BenchmarkModal({
   open?: boolean;
 }) {
   const dialogRef = useModalFocusTrap(onClose, open);
-  const [siteId, setSiteId] = useState<BenchmarkSiteId>(initialSiteId ?? "deepswe");
+  const [siteId, setSiteId] = useState<BenchmarkSiteId>(initialSiteId ?? BENCHMARK_SITES[0].id);
   const [visitedSites, setVisitedSites] = useState<Set<BenchmarkSiteId>>(
-    () => new Set([initialSiteId ?? "deepswe"]),
+    () => new Set([initialSiteId ?? BENCHMARK_SITES[0].id]),
   );
   const [loadedAt, setLoadedAt] = useState<Partial<Record<BenchmarkSiteId, number>>>({});
   const [refreshVersions, setRefreshVersions] = useState<Record<BenchmarkSiteId, number>>({
+    slopalytics: 0,
     deepswe: 0,
     artificialanalysis: 0,
   });
