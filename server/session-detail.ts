@@ -25,7 +25,10 @@ export type SessionDetail = {
 };
 
 const detailUnavailable: SessionDetail = { available: false, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 };
-const detailCache = new Map<string, { mtimeMs: number; detail: Promise<SessionDetail> }>();
+/** Reads in flight only. Concurrent requests for an unchanged source share one read; the entry
+ * is dropped as soon as that read settles, so prompts and output samples are never retained
+ * after they are served. */
+const detailReads = new Map<string, { signature: string; detail: Promise<SessionDetail> }>();
 export const detailOutputSampleCharacters = 4_000;
 export const detailOutputSampleCount = 8;
 
@@ -377,19 +380,32 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
   if (!warpSession && !source) return detailUnavailable;
 
   const sourceFile = source?.sourceFile ?? (await import("./warp")).warpDatabasePath();
-  let mtimeMs: number;
+  let signature: string;
   try {
-    mtimeMs = (await stat(sourceFile)).mtimeMs;
+    signature = await sourceSignature(sourceFile, warpSession);
   } catch {
     return detailUnavailable;
   }
-  const cached = detailCache.get(sessionId);
-  if (cached?.mtimeMs === mtimeMs) return cached.detail;
+  const pending = detailReads.get(sessionId);
+  if (pending?.signature === signature) return pending.detail;
 
   const detail = warpSession ? warpSessionDetail(sessionId) : readSessionDetail(sessionId);
-  detailCache.set(sessionId, { mtimeMs, detail });
-  void detail.catch(() => {
-    if (detailCache.get(sessionId)?.detail === detail) detailCache.delete(sessionId);
-  });
+  detailReads.set(sessionId, { signature, detail });
+  const release = () => {
+    if (detailReads.get(sessionId)?.detail === detail) detailReads.delete(sessionId);
+  };
+  void detail.then(release, release);
   return detail;
+}
+
+/** Size and mtime of the source. Warp commits land in its write-ahead log first, and the main
+ * database file can stay unchanged until a checkpoint, so the WAL file is part of the signature. */
+async function sourceSignature(sourceFile: string, includeWal: boolean) {
+  const main = await stat(sourceFile);
+  const wal = includeWal ? await stat(`${sourceFile}-wal`).catch(() => null) : null;
+  return [main.mtimeMs, main.size, wal?.mtimeMs ?? "", wal?.size ?? ""].join(":");
+}
+
+export function pendingSessionDetailReads() {
+  return detailReads.size;
 }
