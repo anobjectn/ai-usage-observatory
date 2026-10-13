@@ -53,21 +53,29 @@ describe("external-open request boundary", () => {
     );
   });
 
+  test("a missing file's fallback folder is revealed, never opened, so a bundle cannot launch", () => {
+    expect(externalOpenCommand("reveal", "/Applications/Calculator.app", "darwin")).toEqual([
+      "/usr/bin/open",
+      "-R",
+      "/Applications/Calculator.app",
+    ]);
+  });
+
   test("builds argv arrays without interpreting path text as shell input", () => {
     const path = "/tmp/a; touch /tmp/not-run.ts";
-    expect(externalOpenCommand("reveal", path, false, "darwin")).toEqual([
+    expect(externalOpenCommand("reveal", path, "darwin")).toEqual([
       "/usr/bin/open",
       "-R",
       path,
     ]);
-    expect(externalOpenCommand("vscode", path, false, "darwin")).toEqual([
+    expect(externalOpenCommand("vscode", path, "darwin")).toEqual([
       "/usr/bin/open",
       "-b",
       "com.microsoft.VSCode",
       path,
     ]);
     expect(
-      externalOpenCommand("default-editor", path, false, "darwin"),
+      externalOpenCommand("default-editor", path, "darwin"),
     ).toEqual(["/usr/bin/open", "-t", path]);
   });
 });

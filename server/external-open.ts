@@ -48,7 +48,6 @@ export function resolveListedFilePath(cwd: string | null, listedPath: string) {
 export function externalOpenCommand(
   action: ExternalOpenAction,
   target: string,
-  revealParent = false,
   platform = process.platform,
 ) {
   if (action === "vscode") {
@@ -65,9 +64,9 @@ export function externalOpenCommand(
     );
   }
   if (action === "default-editor") return ["/usr/bin/open", "-t", target];
-  return revealParent
-    ? ["/usr/bin/open", target]
-    : ["/usr/bin/open", "-R", target];
+  // Always -R, including for a fallback folder: plain `open` on an .app bundle or an executable
+  // file launches it instead of showing it.
+  return ["/usr/bin/open", "-R", target];
 }
 
 async function pathExists(path: string) {
@@ -78,10 +77,12 @@ async function pathExists(path: string) {
   }
 }
 
+/** The closest ancestor that exists and is a directory. A file can sit where a listed folder
+ * was, such as `tool.command/notes.md` after `tool.command` became a script. */
 async function nearestExistingParent(path: string) {
   let candidate = dirname(path);
   while (candidate !== dirname(candidate)) {
-    if (await pathExists(candidate)) return candidate;
+    if ((await pathExists(candidate))?.isDirectory()) return candidate;
     candidate = dirname(candidate);
   }
   throw new ExternalOpenError(
@@ -155,7 +156,7 @@ export async function openSessionExternalTarget(
     );
   }
 
-  await launch(externalOpenCommand(action, targetPath, revealParent));
+  await launch(externalOpenCommand(action, targetPath));
   const destination =
     action === "vscode"
       ? "Visual Studio Code"
@@ -166,7 +167,7 @@ export async function openSessionExternalTarget(
     ok: true,
     message:
       action === "reveal" && revealParent
-        ? `Opened ${label}'s containing folder in ${destination}.`
+        ? `Revealed ${label}'s nearest existing folder in ${destination}.`
         : `${action === "reveal" ? "Revealed" : "Opened"} ${label} in ${destination}.`,
   };
 }
