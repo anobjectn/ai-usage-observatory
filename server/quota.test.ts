@@ -74,6 +74,28 @@ describe("collectQuota field preservation", () => {
     expect(result.error).toContain("/usage returned 503");
   });
 
+  test("a provider entry without a snapshot keeps the previous reading, marked stale", async () => {
+    const reading = {
+      provider: "codex", status: "ok", source: "codex_api", dataAgeMs: 1_000, capturedAt: 50,
+      snapshot: { kind: "window", fiveHour: { usedPercent: 40, resetsAt: null }, weekly: null },
+    };
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [reading] } } : { body: {} });
+    await collectQuota();
+
+    const failed = { provider: "codex", status: "unavailable", source: null, snapshot: null, error: "token expired", lastAttemptAt: 99 };
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 2, providers: [failed] } } : { body: {} });
+    const result = await collectQuota();
+    const provider = (result.usage as { providers: Array<Record<string, unknown>> }).providers.find((entry) => entry.provider === "codex")!;
+    expect(provider).toMatchObject({ status: "stale", servingLastGood: true, snapshot: reading.snapshot, error: "token expired", lastAttemptAt: 99 });
+    expect(provider.dataAgeMs as number).toBeGreaterThanOrEqual(1_000);
+
+    // The failed entry did not replace the cache: a later /usage outage still serves the reading.
+    stubFetch((url) => url.endsWith("/usage") ? { status: 503, body: {} } : { body: {} });
+    const outage = await collectQuota();
+    const cached = (outage.usage as { providers: Array<Record<string, unknown>> }).providers.find((entry) => entry.provider === "codex")!;
+    expect(cached).toMatchObject({ status: "stale", servingLastGood: true, snapshot: reading.snapshot });
+  });
+
   test("stays quiet when optional quota collection is explicitly disabled", async () => {
     let calls = 0;
     globalThis.fetch = (async () => { calls++; return new Response("{}"); }) as unknown as typeof fetch;

@@ -275,7 +275,22 @@ export type QuotaLifecycleMarker = {
 };
 
 const lastRawHistory = new Map<RawHistoryResult["provider"], RawHistoryResult>();
-const lastUsageProviders = new Map<QuotaProvider["provider"], QuotaProvider>();
+/** The last provider entry that carried a snapshot, and when this process received it. */
+const lastUsageProviders = new Map<QuotaProvider["provider"], { provider: QuotaProvider; receivedAt: number }>();
+
+/** Serves a cached reading in place of a failed one. Its age grows by the time since it was
+ * received, and a failed entry from quota-service supplies the current error and attempt time. */
+function lastGoodProvider(cached: { provider: QuotaProvider; receivedAt: number }, now: number, failed?: QuotaProvider): QuotaProvider {
+  const { provider } = cached;
+  return {
+    ...provider,
+    status: "stale",
+    servingLastGood: true,
+    dataAgeMs: typeof provider.dataAgeMs === "number" ? provider.dataAgeMs + (now - cached.receivedAt) : provider.dataAgeMs,
+    ...(failed?.error ? { error: failed.error } : {}),
+    ...(failed?.lastAttemptAt !== undefined ? { lastAttemptAt: failed.lastAttemptAt } : {}),
+  };
+}
 
 function providerId(value: string): value is RawHistoryResult["provider"] {
   return value === "anthropic" || value === "codex" || value === "warp";
@@ -581,12 +596,21 @@ export async function collectQuota() {
     endpoint("/usage"), endpoint("/resets"), endpoint("/status"),
   ]);
   let usage = usageResult.ok ? usageResult.data : undefined;
+  const now = Date.now();
   if (usageResult.ok && usage && typeof usage === "object" && Array.isArray((usage as { providers?: unknown }).providers)) {
-    for (const provider of (usage as { providers: QuotaProvider[] }).providers) {
-      lastUsageProviders.set(provider.provider, provider);
-    }
+    // Only an entry with a snapshot replaces the cache. An entry without one is answered with the
+    // previous reading, marked stale, so one failed provider read does not erase it.
+    const providers = (usage as { providers: QuotaProvider[] }).providers.map((provider) => {
+      if (provider.snapshot) {
+        lastUsageProviders.set(provider.provider, { provider, receivedAt: now });
+        return provider;
+      }
+      const cached = lastUsageProviders.get(provider.provider);
+      return cached ? lastGoodProvider(cached, now, provider) : provider;
+    });
+    usage = { ...usage, providers };
   } else if (lastUsageProviders.size) {
-    usage = { generatedAt: Date.now(), providers: [...lastUsageProviders.values()] };
+    usage = { generatedAt: now, providers: [...lastUsageProviders.values()].map((cached) => lastGoodProvider(cached, now)) };
   }
   const failures = [usageResult, resetsResult, statusResult].flatMap((result) => result.ok ? [] : [result.error]);
   const successCount = 3 - failures.length;
