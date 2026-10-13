@@ -356,8 +356,11 @@ async function drainBacklog() {
       if (backlog.length === 0) break;
       const entry = backlog[0];
       const before = states.get(entry.source.sessionId)?.lastOffset ?? -1;
+      const generation = effortGeneration();
       const result = await indexOneSession(entry.source, entry.work);
-      if (result.done && result.offset <= before) stalled.add(entry.source.sessionId);
+      // A pass cut short by a delete made no progress against the emptied tables; it is not a
+      // stall, and a re-enable in this drain must index the session again.
+      if (result.done && result.offset <= before && generation === effortGeneration()) stalled.add(entry.source.sessionId);
       await yieldToLoop();
     }
     // Deleting derived data also disables indexing; it must not be stamped as indexed again.
