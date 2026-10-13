@@ -97,12 +97,19 @@ export function setEffortEnabled(enabled: boolean) {
   return getEffortMeta();
 }
 
+/** Effort responses and their ETags carry the index phase, and clients reload on a version
+ * change. So a change of stored error advances the version; writing the same error again does
+ * not. */
 export function setEffortError(error: string | null) {
-  db.query("UPDATE effort_index_meta SET last_error = ? WHERE id = 1").run(error);
+  db.query(`UPDATE effort_index_meta SET last_error = ?1,
+    index_version = index_version + (CASE WHEN last_error IS ?1 THEN 0 ELSE 1 END) WHERE id = 1`).run(error);
 }
 
-export function markEffortIndexed() {
-  db.query("UPDATE effort_index_meta SET indexed_at = CURRENT_TIMESTAMP WHERE id = 1").run();
+/** `changed` is true when the run that ended indexed something. The phase then moves from
+ * "indexing" to "ready", which responses built during the run do not show. */
+export function markEffortIndexed(changed = false) {
+  db.query(`UPDATE effort_index_meta SET indexed_at = CURRENT_TIMESTAMP,
+    index_version = index_version + ? WHERE id = 1`).run(changed ? 1 : 0);
 }
 
 function stateRow(row: Record<string, unknown>): EffortSessionState {

@@ -439,6 +439,31 @@ describe("backlog and lifecycle", () => {
     expect(store.getEffortState(source.sessionId)).toBeNull();
   });
 
+  test("the index version advances when the stored error changes, not when it repeats", () => {
+    const version = () => store.getEffortMeta().indexVersion;
+    store.setEffortError(null);
+    const start = version();
+    store.setEffortError("disk read failed");
+    expect(version()).toBe(start + 1);
+    store.setEffortError("disk read failed");
+    expect(version()).toBe(start + 1);
+    store.setEffortError(null);
+    expect(version()).toBe(start + 2);
+  });
+
+  test("a drain that indexed something advances the version when it ends", async () => {
+    const source = await writeSource("codex", codexBody(1));
+    index.setEffortCatalog([source]);
+    store.setEffortEnabled(true);
+    await index.scheduleEffortIndexing();
+    const after = store.getEffortMeta().indexVersion;
+    // Nothing left to index: the next drain leaves the version alone.
+    await index.scheduleEffortIndexing();
+    expect(store.getEffortMeta().indexVersion).toBe(after);
+    store.setEffortEnabled(false);
+    index.setEffortCatalog([]);
+  });
+
   test("the index version advances on every derived write", async () => {
     const source = await writeSource("codex", codexBody(1));
     const before = store.getEffortMeta().indexVersion;

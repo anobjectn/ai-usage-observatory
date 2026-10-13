@@ -347,6 +347,7 @@ async function drainBacklog() {
     // A session whose only outstanding bytes are an unterminated final line makes no progress.
     // It is normal, not an error: park it for this drain and let the next refresh retry.
     const stalled = new Set<string>();
+    let indexed = false;
     while (getEffortMeta().enabled) {
       const states = getEffortStates();
       await verifySkippedBoundaries(catalog, states);
@@ -358,13 +359,14 @@ async function drainBacklog() {
       const before = states.get(entry.source.sessionId)?.lastOffset ?? -1;
       const generation = effortGeneration();
       const result = await indexOneSession(entry.source, entry.work);
+      indexed = true;
       // A pass cut short by a delete made no progress against the emptied tables; it is not a
       // stall, and a re-enable in this drain must index the session again.
       if (result.done && result.offset <= before && generation === effortGeneration()) stalled.add(entry.source.sessionId);
       await yieldToLoop();
     }
     // Deleting derived data also disables indexing; it must not be stamped as indexed again.
-    if (getEffortMeta().enabled) markEffortIndexed();
+    if (getEffortMeta().enabled) markEffortIndexed(indexed);
     setEffortError(null);
   } catch (error) {
     // A parser failure records the error; it must never invalidate the last good snapshot.
