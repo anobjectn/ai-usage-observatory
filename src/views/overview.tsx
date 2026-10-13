@@ -18,7 +18,7 @@ import {
   useEffortSessions,
   useEffortStatus,
 } from "../hooks/use-effort";
-import { useSessionQuotaContexts } from "../hooks/use-session-quota-contexts";
+import { quotaContextVersion, useSessionQuotaContexts } from "../hooks/use-session-quota-contexts";
 import { Bot, ChevronRight, CircleDollarSign, Database, Gauge, Tag, Zap } from "lucide-react";
 import { HeadroomOrrery, type ProviderColors, type SceneEffects } from "../scene";
 import { providerHeadroom } from "../quota-headroom";
@@ -233,7 +233,14 @@ export function Overview({
   const recentFloor = recentSessionFloor(data.quotas, windowSessions);
   // The list runs well past the two windows it is titled for, so a closing quota reading is
   // fetched for a row only once that row is actually on screen.
-  const sessionQuota = useSessionQuotaContexts();
+  const quotaVersionOf = useMemo(() => {
+    const byId = new Map([...sessions, ...windowSessions].map((session) => [session.sessionId, session]));
+    return (sessionId: string) => {
+      const session = byId.get(sessionId);
+      return session ? quotaContextVersion(session, data.collectedAt) : "";
+    };
+  }, [sessions, windowSessions, data.collectedAt]);
+  const sessionQuota = useSessionQuotaContexts(quotaVersionOf);
   const requestQuota = sessionQuota.request;
   const quotaObserver = useMemo(
     () =>
