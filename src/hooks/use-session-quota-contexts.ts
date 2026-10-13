@@ -53,7 +53,7 @@ export function useSessionQuotaContexts(versionOf: (sessionId: string) => string
   >({});
   const settled = useRef(new Map<string, string>());
   const pending = useRef(new Map<string, string>());
-  const failures = useRef(new Map<string, number>());
+  const failures = useRef(new Map<string, { version: string; attempts: number }>());
   const asked = useRef(new Set<string>());
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const versionRef = useRef(versionOf);
@@ -106,15 +106,28 @@ export function useSessionQuotaContexts(versionOf: (sessionId: string) => string
               failed.filter(({ sessionId }) => !Object.hasOwn(previous, sessionId)).map(({ sessionId }) => [sessionId, null]),
             ),
           }));
-          const attempt = Math.max(0, ...failed.map(({ sessionId }) => failures.current.get(sessionId) ?? 0));
-          failed.forEach(({ sessionId }) => failures.current.set(sessionId, attempt + 1));
-          const delay = quotaRetryDelaysMs[attempt];
-          if (delay === undefined || !failed.length) return;
-          const timer = setTimeout(() => {
-            timers.current.delete(timer);
-            request(failed.map(({ sessionId }) => sessionId));
-          }, delay);
-          timers.current.add(timer);
+          // Each reading version has its own retry budget. Group equal delays without letting
+          // an exhausted session consume another session's retries.
+          const retries = new Map<number, typeof failed>();
+          for (const reading of failed) {
+            const previous = failures.current.get(reading.sessionId);
+            const attempt = previous?.version === reading.version ? previous.attempts : 0;
+            failures.current.set(reading.sessionId, { version: reading.version, attempts: attempt + 1 });
+            const delay = quotaRetryDelaysMs[attempt];
+            if (delay === undefined) continue;
+            const group = retries.get(delay) ?? [];
+            group.push(reading);
+            retries.set(delay, group);
+          }
+          for (const [delay, readings] of retries) {
+            const timer = setTimeout(() => {
+              timers.current.delete(timer);
+              const currentIds = readings.filter(({ sessionId, version }) => versionRef.current(sessionId) === version)
+                .map(({ sessionId }) => sessionId);
+              request(currentIds);
+            }, delay);
+            timers.current.add(timer);
+          }
         });
     }
   }, []);

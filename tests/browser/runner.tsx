@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
+import { useCallback } from "react";
 import { App } from "../../src/App";
+import { quotaRetryDelaysMs, useSessionQuotaContexts } from "../../src/hooks/use-session-quota-contexts";
 import "../../src/styles/index.css";
 
 // Never run mutation scenarios against the user's normal app server.
@@ -98,7 +100,95 @@ await test("annotations survive save, remount, and keyboard dismissal", async ()
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   await waitFor(() => !document.querySelector('[aria-labelledby="annotation-modal-title"]'), "Escape did not dismiss the saved dialog");
 });
+root.unmount();
+
+// Exercise the real hook with controlled network failures and retry timers. Other browser timers
+// keep running normally, and no quota request from these fixtures reaches the server.
+async function quotaRetryFixture(run: (fixture: {
+  requests: string[][];
+  timers: Map<number, { callback: () => void; delay: number }>;
+  request: (ids: string[]) => Promise<void>;
+  renderVersion: (version: string) => void;
+  retry: () => Promise<number>;
+}) => Promise<void>) {
+  const originalFetch = window.fetch;
+  const originalTimeout = window.setTimeout;
+  const originalClearTimeout = window.clearTimeout;
+  const timers = new Map<number, { callback: () => void; delay: number }>();
+  const requests: string[][] = [];
+  let timerId = -1;
+  let hook: ReturnType<typeof useSessionQuotaContexts> | undefined;
+  const fixtureRoot = createRoot(rootElement);
+  const flush = () => new Promise<void>((resolve) => originalTimeout(resolve, 0));
+  function Harness({ version }: { version: string }) {
+    hook = useSessionQuotaContexts(useCallback(() => version, [version]));
+    return null;
+  }
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input !== "/api/session-quota-contexts") return originalFetch(input, init);
+    requests.push((JSON.parse(String(init?.body)) as { sessionIds: string[] }).sessionIds);
+    return new Response("{}", { status: 503 });
+  }) as typeof window.fetch;
+  window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+    if (typeof handler === "function" && quotaRetryDelaysMs.includes(delay ?? -1)) {
+      const id = timerId--;
+      timers.set(id, { callback: () => handler(...args), delay: delay! });
+      return id;
+    }
+    return originalTimeout(handler, delay, ...args);
+  }) as typeof window.setTimeout;
+  window.clearTimeout = ((id?: number) => {
+    if (id !== undefined && timers.delete(id)) return;
+    originalClearTimeout(id);
+  }) as typeof window.clearTimeout;
+  const renderVersion = (version: string) => fixtureRoot.render(<Harness version={version} />);
+  try {
+    renderVersion("v1");
+    await waitFor(() => Boolean(hook), "Quota retry hook did not mount");
+    await run({
+      requests, timers, renderVersion,
+      request: async (ids) => { hook!.request(ids); await flush(); },
+      retry: async () => {
+        const entry = timers.entries().next().value;
+        assert(entry, "Expected a scheduled quota retry");
+        const [id, timer] = entry;
+        timers.delete(id);
+        timer.callback();
+        await flush();
+        return timer.delay;
+      },
+    });
+  } finally {
+    fixtureRoot.unmount();
+    window.fetch = originalFetch;
+    window.setTimeout = originalTimeout;
+    window.clearTimeout = originalClearTimeout;
+  }
+}
+
+await test("a new quota reading version receives a fresh retry budget", async () => {
+  await quotaRetryFixture(async ({ request, retry, requests, timers, renderVersion }) => {
+    await request(["old"]);
+    for (const delay of quotaRetryDelaysMs) assert(await retry() === delay, "Quota retry used the wrong delay");
+    assert(requests.length === 4 && timers.size === 0, "Quota retry budget was not exhausted");
+    renderVersion("v2");
+    await waitFor(() => requests.length === 5, "Changed quota reading was not requested");
+    for (const delay of quotaRetryDelaysMs) assert(await retry() === delay, "New version did not reset its retry budget");
+    assert(Number(requests.length) === 8 && Number(timers.size) === 0, "New version exceeded its retry budget");
+  });
+});
+await test("an exhausted quota session does not consume another session's retries", async () => {
+  await quotaRetryFixture(async ({ request, retry, requests, timers }) => {
+    await request(["old"]);
+    for (const delay of quotaRetryDelaysMs) assert(await retry() === delay, "Quota retry used the wrong delay");
+    await request(["old", "new"]);
+    for (const delay of quotaRetryDelaysMs) {
+      assert(await retry() === delay, "New session did not receive its retry budget");
+      assert(JSON.stringify(requests.at(-1)) === '["new"]', "Exhausted session joined the new session's retries");
+    }
+    assert(timers.size === 0, "Quota session exceeded its retry budget");
+  });
+});
 status.textContent = `${result.passed.length} passed; ${result.failed.length} failed. ${result.failed.join("; ")}`;
 document.title = result.failed.length ? "Browser regressions failed" : "Browser regressions passed";
-root.unmount();
 await fetch("/__browser-test/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result) });
