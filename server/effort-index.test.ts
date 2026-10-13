@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { stat, writeFile } from "node:fs/promises";
+import { appendFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -281,6 +281,55 @@ describe("incremental indexing", () => {
     expect(state.contextGaps).toBe(0);
     expect(state.attributedTokens).toBe(1060);
     expect(derived(source.sessionId)).toEqual([{ occurred_on: "2026-07-01", model: "gpt-5.4", effort: "high", observations: 1, total_tokens: 1060 }]);
+  });
+
+  test("an over-limit compacted line pairs with a usage record persisted by an earlier span", async () => {
+    // The usage record is committed and waits in persisted state; the response ID arrives in an
+    // append, after megabytes of replacement history read across several chunks.
+    const source = await writeSource("codex", fixtures.transcript([
+      fixtures.codexTurnContext({ effort: "high" }),
+      fixtures.codexUsageRecord({ responseId: "resp_remote" }),
+      fixtures.codexMessage(),
+    ]));
+    await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    expect(store.getEffortState(source.sessionId)!.observedUsageTokens).toBe(0);
+
+    await appendFile(source.sourceFile, fixtures.transcript([
+      fixtures.codexCompacted("resp_remote", { padding: "x".repeat(MAX_LINE_BYTES + 16) }),
+      fixtures.codexTokenCount({}),
+    ]));
+    const result = await index.indexOneSession(await restat(source), { kind: "append" }, { budgetMs: 60_000, chunkBytes: 1024 * 1024 });
+    expect(result.done).toBe(true);
+    const state = store.getEffortState(source.sessionId)!;
+    expect(state.parseErrors).toBe(0);
+    expect(state.contextGaps).toBe(0);
+    expect(state.observedUsageTokens).toBe(2300 + 1060);
+    expect(derived(source.sessionId)).toEqual([{ occurred_on: "2026-07-01", model: "gpt-5.4", effort: "high", observations: 1, total_tokens: 3360 }]);
+  });
+
+  test("a fork skips the compactions its parent made before the fork instant", async () => {
+    const at = (second: number) => `2026-07-01T15:00:${String(second).padStart(2, "0")}.000Z`;
+    const meta = (payload: Record<string, unknown>, timestamp: string) => JSON.stringify({ timestamp, type: "session_meta", payload });
+    const parent = await writeSource("codex", fixtures.transcript([
+      meta({ id: "parent-compacting" }, at(0)),
+      fixtures.codexTurnContext({ effort: "high" }),
+      fixtures.codexUsageRecord({ responseId: "resp_before", timestamp: at(5) }),
+      fixtures.codexCompacted("resp_before", { timestamp: at(6) }),
+      fixtures.codexUsageRecord({ responseId: "resp_after", timestamp: at(50) }),
+      fixtures.codexCompacted("resp_after", { timestamp: at(51) }),
+    ]), { sessionId: "parent-compacting" });
+    const child = await writeSource("codex", fixtures.transcript([
+      meta({ id: "child-compacting", forked_from_id: "parent-compacting" }, at(30)),
+      fixtures.codexTurnContext({ effort: "low" }),
+      fixtures.codexUsageRecord({ responseId: "resp_before", timestamp: at(5) }),
+      fixtures.codexCompacted("resp_before", { timestamp: at(6) }),
+      fixtures.codexUsageRecord({ responseId: "resp_child", timestamp: at(40) }),
+      fixtures.codexCompacted("resp_child", { timestamp: at(41) }),
+    ]), { sessionId: "child-compacting" });
+    await index.indexOneSession(parent, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    expect(store.getEffortState(parent.sessionId)!.observedUsageTokens).toBe(4600);
+    await index.indexOneSession(child, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    expect(store.getEffortState(child.sessionId)!.observedUsageTokens).toBe(2300);
   });
 
   test("an oversized line whose type cannot be read is still a gap", async () => {

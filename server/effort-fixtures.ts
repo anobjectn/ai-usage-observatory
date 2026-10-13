@@ -97,3 +97,28 @@ export function codexMessage(text = SENSITIVE_SENTINEL) {
 export function transcript(lines: string[], { trailingNewline = true } = {}) {
   return lines.join("\n") + (trailingNewline ? "\n" : "");
 }
+
+/** Codex writes one of these for every response; only a `compacted` item naming the same
+ * response makes it billable. */
+export function codexUsageRecord(options: {
+  responseId: string;
+  usage?: Record<string, number>;
+  thread?: Record<string, number>;
+  timestamp?: string;
+}) {
+  const usage = options.usage ?? { input_tokens: 2000, cached_input_tokens: 500, cache_write_input_tokens: 0, output_tokens: 300, reasoning_output_tokens: 100, total_tokens: 2300 };
+  return JSON.stringify({
+    timestamp: options.timestamp ?? "2026-07-01T15:00:00.000Z",
+    type: "token_usage_record",
+    payload: { thread_id: "fixture-thread", turn_id: "fixture-turn", response_id: options.responseId, usage, turn_token_usage: usage, thread_token_usage: options.thread ?? usage },
+  });
+}
+
+/** `padding` stands in for the replacement history, which comes before the response ID. */
+export function codexCompacted(responseId: string | null, { padding = SENSITIVE_SENTINEL, timestamp = "2026-07-01T15:00:00.000Z" } = {}) {
+  return JSON.stringify({
+    timestamp,
+    type: "compacted",
+    payload: { message: "", replacement_history: [{ type: "message", role: "user", content: [{ type: "input_text", text: padding }] }], compaction_response_id: responseId, latest_token_usage_record: null },
+  });
+}

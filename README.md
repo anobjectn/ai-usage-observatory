@@ -167,7 +167,7 @@ For Projects captures, open `ai-usage-observatory` and scroll it into view so
 **On its own** (no provider quota connection):
 
 - Six connected views — Overview, Explorer, Sessions, Projects, Models, and Data — share one dataset. Date, agent, path, and cache controls carry context between them.
-- Usage by day, week, month, session, project instance, and reconstructed five-hour block, using pinned `ccusage@20.0.26`.
+- Usage by day, week, month, session, project instance, and reconstructed five-hour block, using pinned `ccusage@20.0.30`.
 - Input, output, cache-read, and cache-creation tokens, with an option to exclude cache traffic.
 - Cost, model mix, and effort as model family x effort, the unit an effort label is comparable in. Missing effort labels are never shown as known data.
 - Path rules (glob or regular expression) applied retroactively to indexed history, plus durable session tags, notes, and verdicts.
@@ -574,7 +574,7 @@ assignment can replace a generic `snapshot_json.extra.subscriptionType` value.
 
 ## Sources and scope
 
-- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.26 by ryoppippi (MIT) supplies local usage analytics and API-equivalent price estimates.
+- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.30 by ryoppippi (MIT) supplies local usage analytics and API-equivalent price estimates.
 - Local Claude Code and Codex session files supply session metadata, on-demand prompt and output samples, and opt-in effort categories.
 - [`quota-service`](https://github.com/anobjectn/quota-service) optionally supplies provider allowance data. It is a separate localhost service, not a bundled dependency.
 

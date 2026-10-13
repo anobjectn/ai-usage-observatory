@@ -4,14 +4,16 @@ import {
   MAX_LINE_BYTES,
   OVERSIZED_HEAD_BYTES,
   consumeEffortLine,
+  finishOversizedLine,
   recordOversizedLine,
+  startCodexReplay,
   createAccumulator,
   emptyState,
   type Agent,
   type EffortAccumulator,
   type EffortParserState,
 } from "./effort-parse";
-import { decodeCodexUsageState, encodeCodexUsageState, planCodexReplay } from "./codex-replay";
+import { decodeCodexUsageState, encodeCodexUsageState, lenient, planCodexReplay, tailOf } from "./codex-replay";
 import {
   commitEffortSpan,
   getEffortMeta,
@@ -156,15 +158,21 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
     ...decodeCodexUsageState(prior?.codexUsageState ?? null),
   };
   // A rebuild starts every Codex rollout as a possible fork; only a fork gets a plan. A resumed
-  // fork needs its parent prefix again only while it is still matching against it.
-  if (agent === "codex" && (entry.kind === "rebuild" || state.codexReplay?.phase === "matching")) {
-    state.codexReplayPlan = await planCodexReplay(source.sourceFile);
-    if (entry.kind === "rebuild" && state.codexReplayPlan) state.codexReplay = { phase: "matching", index: 0 };
-  }
+  // fork needs its parent prefix again only while it is still matching against it; the parent's
+  // copied compactions persist with the usage state.
+  if (agent === "codex" && entry.kind === "rebuild") startCodexReplay(state, await planCodexReplay(source.sourceFile));
+  else if (agent === "codex" && state.codexReplay?.phase === "matching") state.codexReplayPlan = await planCodexReplay(source.sourceFile);
 
   let cursor = entry.kind === "append" ? prior?.lastOffset ?? 0 : 0;
   let carry: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   let skippingOversizedLine = false;
+  // The head and the last bytes of the over-limit line being skipped.
+  let oversizedHead = "";
+  let oversizedTail: Uint8Array = new Uint8Array(0);
+  const beginOversized = (bytes: Uint8Array) => {
+    oversizedHead = headOf(bytes, 0);
+    oversizedTail = tailOf(new Uint8Array(0), bytes);
+  };
   const decoder = new TextDecoder();
   const started = Date.now();
   const size = source.size;
@@ -186,13 +194,16 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
       const terminator = chunk.indexOf(newline);
       if (terminator < 0) {
         accumulator.skippedBytes += chunk.length;
+        oversizedTail = tailOf(oversizedTail, chunk);
         cursor = readFrom + chunk.length;
         await commit(accumulator, cursor);
-        if (Date.now() - started >= budgetMs) return { done: false, offset: cursor };
+        // No time-slice exit inside an over-limit line: a resumed span would start mid-line and
+        // lose the head that says what the line is.
         await yieldToLoop();
         continue;
       }
       accumulator.skippedBytes += terminator + 1;
+      finishOversizedLine(accumulator, state, agent, oversizedHead, lenient(tailOf(oversizedTail, chunk.subarray(0, terminator))));
       cursor = readFrom + terminator + 1;
       skippingOversizedLine = false;
       buffer = chunk.slice(terminator + 1);
@@ -206,6 +217,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
       // decoded until a terminator is seen.
       if (buffer.length > MAX_LINE_BYTES) {
         recordOversizedLine(accumulator, state, agent, buffer.length, headOf(buffer, 0));
+        beginOversized(buffer);
         skippingOversizedLine = true;
         carry = new Uint8Array(0);
         cursor = readFrom + chunk.length;
@@ -213,7 +225,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
       } else {
         carry = buffer;
       }
-      if (Date.now() - started >= budgetMs) return { done: false, offset: cursor };
+      if (!skippingOversizedLine && Date.now() - started >= budgetMs) return { done: false, offset: cursor };
       await yieldToLoop();
       continue;
     }
@@ -227,10 +239,13 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
       const terminator = buffer.indexOf(newline, lineStart);
       if (terminator < 0 || terminator > lastNewline) break;
       const length = terminator - lineStart;
-      // An over-limit line is never decoded whole; only its head is read, to tell a boundary
-      // from a replay or attachment that merely happens to be enormous.
-      if (length > MAX_LINE_BYTES) recordOversizedLine(accumulator, state, agent, length, headOf(buffer, lineStart));
-      else consumeEffortLine(decoder.decode(buffer.subarray(lineStart, terminator)), agent, accumulator, state);
+      // An over-limit line is never decoded whole; only its head and tail are read, to tell a
+      // boundary from a replay or attachment that merely happens to be enormous.
+      if (length > MAX_LINE_BYTES) {
+        const line = buffer.subarray(lineStart, terminator);
+        recordOversizedLine(accumulator, state, agent, length, headOf(line, 0));
+        finishOversizedLine(accumulator, state, agent, headOf(line, 0), lenient(tailOf(new Uint8Array(0), line)));
+      } else consumeEffortLine(decoder.decode(buffer.subarray(lineStart, terminator)), agent, accumulator, state);
       lineStart = terminator + 1;
     }
     cursor += lastNewline + 1;
@@ -238,12 +253,13 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
     // An incomplete trailing fragment is never persisted; it is re-read from `cursor` next pass.
     if (carry.length > MAX_LINE_BYTES) {
       recordOversizedLine(accumulator, state, agent, carry.length, headOf(carry, 0));
+      beginOversized(carry);
       skippingOversizedLine = true;
       cursor += carry.length;
       carry = new Uint8Array(0);
     }
     await commit(accumulator, cursor);
-    if (Date.now() - started >= budgetMs) return { done: false, offset: cursor };
+    if (!skippingOversizedLine && Date.now() - started >= budgetMs) return { done: false, offset: cursor };
     await yieldToLoop();
   }
   // An empty file, or a file whose only new bytes are an unterminated final line, still needs a

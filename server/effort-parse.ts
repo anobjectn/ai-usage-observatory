@@ -3,7 +3,7 @@ import { dateKeyInTimeZone } from "../src/reporting-time";
 
 /** Bumping this rebuilds every session from byte zero. The constant lives in code, never in the
  * database, so a checkout can never disagree with the rows it is reading. */
-export const PARSER_VERSION = 8;
+export const PARSER_VERSION = 10;
 
 /** A single line is buffered only up to this size. Crossing it records a gap and a skipped-byte
  * count; no transcript fragment is ever persisted. */
@@ -46,6 +46,34 @@ export type EffortParserState = {
   codexReplay: CodexReplayProgress | null;
   /** Supplied by the indexer for a fork, never persisted: it is rebuilt from the parent log. */
   codexReplayPlan: CodexReplayPlan | null;
+  /** Compaction requests Codex records outside the cumulative totals. Null until the rollout
+   * records one; persisted with the cumulative totals so pairing survives a span boundary. */
+  codexCompaction: CodexCompactionState | null;
+};
+
+/** A compaction request's usage arrives as a `token_usage_record` and becomes billable only once
+ * a `compacted` item names the same response, in either order. Mirrors ccusage. */
+export type CodexCompactionState = {
+  /** Response IDs named by a `compacted` item. */
+  compacted: Set<string>;
+  /** Usage records still waiting for their `compacted` item. */
+  pending: Map<string, CodexPendingCompaction>;
+  /** Response IDs already counted, or already covered by a cumulative snapshot. */
+  emitted: Set<string>;
+  /** The most recent usage record, the only one a cumulative snapshot can cover. */
+  latest: string | null;
+  /** Compactions a fork copied from its parent before the fork instant. */
+  parent: Set<string>;
+};
+
+export type CodexPendingCompaction = {
+  usage: CodexRawUsage;
+  thread: CodexRawUsage | null;
+  stamp: string;
+  model: string;
+  effort: string;
+  active: boolean;
+  reasoningReported: boolean;
 };
 
 /** One Codex usage record exactly as the rollout states it, before input is split from cache. */
@@ -61,7 +89,7 @@ export type CodexRawUsage = {
 /** `prefix` is the usage the parent recorded up to the fork instant; empty when the parent log
  * is unavailable. `burstStart` is the timestamp of the rollout's first usage record when its
  * first two records were written within a second of each other, the mark of a rewritten replay. */
-export type CodexReplayPlan = { prefix: CodexRawUsage[]; burstStart: number | null };
+export type CodexReplayPlan = { prefix: CodexRawUsage[]; burstStart: number | null; compactions?: Set<string> };
 
 export type CodexReplayProgress = { phase: "matching"; index: number } | { phase: "burst"; last: number };
 
@@ -102,7 +130,20 @@ export const emptyState = (): EffortParserState => ({
   codexPreviousTotals: null,
   codexReplay: null,
   codexReplayPlan: null,
+  codexCompaction: null,
 });
+
+export const emptyCodexCompaction = (): CodexCompactionState => ({
+  compacted: new Set(), pending: new Map(), emitted: new Set(), latest: null, parent: new Set(),
+});
+
+/** Arms a fork's replay plan: the parent's usage prefix and the compactions it copied. */
+export function startCodexReplay(state: EffortParserState, plan: CodexReplayPlan | null) {
+  state.codexReplayPlan = plan;
+  if (!plan) return;
+  state.codexReplay = { phase: "matching", index: 0 };
+  if (plan.compactions?.size) state.codexCompaction = { ...emptyCodexCompaction(), parent: new Set(plan.compactions) };
+}
 
 export function createAccumulator(): EffortAccumulator {
   return {
@@ -181,7 +222,33 @@ export function hasProviderMarker(line: string, agent: Agent) {
     : line.includes("session_meta")
       || line.includes("thread_rolled_back")
       || line.includes("turn_context")
-      || line.includes("token_count");
+      || line.includes("token_count")
+      || line.includes("token_usage_record")
+      || line.includes("compaction_response_id");
+}
+
+/** Bytes kept from the end of an over-limit line. A `compacted` item names its response after
+ * the replacement history, so its identity sits in the last few hundred bytes. */
+export const OVERSIZED_TAIL_BYTES = 4096;
+
+const compactedType = /^\{[^{]*?"type"\s*:\s*"compacted"/;
+
+/** The response a `compacted` item names, read from the head and tail of a line too large to
+ * decode. An unescaped `"compaction_response_id":` key cannot occur inside a JSON string, so the
+ * last one in the tail is the item's own. */
+export function oversizedCompactionId(head: string, tail: string) {
+  if (!compactedType.test(head)) return null;
+  const matches = [...tail.matchAll(/"compaction_response_id"\s*:\s*"([^"\\]+)"/g)];
+  const id = matches.at(-1)?.[1]?.trim();
+  return id ? id : null;
+}
+
+/** Called once an over-limit line ends. A `compacted` item too large to decode still pairs with
+ * its usage record through the response named in its tail. */
+export function finishOversizedLine(accumulator: EffortAccumulator, state: EffortParserState, agent: Agent, head: string, tail: string) {
+  if (agent !== "codex") return;
+  const responseId = oversizedCompactionId(head, tail);
+  if (responseId) codexCompacted(responseId, accumulator, state);
 }
 
 /** A malformed or over-limit line carrying a provider marker is a parser gap, not a skip.
@@ -376,9 +443,12 @@ function codexQuotaObservations(row: Record<string, unknown>, payload: Record<st
 
 function codexTokenCount(row: Record<string, unknown>, payload: Record<string, unknown>, accumulator: EffortAccumulator, state: EffortParserState) {
   const info = record(payload.info) ? payload.info : null;
+  const total = info && record(info.total_token_usage) ? rawUsage(info.total_token_usage) : null;
+  const advanced = total === null || state.codexPreviousTotals === null || !sameUsage(total, state.codexPreviousTotals);
   // Usage accounting follows ccusage even inside embedded parent history, so the cumulative
   // total and the fork replay position stay in step with what ccusage reads from the same file.
   const usage = info ? codexUsageDelta(info, state) : null;
+  if (usage !== null && advanced) settleCoveredCompaction(usage, total, state);
   const stamp = typeof row.timestamp === "string" ? row.timestamp : typeof payload.timestamp === "string" ? payload.timestamp : "";
   const stampMs = stamp === "" ? Number.NaN : Date.parse(stamp);
   const replayed = usage !== null && codexUsageIsReplayed(usage, Number.isNaN(stampMs) ? null : stampMs, state);
@@ -424,6 +494,88 @@ function codexTokenCount(row: Record<string, unknown>, payload: Record<string, u
     reasoningReportedEvents: reasoningSource?.reasoning_output_tokens === undefined ? 0 : 1,
     totalTokens,
   });
+}
+
+const normalized = (usage: CodexRawUsage): CodexRawUsage => {
+  const cachedInputTokens = Math.min(usage.cachedInputTokens, usage.inputTokens);
+  return { ...usage, cachedInputTokens, cacheCreationTokens: Math.min(usage.cacheCreationTokens, Math.max(0, usage.inputTokens - cachedInputTokens)) };
+};
+
+/** Local compaction writes an advancing `token_count` between its usage record and its
+ * `compacted` item, so the cumulative snapshot already holds that request. Remote compaction does
+ * not, and only its record is still counted. Only the latest record is considered, so an
+ * unrelated request with identical counts cannot consume it. */
+function settleCoveredCompaction(usage: CodexRawUsage, total: CodexRawUsage | null, state: EffortParserState) {
+  const compaction = state.codexCompaction;
+  const latest = compaction?.latest;
+  if (!compaction || !latest) return;
+  const pending = compaction.pending.get(latest);
+  if (!pending) return;
+  const covered = sameUsage(pending.usage, normalized(usage))
+    || (pending.thread !== null && total !== null && sameUsage(pending.thread, normalized(total)));
+  if (!covered) return;
+  compaction.pending.delete(latest);
+  compaction.emitted.add(latest);
+}
+
+function codexCompactionState(state: EffortParserState) {
+  state.codexCompaction ??= emptyCodexCompaction();
+  return state.codexCompaction;
+}
+
+function emitCompaction(responseId: string, pending: CodexPendingCompaction, accumulator: EffortAccumulator, state: EffortParserState) {
+  const compaction = codexCompactionState(state);
+  if (compaction.emitted.has(responseId)) return;
+  compaction.emitted.add(responseId);
+  // A copy of a request the parent made before the fork was billed to the parent.
+  if (compaction.parent.has(responseId)) return;
+  const { usage } = pending;
+  const inputTokens = usage.inputTokens - usage.cachedInputTokens - usage.cacheCreationTokens;
+  if (!pending.active) accumulator.contextGaps++;
+  const target = bucket(accumulator, dateKeyInTimeZone(pending.stamp) ?? "", pending.active ? pending.model : "", pending.active ? pending.effort : "");
+  addTokens(accumulator, target, {
+    inputTokens,
+    cacheReadTokens: usage.cachedInputTokens,
+    cacheCreationTokens: usage.cacheCreationTokens,
+    outputTokens: usage.outputTokens,
+    reasoningOutputTokens: usage.reasoningOutputTokens,
+    reasoningReportedEvents: pending.reasoningReported ? 1 : 0,
+    totalTokens: usage.inputTokens + usage.outputTokens,
+  });
+}
+
+/** A `token_usage_record` is written for every response; it becomes usage only when a
+ * `compacted` item names it. It never changes the turn's model, effort, or cumulative baseline. */
+function codexUsageRecord(row: Record<string, unknown>, payload: Record<string, unknown>, accumulator: EffortAccumulator, state: EffortParserState) {
+  const responseId = typeof payload.response_id === "string" ? payload.response_id.trim() : "";
+  if (responseId === "" || typeof row.timestamp !== "string" || !record(payload.usage)) return;
+  if (state.codexCompaction?.emitted.has(responseId)) return;
+  const usage = normalized(rawUsage(payload.usage));
+  if (rawUsageFields.every((field) => usage[field] === 0)) return;
+  const compaction = codexCompactionState(state);
+  const recordedModel = [payload.model, payload.model_name].find((value) => typeof value === "string" && value !== "");
+  const pending: CodexPendingCompaction = {
+    usage,
+    thread: record(payload.thread_token_usage) ? normalized(rawUsage(payload.thread_token_usage)) : null,
+    stamp: row.timestamp,
+    model: typeof recordedModel === "string" ? recordedModel : state.model ?? "",
+    effort: state.effort ?? "",
+    active: state.active,
+    reasoningReported: payload.usage.reasoning_output_tokens !== undefined,
+  };
+  compaction.latest = responseId;
+  if (compaction.compacted.has(responseId)) emitCompaction(responseId, pending, accumulator, state);
+  else if (!compaction.pending.has(responseId)) compaction.pending.set(responseId, pending);
+}
+
+/** Pairs a `compacted` item with the usage record of the request that produced it. */
+export function codexCompacted(responseId: string, accumulator: EffortAccumulator, state: EffortParserState) {
+  const compaction = codexCompactionState(state);
+  compaction.compacted.add(responseId);
+  const pending = compaction.pending.get(responseId);
+  if (!pending) return;
+  compaction.pending.delete(responseId);
+  emitCompaction(responseId, pending, accumulator, state);
 }
 
 function clearCodexAttribution(state: EffortParserState) {
@@ -476,6 +628,15 @@ export function parseEffortLine(line: string, agent: Agent, accumulator: EffortA
   }
   if (type === "token_count") {
     codexTokenCount(row, payload, accumulator, state);
+    return true;
+  }
+  if (row.type === "token_usage_record") {
+    codexUsageRecord(row, payload, accumulator, state);
+    return true;
+  }
+  if (row.type === "compacted") {
+    const responseId = typeof payload.compaction_response_id === "string" ? payload.compaction_response_id.trim() : "";
+    if (responseId !== "") codexCompacted(responseId, accumulator, state);
     return true;
   }
   return false;

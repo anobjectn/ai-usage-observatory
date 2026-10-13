@@ -1,7 +1,12 @@
 import {
   CODEX_REPLAY_BURST_PAUSE_MS,
   MAX_LINE_BYTES,
+  OVERSIZED_HEAD_BYTES,
+  OVERSIZED_TAIL_BYTES,
   codexUsageDelta,
+  oversizedCompactionId,
+  type CodexCompactionState,
+  type CodexPendingCompaction,
   type CodexRawUsage,
   type CodexReplayPlan,
   type CodexReplayProgress,
@@ -23,31 +28,48 @@ function join(left: Uint8Array, right: Uint8Array) {
   return joined;
 }
 
-/** Complete lines of a transcript, decoded one at a time. An over-limit line is skipped: it is a
- * compaction replay or an attachment, never a `session_meta` or `token_count` record. */
-async function* transcriptLines(sourceFile: string) {
+/** Decodes leniently: a multi-byte sequence cut at a window edge cannot form a key. */
+export const lenient = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+/** The last `OVERSIZED_TAIL_BYTES` of `kept` followed by `next`. */
+export function tailOf(kept: Uint8Array, next: Uint8Array) {
+  if (next.length >= OVERSIZED_TAIL_BYTES) return next.slice(next.length - OVERSIZED_TAIL_BYTES);
+  const joined = join(kept, next);
+  return joined.slice(Math.max(0, joined.length - OVERSIZED_TAIL_BYTES));
+}
+
+/** Complete lines of a transcript, decoded one at a time. An over-limit line is a compaction
+ * replay or an attachment, never a `session_meta` or `token_count` record; only its head and
+ * tail are kept, where a `compacted` item states its type and its response. */
+async function* transcriptLines(sourceFile: string): AsyncGenerator<string | { head: string; tail: string }> {
   const decoder = new TextDecoder();
   let carry: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
-  let skipping = false;
+  let oversized: { head: string; tail: Uint8Array } | null = null;
   for await (const chunk of Bun.file(sourceFile).stream()) {
     let start = 0;
     for (;;) {
       const terminator = chunk.indexOf(newline, start);
       if (terminator < 0) break;
-      if (skipping) {
-        skipping = false;
-      } else {
-        const tail = chunk.subarray(start, terminator);
+      const piece = chunk.subarray(start, terminator);
+      if (oversized) {
+        yield { head: oversized.head, tail: lenient(tailOf(oversized.tail, piece)) };
+        oversized = null;
+      } else if (carry.length + piece.length <= MAX_LINE_BYTES) {
         // Joined before decoding, so a multi-byte character split across chunks stays intact.
-        if (carry.length + tail.length <= MAX_LINE_BYTES) yield decoder.decode(carry.length ? join(carry, tail) : tail);
+        yield decoder.decode(carry.length ? join(carry, piece) : piece);
+      } else {
+        const whole = join(carry, piece);
+        yield { head: lenient(whole.subarray(0, OVERSIZED_HEAD_BYTES)), tail: lenient(tailOf(new Uint8Array(0), whole)) };
       }
       carry = new Uint8Array(0);
       start = terminator + 1;
     }
-    if (skipping) continue;
     const rest = chunk.subarray(start);
-    if (carry.length + rest.length > MAX_LINE_BYTES) {
-      skipping = true;
+    if (oversized) {
+      oversized.tail = tailOf(oversized.tail, rest);
+    } else if (carry.length + rest.length > MAX_LINE_BYTES) {
+      const whole = join(carry, rest);
+      oversized = { head: lenient(whole.subarray(0, OVERSIZED_HEAD_BYTES)), tail: tailOf(new Uint8Array(0), whole) };
       carry = new Uint8Array(0);
     } else if (rest.length) {
       carry = join(carry, rest);
@@ -77,7 +99,7 @@ type ForkHeader = { parentKey: string; forkedAt: number | null };
  * has used. Later `session_meta` records belong to embedded parent history. */
 async function readForkHeader(sourceFile: string): Promise<ForkHeader | null> {
   for await (const line of transcriptLines(sourceFile)) {
-    if (!line.includes("\"session_meta\"")) continue;
+    if (typeof line !== "string" || !line.includes("\"session_meta\"")) continue;
     const row = parse(line);
     if (row?.type !== "session_meta") continue;
     const payload = object(row.payload);
@@ -88,10 +110,33 @@ async function readForkHeader(sourceFile: string): Promise<ForkHeader | null> {
   return null;
 }
 
-/** Usage records of a rollout in file order, by the same rule the parser applies. */
-async function* usageRecords(sourceFile: string) {
+/** Usage records of a rollout in file order, by the same rule the parser applies. When
+ * `compactions` is given it collects, with its first timestamp, every response that both has a
+ * usage record and is named by a `compacted` item, including those a cumulative snapshot covered. */
+async function* usageRecords(sourceFile: string, compactions?: Map<string, number | null>) {
   const state: Pick<EffortParserState, "codexPreviousTotals"> = { codexPreviousTotals: null };
+  const recorded = new Map<string, number | null>();
+  const compacted = new Set<string>();
   for await (const line of transcriptLines(sourceFile)) {
+    if (typeof line !== "string") {
+      const id = compactions ? oversizedCompactionId(line.head, line.tail) : null;
+      if (id) compacted.add(id);
+      continue;
+    }
+    if (compactions && (line.includes("token_usage_record") || line.includes("compaction_response_id"))) {
+      const row = parse(line);
+      const payload = object(row?.payload);
+      if (row?.type === "compacted" && typeof payload?.compaction_response_id === "string" && payload.compaction_response_id.trim()) {
+        compacted.add(payload.compaction_response_id.trim());
+      } else if (row?.type === "token_usage_record" && typeof row.timestamp === "string" && typeof payload?.response_id === "string") {
+        const id = payload.response_id.trim();
+        const usage = object(payload.usage);
+        const stated = usage && ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens"]
+          .some((field) => typeof usage[field] === "number" && usage[field] > 0);
+        if (id && stated && !recorded.has(id)) recorded.set(id, timestampOf(row));
+      }
+      continue;
+    }
     if (!line.includes("\"token_count\"")) continue;
     const row = parse(line);
     const payload = object(row?.payload);
@@ -101,6 +146,7 @@ async function* usageRecords(sourceFile: string) {
     const usage = codexUsageDelta(info, state);
     yield { usage, timestamp: timestampOf(row), stated: object(info.last_token_usage) !== null || object(info.total_token_usage) !== null };
   }
+  for (const [id, timestamp] of recorded) if (compacted.has(id)) compactions?.set(id, timestamp);
 }
 
 function parentSourceFile(parentKey: string, childFile: string) {
@@ -115,19 +161,28 @@ export async function planCodexReplay(sourceFile: string): Promise<CodexReplayPl
   if (!header) return null;
 
   const prefix: CodexRawUsage[] = [];
+  const parentCompactions = new Map<string, number | null>();
   const parentFile = parentSourceFile(header.parentKey, sourceFile);
   if (parentFile) {
     try {
-      for await (const record of usageRecords(parentFile)) {
+      let copying = true;
+      // Read to the end: a compaction pair can complete after the fork instant even when its
+      // request was made before it.
+      for await (const record of usageRecords(parentFile, parentCompactions)) {
         // Usage the parent recorded after the fork was never copied, so it must not mask the
         // fork's own records.
-        if (header.forkedAt !== null && record.timestamp !== null && record.timestamp > header.forkedAt) break;
-        if (record.usage) prefix.push(record.usage);
+        if (header.forkedAt !== null && record.timestamp !== null && record.timestamp > header.forkedAt) copying = false;
+        if (copying && record.usage) prefix.push(record.usage);
       }
     } catch {
       prefix.length = 0;
+      parentCompactions.clear();
     }
   }
+  // A request the parent made after the fork stays countable in the child.
+  const compactions = new Set([...parentCompactions]
+    .filter(([, timestamp]) => header.forkedAt === null || timestamp === null || timestamp <= header.forkedAt)
+    .map(([id]) => id));
 
   // A rollout that opens with two usage records written back to back copied a history it did
   // not spend; one that pauses between them was recording its own turns from the start.
@@ -143,22 +198,58 @@ export async function planCodexReplay(sourceFile: string): Promise<CodexReplayPl
     if (step >= 0 && step <= CODEX_REPLAY_BURST_PAUSE_MS) burstStart = first;
     break;
   }
-  return { prefix, burstStart };
+  return { prefix, burstStart, compactions };
 }
 
-type CodexUsageState = { totals: CodexRawUsage | null; replay: CodexReplayProgress | null };
+type EncodedCompaction = {
+  compacted: string[];
+  pending: Array<[string, CodexPendingCompaction]>;
+  emitted: string[];
+  latest: string | null;
+  parent: string[];
+};
 
-export function encodeCodexUsageState(state: Pick<EffortParserState, "codexPreviousTotals" | "codexReplay">) {
-  if (state.codexPreviousTotals === null && state.codexReplay === null) return null;
-  return JSON.stringify({ totals: state.codexPreviousTotals, replay: state.codexReplay } satisfies CodexUsageState);
+type CodexUsageState = { totals: CodexRawUsage | null; replay: CodexReplayProgress | null; compaction?: EncodedCompaction };
+
+type PersistedCodexUsage = Pick<EffortParserState, "codexPreviousTotals" | "codexReplay" | "codexCompaction">;
+
+export function encodeCodexUsageState(state: PersistedCodexUsage) {
+  if (state.codexPreviousTotals === null && state.codexReplay === null && state.codexCompaction === null) return null;
+  const compaction = state.codexCompaction;
+  return JSON.stringify({
+    totals: state.codexPreviousTotals,
+    replay: state.codexReplay,
+    ...(compaction
+      ? {
+          compaction: {
+            compacted: [...compaction.compacted],
+            pending: [...compaction.pending],
+            emitted: [...compaction.emitted],
+            latest: compaction.latest,
+            parent: [...compaction.parent],
+          },
+        }
+      : {}),
+  } satisfies CodexUsageState);
 }
 
-export function decodeCodexUsageState(encoded: string | null): Pick<EffortParserState, "codexPreviousTotals" | "codexReplay"> {
-  if (encoded === null) return { codexPreviousTotals: null, codexReplay: null };
+function decodeCompaction(value: EncodedCompaction | undefined): CodexCompactionState | null {
+  if (!value) return null;
+  return {
+    compacted: new Set(value.compacted),
+    pending: new Map(value.pending),
+    emitted: new Set(value.emitted),
+    latest: value.latest,
+    parent: new Set(value.parent),
+  };
+}
+
+export function decodeCodexUsageState(encoded: string | null): PersistedCodexUsage {
+  if (encoded === null) return { codexPreviousTotals: null, codexReplay: null, codexCompaction: null };
   try {
     const value = JSON.parse(encoded) as CodexUsageState;
-    return { codexPreviousTotals: value.totals ?? null, codexReplay: value.replay ?? null };
+    return { codexPreviousTotals: value.totals ?? null, codexReplay: value.replay ?? null, codexCompaction: decodeCompaction(value.compaction) };
   } catch {
-    return { codexPreviousTotals: null, codexReplay: null };
+    return { codexPreviousTotals: null, codexReplay: null, codexCompaction: null };
   }
 }

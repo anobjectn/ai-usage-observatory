@@ -6,9 +6,11 @@ import {
   SENSITIVE_SENTINEL,
   claudeAssistant,
   claudeUser,
+  codexCompacted,
   codexMessage,
   codexTokenCount,
   codexTurnContext,
+  codexUsageRecord,
   transcript,
 } from "./effort-fixtures";
 import {
@@ -16,7 +18,9 @@ import {
   createAccumulator,
   emptyState,
   hasProviderMarker,
+  oversizedCompactionId,
   parseEffortLine,
+  startCodexReplay,
   type Agent,
   type CodexReplayPlan,
   type EffortAccumulator,
@@ -392,6 +396,124 @@ describe("Codex attribution contract", () => {
   });
 });
 
+describe("Codex compaction usage", () => {
+  // The fixture record: 2000 input (500 cached) and 300 output, 2300 in total.
+  const compactionTokens = 2300;
+  const ordinaryTokens = 1060;
+
+  test("a remote compaction's usage record counts once its compacted item names it", () => {
+    const { accumulator, state } = run([
+      codexTurnContext({ effort: "high" }),
+      codexTokenCount({}),
+      codexUsageRecord({ responseId: "resp_remote" }),
+      codexCompacted("resp_remote"),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(ordinaryTokens + compactionTokens);
+    expect(rowFor(accumulator, "high")[0]).toMatchObject({ cacheReadTokens: 400 + 500, inputTokens: 600 + 1500, outputTokens: 360 });
+    expect(state.codexCompaction?.pending.size).toBe(0);
+  });
+
+  test("the pair counts in either record order", () => {
+    const { accumulator } = run([
+      codexTurnContext({ effort: "high" }),
+      codexCompacted("resp_first"),
+      codexUsageRecord({ responseId: "resp_first" }),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(compactionTokens);
+  });
+
+  test("a usage record no compacted item names is an ordinary response, already in token_count", () => {
+    const { accumulator } = run([
+      codexTurnContext({ effort: "high" }),
+      codexUsageRecord({ responseId: "resp_turn" }),
+      codexTokenCount({}),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(ordinaryTokens);
+  });
+
+  test("a local compaction whose advancing snapshot already counted the request is not added again", () => {
+    const usage = { input_tokens: 2000, cached_input_tokens: 500, output_tokens: 300, reasoning_output_tokens: 100, total_tokens: 2300 };
+    const { accumulator } = run([
+      codexTurnContext({ effort: "high" }),
+      codexUsageRecord({ responseId: "resp_local" }),
+      codexTokenCount({ last: usage }),
+      codexCompacted("resp_local"),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(compactionTokens);
+  });
+
+  test("a snapshot whose cumulative total equals the record's thread usage covers it", () => {
+    const thread = { input_tokens: 9000, cached_input_tokens: 1000, cache_write_input_tokens: 0, output_tokens: 700, reasoning_output_tokens: 200, total_tokens: 9700 };
+    const { accumulator } = run([
+      codexTurnContext({ effort: "high" }),
+      codexUsageRecord({ responseId: "resp_local", thread }),
+      codexTokenCount({ total: thread }),
+      codexCompacted("resp_local"),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(ordinaryTokens);
+  });
+
+  test("only the latest usage record can be covered by a snapshot", () => {
+    const usage = { input_tokens: 2000, cached_input_tokens: 500, output_tokens: 300, reasoning_output_tokens: 100, total_tokens: 2300 };
+    const { accumulator } = run([
+      codexTurnContext({ effort: "high" }),
+      codexUsageRecord({ responseId: "resp_remote" }),
+      codexUsageRecord({ responseId: "resp_other", usage: { ...usage, output_tokens: 1, total_tokens: 2001 } }),
+      codexTokenCount({ last: usage }),
+      codexCompacted("resp_remote"),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(2 * compactionTokens);
+  });
+
+  test("a copied compaction counts once, and compaction usage leaves the turn context alone", () => {
+    const { accumulator, state } = run([
+      codexTurnContext({ effort: "high", model: "gpt-6-sol" }),
+      codexUsageRecord({ responseId: "resp_copy" }),
+      codexCompacted("resp_copy"),
+      codexUsageRecord({ responseId: "resp_copy" }),
+      codexCompacted("resp_copy"),
+      codexTokenCount({}),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(compactionTokens + ordinaryTokens);
+    expect(rowFor(accumulator, "high")).toEqual([expect.objectContaining({ model: "gpt-6-sol", totalTokens: compactionTokens + ordinaryTokens })]);
+    expect(state).toMatchObject({ effort: "high", model: "gpt-6-sol", active: true });
+  });
+
+  test("a fork skips compactions its parent made before the fork, and counts its own", () => {
+    const accumulator = createAccumulator();
+    const state = emptyState();
+    startCodexReplay(state, { prefix: [], burstStart: null, compactions: new Set(["resp_parent"]) });
+    for (const line of [
+      codexTurnContext({ effort: "high" }),
+      codexUsageRecord({ responseId: "resp_parent" }),
+      codexCompacted("resp_parent"),
+      codexUsageRecord({ responseId: "resp_child" }),
+      codexCompacted("resp_child"),
+    ]) consumeEffortLine(line, "codex", accumulator, state);
+    expect(accumulator.observedUsageTokens).toBe(compactionTokens);
+  });
+
+  test("an empty or unnamed compaction adds nothing", () => {
+    const zero = { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0, total_tokens: 0 };
+    const { accumulator } = run([
+      codexTurnContext({ effort: "high" }),
+      codexUsageRecord({ responseId: "resp_empty", usage: zero }),
+      codexCompacted("resp_empty"),
+      codexCompacted(null),
+    ], "codex");
+    expect(accumulator.observedUsageTokens).toBe(0);
+  });
+
+  test("the response of an over-limit compacted line is read from its tail", () => {
+    const line = codexCompacted("resp_tail", { padding: "x".repeat(10_000) });
+    expect(oversizedCompactionId(line.slice(0, 1024), line.slice(-4096))).toBe("resp_tail");
+    // A key quoted inside the history is escaped, so it cannot be mistaken for the item's own.
+    const quoted = codexCompacted(null, { padding: "\"compaction_response_id\":\"resp_fake\"" });
+    expect(oversizedCompactionId(quoted.slice(0, 1024), quoted.slice(-4096))).toBeNull();
+    expect(oversizedCompactionId(codexMessage().slice(0, 1024), line.slice(-4096))).toBeNull();
+  });
+});
+
 describe("prefilter equivalence", () => {
   const claudeLines = [
     claudeUser(),
@@ -404,6 +526,8 @@ describe("prefilter equivalence", () => {
     codexMessage(),
     codexTurnContext({ effort: "medium" }),
     codexTokenCount({}),
+    codexUsageRecord({ responseId: "resp_remote" }),
+    codexCompacted("resp_remote"),
     "{\"type\":\"turn_context\", broken",
     "{ irrelevant broken",
     codexTokenCount({}),
@@ -425,6 +549,8 @@ describe("prefilter equivalence", () => {
     expect(hasProviderMarker(claudeAssistant({ effort: "high" }), "claude")).toBe(true);
     expect(hasProviderMarker(codexTurnContext({}), "codex")).toBe(true);
     expect(hasProviderMarker(codexTokenCount({}), "codex")).toBe(true);
+    expect(hasProviderMarker(codexUsageRecord({ responseId: "resp_x" }), "codex")).toBe(true);
+    expect(hasProviderMarker(codexCompacted("resp_x"), "codex")).toBe(true);
   });
 });
 

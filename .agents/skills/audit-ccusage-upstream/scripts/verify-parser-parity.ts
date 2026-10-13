@@ -49,7 +49,7 @@ async function main() {
   // Imported only now, after the database path points at the scratch directory.
   const { db } = await import("../../../../server/store");
   const { parseHead } = await import("../../../../server/path-indexer");
-  const { PARSER_VERSION, consumeEffortLine, createAccumulator, emptyState } = await import("../../../../server/effort-parse");
+  const { PARSER_VERSION, consumeEffortLine, createAccumulator, emptyState, startCodexReplay } = await import("../../../../server/effort-parse");
   const { planCodexReplay } = await import("../../../../server/codex-replay");
 
   const sources: Array<{ agent: Agent; file: string }> = [];
@@ -74,11 +74,8 @@ async function main() {
     const accumulator = createAccumulator();
     const state = emptyState();
     if (source.agent === "codex") {
-      state.codexReplayPlan = await planCodexReplay(source.file);
-      if (state.codexReplayPlan) {
-        state.codexReplay = { phase: "matching", index: 0 };
-        quality.forks++;
-      }
+      startCodexReplay(state, await planCodexReplay(source.file));
+      if (state.codexReplayPlan) quality.forks++;
     }
     // Whole-file reads keep this simple; the indexer's chunking and resume logic has its own tests.
     for (const line of (await Bun.file(source.file).text()).split("\n")) consumeEffortLine(line, source.agent, accumulator, state);
