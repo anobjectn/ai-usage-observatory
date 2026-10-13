@@ -430,6 +430,56 @@ describe("backlog and lifecycle", () => {
     expect(store.getEffortState(source.sessionId)!.lastOffset).toBe(source.size);
   });
 
+  test("deleting during boundary verification stops the drain before its next session", async () => {
+    const complete = await writeSource("codex", codexBody(1));
+    const pending = await writeSource("codex", codexBody(1));
+    await index.indexOneSession(complete, { kind: "rebuild", reason: "new" });
+    index.setEffortCatalog([complete, pending]);
+    store.setEffortEnabled(true);
+    const drain = index.scheduleEffortIndexing();
+    store.deleteEffortDerived();
+    try {
+      await drain;
+      expect(store.getEffortMeta()).toMatchObject({ enabled: false, indexedAt: null });
+      expect(store.getEffortStates().size).toBe(0);
+      expect(derived(pending.sessionId)).toEqual([]);
+      expect(db.query("SELECT COUNT(*) AS count FROM session_activity_events").get()).toMatchObject({ count: 0 });
+    } finally {
+      store.setEffortEnabled(false);
+      index.setEffortCatalog([]);
+    }
+  });
+
+  test("a delete and re-enable during boundary verification rebuilds from current state", async () => {
+    const complete = await writeSource("codex", codexBody(1));
+    await index.indexOneSession(complete, { kind: "rebuild", reason: "new" });
+    index.setEffortCatalog([complete]);
+    store.setEffortEnabled(true);
+    const drain = index.scheduleEffortIndexing();
+    store.deleteEffortDerived();
+    store.setEffortEnabled(true);
+    try {
+      await drain;
+      expect(store.getEffortState(complete.sessionId)?.lastOffset).toBe(complete.size);
+      expect(derived(complete.sessionId).length).toBeGreaterThan(0);
+    } finally {
+      store.setEffortEnabled(false);
+      index.setEffortCatalog([]);
+    }
+  });
+
+  test("deleting during an append boundary check prevents its fallback rebuild", async () => {
+    const source = await writeSource("codex", codexBody(1));
+    await index.indexOneSession(source, { kind: "rebuild", reason: "new" });
+    // Force the append path to discover a changed resume boundary.
+    db.query("UPDATE session_effort_state SET resume_hash = 'changed' WHERE session_id = ?").run(source.sessionId);
+    const pass = index.indexOneSession(source, { kind: "append" });
+    store.deleteEffortDerived();
+    await pass;
+    expect(store.getEffortStates().size).toBe(0);
+    expect(derived(source.sessionId)).toEqual([]);
+  });
+
   test("a disappeared source cascades its derived rows away", async () => {
     const source = await writeSource("codex", codexBody(1));
     await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });

@@ -135,6 +135,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
   if (entry.kind === "append" && prior) {
     // Never append onto a boundary we cannot prove is still the same bytes.
     const boundary = await hashBoundary(source.sourceFile, prior.lastOffset);
+    if (generation !== effortGeneration()) return { done: true, offset: 0 };
     if (boundary !== prior.resumeHash) {
       resetEffortSession(source.sessionId);
       return indexOneSession(source, { kind: "rebuild", reason: "resume-hash" }, options);
@@ -329,13 +330,15 @@ async function commitSpan(
 
 /** Verifies recorded boundaries for sessions the classifier wants to skip. Runs at most once per
  * session per process; a mismatch schedules a rebuild on the next pass. */
-async function verifySkippedBoundaries(sources: SessionSource[], states: Map<string, EffortSessionState>) {
+async function verifySkippedBoundaries(sources: SessionSource[], states: Map<string, EffortSessionState>, generation: number) {
   for (const source of sources) {
+    if (!getEffortMeta().enabled || generation !== effortGeneration()) return;
     if (verifiedBoundaries.has(source.sessionId)) continue;
     const state = states.get(source.sessionId);
     if (!state || classify(source, state).kind !== "skip") continue;
-    verifiedBoundaries.add(source.sessionId);
     const boundary = await hashBoundary(source.sourceFile, state.lastOffset);
+    if (!getEffortMeta().enabled || generation !== effortGeneration()) return;
+    verifiedBoundaries.add(source.sessionId);
     if (boundary !== state.resumeHash) resetEffortSession(source.sessionId);
     await yieldToLoop();
   }
@@ -349,15 +352,21 @@ async function drainBacklog() {
     const stalled = new Set<string>();
     let indexed = false;
     while (getEffortMeta().enabled) {
+      const generation = effortGeneration();
       const states = getEffortStates();
-      await verifySkippedBoundaries(catalog, states);
+      await verifySkippedBoundaries(catalog, states, generation);
+      if (!getEffortMeta().enabled) break;
+      // A delete and re-enable invalidates the state captured before verification.
+      if (generation !== effortGeneration()) {
+        stalled.clear();
+        continue;
+      }
       // Pending work is recomputed from catalog and state every pass rather than held in a
       // queue, so an append that lands mid-backfill is simply picked up.
       const backlog = buildBacklog(catalog, states).filter((entry) => !stalled.has(entry.source.sessionId));
       if (backlog.length === 0) break;
       const entry = backlog[0];
       const before = states.get(entry.source.sessionId)?.lastOffset ?? -1;
-      const generation = effortGeneration();
       const result = await indexOneSession(entry.source, entry.work);
       indexed = true;
       // A pass cut short by a delete made no progress against the emptied tables; it is not a
