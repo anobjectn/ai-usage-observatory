@@ -112,22 +112,51 @@ function adviceRow(row: Record<string, unknown>): StoredAdvice {
   return { id: Number(row.id), ruleId: String(row.rule_id), dedupeKey: String(row.dedupe_key), severity: row.severity as StoredAdvice["severity"], scope: JSON.parse(String(row.scope_json)), evidence: JSON.parse(String(row.evidence_json)), detectedAt: String(row.detected_at), lastSeenAt: String(row.last_seen_at), state: row.state as StoredAdvice["state"], snoozedUntil: row.snoozed_until ? String(row.snoozed_until) : null, resolvedAt: row.resolved_at ? String(row.resolved_at) : null };
 }
 
+/** A snooze ends on its own: once `snoozed_until` has passed, the advice is active again.
+ * `snoozed_until` is stored as UTC ISO text, so it compares correctly as a string. */
+function wakeSnoozedAdvice(now: string) {
+  db.query("UPDATE usage_advice SET state = 'active', snoozed_until = NULL WHERE state = 'snoozed' AND snoozed_until <= ?").run(now);
+}
+
 export function listAdvice(state?: string) {
+  wakeSnoozedAdvice(new Date().toISOString());
   const sql = state ? "SELECT * FROM usage_advice WHERE state = ? ORDER BY last_seen_at DESC" : "SELECT * FROM usage_advice ORDER BY last_seen_at DESC";
   return (state ? db.query(sql).all(state) : db.query(sql).all()).map((row) => adviceRow(row as Record<string, unknown>));
 }
 
+/** A finding that fires again after it was resolved is active again. A dismissal or a snooze
+ * that has not ended stays in place. */
 export function upsertAdvice(input: Omit<StoredAdvice, "id" | "detectedAt" | "lastSeenAt" | "state" | "snoozedUntil" | "resolvedAt">) {
   const now = new Date().toISOString();
+  wakeSnoozedAdvice(now);
   db.query(`INSERT INTO usage_advice (rule_id, dedupe_key, severity, scope_json, evidence_json, detected_at, last_seen_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(rule_id, dedupe_key) DO UPDATE SET severity=excluded.severity, scope_json=excluded.scope_json, evidence_json=excluded.evidence_json, last_seen_at=excluded.last_seen_at`).run(input.ruleId, input.dedupeKey, input.severity, JSON.stringify(input.scope), JSON.stringify(input.evidence), now, now);
+    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(rule_id, dedupe_key) DO UPDATE SET severity=excluded.severity, scope_json=excluded.scope_json, evidence_json=excluded.evidence_json, last_seen_at=excluded.last_seen_at,
+      state = CASE WHEN usage_advice.state IN ('resolved', 'expired') THEN 'active' ELSE usage_advice.state END,
+      resolved_at = CASE WHEN usage_advice.state IN ('resolved', 'expired') THEN NULL ELSE usage_advice.resolved_at END`).run(input.ruleId, input.dedupeKey, input.severity, JSON.stringify(input.scope), JSON.stringify(input.evidence), now, now);
   return adviceRow(db.query("SELECT * FROM usage_advice WHERE rule_id = ? AND dedupe_key = ?").get(input.ruleId, input.dedupeKey) as Record<string, unknown>);
 }
 
-export function updateAdviceState(id: number, state: StoredAdvice["state"], snoozedUntil: string | null = null) {
+/** Advice that was active or snoozed and that the latest evaluation did not produce is resolved.
+ * `current` holds `rule_id\0dedupe_key` for every finding of that evaluation. */
+export const resolveAdviceExcept = db.transaction((current: string[]) => {
   const now = new Date().toISOString();
-  db.query("UPDATE usage_advice SET state = ?, snoozed_until = ?, resolved_at = ? WHERE id = ?").run(state, snoozedUntil, state === "resolved" ? now : null, id);
-  db.query("INSERT INTO usage_advice_events (advice_id, event, metadata_json) VALUES (?, ?, ?)").run(id, state, JSON.stringify(snoozedUntil ? { snoozedUntil } : {}));
-  const row = db.query("SELECT * FROM usage_advice WHERE id = ?").get(id);
-  return row ? adviceRow(row as Record<string, unknown>) : null;
-}
+  const open = db.query("SELECT id, rule_id, dedupe_key FROM usage_advice WHERE state IN ('active', 'snoozed')").all() as
+    Array<{ id: number; rule_id: string; dedupe_key: string }>;
+  const keep = new Set(current);
+  for (const row of open) {
+    if (keep.has(`${row.rule_id}\0${row.dedupe_key}`)) continue;
+    db.query("UPDATE usage_advice SET state = 'resolved', snoozed_until = NULL, resolved_at = ? WHERE id = ?").run(now, row.id);
+    db.query("INSERT INTO usage_advice_events (advice_id, event, metadata_json) VALUES (?, 'resolved', '{}')").run(row.id);
+  }
+});
+
+/** Returns null, and records nothing, when no advice has this id. A snooze end time is stored as
+ * UTC ISO text whatever offset it arrived with. */
+export const updateAdviceState = db.transaction((id: number, state: StoredAdvice["state"], snoozedUntil: string | null = null) => {
+  const now = new Date().toISOString();
+  const until = snoozedUntil === null ? null : new Date(snoozedUntil).toISOString();
+  const updated = db.query("UPDATE usage_advice SET state = ?, snoozed_until = ?, resolved_at = ? WHERE id = ?").run(state, until, state === "resolved" ? now : null, id);
+  if (updated.changes === 0) return null;
+  db.query("INSERT INTO usage_advice_events (advice_id, event, metadata_json) VALUES (?, ?, ?)").run(id, state, JSON.stringify(until ? { snoozedUntil: until } : {}));
+  return adviceRow(db.query("SELECT * FROM usage_advice WHERE id = ?").get(id) as Record<string, unknown>);
+});

@@ -1,4 +1,4 @@
-import { upsertAdvice } from "./store";
+import { resolveAdviceExcept, upsertAdvice } from "./store";
 
 type Insights = { profiles: Array<{id:string;score:number|null}>; outliers:{count:number;tokenShare:number}; volume:{cacheCreation:number;cacheRead:number}; };
 export type Finding = { ruleId:string; dedupeKey:string; severity:"notice"|"opportunity"|"urgent"; scope:Record<string,string>; evidence:Record<string,number|string> };
@@ -10,4 +10,9 @@ export function findAdvice(insights: Insights): Finding[] {
   for (const profile of insights.profiles) if (profile.score !== null && profile.score < 60) findings.push({ruleId:"allowance-drifting@1",dedupeKey:profile.id,severity:"urgent",scope:{profile:profile.id},evidence:{score:profile.score}});
   return findings;
 }
-export function reconcileAdvice(insights: Insights) { return findAdvice(insights).map(upsertAdvice); }
+export function reconcileAdvice(insights: Insights) {
+  const findings = findAdvice(insights);
+  const stored = findings.map(upsertAdvice);
+  resolveAdviceExcept(findings.map((finding) => `${finding.ruleId}\0${finding.dedupeKey}`));
+  return stored;
+}

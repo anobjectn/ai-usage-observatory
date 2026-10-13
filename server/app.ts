@@ -120,10 +120,10 @@ async function api(request: Request, url: URL, services: Services) {
   if (adviceMatch && request.method === "POST") {
     const action = adviceMatch[2];
     const input = await readBody(request, action === "snooze" ? snoozeBody : objectBody);
-    if (action === "feedback") return json(updateAdviceState(Number(adviceMatch[1]), "dismissed"));
     const until = action === "snooze" && input.snoozedUntil ? String(input.snoozedUntil) : null;
     if (action === "snooze" && !until) return errorResponse("snoozedUntil is required", 400);
-    return json(updateAdviceState(Number(adviceMatch[1]), action === "snooze" ? "snoozed" : "dismissed", until));
+    const advice = updateAdviceState(Number(adviceMatch[1]), action === "snooze" ? "snoozed" : "dismissed", until);
+    return advice ? json(advice) : errorResponse("Advice not found", 404);
   }
   if (request.method === "POST" && path === "/api/refresh") return json(await services.refresh());
   if (request.method === "POST" && path === "/api/quotas/anthropic-web-import") {
