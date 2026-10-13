@@ -47,6 +47,15 @@ function conditionalBody(request: Request, etag: string, build: () => string) {
   return new Response(build(), { headers: { ...effortHeaders(etag), "Content-Type": "application/json" } });
 }
 
+/** A session id from the URL path. Malformed percent-encoding is a client error, not a 500. */
+function sessionIdParam(encoded: string) {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new RequestInputError("Malformed session id");
+  }
+}
+
 function errorResponse(error: unknown, status = 500) {
   return json({ error: error instanceof Error ? error.message : String(error) }, status);
 }
@@ -150,18 +159,18 @@ async function api(request: Request, url: URL, services: Services) {
   const annotationMatch = path.match(/^\/api\/sessions\/([^/]+)\/annotations$/);
   if (annotationMatch && request.method === "PUT") {
     const input = await readBody(request, annotationBody);
-    const annotation = setAnnotationText(decodeURIComponent(annotationMatch[1]), input);
+    const annotation = setAnnotationText(sessionIdParam(annotationMatch[1]), input);
     return json({ ok: true, annotation });
   }
   const verdictMatch = path.match(/^\/api\/sessions\/([^/]+)\/verdict$/);
   if (verdictMatch && request.method === "PUT") {
     const input = await readBody(request, verdictBody);
-    return json({ ok: true, annotation: setVerdict(decodeURIComponent(verdictMatch[1]), input.verdict) });
+    return json({ ok: true, annotation: setVerdict(sessionIdParam(verdictMatch[1]), input.verdict) });
   }
   const externalOpenMatch = path.match(/^\/api\/sessions\/([^/]+)\/external-open$/);
   if (externalOpenMatch && request.method === "POST") {
     const input = await readBody(request, externalOpenBody);
-    const sessionId = decodeURIComponent(externalOpenMatch[1]);
+    const sessionId = sessionIdParam(externalOpenMatch[1]);
     try {
       if (input.target === "transcript")
         return json(await openSessionExternalTarget(sessionId, input.action, { kind: "transcript" }));
@@ -174,7 +183,7 @@ async function api(request: Request, url: URL, services: Services) {
   }
   const detailMatch = path.match(/^\/api\/sessions\/([^/]+)\/detail$/);
   if (detailMatch && request.method === "GET") {
-    const sessionId = resolveSessionId(decodeURIComponent(detailMatch[1]));
+    const sessionId = resolveSessionId(sessionIdParam(detailMatch[1]));
     const [detail, snapshot] = await Promise.all([getSessionDetail(sessionId), services.getSnapshot()]);
     const quotaContext = await getSessionQuotaContext(sessionId);
     return json({

@@ -131,3 +131,8 @@ describe("advice lifecycle", () => {
     expect(upsertAdvice(finding).state).toBe("active");
   });
 });
+
+test("a malformed percent-encoded session id is a 400", async () => {
+  expect((await request("/api/sessions/%E0%A4%A/annotations", "PUT", { tags: [], note: "" })).status).toBe(400);
+  expect((await request("/api/sessions/%/detail")).status).toBe(400);
+});
