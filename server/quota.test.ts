@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { collectQuota, collectRawQuotaHistory, importAnthropicWebCredits, resolveQuotaPlan, summarizeQuotaHistory } from "./quota";
 
 const realFetch = globalThis.fetch;
@@ -209,4 +213,38 @@ describe("quota history summary", () => {
       { id: "credit-2", title: "Weekly reset", usedAt: 3_000 },
     ]);
   });
+});
+
+test("local history keeps a missing reset instant unknown instead of the epoch", async () => {
+  const path = join(tmpdir(), `quota-history-${crypto.randomUUID()}.sqlite`);
+  const database = new Database(path);
+  database.run(`CREATE TABLE snapshots (id INTEGER PRIMARY KEY, provider TEXT, status TEXT, source TEXT,
+    data_as_of INTEGER, captured_at INTEGER, snapshot_json TEXT)`);
+  const insert = (provider: string, capturedAt: number, snapshot: unknown) =>
+    database.run("INSERT INTO snapshots (provider, status, source, data_as_of, captured_at, snapshot_json) VALUES (?, 'ok', 'fixture', NULL, ?, ?)",
+      [provider, capturedAt, JSON.stringify(snapshot)]);
+  insert("anthropic", 1_000, { kind: "window", fiveHour: { usedPercent: 10, resetsAt: null }, weekly: { usedPercent: 5 } });
+  insert("anthropic", 2_000, { kind: "window", fiveHour: { usedPercent: 20, resetsAt: "" }, weekly: { usedPercent: 6, resetsAt: 600_000 } });
+  insert("warp", 3_000, { kind: "pool", pool: { used: 10, limit: 100, usedPercent: 10, refreshesAt: null } });
+  database.close();
+  const previous = process.env.QUOTA_DB_PATH;
+  process.env.QUOTA_DB_PATH = path;
+  stubFetch(() => ({ status: 503, body: {} }));
+  try {
+    const anthropic = await collectRawQuotaHistory("anthropic", 0, 10_000);
+    const windows = anthropic.observations.flatMap((row) => row.quota.kind === "windows" ? row.quota.windows : []);
+    expect(windows.map((window) => [window.id, window.resetsAt, window.cycleId])).toEqual([
+      ["fiveHour", null, "observed:1000"],
+      ["weekly", null, "observed:1000"],
+      ["fiveHour", null, "observed:2000"],
+      ["weekly", 600_000, "reset:600000"],
+    ]);
+    const warp = await collectRawQuotaHistory("warp", 0, 10_000);
+    const pool = warp.observations[0].quota;
+    expect(pool.kind === "pool" ? [pool.pool.refreshesAt, pool.pool.cycleId] : null).toEqual([null, "observed:3000"]);
+  } finally {
+    if (previous === undefined) delete process.env.QUOTA_DB_PATH;
+    else process.env.QUOTA_DB_PATH = previous;
+    rmSync(path, { force: true });
+  }
 });

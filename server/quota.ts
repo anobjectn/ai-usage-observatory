@@ -342,7 +342,7 @@ function normalizeLocalObservation(database: Database, row: {
       const value = raw as { usedPercent?: unknown; resetsAt?: unknown } | null;
       const usedPercent = Number(value?.usedPercent);
       if (!value || !Number.isFinite(usedPercent)) return [];
-      const resetsAt = Number.isFinite(Number(value.resetsAt)) ? Number(value.resetsAt) : null;
+      const resetsAt = instantOrNull(value.resetsAt);
       return [{ id, usedPercent, resetsAt, cycleId: cycle(resetsAt) }];
     });
     return { ...base, quota: { kind: "windows", windows } };
@@ -355,7 +355,7 @@ function normalizeLocalObservation(database: Database, row: {
   if (![usedUnits, limitUnits, storedPercent].every(Number.isFinite) || limitUnits <= 0) return null;
   const usedPercent = usedUnits / limitUnits * 100;
   if (Math.abs(usedPercent - storedPercent) > 0.11) return null;
-  const refreshesAt = Number.isFinite(Number(pool.refreshesAt)) ? Number(pool.refreshesAt) : null;
+  const refreshesAt = instantOrNull(pool.refreshesAt);
   return {
     ...base,
     quota: {
@@ -373,6 +373,15 @@ function normalizeLocalObservation(database: Database, row: {
       },
     },
   };
+}
+
+/** A missing instant stays null. `Number(null)` and `Number("")` are 0, which would read as a
+ * reset at the epoch and fold every unknown cycle into one. */
+function instantOrNull(value: unknown) {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const instant = Number(value);
+  return Number.isFinite(instant) ? instant : null;
 }
 
 function readLocalRawHistory(
