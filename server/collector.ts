@@ -241,13 +241,25 @@ function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadT
   return { ...base, inputTokens: base.inputTokens + warp.tokens, totalTokens: base.totalTokens + warp.tokens };
 }
 
-let ccusageCache: { fingerprint: string; result: Awaited<ReturnType<typeof collectCcusage>> } | null = null;
+let ccusageCache: { fingerprint: string; expiresAt: number | null; result: Awaited<ReturnType<typeof collectCcusage>> } | null = null;
+
+/** The earliest end of a block ccusage reported as active. After that instant the cached report
+ * still says the block is active, so it must be collected again even with no transcript change. */
+export function activeBlockExpiry(blocks: Array<{ isActive: boolean; endTime: string }>) {
+  const ends = blocks.filter((block) => block.isActive).map((block) => Date.parse(block.endTime)).filter(Number.isFinite);
+  return ends.length ? Math.min(...ends) : null;
+}
+
+export function ccusageCacheUsable(cache: { fingerprint: string; expiresAt: number | null } | null, fingerprint: string, now: number) {
+  return cache?.fingerprint === fingerprint && (cache.expiresAt === null || now < cache.expiresAt);
+}
 
 /** ccusage re-reads every transcript on disk each run, so a collection tick where no transcript
  * changed reuses the previous report instead. The fingerprint is taken from stats read before
  * ccusage runs, so a file changing mid-run misses the cache on the next tick rather than serving
  * stale data. Trade-off: an active block's time-based projections freeze while nothing is being
- * written, which is exactly when no tokens are being spent against them. */
+ * written, which is exactly when no tokens are being spent against them. The cache expires when
+ * an active block ends, so a finished block is never reported as active. */
 async function collectCcusageCached(timeZone: string, paths: PathIndexResult) {
   const hash = new Bun.CryptoHasher("sha256");
   hash.update(timeZone);
@@ -255,9 +267,9 @@ async function collectCcusageCached(timeZone: string, paths: PathIndexResult) {
     hash.update(`\0${line}`);
   }
   const fingerprint = hash.digest("hex");
-  if (ccusageCache?.fingerprint === fingerprint) return ccusageCache.result;
+  if (ccusageCacheUsable(ccusageCache, fingerprint, Date.now())) return ccusageCache!.result;
   const result = await collectCcusage(timeZone);
-  ccusageCache = { fingerprint, result };
+  ccusageCache = { fingerprint, expiresAt: activeBlockExpiry(result.blocks.blocks), result };
   return result;
 }
 

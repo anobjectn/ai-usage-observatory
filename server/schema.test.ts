@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aggregateProjectActivity, aggregateProjects, mergeWarp, monthKey, weekKey } from "./collector";
+import { activeBlockExpiry, aggregateProjectActivity, aggregateProjects, ccusageCacheUsable, mergeWarp, monthKey, weekKey } from "./collector";
 import { sessionReportKeys, stableSessionId } from "./path-indexer";
 import { blocksReportSchema, unifiedReportSchema } from "./schema";
 
@@ -267,5 +267,28 @@ describe("warp usage in period rows", () => {
     );
     expect(monthly).toHaveLength(1);
     expect(monthly[0]).toMatchObject({ agent: "all", period: "2026-08", inputTokens: 150, totalTokens: 175 });
+  });
+});
+
+describe("ccusage report cache", () => {
+  const blocks = [
+    { isActive: false, endTime: "2026-10-13T10:00:00.000Z" },
+    { isActive: true, endTime: "2026-10-13T15:00:00.000Z" },
+  ];
+
+  test("expires when the earliest active block ends", () => {
+    const expiresAt = activeBlockExpiry(blocks);
+    expect(expiresAt).toBe(Date.parse("2026-10-13T15:00:00.000Z"));
+    const cache = { fingerprint: "a", expiresAt };
+    expect(ccusageCacheUsable(cache, "a", expiresAt! - 1)).toBe(true);
+    expect(ccusageCacheUsable(cache, "a", expiresAt!)).toBe(false);
+  });
+
+  test("without an active block, only a transcript change invalidates it", () => {
+    const cache = { fingerprint: "a", expiresAt: activeBlockExpiry([blocks[0]]) };
+    expect(cache.expiresAt).toBeNull();
+    expect(ccusageCacheUsable(cache, "a", Date.parse("2030-01-01"))).toBe(true);
+    expect(ccusageCacheUsable(cache, "b", 0)).toBe(false);
+    expect(ccusageCacheUsable(null, "a", 0)).toBe(false);
   });
 });
