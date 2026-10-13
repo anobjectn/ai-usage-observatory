@@ -21,7 +21,14 @@ type Snapshot = Awaited<ReturnType<typeof buildSnapshot>>;
 let snapshot: Snapshot | null = null;
 let refreshPromise: Promise<Snapshot> | null = null;
 let lastError: string | null = null;
-let snapshotAnnotationVersion = -1;
+/** The annotation revision each snapshot's session annotations reflect. Kept per object, so a
+ * refresh that fails part-way cannot mark the previous snapshot as current. */
+const annotationVersions = new WeakMap<object, number>();
+
+function withAnnotationVersion<T extends object>(value: T, version: number) {
+  annotationVersions.set(value, version);
+  return value;
+}
 
 type ModelUsage = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
 
@@ -270,7 +277,7 @@ async function buildSnapshot() {
   const pathIndex = getPathIndex();
   // Read the revision before the rows: a write in between only causes one harmless re-overlay,
   // whereas the other order could leave a stale annotation looking current.
-  snapshotAnnotationVersion = getAnnotationVersion();
+  const annotationVersion = getAnnotationVersion();
   const annotations = getAnnotations();
   const transcriptSessions = ccusage.unified.session.map((row) => {
     const path = pathIndex[`${row.agent}:${row.period}`];
@@ -290,7 +297,7 @@ async function buildSnapshot() {
   // Like the rate card, the release list resolves from cache and refreshes in the background.
   const upstream = upstreamHealth(ensureUpstream(), ccusage.version);
   const upstreamDetail = upstream.detail ? ` · ${upstream.detail}` : "";
-  return {
+  return withAnnotationVersion({
     collectedAt: new Date().toISOString(),
     timeZone,
     ccusageVersion: ccusage.version,
@@ -345,7 +352,7 @@ async function buildSnapshot() {
         kind: "provider quota",
       },
     ],
-  };
+  }, annotationVersion);
 }
 
 export async function refresh() {
@@ -370,24 +377,25 @@ export async function refresh() {
 }
 
 /** A verdict or tag edit must be visible without a full ccusage recollection. Re-overlaying the
- * annotations onto the cached snapshot does that without redefining what `collectedAt` means. */
+ * annotations onto the cached snapshot does that without redefining what `collectedAt` means.
+ * It also applies when a refresh fails and the previous snapshot is served. */
 function withCurrentAnnotations(current: Snapshot): Snapshot {
   const version = getAnnotationVersion();
-  if (version === snapshotAnnotationVersion) return current;
+  if (version === annotationVersions.get(current)) return current;
   const annotations = getAnnotations();
-  snapshotAnnotationVersion = version;
-  snapshot = {
+  const overlaid = withAnnotationVersion({
     ...current,
     sessions: current.sessions.map((session) => ({
       ...session,
       annotation: annotations[session.sessionId] ?? emptyAnnotation(),
     })),
-  };
-  return snapshot;
+  }, version);
+  if (snapshot === current) snapshot = overlaid;
+  return overlaid;
 }
 
 export async function getSnapshot() {
   const isStale = !snapshot || Date.now() - Date.parse(snapshot.collectedAt) >= 60_000;
-  const result = isStale ? await refresh() : withCurrentAnnotations(snapshot!);
+  const result = withCurrentAnnotations(isStale ? await refresh() : snapshot!);
   return { ...result, refresh: { inProgress: Boolean(refreshPromise), lastError, stale: Boolean(lastError) } };
 }
