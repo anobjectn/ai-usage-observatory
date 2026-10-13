@@ -413,6 +413,23 @@ describe("backlog and lifecycle", () => {
     index.setEffortCatalog([]);
   });
 
+  test("deleting derived data during a pass discards that pass's later spans", async () => {
+    const source = await writeSource("codex", codexBody(8));
+    const pass = index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000, chunkBytes: 300 });
+    while (!store.getEffortState(source.sessionId)) await new Promise((resolve) => setImmediate(resolve));
+    store.deleteEffortDerived();
+    const result = await pass;
+    expect(result.done).toBe(true);
+    expect(result.offset).toBeLessThan(source.size);
+    expect(store.getEffortStates().size).toBe(0);
+    expect(derived(source.sessionId)).toEqual([]);
+    expect(db.query("SELECT COUNT(*) AS count FROM session_activity_events").get()).toMatchObject({ count: 0 });
+
+    // A pass that starts after the deletion indexes normally.
+    await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    expect(store.getEffortState(source.sessionId)!.lastOffset).toBe(source.size);
+  });
+
   test("a disappeared source cascades its derived rows away", async () => {
     const source = await writeSource("codex", codexBody(1));
     await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
