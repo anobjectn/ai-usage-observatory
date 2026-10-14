@@ -105,3 +105,34 @@ test("dashboard ETags expose failure, recovery, and annotation changes", async (
   expect((await rated.json()).sessions[0].annotation.verdict).toBe("good");
   db.query("DELETE FROM annotations WHERE session_id = 'fixture-session'").run();
 });
+
+describe("advice lifecycle", () => {
+  const finding = { ruleId: "fixture-rule@1", dedupeKey: "all", severity: "notice" as const, scope: { scope: "all" }, evidence: { n: 1 } };
+
+  test("an action on an unknown advice id is a 404 and records nothing", async () => {
+    const before = (db.query("SELECT COUNT(*) AS count FROM usage_advice_events").get() as { count: number }).count;
+    const response = await request("/api/advice/999999/dismiss", "POST", {});
+    expect(response.status).toBe(404);
+    expect((db.query("SELECT COUNT(*) AS count FROM usage_advice_events").get() as { count: number }).count).toBe(before);
+  });
+
+  test("an ended snooze is active again, and advice that stops firing is resolved", async () => {
+    const { upsertAdvice, listAdvice } = await import("./store");
+    const { reconcileAdvice } = await import("./advice");
+    const stored = upsertAdvice(finding);
+    const snooze = await request(`/api/advice/${stored.id}/snooze`, "POST", { snoozedUntil: "2000-01-01T05:00:00+05:00" });
+    expect(await snooze.json()).toMatchObject({ state: "snoozed", snoozedUntil: "2000-01-01T00:00:00.000Z" });
+    expect(listAdvice("active").map((advice) => advice.id)).toContain(stored.id);
+
+    // The fixture rule is not one findAdvice() produces, so a clean evaluation resolves it.
+    reconcileAdvice({ profiles: [], outliers: { count: 0, tokenShare: 0 }, volume: { cacheCreation: 0, cacheRead: 0 } });
+    expect(listAdvice().find((advice) => advice.id === stored.id)?.state).toBe("resolved");
+    // It becomes active again when it fires again.
+    expect(upsertAdvice(finding).state).toBe("active");
+  });
+});
+
+test("a malformed percent-encoded session id is a 400", async () => {
+  expect((await request("/api/sessions/%E0%A4%A/annotations", "PUT", { tags: [], note: "" })).status).toBe(400);
+  expect((await request("/api/sessions/%/detail")).status).toBe(400);
+});

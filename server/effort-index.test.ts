@@ -413,6 +413,73 @@ describe("backlog and lifecycle", () => {
     index.setEffortCatalog([]);
   });
 
+  test("deleting derived data during a pass discards that pass's later spans", async () => {
+    const source = await writeSource("codex", codexBody(8));
+    const pass = index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000, chunkBytes: 300 });
+    while (!store.getEffortState(source.sessionId)) await new Promise((resolve) => setImmediate(resolve));
+    store.deleteEffortDerived();
+    const result = await pass;
+    expect(result.done).toBe(true);
+    expect(result.offset).toBeLessThan(source.size);
+    expect(store.getEffortStates().size).toBe(0);
+    expect(derived(source.sessionId)).toEqual([]);
+    expect(db.query("SELECT COUNT(*) AS count FROM session_activity_events").get()).toMatchObject({ count: 0 });
+
+    // A pass that starts after the deletion indexes normally.
+    await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    expect(store.getEffortState(source.sessionId)!.lastOffset).toBe(source.size);
+  });
+
+  test("deleting during boundary verification stops the drain before its next session", async () => {
+    const complete = await writeSource("codex", codexBody(1));
+    const pending = await writeSource("codex", codexBody(1));
+    await index.indexOneSession(complete, { kind: "rebuild", reason: "new" });
+    index.setEffortCatalog([complete, pending]);
+    store.setEffortEnabled(true);
+    const drain = index.scheduleEffortIndexing();
+    store.deleteEffortDerived();
+    try {
+      await drain;
+      expect(store.getEffortMeta()).toMatchObject({ enabled: false, indexedAt: null });
+      expect(store.getEffortStates().size).toBe(0);
+      expect(derived(pending.sessionId)).toEqual([]);
+      expect(db.query("SELECT COUNT(*) AS count FROM session_activity_events").get()).toMatchObject({ count: 0 });
+    } finally {
+      store.setEffortEnabled(false);
+      index.setEffortCatalog([]);
+    }
+  });
+
+  test("a delete and re-enable during boundary verification rebuilds from current state", async () => {
+    const complete = await writeSource("codex", codexBody(1));
+    await index.indexOneSession(complete, { kind: "rebuild", reason: "new" });
+    index.setEffortCatalog([complete]);
+    store.setEffortEnabled(true);
+    const drain = index.scheduleEffortIndexing();
+    store.deleteEffortDerived();
+    store.setEffortEnabled(true);
+    try {
+      await drain;
+      expect(store.getEffortState(complete.sessionId)?.lastOffset).toBe(complete.size);
+      expect(derived(complete.sessionId).length).toBeGreaterThan(0);
+    } finally {
+      store.setEffortEnabled(false);
+      index.setEffortCatalog([]);
+    }
+  });
+
+  test("deleting during an append boundary check prevents its fallback rebuild", async () => {
+    const source = await writeSource("codex", codexBody(1));
+    await index.indexOneSession(source, { kind: "rebuild", reason: "new" });
+    // Force the append path to discover a changed resume boundary.
+    db.query("UPDATE session_effort_state SET resume_hash = 'changed' WHERE session_id = ?").run(source.sessionId);
+    const pass = index.indexOneSession(source, { kind: "append" });
+    store.deleteEffortDerived();
+    await pass;
+    expect(store.getEffortStates().size).toBe(0);
+    expect(derived(source.sessionId)).toEqual([]);
+  });
+
   test("a disappeared source cascades its derived rows away", async () => {
     const source = await writeSource("codex", codexBody(1));
     await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
@@ -420,6 +487,31 @@ describe("backlog and lifecycle", () => {
     db.query("DELETE FROM session_paths WHERE session_id = ?").run(source.sessionId);
     expect(derived(source.sessionId)).toEqual([]);
     expect(store.getEffortState(source.sessionId)).toBeNull();
+  });
+
+  test("the index version advances when the stored error changes, not when it repeats", () => {
+    const version = () => store.getEffortMeta().indexVersion;
+    store.setEffortError(null);
+    const start = version();
+    store.setEffortError("disk read failed");
+    expect(version()).toBe(start + 1);
+    store.setEffortError("disk read failed");
+    expect(version()).toBe(start + 1);
+    store.setEffortError(null);
+    expect(version()).toBe(start + 2);
+  });
+
+  test("a drain that indexed something advances the version when it ends", async () => {
+    const source = await writeSource("codex", codexBody(1));
+    index.setEffortCatalog([source]);
+    store.setEffortEnabled(true);
+    await index.scheduleEffortIndexing();
+    const after = store.getEffortMeta().indexVersion;
+    // Nothing left to index: the next drain leaves the version alone.
+    await index.scheduleEffortIndexing();
+    expect(store.getEffortMeta().indexVersion).toBe(after);
+    store.setEffortEnabled(false);
+    index.setEffortCatalog([]);
   });
 
   test("the index version advances on every derived write", async () => {

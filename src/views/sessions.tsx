@@ -24,8 +24,9 @@ import {
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import type { SessionAnnotation, Session, SessionDetail, SessionQuotaContext, QuotaHistory } from "../types";
+import type { SessionAnnotation, Session, SessionDetail, QuotaHistory } from "../types";
 import { Empty, PageTitle } from "./chrome";
+import { quotaContextVersion, useSessionQuotaContexts } from "../hooks/use-session-quota-contexts";
 import {
   useUserScrollIntent,
   sessionHref,
@@ -58,6 +59,7 @@ export function Sessions({
   focusSessionId,
   focusOutsideRange = false,
   quotaHistory = null,
+  collectedAt,
 }: {
   sessions: Session[];
   rateCard: RateCardSummary;
@@ -67,6 +69,7 @@ export function Sessions({
   focusSessionId?: string | null;
   focusOutsideRange?: boolean;
   quotaHistory?: QuotaHistory | null;
+  collectedAt: string;
 }) {
   type SortKey =
     | "activity"
@@ -80,7 +83,6 @@ export function Sessions({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SessionDetail>>({});
   const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
-  const [quotaContexts, setQuotaContexts] = useState<Record<string, SessionQuotaContext | null>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>(
@@ -209,36 +211,17 @@ export function Sessions({
   const showQuotaBalance = sort.key === "activity";
   const columnCount = 9;
   const pageQuotaKey = pageRows.map((session) => session.sessionId).join("\n");
+  const quotaVersionOf = useMemo(() => {
+    const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+    return (sessionId: string) => {
+      const session = byId.get(sessionId);
+      return session ? quotaContextVersion(session, collectedAt) : "";
+    };
+  }, [sessions, collectedAt]);
+  const { contexts: quotaContexts, request: requestQuota, store: storeQuota } = useSessionQuotaContexts(quotaVersionOf);
   useEffect(() => {
-    const sessionIds = pageQuotaKey ? pageQuotaKey.split("\n") : [];
-    const missing = sessionIds.filter((sessionId) => !Object.hasOwn(quotaContexts, sessionId));
-    if (!missing.length) return;
-    const controller = new AbortController();
-    void fetch("/api/session-quota-contexts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionIds: missing }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Quota closing readings are unavailable");
-        return await response.json() as { items?: Record<string, SessionQuotaContext | null> };
-      })
-      .then((result) => {
-        setQuotaContexts((current) => ({
-          ...current,
-          ...Object.fromEntries(missing.map((sessionId) => [sessionId, result.items?.[sessionId] ?? null])),
-        }));
-      })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setQuotaContexts((current) => ({
-          ...current,
-          ...Object.fromEntries(missing.map((sessionId) => [sessionId, null])),
-        }));
-      });
-    return () => controller.abort();
-  }, [pageQuotaKey]);
+    if (pageQuotaKey) requestQuota(pageQuotaKey.split("\n"));
+  }, [pageQuotaKey, requestQuota]);
   useEffect(() => setPage(1), [query, effortFilter]);
   useEffect(() => setPage((current) => Math.min(current, pages)), [pages]);
   const sortBy = (key: SortKey) => {
@@ -271,7 +254,7 @@ export function Sessions({
       const detail = (await response.json()) as SessionDetail;
       setDetails((current) => ({ ...current, [session.sessionId]: detail }));
       if (detail.quotaContext !== undefined) {
-        setQuotaContexts((current) => ({ ...current, [session.sessionId]: detail.quotaContext ?? null }));
+        storeQuota(session.sessionId, detail.quotaContext ?? null);
       }
     } catch {
       // A failed request says nothing about whether the transcript still exists. Keep it

@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   detailOutputSampleCharacters,
   detailOutputSampleCount,
+  getSessionDetail,
   parseSessionDetailJsonl,
+  pendingSessionDetailReads,
 } from "./session-detail";
 
 const jsonl = (...rows: unknown[]) => rows.map((row) => JSON.stringify(row)).join("\n");
@@ -247,5 +253,34 @@ describe("session file diff counts", () => {
     ]);
     expect(detail.additions).toBe(1);
     expect(detail.deletions).toBe(1);
+  });
+});
+
+describe("on-demand session detail reads", () => {
+  test("a Warp commit that is still in the WAL is visible, and no read is retained", async () => {
+    const path = join(tmpdir(), `warp-detail-${crypto.randomUUID()}.sqlite`);
+    // The writer stays open, so SQLite does not checkpoint the WAL into the main file.
+    const writer = new Database(path);
+    writer.run("PRAGMA journal_mode = WAL");
+    writer.run("CREATE TABLE ai_queries (id INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL, start_ts DATETIME NOT NULL, input TEXT NOT NULL)");
+    writer.run("CREATE TABLE agent_tasks (id INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL, task BLOB NOT NULL, last_modified_at TIMESTAMP NOT NULL)");
+    const ask = (startTs: string, text: string) =>
+      writer.run("INSERT INTO ai_queries (conversation_id, start_ts, input) VALUES ('a', ?, ?)", [startTs, JSON.stringify([{ Query: { text } }])]);
+    const previous = process.env.WARP_DB_PATH;
+    process.env.WARP_DB_PATH = path;
+    try {
+      ask("2026-08-16 11:00:00", "first prompt");
+      expect((await getSessionDetail("warp-a")).prompts.map((prompt) => prompt.text)).toEqual(["first prompt"]);
+      expect(pendingSessionDetailReads()).toBe(0);
+
+      ask("2026-08-16 11:01:00", "second prompt");
+      expect((await getSessionDetail("warp-a")).prompts.map((prompt) => prompt.text)).toEqual(["first prompt", "second prompt"]);
+      expect(pendingSessionDetailReads()).toBe(0);
+    } finally {
+      writer.close();
+      if (previous === undefined) delete process.env.WARP_DB_PATH;
+      else process.env.WARP_DB_PATH = previous;
+      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
+    }
   });
 });

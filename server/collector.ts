@@ -21,7 +21,14 @@ type Snapshot = Awaited<ReturnType<typeof buildSnapshot>>;
 let snapshot: Snapshot | null = null;
 let refreshPromise: Promise<Snapshot> | null = null;
 let lastError: string | null = null;
-let snapshotAnnotationVersion = -1;
+/** The annotation revision each snapshot's session annotations reflect. Kept per object, so a
+ * refresh that fails part-way cannot mark the previous snapshot as current. */
+const annotationVersions = new WeakMap<object, number>();
+
+function withAnnotationVersion<T extends object>(value: T, version: number) {
+  annotationVersions.set(value, version);
+  return value;
+}
 
 type ModelUsage = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
 
@@ -234,13 +241,25 @@ function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadT
   return { ...base, inputTokens: base.inputTokens + warp.tokens, totalTokens: base.totalTokens + warp.tokens };
 }
 
-let ccusageCache: { fingerprint: string; result: Awaited<ReturnType<typeof collectCcusage>> } | null = null;
+let ccusageCache: { fingerprint: string; expiresAt: number | null; result: Awaited<ReturnType<typeof collectCcusage>> } | null = null;
+
+/** The earliest end of a block ccusage reported as active. After that instant the cached report
+ * still says the block is active, so it must be collected again even with no transcript change. */
+export function activeBlockExpiry(blocks: Array<{ isActive: boolean; endTime: string }>) {
+  const ends = blocks.filter((block) => block.isActive).map((block) => Date.parse(block.endTime)).filter(Number.isFinite);
+  return ends.length ? Math.min(...ends) : null;
+}
+
+export function ccusageCacheUsable(cache: { fingerprint: string; expiresAt: number | null } | null, fingerprint: string, now: number) {
+  return cache?.fingerprint === fingerprint && (cache.expiresAt === null || now < cache.expiresAt);
+}
 
 /** ccusage re-reads every transcript on disk each run, so a collection tick where no transcript
  * changed reuses the previous report instead. The fingerprint is taken from stats read before
  * ccusage runs, so a file changing mid-run misses the cache on the next tick rather than serving
  * stale data. Trade-off: an active block's time-based projections freeze while nothing is being
- * written, which is exactly when no tokens are being spent against them. */
+ * written, which is exactly when no tokens are being spent against them. The cache expires when
+ * an active block ends, so a finished block is never reported as active. */
 async function collectCcusageCached(timeZone: string, paths: PathIndexResult) {
   const hash = new Bun.CryptoHasher("sha256");
   hash.update(timeZone);
@@ -248,9 +267,9 @@ async function collectCcusageCached(timeZone: string, paths: PathIndexResult) {
     hash.update(`\0${line}`);
   }
   const fingerprint = hash.digest("hex");
-  if (ccusageCache?.fingerprint === fingerprint) return ccusageCache.result;
+  if (ccusageCacheUsable(ccusageCache, fingerprint, Date.now())) return ccusageCache!.result;
   const result = await collectCcusage(timeZone);
-  ccusageCache = { fingerprint, result };
+  ccusageCache = { fingerprint, expiresAt: activeBlockExpiry(result.blocks.blocks), result };
   return result;
 }
 
@@ -270,7 +289,7 @@ async function buildSnapshot() {
   const pathIndex = getPathIndex();
   // Read the revision before the rows: a write in between only causes one harmless re-overlay,
   // whereas the other order could leave a stale annotation looking current.
-  snapshotAnnotationVersion = getAnnotationVersion();
+  const annotationVersion = getAnnotationVersion();
   const annotations = getAnnotations();
   const transcriptSessions = ccusage.unified.session.map((row) => {
     const path = pathIndex[`${row.agent}:${row.period}`];
@@ -290,7 +309,7 @@ async function buildSnapshot() {
   // Like the rate card, the release list resolves from cache and refreshes in the background.
   const upstream = upstreamHealth(ensureUpstream(), ccusage.version);
   const upstreamDetail = upstream.detail ? ` · ${upstream.detail}` : "";
-  return {
+  return withAnnotationVersion({
     collectedAt: new Date().toISOString(),
     timeZone,
     ccusageVersion: ccusage.version,
@@ -345,7 +364,7 @@ async function buildSnapshot() {
         kind: "provider quota",
       },
     ],
-  };
+  }, annotationVersion);
 }
 
 export async function refresh() {
@@ -370,24 +389,25 @@ export async function refresh() {
 }
 
 /** A verdict or tag edit must be visible without a full ccusage recollection. Re-overlaying the
- * annotations onto the cached snapshot does that without redefining what `collectedAt` means. */
+ * annotations onto the cached snapshot does that without redefining what `collectedAt` means.
+ * It also applies when a refresh fails and the previous snapshot is served. */
 function withCurrentAnnotations(current: Snapshot): Snapshot {
   const version = getAnnotationVersion();
-  if (version === snapshotAnnotationVersion) return current;
+  if (version === annotationVersions.get(current)) return current;
   const annotations = getAnnotations();
-  snapshotAnnotationVersion = version;
-  snapshot = {
+  const overlaid = withAnnotationVersion({
     ...current,
     sessions: current.sessions.map((session) => ({
       ...session,
       annotation: annotations[session.sessionId] ?? emptyAnnotation(),
     })),
-  };
-  return snapshot;
+  }, version);
+  if (snapshot === current) snapshot = overlaid;
+  return overlaid;
 }
 
 export async function getSnapshot() {
   const isStale = !snapshot || Date.now() - Date.parse(snapshot.collectedAt) >= 60_000;
-  const result = isStale ? await refresh() : withCurrentAnnotations(snapshot!);
+  const result = withCurrentAnnotations(isStale ? await refresh() : snapshot!);
   return { ...result, refresh: { inProgress: Boolean(refreshPromise), lastError, stale: Boolean(lastError) } };
 }

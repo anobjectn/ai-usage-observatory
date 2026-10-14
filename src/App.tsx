@@ -820,6 +820,7 @@ export function App() {
                 focusSessionId && !datedSessions.some((session) => session.sessionId === focusSessionId),
               )}
               quotaHistory={data.quotas.history}
+              collectedAt={data.collectedAt}
             />
           )}
           {view === "projects" && (

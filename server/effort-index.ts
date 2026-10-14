@@ -16,6 +16,7 @@ import {
 import { decodeCodexUsageState, encodeCodexUsageState, lenient, planCodexReplay, tailOf } from "./codex-replay";
 import {
   commitEffortSpan,
+  effortGeneration,
   getEffortMeta,
   getEffortState,
   getEffortStates,
@@ -123,7 +124,8 @@ const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 /** Parses one session's outstanding bytes. Returns once the file is caught up or the time slice
  * is spent; the scheduler decides whether to come back. Every committed span is atomic, so an
  * interruption anywhere here is safe to resume from. */
-export async function indexOneSession(source: SessionSource, entry: Work, options: { budgetMs?: number; chunkBytes?: number } = {}) {
+export async function indexOneSession(source: SessionSource, entry: Work, options: { budgetMs?: number; chunkBytes?: number } = {}): Promise<{ done: boolean; offset: number }> {
+  const generation = effortGeneration();
   const budgetMs = options.budgetMs ?? TIME_SLICE_MS;
   const chunkBytes = options.chunkBytes ?? CHUNK_BYTES;
   const agent = source.agent as Agent;
@@ -133,6 +135,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
   if (entry.kind === "append" && prior) {
     // Never append onto a boundary we cannot prove is still the same bytes.
     const boundary = await hashBoundary(source.sourceFile, prior.lastOffset);
+    if (generation !== effortGeneration()) return { done: true, offset: 0 };
     if (boundary !== prior.resumeHash) {
       resetEffortSession(source.sessionId);
       return indexOneSession(source, { kind: "rebuild", reason: "resume-hash" }, options);
@@ -177,9 +180,10 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
   const started = Date.now();
   const size = source.size;
   let committed = false;
+  /** False once derived data has been deleted under this pass; the caller then stops. */
   const commit = async (accumulator: EffortAccumulator, at: number) => {
     committed = true;
-    await commitSpan(source, accumulator, state, at, totals);
+    return commitSpan(source, accumulator, state, at, totals, generation);
   };
 
   while (cursor + carry.length < size) {
@@ -196,7 +200,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
         accumulator.skippedBytes += chunk.length;
         oversizedTail = tailOf(oversizedTail, chunk);
         cursor = readFrom + chunk.length;
-        await commit(accumulator, cursor);
+        if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
         // No time-slice exit inside an over-limit line: a resumed span would start mid-line and
         // lose the head that says what the line is.
         await yieldToLoop();
@@ -221,7 +225,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
         skippingOversizedLine = true;
         carry = new Uint8Array(0);
         cursor = readFrom + chunk.length;
-        await commit(accumulator, cursor);
+        if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
       } else {
         carry = buffer;
       }
@@ -258,7 +262,7 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
       cursor += carry.length;
       carry = new Uint8Array(0);
     }
-    await commit(accumulator, cursor);
+    if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
     if (!skippingOversizedLine && Date.now() - started >= budgetMs) return { done: false, offset: cursor };
     await yieldToLoop();
   }
@@ -287,13 +291,15 @@ async function commitSpan(
   state: EffortParserState,
   cursor: number,
   totals: { attributedTokens: number; unknownObservations: number; observedUsageTokens: number; parseErrors: number; contextGaps: number },
+  generation: number,
 ) {
   totals.attributedTokens += accumulator.attributedTokens;
   totals.unknownObservations += accumulator.unknownObservations;
   totals.observedUsageTokens += accumulator.observedUsageTokens;
   totals.parseErrors += accumulator.parseErrors;
   totals.contextGaps += accumulator.contextGaps;
-  commitEffortSpan({
+  return commitEffortSpan({
+    generation,
     sessionId: source.sessionId,
     parserVersion: PARSER_VERSION,
     sourceSize: source.size,
@@ -324,13 +330,15 @@ async function commitSpan(
 
 /** Verifies recorded boundaries for sessions the classifier wants to skip. Runs at most once per
  * session per process; a mismatch schedules a rebuild on the next pass. */
-async function verifySkippedBoundaries(sources: SessionSource[], states: Map<string, EffortSessionState>) {
+async function verifySkippedBoundaries(sources: SessionSource[], states: Map<string, EffortSessionState>, generation: number) {
   for (const source of sources) {
+    if (!getEffortMeta().enabled || generation !== effortGeneration()) return;
     if (verifiedBoundaries.has(source.sessionId)) continue;
     const state = states.get(source.sessionId);
     if (!state || classify(source, state).kind !== "skip") continue;
-    verifiedBoundaries.add(source.sessionId);
     const boundary = await hashBoundary(source.sourceFile, state.lastOffset);
+    if (!getEffortMeta().enabled || generation !== effortGeneration()) return;
+    verifiedBoundaries.add(source.sessionId);
     if (boundary !== state.resumeHash) resetEffortSession(source.sessionId);
     await yieldToLoop();
   }
@@ -342,9 +350,17 @@ async function drainBacklog() {
     // A session whose only outstanding bytes are an unterminated final line makes no progress.
     // It is normal, not an error: park it for this drain and let the next refresh retry.
     const stalled = new Set<string>();
+    let indexed = false;
     while (getEffortMeta().enabled) {
+      const generation = effortGeneration();
       const states = getEffortStates();
-      await verifySkippedBoundaries(catalog, states);
+      await verifySkippedBoundaries(catalog, states, generation);
+      if (!getEffortMeta().enabled) break;
+      // A delete and re-enable invalidates the state captured before verification.
+      if (generation !== effortGeneration()) {
+        stalled.clear();
+        continue;
+      }
       // Pending work is recomputed from catalog and state every pass rather than held in a
       // queue, so an append that lands mid-backfill is simply picked up.
       const backlog = buildBacklog(catalog, states).filter((entry) => !stalled.has(entry.source.sessionId));
@@ -352,10 +368,14 @@ async function drainBacklog() {
       const entry = backlog[0];
       const before = states.get(entry.source.sessionId)?.lastOffset ?? -1;
       const result = await indexOneSession(entry.source, entry.work);
-      if (result.done && result.offset <= before) stalled.add(entry.source.sessionId);
+      indexed = true;
+      // A pass cut short by a delete made no progress against the emptied tables; it is not a
+      // stall, and a re-enable in this drain must index the session again.
+      if (result.done && result.offset <= before && generation === effortGeneration()) stalled.add(entry.source.sessionId);
       await yieldToLoop();
     }
-    markEffortIndexed();
+    // Deleting derived data also disables indexing; it must not be stamped as indexed again.
+    if (getEffortMeta().enabled) markEffortIndexed(indexed);
     setEffortError(null);
   } catch (error) {
     // A parser failure records the error; it must never invalidate the last good snapshot.

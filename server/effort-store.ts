@@ -83,17 +83,33 @@ export function getEffortMeta(): EffortMeta {
   };
 }
 
+/** Advances whenever derived data is deleted. An indexing pass captures it before reading and
+ * passes it with every span; a span from an older generation is discarded, so a pass that was
+ * already in flight cannot write rows back into the emptied tables. */
+let derivedGeneration = 0;
+
+export function effortGeneration() {
+  return derivedGeneration;
+}
+
 export function setEffortEnabled(enabled: boolean) {
   db.query("UPDATE effort_index_meta SET enabled = ?, index_version = index_version + 1, last_error = NULL WHERE id = 1").run(enabled ? 1 : 0);
   return getEffortMeta();
 }
 
+/** Effort responses and their ETags carry the index phase, and clients reload on a version
+ * change. So a change of stored error advances the version; writing the same error again does
+ * not. */
 export function setEffortError(error: string | null) {
-  db.query("UPDATE effort_index_meta SET last_error = ? WHERE id = 1").run(error);
+  db.query(`UPDATE effort_index_meta SET last_error = ?1,
+    index_version = index_version + (CASE WHEN last_error IS ?1 THEN 0 ELSE 1 END) WHERE id = 1`).run(error);
 }
 
-export function markEffortIndexed() {
-  db.query("UPDATE effort_index_meta SET indexed_at = CURRENT_TIMESTAMP WHERE id = 1").run();
+/** `changed` is true when the run that ended indexed something. The phase then moves from
+ * "indexing" to "ready", which responses built during the run do not show. */
+export function markEffortIndexed(changed = false) {
+  db.query(`UPDATE effort_index_meta SET indexed_at = CURRENT_TIMESTAMP,
+    index_version = index_version + ? WHERE id = 1`).run(changed ? 1 : 0);
 }
 
 function stateRow(row: Record<string, unknown>): EffortSessionState {
@@ -209,6 +225,8 @@ const insertQuotaObservation = db.query(`INSERT OR IGNORE INTO session_quota_obs
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
 export type EffortSpanCommit = {
+  /** `effortGeneration()` when the pass that produced this span started. */
+  generation: number;
   sessionId: string;
   parserVersion: number;
   sourceSize: number;
@@ -239,8 +257,10 @@ export type EffortSpanCommit = {
 
 /** One parsed byte span becomes exactly one transaction: grouped rows, counters, resume hash,
  * next offset, and the index-version bump. A crash before it re-reads the span; a crash after it
- * resumes past the committed offset. Neither path double-counts. */
+ * resumes past the committed offset. Neither path double-counts. Returns false, and writes
+ * nothing, when derived data was deleted after the pass began. */
 export const commitEffortSpan = db.transaction((commit: EffortSpanCommit) => {
+  if (commit.generation !== derivedGeneration) return false;
   upsertState.run({
     $session: commit.sessionId,
     $parserVersion: commit.parserVersion,
@@ -303,6 +323,7 @@ export const commitEffortSpan = db.transaction((commit: EffortSpanCommit) => {
     );
   }
   db.query("UPDATE effort_index_meta SET index_version = index_version + 1 WHERE id = 1").run();
+  return true;
 });
 
 /** A rebuild clears one session's derived rows and state in the same transaction that precedes
@@ -319,6 +340,7 @@ export const resetEffortSession = db.transaction((sessionId: string) => {
 /** Removes every derived row. Transcripts, path metadata, annotations, and usage snapshots are
  * untouched. */
 export const deleteEffortDerived = db.transaction(() => {
+  derivedGeneration += 1;
   db.query("DELETE FROM session_activity_events").run();
   db.query("DELETE FROM session_quota_observations").run();
   db.query("DELETE FROM session_evidence_meta").run();
