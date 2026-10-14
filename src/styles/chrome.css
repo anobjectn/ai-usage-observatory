@@ -2877,6 +2877,11 @@ main {
 
 /* While the update panel is open, the rest of the app is dimmed and blurred. Only the update
    control and the status card stay clear. A click on the dimmed area closes the panel. */
+/* One slow, shared duration for the overlay, the sidebar dimming, and the blur. */
+.app-shell {
+  --update-focus-duration: 600ms;
+}
+
 .app-shell::after {
   content: "";
   position: fixed;
@@ -2887,7 +2892,7 @@ main {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--duration-base) var(--ease-standard), visibility 0s linear var(--duration-base);
+  transition: opacity var(--update-focus-duration) var(--ease-decelerate), visibility 0s linear var(--update-focus-duration);
 }
 
 .app-shell.update-focus::after {
@@ -2909,7 +2914,7 @@ aside::before {
   background: color-mix(in srgb, var(--bg) 45%, transparent);
   opacity: 0;
   visibility: hidden;
-  transition: opacity var(--duration-base) var(--ease-standard), visibility 0s linear var(--duration-base);
+  transition: opacity var(--update-focus-duration) var(--ease-decelerate), visibility 0s linear var(--update-focus-duration);
 }
 
 .app-shell.update-focus aside::before {
@@ -2919,7 +2924,7 @@ aside::before {
 }
 
 aside > * {
-  transition: filter var(--duration-base) var(--ease-standard);
+  transition: filter var(--update-focus-duration) var(--ease-decelerate);
 }
 
 .app-shell.update-focus aside > :not(.update-control, .side-status) {
