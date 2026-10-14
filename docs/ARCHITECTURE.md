@@ -21,6 +21,42 @@ clients can write only through a loopback host. Endpoints with JSON bodies requi
 `application/json` and validate their payloads before writing. Invalid input returns 400;
 an unsupported content type returns 415.
 
+## In-app update
+
+`bun run start` runs `scripts/launcher.ts`. The launcher spawns `server/index.ts` in its own
+process group with `USAGE_OBSERVATORY_MANAGED=1`, a per-start boot id, and a Bun IPC channel
+(`server/update/ipc.ts`, protocol `v: 1`). It holds `.usage-observatory/launcher.lock`, signals
+only its own child, and exits when that child exits outside an update. The server exits when its
+launcher disappears. `bun run dev` and `bun run start:server` run no launcher.
+
+- **Check** (`server/update/git.ts`) runs fixed Git argv without a shell and without prompts. It
+  rejects unsupported checkouts (not `main`, detached, no `origin`, other upstream, shallow,
+  linked worktree, sparse, submodules), in-progress Git operations, and then fetches only
+  `origin/main`. A `behind`, clean, collision-free result whose target `package.json` declares the
+  same `updaterProtocol` is eligible. A check expires after 10 minutes. The launcher keeps only
+  the latest check in memory.
+- **Apply** (`server/update/job.ts`) is bound to a `checkId`. It revalidates the checkout without a
+  new fetch, persists the job to `.usage-observatory/update-job.json`, and answers `202`. Phases:
+  `stopping` (the maintenance server in `server/update/maintenance.ts` takes the port),
+  `backing-up` (`VACUUM INTO` plus `integrity_check`), `applying` (`git merge --ff-only
+  --no-autostash --no-overwrite-ignore`, then HEAD and tree reconciliation into `gitState`),
+  `installing`, `building`, `starting`, and `verifying`. Verification requires
+  `/api/update/version` to report the target commit, the new boot id, and the child PID, and
+  `dist/build-info.json` to name the target. Only then is the job `complete`.
+- A failure before the merge restarts the previous server. A failure after the merge keeps the
+  maintenance server up; Retry resumes at the first unfinished step when HEAD is still the target
+  and the tree is clean. A launcher restart marks an unfinished job `failed/interrupted`.
+- `/api/update/*` (`server/update/routes.ts`) never waits for the snapshot. Update POSTs require
+  `Content-Type: application/json`, `X-Observatory-Action: update`, and an exact app or Vite
+  Origin (`server/update/policy.ts`); a remote origin can apply only with
+  `USAGE_OBSERVATORY_REMOTE_UPDATES=1`.
+- `runMigrations` reports `schemaAhead` when the database is newer than the build. Startup
+  continues, and the UI shows a warning.
+
+The browser side is `src/hooks/use-update.ts` and `src/components/update-control.tsx`. The hook
+mounts before the dashboard loading and error screens, polls during a job, treats network errors
+as a restart for up to 15 minutes, and reloads once when the job completes.
+
 ## Collection flow
 
 1. The server invokes the project-pinned `node_modules/.bin/ccusage` binary. It runs without

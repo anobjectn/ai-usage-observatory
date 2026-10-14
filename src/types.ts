@@ -558,3 +558,76 @@ export type DashboardData = {
   sources: Array<{name:string;status:string;detail:string;kind:string}>;
   refresh: {inProgress:boolean;lastError:string|null;stale:boolean};
 };
+
+/** In-app update. The server and the browser share these shapes; see docs/ARCHITECTURE.md. */
+export type UpdateRelationship = "equal" | "ahead" | "behind" | "diverged" | "unknown";
+export type UpdateCheckState =
+  | "eligible" | "up-to-date" | "ahead" | "diverged" | "dirty" | "collision" | "incompatible"
+  | "git-busy" | "unsupported" | "failed";
+export type UpdateCheck = {
+  id: string;
+  checkedAt: string;
+  expiresAt: string;
+  branch: string | null;
+  upstream: string | null;
+  remoteDisplay: string | null;
+  head: string | null;
+  target: string | null;
+  relationship: UpdateRelationship;
+  state: UpdateCheckState;
+  /** `unsupported/not-main`, `failed/auth`, `dirty`, and similar codes. */
+  reason: string | null;
+  eligible: boolean;
+  dirty: boolean;
+  ahead: number;
+  behind: number;
+  blockers: string[];
+  /** Up to 10 dirty or colliding paths. */
+  paths: string[];
+  currentVersion: string | null;
+  targetVersion: string | null;
+  incomingCommits: Array<{ sha: string; subject: string }>;
+  dependenciesChanged: boolean;
+  migrationsChanged: boolean;
+  launcherChanged: boolean;
+  protocolCompatible: boolean;
+};
+export type UpdatePhase =
+  | "validating" | "stopping" | "backing-up" | "applying" | "installing" | "building" | "starting"
+  | "verifying" | "complete" | "failed";
+export type UpdateGitState = "unchanged" | "target" | "unexpected" | "unknown";
+export type UpdateJob = {
+  id: string;
+  checkId: string;
+  from: string;
+  target: string;
+  phase: UpdatePhase;
+  failedPhase?: UpdatePhase;
+  gitState: UpdateGitState;
+  installComplete: boolean;
+  buildComplete: boolean;
+  startupAttempted: boolean;
+  backupPath?: string;
+  launcherRestartRequired: boolean;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt?: string;
+  failure?: { code: string; message: string; logTail: string[] };
+  retryable: boolean;
+};
+export type UpdateRunning = { commit: string | null; version: string | null; bootId: string | null; startedAt: string | null };
+export type UpdateStatus = {
+  managed: boolean;
+  mode: "prod" | "dev" | "unmanaged";
+  canApply: boolean;
+  blockingReason: "dev" | "unmanaged" | "remote-restricted" | "job-active" | null;
+  running: UpdateRunning | null;
+  check: UpdateCheck | null;
+  job: UpdateJob | null;
+  schemaAhead: boolean;
+  backupPath: string | null;
+  autoCheckDue: boolean;
+  launcherRestartRequired: boolean;
+  /** True while the maintenance server answers in place of the app server. */
+  maintenance?: boolean;
+};

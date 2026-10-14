@@ -2,6 +2,9 @@ import { createRoot } from "react-dom/client";
 import { useCallback } from "react";
 import { App } from "../../src/App";
 import { quotaRetryDelaysMs, useSessionQuotaContexts } from "../../src/hooks/use-session-quota-contexts";
+import { useUpdate } from "../../src/hooks/use-update";
+import { UpdateControl } from "../../src/components/update-control";
+import type { UpdateCheck, UpdateJob, UpdateStatus } from "../../src/types";
 import "../../src/styles/index.css";
 
 // Never run mutation scenarios against the user's normal app server.
@@ -189,6 +192,145 @@ await test("an exhausted quota session does not consume another session's retrie
     assert(timers.size === 0, "Quota session exceeded its retry budget");
   });
 });
+// In-app update UI against mocked `/api/update/*` sequences. Nothing reaches a real launcher.
+const baseCheck: UpdateCheck = {
+  id: "11111111-1111-4111-8111-111111111111", checkedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 600_000).toISOString(),
+  branch: "main", upstream: "origin/main", remoteDisplay: "git@github.com:owner/repo.git", head: "a".repeat(40), target: "b".repeat(40),
+  relationship: "behind", state: "eligible", reason: null, eligible: true, dirty: false, ahead: 0, behind: 2, blockers: [], paths: [],
+  currentVersion: "1.0.0", targetVersion: "1.1.0", incomingCommits: [{ sha: "b".repeat(40), subject: "feat: fixture change" }],
+  dependenciesChanged: false, migrationsChanged: false, launcherChanged: false, protocolCompatible: true,
+};
+const baseJob: UpdateJob = {
+  id: "22222222-2222-4222-8222-222222222222", checkId: baseCheck.id, from: "a".repeat(40), target: "b".repeat(40), phase: "installing",
+  gitState: "target", installComplete: false, buildComplete: false, startupAttempted: false, launcherRestartRequired: false,
+  startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), retryable: false,
+};
+const baseStatus: UpdateStatus = {
+  managed: true, mode: "prod", canApply: true, blockingReason: null, running: { commit: "a".repeat(40), version: "1.0.0", bootId: "boot", startedAt: null },
+  check: null, job: null, schemaAhead: false, backupPath: null, autoCheckDue: false, launcherRestartRequired: false,
+};
+type Step = UpdateStatus | "offline";
+function updateFixture(options: { statuses: Step[]; check?: Partial<UpdateCheck>; applyStatus?: number }) {
+  const calls: string[] = [];
+  let index = 0;
+  const reloads: number[] = [];
+  const storage = new Map<string, string>();
+  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    calls.push(`${init?.method ?? "GET"} ${path}`);
+    if (path === "/api/update/status") {
+      const step = options.statuses[Math.min(index++, options.statuses.length - 1)];
+      if (step === "offline") throw new TypeError("Failed to fetch");
+      return Response.json(step);
+    }
+    if (path === "/api/update/check") return Response.json({ ...baseCheck, ...options.check });
+    if (path === "/api/update/apply") return Response.json({ job: baseJob }, { status: options.applyStatus ?? 202 });
+    if (path === "/api/update/retry") return Response.json({ job: { ...baseJob, phase: "building" } }, { status: 202 });
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const fixtureRoot = createRoot(rootElement);
+  function Harness() {
+    const update = useUpdate({ fetch: fetcher, reload: () => reloads.push(Date.now()), storage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => void storage.set(key, value) }, appCommit: "a".repeat(40), hostname: "127.0.0.1" });
+    return <aside><UpdateControl update={update} /></aside>;
+  }
+  fixtureRoot.render(<Harness />);
+  return { calls, reloads, unmount: () => fixtureRoot.unmount() };
+}
+const buttonText = () => document.querySelector(".update-button")?.textContent ?? "";
+const detailsText = () => document.querySelector("#update-details")?.textContent ?? "";
+
+await test("update: check, one apply click, reconnect, and a single reload", async () => {
+  const active = { ...baseStatus, job: baseJob };
+  const done = { ...baseStatus, job: { ...baseJob, phase: "complete" as const } };
+  const fixture = updateFixture({ statuses: [baseStatus, baseStatus, active, "offline", active, done, done] });
+  try {
+    await waitFor(() => buttonText() === "Check for updates", "Idle label missing");
+    click(".update-button");
+    await waitFor(() => buttonText() === "Update and restart", "Eligible check did not offer the update");
+    assert(detailsText().includes("feat: fixture change"), "Incoming commits missing from details");
+    click(".update-button");
+    await waitFor(() => fixture.calls.includes("POST /api/update/apply"), "Apply was not requested");
+    await waitFor(() => fixture.reloads.length === 1, "Completed update did not reload");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert(fixture.reloads.length === 1, "Completed update reloaded more than once");
+  } finally { fixture.unmount(); }
+});
+
+await test("update: a due background check makes Update the only click", async () => {
+  const fixture = updateFixture({ statuses: [{ ...baseStatus, autoCheckDue: true }, baseStatus] });
+  try {
+    await waitFor(() => buttonText() === "Update and restart", "Background check did not run");
+    assert(!document.querySelector("#update-details"), "Background check opened the details panel");
+  } finally { fixture.unmount(); }
+});
+
+const stateTexts: Array<[Partial<UpdateCheck>, string]> = [
+  [{ state: "up-to-date", relationship: "equal", eligible: false }, "Up to date"],
+  [{ state: "ahead", relationship: "ahead", ahead: 2, eligible: false }, "2 commits ahead"],
+  [{ state: "diverged", relationship: "diverged", eligible: false }, "have diverged"],
+  [{ state: "dirty", eligible: false, dirty: true, paths: ["src/App.tsx"] }, "src/App.tsx"],
+  [{ state: "collision", eligible: false, paths: ["dist/x.js"] }, "would overwrite"],
+  [{ state: "git-busy", eligible: false, paths: ["MERGE_HEAD"] }, "Git operation is in progress"],
+  [{ state: "unsupported", reason: "unsupported/not-main", branch: "feature", eligible: false }, "Switch to main yourself"],
+  [{ state: "failed", reason: "failed/auth", eligible: false }, "could not authenticate"],
+  [{ state: "incompatible", eligible: false }, "newer launcher"],
+];
+await test("update: every check state shows a specific reason", async () => {
+  for (const [check, text] of stateTexts) {
+    const fixture = updateFixture({ statuses: [baseStatus], check });
+    try {
+      await waitFor(() => buttonText() === "Check for updates", "Idle label missing");
+      click(".update-button");
+      await waitFor(() => detailsText().includes(text), `${check.state} did not show "${text}"`);
+      assert(buttonText() === "Check for updates", `${check.state} offered an update`);
+    } finally { fixture.unmount(); }
+  }
+});
+
+await test("update: dev and remote-restricted servers show manual guidance instead of apply", async () => {
+  for (const [status, text] of [[{ ...baseStatus, managed: false, mode: "dev" as const, canApply: false, blockingReason: "dev" as const }, "git pull --ff-only"], [{ ...baseStatus, canApply: false, blockingReason: "remote-restricted" as const }, "only from this computer"]] as const) {
+    const fixture = updateFixture({ statuses: [status] });
+    try {
+      await waitFor(() => buttonText() === "Check for updates", "Idle label missing");
+      click(".update-button");
+      await waitFor(() => detailsText().includes(text), `Missing guidance: ${text}`);
+      assert(buttonText() === "Check for updates", "A non-applicable server offered the update");
+    } finally { fixture.unmount(); }
+  }
+});
+
+await test("update: a failed job shows its Git state, log, backup, and Retry", async () => {
+  const failed = { ...baseStatus, job: { ...baseJob, phase: "failed" as const, failedPhase: "installing" as const, retryable: true, backupPath: "/tmp/pre-update.db", failure: { code: "install-failed", message: "install exited with 1", logTail: ["error: lockfile mismatch"] } } };
+  const fixture = updateFixture({ statuses: [failed, failed, { ...baseStatus, job: { ...baseJob, phase: "complete" } }] });
+  try {
+    await waitFor(() => Boolean(document.querySelector(".update-details-toggle")), "Control missing");
+    click(".update-details-toggle");
+    await waitFor(() => detailsText().includes("lockfile mismatch"), "Log tail missing");
+    assert(detailsText().includes("at the new version") && detailsText().includes("/tmp/pre-update.db"), "Git state or backup missing");
+    const retry = [...document.querySelectorAll<HTMLButtonElement>("#update-details button")].find((button) => button.textContent === "Retry");
+    assert(retry, "Retry missing");
+    retry.click();
+    await waitFor(() => fixture.calls.includes("POST /api/update/retry"), "Retry was not requested");
+  } finally { fixture.unmount(); }
+});
+
+await test("update: recovery is visible when the dashboard request fails", async () => {
+  const originalFetch = window.fetch;
+  const failed = { ...baseStatus, job: { ...baseJob, phase: "failed" as const, failedPhase: "verifying" as const, retryable: true, failure: { code: "startup-failed", message: "The new server exited with 3", logTail: [] } } };
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/update/status" ? Response.json(failed) : originalFetch(input, init)) as typeof fetch;
+  await state("offline");
+  const appRoot = createRoot(rootElement);
+  try {
+    appRoot.render(<App />);
+    await waitFor(() => Boolean(document.querySelector(".error-state")), "Offline screen missing");
+    await waitFor(() => document.querySelector(".error-state")?.textContent?.includes("The new server exited with 3") === true, "Update recovery missing from the offline screen");
+  } finally {
+    appRoot.unmount();
+    window.fetch = originalFetch;
+    await state("healthy");
+  }
+});
+
 status.textContent = `${result.passed.length} passed; ${result.failed.length} failed. ${result.failed.join("; ")}`;
 document.title = result.failed.length ? "Browser regressions failed" : "Browser regressions passed";
 await fetch("/__browser-test/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result) });

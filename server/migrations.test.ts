@@ -31,3 +31,20 @@ describe("default path rules", () => {
     expect(ruleCount(db)).toBe(0);
   });
 });
+
+describe("schema version guard", () => {
+  test("a database migrated by a newer build reports schemaAhead and does not throw", () => {
+    const db = new Database(":memory:");
+    runMigrations(db);
+    db.exec("PRAGMA user_version = 999");
+    const state = runMigrations(db);
+    expect(state.schemaAhead).toBe(true);
+    expect(state.version).toBe(999);
+  });
+
+  test("a current database is not ahead", () => {
+    const db = new Database(":memory:");
+    expect(runMigrations(db).schemaAhead).toBe(false);
+    expect(runMigrations(db).schemaAhead).toBe(false);
+  });
+});

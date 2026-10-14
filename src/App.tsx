@@ -84,6 +84,8 @@ import {
 import { providerSeries } from "./app/format";
 import { withoutCacheDashboardData, pathFilteredRows, sessionDate } from "./app/analytics";
 import { useDashboard } from "./hooks/use-dashboard";
+import { useUpdate } from "./hooks/use-update";
+import { UpdateControl } from "./components/update-control";
 import { type BenchmarkSiteId, BenchmarkSplitLauncher } from "./components/benchmark-launcher";
 const Overview = lazy(() => import("./views/overview").then((module) => ({ default: module.Overview })));
 const Explorer = lazy(() => import("./views/explorer").then((module) => ({ default: module.Explorer })));
@@ -100,6 +102,8 @@ const QuickOverviewModal = lazy(() => import("./components/app-modals").then((mo
 
 export function App() {
   const { data: collectedData, error, loading, load, lastSuccessAt } = useDashboard();
+  // Before the loading and error returns below: update recovery must work without a dashboard.
+  const update = useUpdate();
   const [initialFilters] = useState(() => parseUrlFilters(window.location.search));
   const [showCache, setShowCache] = useState(initialFilters.showCache);
   const [dataFacets, setDataFacets] = useState<DataFacets>(() => ({
@@ -498,6 +502,7 @@ export function App() {
         <button className="primary-button" onClick={() => load()}>
           Try again
         </button>
+        <UpdateControl update={update} variant="boot" />
       </div>
     );
   if (!data) return null;
@@ -558,7 +563,10 @@ export function App() {
             <span className="brand-label">
               <b>AI Usage</b>
               <small>OBSERVATORY</small>
-              <em className="brand-version">v{appVersion}</em>
+              <em className={`brand-version${update.check?.relationship === "behind" ? " has-update" : ""}`}>
+                v{appVersion}
+                {update.check?.relationship === "behind" && <span className="sr-only"> (update available)</span>}
+              </em>
             </span>
           </a>
           <button
@@ -569,6 +577,7 @@ export function App() {
             <X />
           </button>
         </div>
+        <UpdateControl update={update} />
         <button
           className="sidebar-toggle"
           onMouseEnter={beginSidebarHover}

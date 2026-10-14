@@ -2674,3 +2674,205 @@ main {
     font: var(--text-xs) var(--font-label);
   }
 }
+
+/* In-app update: one button beside the version, with a details panel. */
+.brand-version.has-update::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
+.update-control {
+  position: relative;
+  margin: 2px 0 14px;
+}
+
+.update-control-row {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.update-button,
+.update-details-toggle {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font: var(--text-2xs)/1 var(--font-label);
+  letter-spacing: .04em;
+  transition: border-color var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard);
+}
+
+.update-button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.update-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-details-toggle {
+  display: grid;
+  place-items: center;
+  padding: 0 7px;
+}
+
+.update-button svg,
+.update-details-toggle svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.update-button:hover:not(:disabled),
+.update-details-toggle:hover,
+.update-details-toggle[aria-expanded="true"] {
+  border-color: var(--line-bright);
+  color: var(--text);
+}
+
+.update-button:disabled {
+  cursor: progress;
+}
+
+.update-control.is-eligible .update-button {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.update-button .is-spinning {
+  animation: update-spin 1s linear infinite;
+}
+
+@keyframes update-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-button .is-spinning { animation: none; }
+}
+
+.update-details {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+  box-shadow: 0 14px 40px rgba(0,0,0,.35);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.update-details p {
+  margin: 0 0 8px;
+}
+
+.update-details code {
+  font: var(--text-2xs)/1.4 var(--font-label);
+  overflow-wrap: anywhere;
+}
+
+.update-paths,
+.update-commits {
+  margin: 0 0 8px;
+  padding-left: 16px;
+  color: var(--muted);
+}
+
+.update-note,
+.update-meta {
+  color: var(--muted);
+}
+
+.update-meta {
+  font-size: var(--text-2xs);
+  margin-bottom: 0 !important;
+}
+
+.update-warning {
+  color: var(--color-warn);
+}
+
+.update-warning svg {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+}
+
+.update-log {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  font: var(--text-2xs)/1.4 var(--font-label);
+  white-space: pre-wrap;
+}
+
+.update-inline-button {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+}
+
+.update-control-boot {
+  margin-top: 18px;
+  width: min(420px, 90vw);
+  text-align: left;
+}
+
+.update-control-boot .update-details {
+  position: static;
+  width: auto;
+  margin-top: 8px;
+}
+
+@media (min-width:901px) {
+  .app-shell.sidebar-collapsed .update-control-row {
+    flex-direction: column;
+  }
+  .app-shell.sidebar-collapsed .update-button {
+    position: relative;
+    overflow: visible;
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .app-shell.sidebar-collapsed .update-button span {
+    display: none;
+  }
+  .app-shell.sidebar-collapsed .update-details-toggle {
+    padding: 6px 0;
+  }
+  .app-shell.sidebar-collapsed .update-details {
+    left: calc(100% + 10px);
+    top: 0;
+  }
+}

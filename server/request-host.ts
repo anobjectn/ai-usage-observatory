@@ -60,3 +60,24 @@ export function requestOriginAllowed(headers: Headers, allowedHosts = parseAllow
     return false;
   }
 }
+
+/** Update POSTs take a stricter rule than other mutations: an exact app Origin is required, with
+ * no originless exception, and loopback origins must use the app or Vite port. */
+export function requestUpdateOriginAllowed(headers: Headers, port: number, allowedHosts = parseAllowedHosts()) {
+  if (headers.get("sec-fetch-site") === "cross-site") return false;
+  const origin = headers.get("origin")?.toLowerCase();
+  if (!origin) return false;
+  const allowed = new Set([
+    `http://127.0.0.1:${port}`, `http://localhost:${port}`, "http://127.0.0.1:5173", "http://localhost:5173",
+    ...allowedHosts.map((host) => `https://${host}`),
+  ]);
+  return allowed.has(origin);
+}
+
+/** True when a browser Origin names a host other than this machine's loopback addresses. */
+export function requestOriginIsRemote(headers: Headers) {
+  const origin = headers.get("origin");
+  if (!origin) return false;
+  try { return !loopbackHosts.has(normalizeHostname(new URL(origin).hostname)); }
+  catch { return true; }
+}

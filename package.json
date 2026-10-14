@@ -3,6 +3,7 @@
   "version": "1.32.1",
   "private": true,
   "type": "module",
+  "updaterProtocol": 1,
   "scripts": {
     "dev": "bun run scripts/dev.ts",
     "dev:server": "bun --watch server/index.ts",
@@ -10,7 +11,8 @@
     "screenshot:data": "bun run scripts/capture-data-screenshot.ts",
     "screenshot:archive": "bun run scripts/capture-data-screenshot.ts",
     "build": "vite build",
-    "start": "bun run server/index.ts",
+    "start": "bun run scripts/launcher.ts",
+    "start:server": "bun run server/index.ts",
     "test": "bun test",
     "test:browser": "bun run scripts/test-browser.ts",
     "typecheck": "tsc --noEmit"

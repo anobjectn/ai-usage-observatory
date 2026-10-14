@@ -244,8 +244,11 @@ export const migrations: Migration[] = [
   },
 ];
 
+/** `schemaAhead` means a newer build already migrated this file. Startup continues: developers
+ * switch between branches with different migrations, so this only warns. */
 export function runMigrations(db: Database, applied: Migration[] = migrations) {
   const current = Number((db.query("PRAGMA user_version").get() as { user_version?: number } | null)?.user_version ?? 0);
+  const known = applied.reduce((highest, migration) => Math.max(highest, migration.id), 0);
   for (const migration of applied) {
     if (migration.id <= current) continue;
     db.transaction(() => {
@@ -253,4 +256,5 @@ export function runMigrations(db: Database, applied: Migration[] = migrations) {
       db.exec(`PRAGMA user_version = ${migration.id}`);
     })();
   }
+  return { schemaAhead: current > known, version: Math.max(current, known), known };
 }

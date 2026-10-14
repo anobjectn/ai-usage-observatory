@@ -29,16 +29,81 @@ bun install
 bun run dev      # http://127.0.0.1:5173
 ```
 
-For a production build, run `bun run build && bun run start` and open `http://127.0.0.1:4318`. To update a clone, run `git pull` and `bun install`.
+For a production build, run `bun run build && bun run start` and open `http://127.0.0.1:4318`.
+`bun run start` runs a small launcher that supervises the server and can update it from the app.
+To run the server without the launcher, use `bun run start:server`.
+
+<details>
+<summary>Update from the app</summary>
+
+The sidebar button under the version runs **Check for updates**. The check fetches `origin/main`
+and compares it with local `main`. It never changes your files. When `main` is behind and clean,
+the button changes to **Update and restart**. One click then stops the server, backs up the
+database, fast-forwards `main`, runs `bun install --frozen-lockfile` and `vite build`, starts the
+new server, and reloads the page. A status page answers on the same port while the server is
+down. The update takes about as long as an install and a build. The page also checks
+automatically once a day.
+
+Requirements and limits:
+
+- Run `bun run start`. The dev server (`bun run dev`) and `bun run start:server` can check, but
+  they show the manual commands instead of updating.
+- The checkout must be on `main`, with `origin/main` (or no upstream) as its upstream. Other
+  branches, detached HEAD, shallow clones, linked worktrees, sparse checkouts, and submodules are
+  not supported. Switch branches yourself; the app never does.
+- Uncommitted changes to tracked files block the update. Untracked files are kept. An incoming
+  file that would overwrite an untracked or ignored file blocks the update and is listed.
+- Git never prompts. If SSH needs a passphrase that no agent holds, the check fails as an
+  authentication error.
+- The update is a fast-forward only. There is no rebase, stash, or merge, and no automatic
+  rollback.
+- The launcher does not replace itself. When an update changes the launcher, the app asks you to
+  restart `bun run start` once.
+- Updates apply only from this computer. A remote browser through Tailscale Serve can check but
+  not apply. To allow remote apply inside a trusted tailnet, set
+  `USAGE_OBSERVATORY_REMOTE_UPDATES=1`. This is a browser origin policy, not authentication; do
+  not use Tailscale Funnel.
+- Git commands from another terminal or editor during an update are detected, not prevented.
+
+Backups are in `.usage-observatory/backups/pre-update-<commit>-<time>.db`. The newest three are
+kept. Logs are in `.usage-observatory/update-logs/`.
+
+#### Recover from a failed update
+
+The app shows the failed step, whether your checkout changed, the last log lines, and the backup
+path. When your checkout is at the new version and clean, **Retry** runs the unfinished steps.
+If the app says the checkout is in an unexpected state, recover manually:
+
+1. Stop `bun run start` (Ctrl+C).
+2. `git switch main`
+3. `git reset --keep <previous commit>` (the commit the update started from, shown in the app and
+   in the log).
+4. `bun install --frozen-lockfile`
+5. `bun run build`
+6. To restore the data as well, while nothing runs: replace `.usage-observatory/data.db` with the
+   backup, then delete `data.db-wal` and `data.db-shm`. Writes after the backup are lost.
+7. `bun run start`
+
+If the launcher refuses to start because of `.usage-observatory/launcher.lock`, confirm that no
+other launcher runs this checkout, then delete that file.
+
+If a newer version migrated the database and you go back to an older version, the older version
+keeps running and shows a warning with the backup path.
+
+</details>
 
 <details>
 <summary>Development checks</summary>
 
 Run `bun test` and `bun run typecheck`. To check the production build, run `bun run build`.
 
+The launcher end-to-end test (`USAGE_OBSERVATORY_E2E=1 bun test server/update/launcher.e2e.test.ts`)
+clones this working tree into a temporary directory and runs a real update, install, and build on a
+free port.
+
 For browser regressions, run `bun run test:browser` and open the URL it prints. The page
-automatically checks all six views, collection failure and recovery, connection retry, and
-annotation persistence. The command uses a temporary database, a separate Vite cache, and
+automatically checks all six views, collection failure and recovery, connection retry,
+annotation persistence, and the in-app update states with mocked responses. The command uses a temporary database, a separate Vite cache, and
 separate ports. It exits with the result and removes its temporary data. Open only the printed
 test URL; the normal app remains available on its existing port.
 
@@ -73,6 +138,8 @@ Multiple exact hostnames may be separated with commas. Wildcards are rejected.
 Do not use Tailscale Funnel. Observatory responses can include private session
 details. Browser actions that open local files accept an approved remote browser
 origin, but originless requests for those actions remain restricted to localhost.
+In-app updates from a remote browser can check only, unless
+`USAGE_OBSERVATORY_REMOTE_UPDATES=1` is set (see "Update from the app").
 
 </details>
 

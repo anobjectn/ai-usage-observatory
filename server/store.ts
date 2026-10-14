@@ -1,14 +1,19 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { resolveDbPath } from "./db-path";
 import { runMigrations } from "./migrations";
 import { resolveSessionAlias } from "./session-identity";
 
-const dbPath = process.env.USAGE_OBSERVATORY_DB ?? join(process.cwd(), ".usage-observatory", "data.db");
+export const dbPath = resolveDbPath();
 mkdirSync(dirname(dbPath), { recursive: true });
 export const db = new Database(dbPath, { create: true });
 db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-runMigrations(db);
+/** A database written by a newer build keeps working with this one; the update UI warns. */
+export const migrationState = runMigrations(db);
+if (migrationState.schemaAhead) {
+  console.warn(`Database schema version ${migrationState.version} is newer than this build (${migrationState.known}). A pre-update backup is in .usage-observatory/backups.`);
+}
 
 // Default path rules are seeded by migration 8, once, so a user deleting every rule sticks.
 if (!db.query("SELECT value FROM settings WHERE key = 'monthlyBudget'").get()) {

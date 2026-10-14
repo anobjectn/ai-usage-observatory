@@ -11,7 +11,9 @@ import { buildEffortAggregate, buildEffortComboBoard, buildEffortComboDays, buil
 import { scheduleEffortIndexing } from "./effort-index";
 import { deleteEffortDerived, setEffortEnabled } from "./effort-store";
 import { requestHostAllowed, requestOriginAllowed } from "./request-host";
-import { createRule, deleteRule, getAnnotationVersion, getSettings, listAdvice, listRules, resolveSessionId, setAnnotationText, setSettings, setVerdict, updateAdviceState, updateRule } from "./store";
+import { createRule, dbPath, deleteRule, getAnnotationVersion, getSettings, listAdvice, listRules, migrationState, resolveSessionId, setAnnotationText, setSettings, setVerdict, updateAdviceState, updateRule } from "./store";
+import { serverPort } from "./server-port";
+import { createUpdateRoutes } from "./update/routes";
 
 import { annotationBody, effortSettingsBody, externalOpenBody, objectBody, pageNumber, quotaContextsBody, readBody, RequestInputError, ruleBody, settingsBody, snoozeBody, verdictBody } from "./request-body";
 
@@ -224,11 +226,16 @@ async function api(request: Request, url: URL, services: Services) {
   return errorResponse("Not found", 404);
 }
 
-export function createRequestHandler(services: Services = { getSnapshot, refresh }) {
+type UpdateRoutes = ReturnType<typeof createUpdateRoutes>;
+const defaultUpdateRoutes = () => createUpdateRoutes({ port: serverPort, dbPath, schemaAhead: () => migrationState.schemaAhead });
+
+export function createRequestHandler(services: Services = { getSnapshot, refresh }, updateRoutes: UpdateRoutes = defaultUpdateRoutes()) {
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     try {
       if (!requestHostAllowed(request.headers.get("host"))) return errorResponse("Forbidden host", 403);
+      // Update routes apply their own, stricter origin rule and never wait for a snapshot.
+      if (url.pathname.startsWith("/api/update/")) return await updateRoutes(request, url);
       if (url.pathname.startsWith("/api/")) {
         if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && !requestOriginAllowed(request.headers)) {
           return errorResponse("Write requests must come from an allowed app origin", 403);
