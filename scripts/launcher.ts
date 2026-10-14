@@ -169,6 +169,28 @@ async function shutdown(code = 0) {
 process.on("SIGINT", () => void shutdown(0));
 process.on("SIGTERM", () => void shutdown(0));
 
+/** Names the process that holds the port, when `lsof` can tell. */
+function portOwner() {
+  try {
+    const output = Bun.spawnSync(["lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fpc"], { stdout: "pipe", stderr: "ignore" }).stdout.toString();
+    const pid = output.match(/^p(\d+)$/m)?.[1];
+    if (!pid) return null;
+    const command = Bun.spawnSync(["ps", "-o", "command=", "-p", pid], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+    return `PID ${pid}${command ? ` (${command})` : ""}`;
+  } catch {
+    return null;
+  }
+}
+
+// Fail with a clear message instead of the server's stack trace. The launcher never stops a
+// process it did not start.
+if (!(await portIsFree(port))) {
+  const owner = portOwner();
+  console.error(`Port ${port} is already in use${owner ? ` by ${owner}` : ""}. Stop that process, or set PORT to another port, then run bun run start again.`);
+  releaseLock();
+  process.exit(1);
+}
+
 await updater.recover();
 if (updater.job?.phase === "failed") {
   console.warn(`The last update ${updater.job.id} failed at ${updater.job.failedPhase} (${updater.job.failure?.code}). Details are in the app.`);
