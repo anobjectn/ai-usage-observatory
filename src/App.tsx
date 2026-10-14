@@ -542,7 +542,7 @@ export function App() {
       : `API :${data.apiPort}`;
   return (
     <SceneEffectsContext.Provider value={sceneEffects}>
-    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}${update.open ? " update-focus" : ""}`}>
       <aside className={sidebar ? "open" : ""} ref={sidebarRef} id="app-sidebar">
         <div className="brand">
           <a

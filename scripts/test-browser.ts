@@ -23,7 +23,13 @@ const read = async () => ({
   ...snapshot, rules: listRules(), settings: getSettings(),
   sessions: snapshot.sessions.map((session) => ({ ...session, annotation: getAnnotation(session.sessionId) })),
 }) as unknown as Awaited<ReturnType<typeof import("../server/collector").getSnapshot>>;
-const handler = createRequestHandler({ getSnapshot: read, refresh: read });
+const { createUpdateRoutes } = await import("../server/update/routes");
+// Update routes never touch this checkout: no fetch, and check timestamps stay in the temp directory.
+const updateRoutes = createUpdateRoutes({
+  port: 0, stateDir: directory, managed: false, mode: "unmanaged",
+  inspect: async () => { throw new Error("Browser fixtures do not run Git checks"); },
+});
+const handler = createRequestHandler({ getSnapshot: read, refresh: read }, updateRoutes);
 type Result = { passed: string[]; failed: string[] };
 let finish!: (value: Result) => void;
 const completed = new Promise<Result>((resolve) => { finish = resolve; });

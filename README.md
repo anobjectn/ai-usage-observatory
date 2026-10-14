@@ -36,9 +36,11 @@ To run the server without the launcher, use `bun run start:server`.
 <details>
 <summary>Update from the app</summary>
 
-The sidebar button under the version runs **Check for updates**. The check fetches `origin/main`
-and compares it with local `main`. It never changes your files. When `main` is behind and clean,
-the button changes to **Update and restart**. One click then stops the server, backs up the
+The update button sits at the bottom of the sidebar, above the status card. Its label names the
+next action. Point at it or focus it to see the running version, the position of `main` against
+`origin/main`, and the result of the last check; the rest of the app dims while this information
+is open. **Check for updates** fetches `origin/main` and compares it with local `main`. It never
+changes your files. When `main` is behind and clean, the label changes to **Update and restart**. One click then stops the server, backs up the
 database, fast-forwards `main`, runs `bun install --frozen-lockfile` and `vite build`, starts the
 new server, and reloads the page. A status page answers on the same port while the server is
 down. The update takes about as long as an install and a build. The page also checks

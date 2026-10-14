@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { CircleArrowUp, Info, LoaderCircle, RefreshCw, RotateCw, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CircleArrowUp, LoaderCircle, RefreshCw, RotateCw, TriangleAlert } from "lucide-react";
 import { jobActive, type UpdateUi } from "../hooks/use-update";
 import type { UpdateCheck, UpdateGitState, UpdatePhase, UpdateStatus } from "../types";
 
@@ -43,6 +43,13 @@ const gitStateText: Record<UpdateGitState, string> = {
 };
 
 const recoveryNote = <p className="update-note">See README.md, section “Recover from a failed update”.</p>;
+
+function relationshipText(check: UpdateCheck) {
+  if (check.relationship === "equal") return "same as origin/main";
+  if (check.relationship === "behind") return `${plural(check.behind, "commit")} behind origin/main`;
+  if (check.relationship === "ahead") return `${plural(check.ahead, "commit")} ahead of origin/main`;
+  return `${check.ahead} ahead, ${check.behind} behind origin/main`;
+}
 
 function Paths({ paths }: { paths: string[] }) {
   return paths.length ? <ul className="update-paths">{paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul> : null;
@@ -108,6 +115,13 @@ function Details({ update }: { update: UpdateUi }) {
   const active = jobActive(job);
   return (
     <div className="update-details" id="update-details" role="region" aria-label="Update details">
+      {status?.running && (
+        <p className="update-meta update-running">
+          Running v{status.running.version ?? "?"} · <code>{short(status.running.commit)}</code>
+          {check?.branch && <> on <code>{check.branch}</code></>}
+          {check && check.relationship !== "unknown" && <> · {relationshipText(check)}</>}
+        </p>
+      )}
       {status?.schemaAhead && (
         <p className="update-warning"><TriangleAlert aria-hidden="true" /> A newer version wrote this database. This version keeps running; some data may be missing. {status.backupPath && <>Backup: <code>{status.backupPath}</code></>}</p>
       )}
@@ -134,16 +148,25 @@ function Details({ update }: { update: UpdateUi }) {
       )}
       {update.reloadNeeded && <p>A new version is running. <button className="update-inline-button" onClick={update.reload}>Reload to finish</button></p>}
       {!active && check && <CheckDetails check={check} status={status} onCheck={() => void update.runCheck()} />}
-      {!active && !check && !job && !error && <p>{update.checking ? "Checking origin/main…" : "No check yet."}</p>}
+      {!active && !check && !job && !error && <p>{update.checking ? "Checking origin/main…" : "Not checked yet. Click the button to compare with origin/main."}</p>}
     </div>
   );
 }
 
-/** One sidebar button beside the version. A click checks, or, after an eligible check, updates.
- * The details toggle never starts an update. */
+const openDelayMs = 250;
+const closeDelayMs = 180;
+
+/** One sidebar button. Its label names the next action: check, update, or reload. Hover or focus
+ * shows the update information; a click runs the action and keeps the information open until a
+ * click outside or Escape. */
 export function UpdateControl({ update, variant = "sidebar" }: { update: UpdateUi; variant?: "sidebar" | "boot" }) {
-  const { status, check } = update;
+  const { status, check, open, setOpen } = update;
+  const control = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const openTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [pinned, setPinned] = useState(false);
   const eligible = Boolean(check?.eligible && status?.canApply);
+  const busy = update.updating || update.checking;
   const label = update.updating
     ? "Updating…"
     : update.checking
@@ -153,41 +176,73 @@ export function UpdateControl({ update, variant = "sidebar" }: { update: UpdateU
         : eligible
           ? "Update and restart"
           : "Check for updates";
-  const Icon = update.updating || update.checking ? LoaderCircle : eligible ? CircleArrowUp : update.reloadNeeded ? RotateCw : RefreshCw;
+  const Icon = busy ? LoaderCircle : eligible ? CircleArrowUp : update.reloadNeeded ? RotateCw : status?.schemaAhead ? TriangleAlert : RefreshCw;
   const live = update.updating && status?.job
     ? (update.reconnecting ? "Restarting — reconnecting" : `Updating: ${phaseText[status.job.phase]}`)
     : update.checking ? "Checking for updates" : check ? `Update check: ${check.state}` : "";
+
+  const show = () => { clearTimeout(closeTimer.current); clearTimeout(openTimer.current); setOpen(true); };
+  // Hover waits briefly, so a pointer that only passes over the button does not dim the app.
+  const showSoon = () => {
+    clearTimeout(closeTimer.current);
+    clearTimeout(openTimer.current);
+    openTimer.current = setTimeout(() => setOpen(true), openDelayMs);
+  };
+  const close = () => { clearTimeout(closeTimer.current); clearTimeout(openTimer.current); setPinned(false); setOpen(false); };
+  const hideSoon = () => {
+    clearTimeout(openTimer.current);
+    clearTimeout(closeTimer.current);
+    if (!pinned) closeTimer.current = setTimeout(() => setOpen(false), closeDelayMs);
+  };
   const onClick = () => {
+    if (busy) { setPinned(true); show(); return; }
+    setPinned(true);
+    show();
     if (update.reloadNeeded) update.reload();
     else if (eligible) void update.apply();
     else void update.runCheck();
   };
+
+  // A pinned panel closes on a click outside the control or on Escape.
+  useEffect(() => {
+    if (!open || variant === "boot") return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!control.current?.contains(event.target as Node)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+    // `close` only resets local state and the hook setter.
+  }, [open, variant]);
+  useEffect(() => () => { clearTimeout(closeTimer.current); clearTimeout(openTimer.current); }, []);
+
   if (variant === "boot" && !status?.job && !status?.schemaAhead) return null;
   return (
-    <div className={`update-control update-control-${variant}${eligible ? " is-eligible" : ""}`}>
-      <div className="update-control-row" role="group" aria-label="Updates">
-        <button
-          className="update-button"
-          onClick={onClick}
-          disabled={update.updating || update.checking}
-          aria-describedby={update.open ? "update-details" : undefined}
-          data-tooltip={label}
-        >
-          <Icon className={update.updating || update.checking ? "is-spinning" : undefined} aria-hidden="true" />
-          <span>{label}</span>
-        </button>
-        <button
-          className="update-details-toggle"
-          onClick={() => update.setOpen(!update.open)}
-          aria-expanded={update.open}
-          aria-controls="update-details"
-          aria-label="Update details"
-        >
-          {status?.schemaAhead ? <TriangleAlert aria-hidden="true" /> : <Info aria-hidden="true" />}
-        </button>
-      </div>
+    <div
+      ref={control}
+      className={`update-control update-control-${variant}${eligible ? " is-eligible" : ""}${open ? " is-open" : ""}`}
+      onMouseEnter={variant === "sidebar" ? showSoon : undefined}
+      onMouseLeave={variant === "sidebar" ? hideSoon : undefined}
+      onFocus={variant === "sidebar" ? show : undefined}
+      onBlur={variant === "sidebar" ? (event) => { if (!control.current?.contains(event.relatedTarget as Node)) hideSoon(); } : undefined}
+    >
+      <button
+        className="update-button"
+        onClick={onClick}
+        aria-disabled={busy || undefined}
+        aria-describedby={open || variant === "boot" ? "update-details" : undefined}
+        aria-label={label}
+      >
+        <Icon className={busy ? "is-spinning" : undefined} aria-hidden="true" />
+        <span>{label}</span>
+        {check?.relationship === "behind" && !eligible && <i className="update-dot" aria-hidden="true" />}
+      </button>
       <span className="sr-only" aria-live="polite">{live}</span>
-      {(update.open || variant === "boot") && <Details update={update} />}
+      {(open || variant === "boot") && <Details update={update} />}
     </div>
   );
 }

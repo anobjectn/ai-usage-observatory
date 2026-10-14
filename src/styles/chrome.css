@@ -2675,7 +2675,8 @@ main {
   }
 }
 
-/* In-app update: one button beside the version, with a details panel. */
+/* In-app update: one button above the status card. Its label names the next action; hover,
+   focus, or a click opens the information panel above it. */
 .brand-version.has-update::after {
   content: "";
   display: inline-block;
@@ -2687,8 +2688,6 @@ main {
   vertical-align: middle;
 }
 
-/* Sits at the bottom of the sidebar, directly above the status card, and takes over the card's
-   auto margin. The details panel opens upward. */
 .update-control {
   position: relative;
   margin: auto 0 9px;
@@ -2698,49 +2697,22 @@ main {
   margin-top: 0;
 }
 
-/* A segmented two-button bar: the row draws the border; a divider separates the actions. */
-.update-control-row {
+.update-button {
+  width: 100%;
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface);
-  overflow: hidden;
-  transition: border-color var(--duration-base) var(--ease-standard);
-}
-
-.update-control-row:hover,
-.update-control-row:focus-within {
-  border-color: var(--line-bright);
-}
-
-.update-button,
-.update-details-toggle {
-  border: 0;
-  border-radius: 0;
-  background: none;
   color: var(--muted);
   cursor: pointer;
   font: var(--text-2xs)/1 var(--font-label);
   letter-spacing: .04em;
-  transition: background var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard);
-}
-
-.update-button:focus-visible,
-.update-details-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.update-button {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 9px;
   white-space: nowrap;
   overflow: hidden;
+  transition: border-color var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard), background var(--duration-base) var(--ease-standard);
 }
 
 .update-button span {
@@ -2748,47 +2720,44 @@ main {
   text-overflow: ellipsis;
 }
 
-.update-details-toggle {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  padding: 0 8px;
-  border-left: 1px solid var(--line);
-}
-
-.update-button svg,
-.update-details-toggle svg {
+.update-button svg {
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
 }
 
-.update-button:hover:not(:disabled),
-.update-details-toggle:hover,
-.update-details-toggle[aria-expanded="true"] {
-  background: var(--surface-3);
+.update-button:hover,
+.update-control.is-open .update-button {
+  border-color: var(--line-bright);
   color: var(--text);
 }
 
-.update-button:disabled {
+.update-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.update-button[aria-disabled="true"] {
   cursor: progress;
 }
 
-.update-control.is-eligible .update-control-row {
-  border-color: var(--accent);
-}
-
 .update-control.is-eligible .update-button {
+  border-color: var(--accent);
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 
-.update-control.is-eligible .update-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+.update-control.is-eligible .update-button:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
 }
 
-.update-control.is-eligible .update-details-toggle {
-  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+.update-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
 }
 
 .update-button .is-spinning {
@@ -2805,11 +2774,11 @@ main {
 
 .update-details {
   position: absolute;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 8px);
   left: 0;
   z-index: 40;
   width: min(360px, calc(100vw - 32px));
-  max-height: 60vh;
+  max-height: min(60vh, 520px);
   overflow: auto;
   padding: 12px 14px;
   border: 1px solid var(--line-bright);
@@ -2819,6 +2788,16 @@ main {
   font-size: var(--text-xs);
   line-height: 1.45;
   color: var(--text);
+}
+
+/* Bridges the gap above the button, so the pointer can move into the panel without closing it. */
+.update-details::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 10px;
 }
 
 .update-details p {
@@ -2845,6 +2824,12 @@ main {
 .update-meta {
   font-size: var(--text-2xs);
   margin-bottom: 0 !important;
+}
+
+.update-running {
+  margin-bottom: 8px !important;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
 }
 
 .update-warning {
@@ -2890,34 +2875,96 @@ main {
   margin-top: 8px;
 }
 
-@media (min-width:901px) {
-  .app-shell.sidebar-collapsed .update-control-row {
-    flex-direction: column;
+/* While the update panel is open, the rest of the app is dimmed and blurred. Only the update
+   control and the status card stay clear. A click on the dimmed area closes the panel. */
+.app-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  backdrop-filter: blur(4px) brightness(.8);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--duration-base) var(--ease-standard), visibility 0s linear var(--duration-base);
+}
+
+.app-shell.update-focus::after {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.app-shell.update-focus aside {
+  z-index: 31;
+}
+
+aside::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-base) var(--ease-standard), visibility 0s linear var(--duration-base);
+}
+
+.app-shell.update-focus aside::before {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+aside > * {
+  transition: filter var(--duration-base) var(--ease-standard);
+}
+
+.app-shell.update-focus aside > :not(.update-control, .side-status) {
+  filter: blur(3px) brightness(.8);
+  pointer-events: none;
+}
+
+.app-shell.update-focus aside > :is(.update-control, .side-status) {
+  position: relative;
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell::after,
+  aside::before,
+  aside > * {
+    transition: none;
   }
+}
+
+@media (min-width:901px) {
   .app-shell.sidebar-collapsed .update-button {
     position: relative;
     overflow: visible;
-    border-radius: var(--radius-control) var(--radius-control) 0 0;
     justify-content: center;
-    padding: 8px 0;
+    padding: 9px 0;
   }
   .app-shell.sidebar-collapsed .update-button span {
     display: none;
   }
-  .app-shell.sidebar-collapsed .update-control-row {
-    overflow: visible;
-  }
-  .app-shell.sidebar-collapsed .update-details-toggle {
-    padding: 6px 0;
-    border-radius: 0 0 var(--radius-control) var(--radius-control);
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
-  .app-shell.sidebar-collapsed .update-control.is-eligible .update-details-toggle {
-    border-top-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  .app-shell.sidebar-collapsed .update-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
   }
   .app-shell.sidebar-collapsed .update-details {
     left: calc(100% + 10px);
     bottom: 0;
+  }
+  .app-shell.sidebar-collapsed .update-details::after {
+    top: 0;
+    bottom: 0;
+    left: auto;
+    right: 100%;
+    width: 12px;
+    height: auto;
   }
 }

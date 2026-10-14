@@ -53,7 +53,8 @@ launcher disappears. `bun run dev` and `bun run start:server` run no launcher.
 - `runMigrations` reports `schemaAhead` when the database is newer than the build. Startup
   continues, and the UI shows a warning.
 
-The browser side is `src/hooks/use-update.ts` and `src/components/update-control.tsx`. The hook
+The browser side is `src/hooks/use-update.ts` and `src/components/update-control.tsx`: one
+button whose label names the next action, and an information panel on hover, focus, or click. The hook
 mounts before the dashboard loading and error screens, polls during a job, treats network errors
 as a restart for up to 15 minutes, and reloads once when the job completes.
 

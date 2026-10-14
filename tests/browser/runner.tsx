@@ -256,6 +256,19 @@ await test("update: check, one apply click, reconnect, and a single reload", asy
   } finally { fixture.unmount(); }
 });
 
+await test("update: one button; focus shows information without a check, and Escape closes it", async () => {
+  const fixture = updateFixture({ statuses: [baseStatus] });
+  try {
+    await waitFor(() => buttonText() === "Check for updates", "Idle label missing");
+    assert(document.querySelectorAll(".update-control > button").length === 1, "The control has more than one button");
+    document.querySelector<HTMLButtonElement>(".update-button")!.focus();
+    await waitFor(() => detailsText().includes("Running v1.0.0"), "Focus did not show the information panel");
+    assert(!fixture.calls.includes("POST /api/update/check"), "Showing information started a check");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await waitFor(() => !document.querySelector("#update-details"), "Escape did not close the panel");
+  } finally { fixture.unmount(); }
+});
+
 await test("update: a due background check makes Update the only click", async () => {
   const fixture = updateFixture({ statuses: [{ ...baseStatus, autoCheckDue: true }, baseStatus] });
   try {
@@ -303,8 +316,8 @@ await test("update: a failed job shows its Git state, log, backup, and Retry", a
   const failed = { ...baseStatus, job: { ...baseJob, phase: "failed" as const, failedPhase: "installing" as const, retryable: true, backupPath: "/tmp/pre-update.db", failure: { code: "install-failed", message: "install exited with 1", logTail: ["error: lockfile mismatch"] } } };
   const fixture = updateFixture({ statuses: [failed, failed, { ...baseStatus, job: { ...baseJob, phase: "complete" } }] });
   try {
-    await waitFor(() => Boolean(document.querySelector(".update-details-toggle")), "Control missing");
-    click(".update-details-toggle");
+    await waitFor(() => Boolean(document.querySelector(".update-button")), "Control missing");
+    document.querySelector<HTMLButtonElement>(".update-button")!.focus();
     await waitFor(() => detailsText().includes("lockfile mismatch"), "Log tail missing");
     assert(detailsText().includes("at the new version") && detailsText().includes("/tmp/pre-update.db"), "Git state or backup missing");
     const retry = [...document.querySelectorAll<HTMLButtonElement>("#update-details button")].find((button) => button.textContent === "Retry");
@@ -312,6 +325,21 @@ await test("update: a failed job shows its Git state, log, backup, and Retry", a
     retry.click();
     await waitFor(() => fixture.calls.includes("POST /api/update/retry"), "Retry was not requested");
   } finally { fixture.unmount(); }
+});
+
+await test("update: the open panel dims the app except the update control and the status card", async () => {
+  const appRoot = createRoot(rootElement);
+  try {
+    appRoot.render(<App />);
+    await waitFor(() => Boolean(document.querySelector("aside .update-button")), "Sidebar update control missing");
+    document.querySelector<HTMLButtonElement>("aside .update-button")!.focus();
+    await waitFor(() => Boolean(document.querySelector(".app-shell.update-focus")), "The overlay did not appear");
+    const blurred = (selector: string) => getComputedStyle(document.querySelector(selector)!).filter.includes("blur");
+    await waitFor(() => blurred("aside nav"), "Navigation was not blurred");
+    assert(!blurred("aside .update-control") && !blurred("aside .side-status"), "The update control or status card was blurred");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await waitFor(() => !document.querySelector(".app-shell.update-focus"), "Escape did not remove the overlay");
+  } finally { appRoot.unmount(); }
 });
 
 await test("update: recovery is visible when the dashboard request fails", async () => {
