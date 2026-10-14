@@ -58,11 +58,17 @@ export class Updater {
 
   status() {
     const job = this.job;
+    const now = this.now().getTime();
+    const check = this.check?.check ?? null;
+    const checkExpiresAt = check ? Date.parse(check.expiresAt) : Number.NaN;
+    const checkExpired = Boolean(check && (!Number.isFinite(checkExpiresAt) || checkExpiresAt <= now));
     return {
-      check: this.check?.check ?? null,
+      // An expired check no longer describes the checkout or origin. Hide it and let the
+      // client trigger a fresh check instead of continuing to report a stale ahead/behind count.
+      check: checkExpired ? null : check,
       job,
       backupPath: job?.backupPath ?? newestBackup(this.deps.stateDir),
-      autoCheckDue: autoCheckDue(this.deps.stateDir, this.now().getTime()),
+      autoCheckDue: checkExpired || autoCheckDue(this.deps.stateDir, now),
       launcherRestartRequired: job?.phase === "complete" && job.launcherRestartRequired,
     };
   }
