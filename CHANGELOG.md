@@ -5,6 +5,30 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.0] - 2026-10-13
+
+### Added
+
+- Check for and apply updates from the app when running `bun run start`. The
+  updater backs up the database, fast-forwards a supported clean `main`
+  checkout from `origin/main`, installs dependencies, builds, and restarts the
+  app. The app can retry a failed update.
+
+### Changed
+
+- Run the production server through a supervising launcher with
+  `bun run start`. Add `bun run start:server` for direct server startup.
+
+### Fixed
+
+- Keep the last valid provider quota reading during collection failures, retry
+  changed-session quota reads, refresh active usage blocks after they expire,
+  and apply current annotations when a refresh fails.
+- Prevent background effort indexing from restoring deleted derived data.
+  Correct advice expiry, malformed session requests, and fallback folder reveal
+  behavior.
+- Report an occupied port before the production server starts.
+
 ## [1.32.1] - 2026-10-13
 
 ### Changed
@@ -204,6 +228,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.33.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.32.1...v1.33.0
 [1.32.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.32.0...v1.32.1
 [1.32.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.31.1...v1.32.0
 [1.31.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.31.0...v1.31.1
