@@ -165,7 +165,7 @@ export function UpdateControl({ update, variant = "sidebar" }: { update: UpdateU
   if (variant === "boot" && !status?.job && !status?.schemaAhead) return null;
   return (
     <div className={`update-control update-control-${variant}${eligible ? " is-eligible" : ""}`}>
-      <div className="update-control-row">
+      <div className="update-control-row" role="group" aria-label="Updates">
         <button
           className="update-button"
           onClick={onClick}

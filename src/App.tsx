@@ -577,7 +577,6 @@ export function App() {
             <X />
           </button>
         </div>
-        <UpdateControl update={update} />
         <button
           className="sidebar-toggle"
           onMouseEnter={beginSidebarHover}
@@ -608,6 +607,7 @@ export function App() {
             </button>
           ))}
         </nav>
+        <UpdateControl update={update} />
         <div
           className="side-status"
           data-tooltip={`${sideStatusLabel} — ccusage v${data.ccusageVersion} — ${portsLabel}`}
