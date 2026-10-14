@@ -71,7 +71,10 @@ describe("upstream loading", () => {
     expect(live.releases).toHaveLength(5);
 
     setUpstreamState(null);
-    const reloaded = ensureUpstream(async () => { throw new Error("must not fetch"); }, () => new Date("2026-09-20T13:00:00.000Z"));
+    let fetches = 0;
+    const reloaded = ensureUpstream(async () => { fetches++; throw new Error("must not fetch"); }, () => new Date("2026-09-20T13:00:00.000Z"));
+    await Bun.sleep(0);
+    expect(fetches).toBe(0);
     expect(reloaded.fetchedAt).toBe("2026-09-20T12:00:00.000Z");
     expect(reloaded.releases).toHaveLength(5);
   });

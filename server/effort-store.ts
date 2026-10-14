@@ -64,14 +64,6 @@ export type EffortGroupedRow = {
   reasoningReportedEvents: number;
 };
 
-/** The bundled SQLite must expose `json_each`; without it the only alternative is interpolating
- * an `IN (...)` list into SQL text, which this codebase does not do. */
-export function assertJsonEachSupport(database = db) {
-  const row = database.query("SELECT COUNT(*) AS count FROM json_each(?)").get(JSON.stringify(["a", "b"])) as { count: number };
-  if (row.count !== 2) throw new Error("SQLite json_each() is unavailable; effort scoping cannot be bound safely");
-  return true;
-}
-
 export function getEffortMeta(): EffortMeta {
   const row = db.query("SELECT enabled, index_version, indexed_at, last_error FROM effort_index_meta WHERE id = 1").get() as
     { enabled: number; index_version: number; indexed_at: string | null; last_error: string | null } | null;

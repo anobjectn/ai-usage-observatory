@@ -210,11 +210,12 @@ const baseStatus: UpdateStatus = {
   check: null, job: null, schemaAhead: false, backupPath: null, autoCheckDue: false, launcherRestartRequired: false,
 };
 type Step = UpdateStatus | "offline";
-function updateFixture(options: { statuses: Step[]; check?: Partial<UpdateCheck>; applyStatus?: number }) {
+function updateFixture(options: { statuses: Step[]; check?: Partial<UpdateCheck>; applyStatus?: number; storage?: Map<string, string> }) {
   const calls: string[] = [];
   let index = 0;
   const reloads: number[] = [];
-  const storage = new Map<string, string>();
+  // Pass the same map to a second fixture to model the page after its reload.
+  const storage = options.storage ?? new Map<string, string>();
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     calls.push(`${init?.method ?? "GET"} ${path}`);
@@ -234,7 +235,7 @@ function updateFixture(options: { statuses: Step[]; check?: Partial<UpdateCheck>
     return <aside><UpdateControl update={update} /></aside>;
   }
   fixtureRoot.render(<Harness />);
-  return { calls, reloads, unmount: () => fixtureRoot.unmount() };
+  return { calls, reloads, storage, unmount: () => fixtureRoot.unmount() };
 }
 const buttonText = () => document.querySelector(".update-button")?.textContent ?? "";
 const detailsText = () => document.querySelector("#update-details")?.textContent ?? "";
@@ -250,10 +251,17 @@ await test("update: check, one apply click, reconnect, and a single reload", asy
     assert(detailsText().includes("feat: fixture change"), "Incoming commits missing from details");
     click(".update-button");
     await waitFor(() => fixture.calls.includes("POST /api/update/apply"), "Apply was not requested");
+    await waitFor(() => detailsText().includes("Restarting — reconnecting"), "A lost connection during the restart was not shown as reconnecting");
     await waitFor(() => fixture.reloads.length === 1, "Completed update did not reload");
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    assert(fixture.reloads.length === 1, "Completed update reloaded more than once");
   } finally { fixture.unmount(); }
+  // The reloaded page sees the same completed job again and must not reload a second time.
+  const reloaded = updateFixture({ statuses: [active, done], storage: fixture.storage });
+  try {
+    const statusReads = () => reloaded.calls.filter((call) => call === "GET /api/update/status").length;
+    await waitFor(() => statusReads() >= 2, "The reloaded page did not read the completed job");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert(reloaded.reloads.length === 0, "Completed update reloaded more than once");
+  } finally { reloaded.unmount(); }
 });
 
 await test("update: one button; focus shows information without a check, and Escape closes it", async () => {

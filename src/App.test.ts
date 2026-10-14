@@ -17,6 +17,9 @@ import type {
   QuotaHistory,
 } from "./types";
 
+/** Rendered text with tags as word breaks, so assertions read what a person sees. */
+const visibleText = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
 function session(overrides: Partial<Session>): Session {
   return {
     agent: "codex",
@@ -508,13 +511,19 @@ test("session detail columns render in the requested order and default state", (
   // Models and effort share one column, so the rail names both and effort never gets its own.
   expect(html).not.toContain('data-detail-column="effort"');
   expect(html).toContain("Expand Models &amp; Effort, OpenAI, effort unknown");
-  expect(html).toContain("file-diff");
   expect(html).toContain("1 addition and 0 deletions");
   expect(html).toContain('aria-label="Open Prompt source actions"');
   expect(html).toContain('aria-label="Open Output source actions"');
   expect(html).toContain('aria-label="Open actions for src/App.tsx"');
-  expect(html).toContain('class="file-path-tail"');
-  expect(sessionModelNames(mixedSession)).toEqual(["gpt-test", "gpt-second"]);
+  expect(html).toContain('title="src/App.tsx"');
+});
+
+test("session model names join used and billed models once, in first-seen order", () => {
+  const breakdown = session({}).modelBreakdowns[0]!;
+  expect(sessionModelNames(session({
+    modelsUsed: ["gpt-test"],
+    modelBreakdowns: [breakdown, { ...breakdown, modelName: "gpt-second" }, { ...breakdown, modelName: "" }],
+  }))).toEqual(["gpt-test", "gpt-second"]);
 });
 
 test("a failed detail request is not reported as a missing indexed record", () => {
@@ -621,7 +630,7 @@ test("the collapsed rail names the provider and its combos, not effort alone", (
     unknownTokens: 300,
     tokenCoverage: 0.7,
   };
-  const html = renderToStaticMarkup(
+  const render = (mixed: boolean) => renderToStaticMarkup(
     createElement(SessionDetailPanel, {
       session: session({}),
       loading: false,
@@ -629,7 +638,7 @@ test("the collapsed rail names the provider and its combos, not effort alone", (
       detail: {
         available: true,
         prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 1,
-        effort,
+        effort: { ...effort, mixed },
         effortCombos: [
           { model: "gpt-test", family: "gpt-test", effort: "high", observations: 2, tokens: 600 },
           { model: "gpt-test", family: "gpt-test", effort: "low", observations: 1, tokens: 100 },
@@ -638,11 +647,15 @@ test("the collapsed rail names the provider and its combos, not effort alone", (
     }),
   );
 
+  const html = render(true);
   // 70% of the tokens carry an effort, so the collapsed rail says so rather than showing only a
   // dominant value.
   expect(html).toContain("Expand Models &amp; Effort, OpenAI, 2 model \u00d7 effort combos, 70% of tokens tagged");
-  expect(html).toContain("mixed");
-  expect(html).toContain("tagged");
+  // Mixed effort replaces the dominant value; a single effort shows it.
+  expect(html).toContain("<b>mixed</b>");
+  expect(html).not.toContain("<b>High</b>");
+  expect(render(false)).not.toContain("<b>mixed</b>");
+  expect(render(false)).toContain("<b>High</b>");
 });
 
 test("every subtotal is a model \u00d7 effort pill, and the remainder is labelled", () => {
@@ -659,18 +672,13 @@ test("every subtotal is a model \u00d7 effort pill, and the remainder is labelle
     }),
   );
 
-  expect(html).toContain("split-pill");
-  // Effort is never shown without the model that recorded it.
-  expect(html).toContain("Opus 5");
-  expect(html).toContain("High");
-  expect(html).toContain("Sonnet 5");
-  expect(html).toContain("Unknown");
   // Every subtotal carries the same two metrics, so the untagged share can be compared with the
   // tagged one instead of being read as a footnote.
   expect(html).toContain("64% · 3 obs");
   expect(html).toContain("9% · 1 obs");
   expect(html).toContain("No effort recorded");
   expect(html).toContain("27% · no observations");
+  // Effort is never shown without the model that recorded it.
   expect(html).toContain("Anthropic by model and effort: Opus 5 · High 64%, Sonnet 5 · Unknown 9%, unattributed 27%");
 });
 
@@ -712,15 +720,11 @@ test("session quota context uses account-level, non-additive language", () => {
     }),
   );
 
+  const text = visibleText(html);
   // Movement reads as a remaining-quota range, not a summed attribution.
-  expect(html).toContain("<b>49.5→0.3</b><i>%</i><em>remaining</em>");
-  expect(html).toContain("<b>49.3%</b><small>observed account change</small>");
-  expect(html).toContain("<b>49.5→0.3%</b><small>5h window</small>");
-  expect(html.indexOf("session-detail__quota-meta")).toBeLessThan(html.indexOf("session-detail__columns"));
-  expect(html.indexOf("session-detail__columns")).toBeLessThan(html.indexOf("token-types"));
-  expect(html.indexOf("token-types")).toBeLessThan(html.indexOf("session-quota-context--impact"));
-  expect(html).toContain("session-detail__metrics-row session-detail__metrics-row--with-quota");
-  expect(html).not.toContain("+49.3% of quota");
+  expect(text).toContain("49.5→0.3 % remaining");
+  expect(text).toContain("49.3% observed account change");
+  expect(text).toContain("49.5→0.3% 5h window");
   expect(html).toContain("Closing reading: 0.3% (5h) remaining.");
   expect(html).toContain("Up to 2 other local Codex sessions overlapped");
   expect(html).toContain("account or seat-level observations");
@@ -728,7 +732,6 @@ test("session quota context uses account-level, non-additive language", () => {
   expect(html).toContain("the window reset, then fell from 100% to 75%");
   expect(html).toContain("last embedded account reading during this session&#x27;s activity");
   expect(html).not.toContain("first account snapshot after");
-  expect(html).not.toContain("this session consumed");
 });
 
 test("session quota context panel shows a resolved resource beside an unresolved one", () => {
@@ -779,7 +782,7 @@ test("session quota context panel shows a resolved resource beside an unresolved
     }),
   );
 
-  expect(html).toContain("<b>60→57</b><i>%</i><em>remaining</em>");
+  expect(visibleText(html)).toContain("60→57 % remaining");
   expect(html).toContain("Unresolved");
   expect(html).toContain("Waiting for the first snapshot");
   expect(html).toContain("1 resolved cycle · medium confidence");

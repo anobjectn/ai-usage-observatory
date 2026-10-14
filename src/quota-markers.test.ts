@@ -6,6 +6,12 @@ const timeZone = "America/New_York";
 const quotaAt = Date.parse("2026-07-18T14:15:00.000Z");
 const weeklyAt = Date.parse("2026-07-18T18:20:00.000Z");
 const resetAt = Date.parse("2026-07-18T20:40:00.000Z");
+/** What a chart shows for each marker; the React key only has to be unique. */
+function shown(markers: ReturnType<typeof dailyQuotaMarkers>) {
+  expect(new Set(markers.map((marker) => marker.key)).size).toBe(markers.length);
+  return markers.map(({ key: _key, ...marker }) => marker);
+}
+
 const history: QuotaHistory = {
   available: true,
   trackingSince: quotaAt,
@@ -17,9 +23,8 @@ const history: QuotaHistory = {
 };
 
 test("daily markers combine quota, weekly and reset events that share a day", () => {
-  expect(dailyQuotaMarkers(history, ["2026-07-18"], null, timeZone)).toEqual([
+  expect(shown(dailyQuotaMarkers(history, ["2026-07-18"], null, timeZone))).toEqual([
     {
-      key: "2026-07-18:codex:mixed",
       x: "2026-07-18",
       kind: "mixed",
       provider: "codex",
@@ -34,9 +39,8 @@ test("daily markers combine quota, weekly and reset events that share a day", ()
 });
 
 test("hourly markers preserve separate event hours including weekly limits", () => {
-  expect(hourlyQuotaMarkers(history, "2026-07-18", null, timeZone)).toEqual([
+  expect(shown(hourlyQuotaMarkers(history, "2026-07-18", null, timeZone))).toEqual([
     {
-      key: "10:codex:quota",
       x: "10",
       kind: "quota",
       provider: "codex",
@@ -44,7 +48,6 @@ test("hourly markers preserve separate event hours including weekly limits", () 
       entries: [{ kind: "quota", label: "5h quota reached", count: 1, timestamps: [quotaAt] }],
     },
     {
-      key: "14:codex:weekly",
       x: "14",
       kind: "weekly",
       provider: "codex",
@@ -52,7 +55,6 @@ test("hourly markers preserve separate event hours including weekly limits", () 
       entries: [{ kind: "weekly", label: "weekly quota reached", count: 1, timestamps: [weeklyAt] }],
     },
     {
-      key: "16:codex:reset",
       x: "16",
       kind: "reset",
       provider: "codex",
@@ -88,9 +90,8 @@ test("agent filtering only returns events for the selected provider", () => {
     ],
   };
 
-  expect(dailyQuotaMarkers(mixedHistory, ["2026-07-18"], "anthropic", timeZone)).toEqual([
+  expect(shown(dailyQuotaMarkers(mixedHistory, ["2026-07-18"], "anthropic", timeZone))).toEqual([
     {
-      key: "2026-07-18:anthropic:quota",
       x: "2026-07-18",
       kind: "quota",
       provider: "anthropic",

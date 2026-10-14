@@ -78,10 +78,6 @@ describe("migration 3", () => {
     expect((legacy.query("SELECT COUNT(*) AS count FROM session_effort_state").get() as { count: number }).count).toBe(0);
     legacy.close();
   });
-
-  test("the bundled SQLite can bind scope ids through json_each", () => {
-    expect(store.assertJsonEachSupport()).toBe(true);
-  });
 });
 
 describe("incremental indexing", () => {
@@ -181,17 +177,21 @@ describe("incremental indexing", () => {
   });
 
   test("an append does work proportional to the appended bytes and never re-counts", async () => {
-    let source = await writeSource("codex", codexBody(1));
+    // Built once: each fixture call advances the cumulative total, so a second build would
+    // change the prefix bytes and force a rebuild.
+    const body = codexBody(1);
+    let source = await writeSource("codex", body);
     await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
     const firstOffset = store.getEffortState(source.sessionId)!.lastOffset;
 
-    await writeFile(source.sourceFile, codexBody(1) + fixtures.transcript([
+    await writeFile(source.sourceFile, body + fixtures.transcript([
       fixtures.codexTokenCount({ timestamp: "2026-07-01T15:02:00.000Z" }),
     ]));
     source = await restat(source);
-    const result = await index.indexOneSession(source, { kind: "append" }, { budgetMs: 60_000 });
+    // One chunk the size of the appended bytes, and no time budget for a second: only a pass
+    // that resumes at the prior offset can reach the end.
+    const result = await index.indexOneSession(source, { kind: "append" }, { budgetMs: 0, chunkBytes: source.size - firstOffset });
     expect(result.offset).toBe(source.size);
-    expect(firstOffset).toBeLessThan(source.size);
     // Two usage events under one high-effort turn context.
     expect(store.getEffortState(source.sessionId)!.attributedTokens).toBe(2120);
     expect(store.getEffortState(source.sessionId)!.observations).toBe(1);
@@ -199,16 +199,19 @@ describe("incremental indexing", () => {
 
   test("an incomplete final line is normal and is re-read once terminated", async () => {
     const appended = fixtures.codexTokenCount({ timestamp: "2026-07-01T15:02:00.000Z" });
-    const partial = codexBody(1) + appended.slice(0, 30);
+    const body = codexBody(1);
+    const partial = body + appended.slice(0, 30);
     let source = await writeSource("codex", partial);
     await index.indexOneSession(source, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
     const state = store.getEffortState(source.sessionId)!;
     expect(state.lastOffset).toBeLessThan(source.size);
     expect(state.parseErrors).toBe(0);
 
-    await writeFile(source.sourceFile, codexBody(1) + fixtures.transcript([appended]));
+    await writeFile(source.sourceFile, body + fixtures.transcript([appended]));
     source = await restat(source);
-    await index.indexOneSession(source, { kind: "append" }, { budgetMs: 60_000 });
+    // Sized to reach the end only from the committed offset, so a fallback rebuild cannot pass.
+    const result = await index.indexOneSession(source, { kind: "append" }, { budgetMs: 0, chunkBytes: source.size - state.lastOffset });
+    expect(result.offset).toBe(source.size);
     expect(store.getEffortState(source.sessionId)!.observedUsageTokens).toBe(2120);
   });
 

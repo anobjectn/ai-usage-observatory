@@ -55,8 +55,9 @@ export async function gitEnv(root: string, options: GitOptions = {}) {
 }
 
 export async function runGit(root: string, args: string[], options: GitOptions & { timeoutMs?: number } = {}): Promise<CommandResult> {
+  // A process group lets a deadline also stop hooks and transports that hold git's pipes open.
   return execCommand([options.git ?? "git", ...args], {
-    cwd: root, env: await gitEnv(root, options), timeoutMs: options.timeoutMs ?? gitTimeouts.local,
+    cwd: root, env: await gitEnv(root, options), timeoutMs: options.timeoutMs ?? gitTimeouts.local, processGroup: true,
   });
 }
 

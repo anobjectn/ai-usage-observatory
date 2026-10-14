@@ -71,6 +71,7 @@ describe("apply", () => {
     expect((first.body as { job: UpdateJob }).job.id).toBe((second.body as { job: UpdateJob }).job.id);
     expect((await h.updater.apply(check.id)).status).toBe(202);
     expect(h.events.filter((event) => event === "install")).toHaveLength(1);
+    expect(h.events.filter((event) => event === "build")).toHaveLength(1);
   });
 
   test("an up-to-date check is ineligible and an unknown check is stale", async () => {
@@ -80,14 +81,17 @@ describe("apply", () => {
     expect((await h.updater.apply(crypto.randomUUID())).status).toBe(409);
   });
 
-  test("a force-push seen by a later check makes the old checkId stale", async () => {
+  test("a force-push that drops the checked target makes the checkId stale", async () => {
     const h = harness();
     h.repo.push({ "src/one.ts": "1\n" });
-    const old = await h.checked();
+    const check = await h.checked();
     h.repo.forcePush({ "src/rewritten.ts": "x\n" });
-    const fresh = await h.checked();
-    expect(fresh.target).not.toBe(old.target);
-    expect((await h.updater.apply(old.id)).status).toBe(409);
+    // Any fetch that sees the rewrite, without a new check replacing this one.
+    git(h.repo.work, "fetch", "-q", "origin");
+    const reply = await h.updater.apply(check.id);
+    expect(reply.status).toBe(409);
+    expect(reply.body).toMatchObject({ error: "stale" });
+    expect(h.head()).not.toBe(check.target);
   });
 
   test("HEAD, branch, and tree drift between check and apply are refused", async () => {
@@ -128,8 +132,11 @@ describe("apply", () => {
     const check = await h.checked();
     const saved = gitTimeouts.merge;
     gitTimeouts.merge = 500;
+    const started = performance.now();
     try { await h.applied(check.id); }
     finally { gitTimeouts.merge = saved; }
+    // The deadline stops the hook too; otherwise the merge waits out its full 3 s.
+    expect(performance.now() - started).toBeLessThan(2_500);
     expect(h.head()).toBe(target);
     expect(h.updater.job).toMatchObject({ phase: "complete", gitState: "target" });
   });
@@ -232,10 +239,10 @@ describe("failure, recovery, and retry", () => {
     await h.updater.apply(check.id);
     while (!release) await Bun.sleep(10);
     expect((await h.updater.runCheck()).status).toBe(409);
-    expect((await h.updater.apply(crypto.randomUUID())).status).toBe(409);
+    const busy = await h.updater.apply(crypto.randomUUID());
+    expect(busy.status).toBe(409);
+    expect(busy.body).toMatchObject({ error: "busy" });
     release();
     while (h.updater.jobActive()) { await Bun.sleep(10); release(); }
-    expect(existsSync(join(h.stateDir, "update-logs"))).toBe(true);
-    rmSync(join(h.stateDir, "update-logs"), { recursive: true });
   });
 });

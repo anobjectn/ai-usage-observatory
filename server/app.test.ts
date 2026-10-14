@@ -75,7 +75,9 @@ describe("API input validation", () => {
     const created = await request("/api/rules", "POST", { pattern: "**/fixture", kind: "glob", tag: "fixture" });
     expect(created.status).toBe(201);
     const rule = await created.json();
+    expect(listRules().find((entry) => entry.id === rule.id)).toMatchObject({ pattern: "**/fixture", kind: "glob", tag: "fixture" });
     expect((await request(`/api/rules/${rule.id}`, "PUT", { pattern: "fixture$", kind: "regex", tag: "fixture-updated" })).status).toBe(200);
+    expect(listRules().find((entry) => entry.id === rule.id)).toMatchObject({ pattern: "fixture$", kind: "regex", tag: "fixture-updated" });
     db.query("DELETE FROM path_rules WHERE id = ?").run(rule.id);
   });
   test("invalid annotation, verdict, settings, and pagination values do not produce 500", async () => {
