@@ -14,9 +14,11 @@ test("a stalled child is terminated and the next collection can run", async () =
 test("the options form runs in a directory, bounds output, and stops a process group", async () => {
   const { execCommand } = await import("./subprocess");
   expect(await runCommand([process.execPath, "-e", "console.log(process.cwd())"], { cwd: "/tmp" })).toMatch(/\/tmp\n$/);
-  const long = await execCommand([process.execPath, "-e", 'console.log("x".repeat(5000))'], { maxOutput: 100 });
+  const long = await execCommand([process.execPath, "-e", 'console.log("x".repeat(5000) + "END")'], { maxOutput: 100 });
   expect(long.truncated).toBe(true);
   expect(long.stdout.length).toBeLessThanOrEqual(100);
+  // The tail is kept: it holds the error that ended the command.
+  expect(long.stdout.endsWith("END\n")).toBe(true);
   const marker = `/tmp/aiuo-subprocess-${process.pid}-${Date.now()}`;
   const script = `Bun.spawn(["sh", "-c", "sleep 0.6; touch ${marker}"]); setInterval(() => {}, 1000)`;
   const result = await execCommand([process.execPath, "-e", script], { timeoutMs: 200, processGroup: true });

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { classifyFetchFailure, collidingPaths, displayRemote, inspectRepository, reconcileGitState } from "./git";
+import { classifyFetchFailure, collidingPaths, displayRemote, gitTimeouts, inspectRepository, reconcileGitState } from "./git";
 import { commit, createRepoFixture, fixtureGitEnv, fixturePackage, git, write, type RepoFixture } from "./test-fixtures";
 
 let fixture: RepoFixture | undefined;
@@ -19,6 +19,7 @@ describe("update check relationships", () => {
     const result = await check(repo.work);
     expect(result).toMatchObject({ state: "eligible", eligible: true, relationship: "behind", behind: 1, target, targetVersion: "1.1.0", currentVersion: "1.0.0", upstream: "origin/main" });
     expect(result.incomingCommits).toEqual([{ sha: target, subject: "feat: add x" }]);
+    expect(result).toMatchObject({ dependenciesChanged: false, migrationsChanged: false, launcherChanged: false });
     expect(Date.parse(result.expiresAt) - Date.parse(result.checkedAt)).toBe(10 * 60_000);
   });
 
@@ -59,6 +60,12 @@ describe("update check relationships", () => {
     const repo = setup();
     repo.push({ "bun.lock": "{}\n", "server/migrations.ts": "export {};\n", "server/update/job.ts": "export {};\n" });
     expect(await check(repo.work)).toMatchObject({ dependenciesChanged: true, migrationsChanged: true, launcherChanged: true, eligible: true });
+  });
+
+  test("an updater test change alone is not a launcher change", async () => {
+    const repo = setup();
+    repo.push({ "server/update/job.test.ts": "export {};\n" });
+    expect(await check(repo.work)).toMatchObject({ launcherChanged: false, eligible: true });
   });
 });
 
@@ -167,8 +174,18 @@ describe("fetch failures", () => {
     expect((await check(repo.work, { env })).reason).toBe("failed/network");
   });
 
-  test("a stalled fetch ends at its deadline", () => {
-    expect(classifyFetchFailure({ timedOut: true, stderr: "" })).toBe("timeout");
+  test("a stalled fetch ends at its deadline", async () => {
+    const repo = setup();
+    const env = sshFixture(repo, "sleep 5");
+    const saved = gitTimeouts.fetch;
+    gitTimeouts.fetch = 300;
+    const started = performance.now();
+    try { expect((await check(repo.work, { env })).reason).toBe("failed/timeout"); }
+    finally { gitTimeouts.fetch = saved; }
+    expect(performance.now() - started).toBeLessThan(3_000);
+  });
+
+  test("an unrecognized fetch error is a generic git error", () => {
     expect(classifyFetchFailure({ timedOut: false, stderr: "fatal: weird" })).toBe("git-error");
   });
 

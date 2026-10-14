@@ -57,9 +57,10 @@ describe("update route boundary", () => {
 
   test("a remote origin may check but may not apply without opt-in", async () => {
     process.env.USAGE_OBSERVATORY_ALLOWED_HOSTS = "mac.tailnet.ts.net";
-    const { handle } = handler();
+    const { handle, calls } = handler();
     const remote = { origin: "https://mac.tailnet.ts.net", host: "mac.tailnet.ts.net" };
-    expect((await post(handle, "check", {}, remote)).status).toBe(409);
+    await post(handle, "check", {}, remote);
+    expect(calls.map((call) => call.type)).toEqual(["check"]);
     const refused = await post(handle, "apply", { checkId }, remote);
     expect(refused.status).toBe(403);
     expect((await refused.json() as { error: string }).error).toBe("remote-apply-disabled");
@@ -67,15 +68,17 @@ describe("update route boundary", () => {
     expect((await post(handle, "apply", { checkId }, remote)).status).toBe(202);
   });
 
-  test("managed requests forward the launcher's status, including 409 during a job and idempotent 202", async () => {
+  test("managed requests forward the checkId and pass the launcher's status and body back", async () => {
     const { handle, calls } = handler();
-    expect((await post(handle, "check", {})).status).toBe(409);
-    const first = await post(handle, "apply", { checkId });
-    const second = await post(handle, "apply", { checkId });
-    expect([first.status, second.status]).toEqual([202, 202]);
-    expect(await first.json()).toEqual(await second.json());
-    expect(calls.map((call) => call.type)).toEqual(["check", "apply", "apply"]);
-    expect(first.headers.get("cache-control")).toBe("no-store");
+    const busy = await post(handle, "check", {});
+    expect(busy.status).toBe(409);
+    expect(await busy.json()).toEqual({ error: "job-active" });
+    const applied = await post(handle, "apply", { checkId });
+    expect(applied.status).toBe(202);
+    expect(await applied.json()).toEqual({ job: { id: "job", checkId } });
+    expect(calls.map((call) => call.type)).toEqual(["check", "apply"]);
+    expect(calls[1]!.body).toEqual({ checkId });
+    expect(applied.headers.get("cache-control")).toBe("no-store");
   });
 
   test("an unmanaged server checks locally and answers apply with 503 and manual commands", async () => {

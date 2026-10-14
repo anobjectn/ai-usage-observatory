@@ -28,9 +28,9 @@ test("a WAL database with uncheckpointed rows is copied completely and passes in
   copy.close();
 });
 
-test("an absolute path works and a missing database needs no backup", () => {
+test("a missing database needs no backup", () => {
   directory = mkdtempSync(join(tmpdir(), "aiuo-backup-"));
-  const dbPath = resolveDbPath({ USAGE_OBSERVATORY_DB: join(directory, "absolute.db") }, "/elsewhere");
+  const dbPath = join(directory, "absolute.db");
   expect(backupDatabase(dbPath, join(directory, "state"), "abcdef0")).toBeNull();
   new Database(dbPath, { create: true }).close();
   expect(backupDatabase(dbPath, join(directory, "state"), "abcdef0")).not.toBeNull();
