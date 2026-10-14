@@ -146,7 +146,7 @@ function Details({ update }: { update: UpdateUi }) {
       {!active && job?.phase === "complete" && !check?.eligible && (
         <p>Updated to <code>{short(job.target)}</code>.{status?.launcherRestartRequired && <> Restart <code>bun run start</code> once to load the new launcher.</>}</p>
       )}
-      {update.reloadNeeded && <p>A new version is running. <button className="update-inline-button" onClick={update.reload}>Reload to finish</button></p>}
+      {update.reloadNeeded && <p>The app server has updated. Reload this page to use the new version. <button className="update-inline-button" onClick={update.reload}>Reload page</button></p>}
       {!active && check && <CheckDetails check={check} status={status} onCheck={() => void update.runCheck()} />}
       {!active && !check && !job && !error && <p>{update.checking ? "Checking origin/main…" : "Not checked yet. Click the button to compare with origin/main."}</p>}
     </div>
@@ -172,7 +172,7 @@ export function UpdateControl({ update, variant = "sidebar" }: { update: UpdateU
     : update.checking
       ? "Checking…"
       : update.reloadNeeded
-        ? "Reload to finish"
+        ? "Reload page"
         : eligible
           ? "Update and restart"
           : "Check for updates";
