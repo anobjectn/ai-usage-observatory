@@ -26,12 +26,14 @@ Requires Bun 1.3 or newer.
 
 ```bash
 bun install
-bun run dev      # http://127.0.0.1:5173
+bun run build
+bun run start    # http://127.0.0.1:4318
 ```
 
-For a production build, run `bun run build && bun run start` and open `http://127.0.0.1:4318`.
-`bun run start` runs a small launcher that supervises the server and can update it from the app.
+`bun run start` runs a small launcher that supervises the server and supports in-app updates.
 To run the server without the launcher, use `bun run start:server`.
+
+For frontend development with Vite, run `bun run dev` and open `http://127.0.0.1:5173`.
 
 <details>
 <summary>Update from the app</summary>
