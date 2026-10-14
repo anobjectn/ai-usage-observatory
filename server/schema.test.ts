@@ -72,29 +72,16 @@ describe("normalized ingestion contracts", () => {
 });
 
 describe("app-owned session identity", () => {
-  test("is deterministic across report refreshes", () => {
-    const first = stableSessionId(
-      "codex",
-      ".codex/sessions/2026/07/rollout-a.jsonl",
-      "native-a",
-    );
-    const next = stableSessionId(
-      "codex",
-      ".codex/sessions/2026/07/rollout-a.jsonl",
-      "native-a",
-    );
-    expect(first).toBe(next);
-    expect(first).toHaveLength(24);
+  test("keeps the documented formula, because stored annotations are keyed by it", () => {
+    // sha256("codex" NUL path NUL key), first 24 hex characters (docs/ARCHITECTURE.md).
+    expect(stableSessionId("codex", ".codex/sessions/2026/07/rollout-a.jsonl", "native-a")).toBe("001300775d0de30ade04ab98");
   });
 
-  test("namespaces identical native keys by agent and source", () => {
-    const claude = stableSessionId(
-      "claude",
-      ".claude/projects/project/a.jsonl",
-      "a",
-    );
-    const codex = stableSessionId("codex", ".codex/sessions/a.jsonl", "a");
-    expect(claude).not.toBe(codex);
+  test("namespaces identical native keys by agent and by source", () => {
+    const base = stableSessionId("codex", ".codex/sessions/a.jsonl", "a");
+    expect(stableSessionId("claude", ".codex/sessions/a.jsonl", "a")).not.toBe(base);
+    expect(stableSessionId("codex", ".codex/sessions/b.jsonl", "a")).not.toBe(base);
+    expect(stableSessionId("codex", ".codex/sessions/a.jsonl", "b")).not.toBe(base);
   });
 
   test("matches Codex report paths to indexed session files", () => {

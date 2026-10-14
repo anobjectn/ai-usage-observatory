@@ -16,6 +16,8 @@ describe("session quota reading versions", () => {
       .toBe(quotaContextVersion(finished, "2026-10-13T12:11:00.000Z"));
     expect(quotaContextVersion(session("2026-10-13T10:00:00.000Z", 200), "2026-10-13T12:10:00.000Z"))
       .not.toBe(quotaContextVersion(finished, "2026-10-13T12:10:00.000Z"));
+    expect(quotaContextVersion(session("2026-10-13T10:05:00.000Z"), "2026-10-13T12:10:00.000Z"))
+      .not.toBe(quotaContextVersion(finished, "2026-10-13T12:10:00.000Z"));
   });
 });
 

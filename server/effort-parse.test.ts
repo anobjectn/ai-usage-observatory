@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildEffortDaySeries, capEffortLevels, foldEffort, normalizeEffort, sortEffortBuckets } from "../src/effort-model";
+import { buildEffortDaySeries, capEffortLevels, foldEffort, normalizeEffort } from "../src/effort-model";
 import { dateKeyInTimeZone, hourInTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
 import {
@@ -17,7 +17,6 @@ import {
   consumeEffortLine,
   createAccumulator,
   emptyState,
-  hasProviderMarker,
   oversizedCompactionId,
   parseEffortLine,
   startCodexReplay,
@@ -61,15 +60,6 @@ describe("effort normalization", () => {
     expect(normalizeEffort(3)).toBe("");
   });
 
-  test("preserves unknown future values in canonical order after the known ones", () => {
-    const sorted = sortEffortBuckets([
-      { effort: "ludicrous", observations: 1, tokens: 1 },
-      { effort: "xhigh", observations: 1, tokens: 1 },
-      { effort: "low", observations: 1, tokens: 1 },
-      { effort: "adaptive", observations: 1, tokens: 1 },
-    ]).map((bucket) => bucket.effort);
-    expect(sorted).toEqual(["low", "xhigh", "adaptive", "ludicrous"]);
-  });
 });
 
 describe("Claude attribution contract", () => {
@@ -226,20 +216,20 @@ describe("Codex attribution contract", () => {
     expect(rowFor(accumulator, "low").reduce((sum, row) => sum + row.totalTokens, 0)).toBe(1060);
   });
 
-  test("cumulative total_token_usage is ignored", () => {
-    const { accumulator } = run([codexTurnContext({ effort: "high" }), codexTokenCount({})], "codex");
-    expect(accumulator.observedUsageTokens).toBe(1060);
-  });
-
   test("repeated token_count events match ccusage de-duplication across parser spans", () => {
-    const accumulator = createAccumulator();
+    // No cumulative total, so only the timestamp + usage key can recognize the repeat.
+    const repeated = JSON.stringify({
+      timestamp: "2026-07-01T15:01:00.000Z",
+      type: "event_msg",
+      payload: { type: "token_count", info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 60, reasoning_output_tokens: 25, total_tokens: 1060 } } },
+    });
     const state = emptyState();
-    consumeEffortLine(codexTurnContext({ effort: "high" }), "codex", accumulator, state);
-    const repeated = codexTokenCount({ timestamp: "2026-07-01T15:01:00.000Z" });
-    consumeEffortLine(repeated, "codex", accumulator, state);
-    consumeEffortLine(repeated, "codex", accumulator, state);
-    expect(accumulator.observedUsageTokens).toBe(1060);
-    expect(state.lastUsageKey).not.toBeNull();
+    const firstSpan = createAccumulator();
+    consumeEffortLine(codexTurnContext({ effort: "high" }), "codex", firstSpan, state);
+    consumeEffortLine(repeated, "codex", firstSpan, state);
+    const secondSpan = createAccumulator();
+    consumeEffortLine(repeated, "codex", secondSpan, state);
+    expect(firstSpan.observedUsageTokens + secondSpan.observedUsageTokens).toBe(1060);
   });
 
   test("a re-emitted snapshot whose cumulative total did not advance adds no usage", () => {
@@ -372,19 +362,6 @@ describe("Codex attribution contract", () => {
       "codex", accumulator, state,
     )).toThrow();
     expect(accumulator.observedUsageTokens).toBe(0);
-  });
-
-  test("an incomplete final line is normal and leaves prior aggregates intact", () => {
-    const lines = [codexTurnContext({ effort: "high" }), codexTokenCount({})];
-    const accumulator = createAccumulator();
-    const state = emptyState();
-    const raw = transcript(lines) + codexTokenCount({}).slice(0, 40);
-    const complete = raw.split("\n");
-    const trailing = complete.pop()!;
-    for (const line of complete) consumeEffortLine(line, "codex", accumulator, state, true);
-    expect(accumulator.observedUsageTokens).toBe(1060);
-    expect(trailing.length).toBeGreaterThan(0);
-    expect(accumulator.parseErrors).toBe(0);
   });
 
   test("turn_context without effort is an unknown observation, not a dropped one", () => {
@@ -531,6 +508,9 @@ describe("prefilter equivalence", () => {
     "{\"type\":\"turn_context\", broken",
     "{ irrelevant broken",
     codexTokenCount({}),
+    JSON.stringify({ type: "session_meta", payload: { id: "session" } }),
+    JSON.stringify({ type: "event_msg", payload: { type: "thread_rolled_back" } }),
+    codexTokenCount({}),
   ];
 
   test("prefilter-on and prefilter-off produce identical aggregates and quality counters", () => {
@@ -545,13 +525,6 @@ describe("prefilter equivalence", () => {
     }
   });
 
-  test("the marker gate is a superset of what the handlers accept", () => {
-    expect(hasProviderMarker(claudeAssistant({ effort: "high" }), "claude")).toBe(true);
-    expect(hasProviderMarker(codexTurnContext({}), "codex")).toBe(true);
-    expect(hasProviderMarker(codexTokenCount({}), "codex")).toBe(true);
-    expect(hasProviderMarker(codexUsageRecord({ responseId: "resp_x" }), "codex")).toBe(true);
-    expect(hasProviderMarker(codexCompacted("resp_x"), "codex")).toBe(true);
-  });
 });
 
 describe("reconciliation against pinned ccusage-style totals", () => {

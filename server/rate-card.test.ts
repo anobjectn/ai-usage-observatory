@@ -82,7 +82,10 @@ describe("rate card loading", () => {
     expect(live.card["claude-opus-5"]?.cacheWrite1h).toBe(10e-6);
 
     setRateCardState(null);
-    const reloaded = await ensureRateCard(async () => { throw new Error("must not fetch"); }, () => new Date("2026-09-03T13:00:00.000Z"));
+    let fetches = 0;
+    const reloaded = await ensureRateCard(async () => { fetches++; throw new Error("must not fetch"); }, () => new Date("2026-09-03T13:00:00.000Z"));
+    await Bun.sleep(0);
+    expect(fetches).toBe(0);
     expect(reloaded.status).toBe("cached");
     expect(reloaded.fetchedAt).toBe("2026-09-03T12:00:00.000Z");
   });

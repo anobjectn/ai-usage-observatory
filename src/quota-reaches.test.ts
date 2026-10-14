@@ -83,6 +83,14 @@ test("reachClockSummary stays quiet on thin or flat data", () => {
         TZ,
       ),
     ),
+  ).toBeNull();  // Enough reaches, but spread evenly: the best three-hour window holds only a quarter.
+  expect(
+    reachClockSummary(
+      reachHourBuckets(
+        ["00", "06", "12", "18"].map((hour) => instant(`2026-08-28T${hour}:00:00-04:00`)),
+        TZ,
+      ),
+    ),
   ).toBeNull();
 });
 

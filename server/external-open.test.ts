@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ExternalOpenError,
   externalOpenCommand,
   externalOpenOriginAllowed,
+  nearestExistingParent,
   resolveListedFilePath,
 } from "./external-open";
 
@@ -53,12 +57,15 @@ describe("external-open request boundary", () => {
     );
   });
 
-  test("a missing file's fallback folder is revealed, never opened, so a bundle cannot launch", () => {
-    expect(externalOpenCommand("reveal", "/Applications/Calculator.app", "darwin")).toEqual([
-      "/usr/bin/open",
-      "-R",
-      "/Applications/Calculator.app",
-    ]);
+  test("a missing file falls back to the nearest folder, never to a file in its place", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "external-open-"));
+    try {
+      writeFileSync(join(directory, "tool.command"), "#!/bin/sh\n");
+      expect(await nearestExistingParent(join(directory, "tool.command", "notes.md"))).toBe(directory);
+      expect(await nearestExistingParent(join(directory, "gone", "notes.md"))).toBe(directory);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test("builds argv arrays without interpreting path text as shell input", () => {

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QuickOverviewModal, benchmarkLoadedAtLabel } from "./components/app-modals";
 import { condensedResetCopy, quickOverviewCards } from "./app/analytics";
-import { savedQuickOverviewMode } from "./app/preferences";
+import { quickOverviewModeStorageKey, savedQuickOverviewMode } from "./app/preferences";
 import type { SceneEffects, ProviderColors } from "./scene";
 import type { DashboardData } from "./types";
 
@@ -69,15 +69,31 @@ function renderModal(
   );
 }
 
-test("savedQuickOverviewMode defaults to gauges without a stored choice", () => {
+test("savedQuickOverviewMode restores grid and defaults everything else to gauges", () => {
+  const stored = new Map<string, string>();
+  const realStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem: (key: string) => stored.get(key) ?? null } as Storage;
+  try {
+    expect(savedQuickOverviewMode()).toBe("gauges");
+    for (const value of ["grid", "bogus"]) {
+      stored.set(quickOverviewModeStorageKey, value);
+      expect(savedQuickOverviewMode()).toBe(value === "grid" ? "grid" : "gauges");
+    }
+  } finally {
+    globalThis.localStorage = realStorage;
+  }
+  // Without storage at all (private mode, or this runtime) it still answers.
   expect(savedQuickOverviewMode()).toBe("gauges");
 });
 
 test("benchmarkLoadedAtLabel includes a full local date and time", () => {
   const loadedAt = new Date(2026, 8, 7, 15, 42).getTime();
   expect(benchmarkLoadedAtLabel(null, "DeepSWE")).toBe("Loading DeepSWE...");
-  expect(benchmarkLoadedAtLabel(loadedAt, "DeepSWE")).toContain("2026");
-  expect(benchmarkLoadedAtLabel(loadedAt, "DeepSWE")).toContain("3:42");
+  const label = benchmarkLoadedAtLabel(loadedAt, "DeepSWE");
+  expect(label.startsWith("Loaded ")).toBe(true);
+  expect(label).toContain("2026");
+  expect(label).toContain(new Date(loadedAt).toLocaleString(undefined, { month: "short" }));
+  expect(label).toContain("42");
 });
 
 test("quickOverviewCards keeps only providers with reported windows", () => {
@@ -135,37 +151,33 @@ test("condensedResetCopy covers days, morning stamps, and elapsed resets", () =>
   );
 });
 
-test("gauges mode renders headroom dials with stacked reset countdowns per window", () => {
+test("gauges mode renders a headroom dial with a reset countdown per window", () => {
   const html = renderModal("gauges");
-  expect(html).toContain("quota-dial");
   // Buckets report 42% and 61% used; dials read out what is left.
-  expect(html).toContain("58%");
-  expect(html).toContain("39%");
-  expect(html).toContain("% left");
+  expect(html).toContain('aria-label="Anthropic 5-hour: 58% left"');
+  expect(html).toContain('aria-label="Anthropic Weekly: 39% left"');
   expect(html).not.toContain("42%");
-  expect(html).toContain("quick-overview__reset--stacked");
   expect(html).toContain("reset in");
-  expect(html).not.toContain("·");
-  expect(html).not.toContain("quick-overview__row");
-  // The orrery legend names every provider; only the card for the reported one exists.
-  expect(html).not.toContain("quick-overview__provider codex");
+  // The orrery legend names every provider; only the reported one gets a dial.
+  expect(html).not.toContain('aria-label="OpenAI');
 });
 
-test("grid mode groups rows under one provider header with reset info", () => {
+test("grid mode lists each window as a row with headroom and reset info", () => {
   const html = renderModal("grid");
-  expect(html).toContain("quick-overview__group");
-  expect(html).toContain("quick-overview__row");
   expect(html).toContain("58% left");
+  expect(html).toContain('aria-label="Plenty remaining"');
   expect(html).toContain("resets in");
-  expect(html).not.toContain("quota-dial");
-  expect(html.match(/quick-overview__group /g)?.length).toBe(1);
+  expect(html).not.toContain('aria-label="Anthropic 5-hour: 58% left"');
 });
 
-test("the modal has no heading text and keeps the layout toggle", () => {
-  const html = renderModal("gauges");
-  expect(html).not.toContain("QUICK OVERVIEW");
-  expect(html).not.toContain("Subscription windows at a glance");
-  expect(html).toContain("quick-overview__mode");
+test("the modal is named for assistive technology and keeps the layout toggle", () => {
+  for (const mode of ["gauges", "grid"] as const) {
+    const html = renderModal(mode);
+    expect(html).toMatch(/role="dialog"[^>]*aria-label="Quick quota overview"/);
+    expect(html).toContain('role="group" aria-label="Overview layout"');
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html.match(/aria-pressed="false"/g)).toHaveLength(1);
+  }
 });
 
 test("the orrery always shows; tesseract only swaps its core icon", () => {
@@ -212,7 +224,6 @@ test("a stale Claude Code token renders a next-step notice in both modes", () =>
         onClose: () => {},
       }),
     );
-    expect(html).toContain("quota-notice act compact");
     expect(html).toContain("Run any prompt in Claude Code");
     // The compact variant omits the producer's raw wording.
     expect(html).not.toContain("401 from oauth/usage");

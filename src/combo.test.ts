@@ -18,7 +18,7 @@ import {
   selectComboSeries,
 } from "./combo";
 import { compareEffort, effortRank, sortEffortBuckets } from "./effort-model";
-import { effortColor } from "./combo";
+import { effortColor, familyColor } from "./combo";
 
 const bucket = (family: string, effort: string, tokens: number, observations = 0) => ({ family, effort, tokens, observations });
 const amount = (family: string, effort: string, value: number) => ({ family, effort, amount: value });
@@ -33,8 +33,8 @@ describe("effort ordering", () => {
 
   test("an unknown future effort still sorts after every canonical one", () => {
     expect(compareEffort("max", "ludicrous")).toBeLessThan(0);
-    expect(sortEffortBuckets([{ effort: "ludicrous" }, { effort: "max" }, { effort: "medium" }]).map((b) => b.effort))
-      .toEqual(["medium", "max", "ludicrous"]);
+    expect(sortEffortBuckets([{ effort: "ludicrous" }, { effort: "max" }, { effort: "adaptive" }, { effort: "medium" }]).map((b) => b.effort))
+      .toEqual(["medium", "max", "adaptive", "ludicrous"]);
   });
 
   test("max has an explicit effort-only colour distinct from unknown", () => {
@@ -130,7 +130,7 @@ describe("labels and colour", () => {
     const max = comboColor({ family: "claude-opus-5", effort: "max" });
     expect(low).toContain("white");
     expect(low).not.toContain("black");
-    expect(max).toBe("var(--color-series-3)");
+    expect(max).toBe(familyColor("claude-opus-5"));
     expect(low).not.toBe(max);
   });
 

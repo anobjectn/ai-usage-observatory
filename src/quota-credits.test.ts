@@ -6,7 +6,8 @@ import {
   CREDIT_AGING_MS,
   CREDIT_STALE_MS,
 } from "./quota-credits";
-import type { AnthropicWebCredits, QuotaProvider } from "./types";
+import { quotaCards } from "./app/analytics";
+import type { AnthropicWebCredits, DashboardData, QuotaProvider } from "./types";
 
 const NOW = Date.UTC(2026, 6, 25);
 
@@ -56,17 +57,21 @@ describe("buildAnthropicCreditView", () => {
     expect(view.fable!.expired).toBe(false);
   });
 
-  test("renders the *ExpiresOn calendar string verbatim (no UTC/local drift)", () => {
-    const view = buildAnthropicCreditView(anthropicReport(), NOW);
+  test("renders the tranche's *ExpiresOn calendar string verbatim (no UTC/local drift)", () => {
+    // The instant falls on the next UTC day, and the campaign names a later date: only the
+    // tranche's own calendar string is right.
+    const view = buildAnthropicCreditView(anthropicReport({ anthropicWebCredits: webCredits({
+      promotionalTranches: [{ remainingAmount: 84.96, grantedAmount: 100, expiresAt: Date.UTC(2026, 8, 20, 3), expiresOn: "2026-09-19" }],
+      campaign: { id: "fable_transition", granted: true, amount: 100, expiresAt: Date.UTC(2026, 8, 30), expiresOn: "2026-09-30" },
+    }) }), NOW);
     expect(view.fable!.expiresOn).toBe("2026-09-19");
   });
 
   test("Fable credit is not emitted as a model quota bucket", () => {
-    // The view intentionally has no notion of quota buckets; the Fable credit
-    // lives only on view.fable, keeping it out of quotaCards' bucket list.
-    const view = buildAnthropicCreditView(anthropicReport(), NOW);
-    expect(view).not.toHaveProperty("buckets");
-    expect(view.fable!.remaining).toBe(84.96);
+    const cards = quotaCards({ available: true, collectedAt: new Date(NOW).toISOString(), usage: { generatedAt: NOW, providers: [anthropicReport()] } } as DashboardData["quotas"]);
+    const buckets = cards.find((card) => card.provider === "anthropic")!.buckets;
+    expect(buckets.length).toBeGreaterThan(0);
+    expect(buckets.some((bucket) => /fable|credit/i.test(`${bucket.id} ${bucket.windowLabel}`))).toBe(false);
   });
 
   test("vanishes when no fable_transition campaign and no tranche exist", () => {
@@ -100,7 +105,7 @@ describe("buildAnthropicCreditView", () => {
   });
 
   test("uses currentBalance for prepaid, not the deprecated balanceCredits", () => {
-    const view = buildAnthropicCreditView(anthropicReport(), NOW);
+    const view = buildAnthropicCreditView(anthropicReport({ anthropicWebCredits: webCredits({ balanceCredits: 12 }) }), NOW);
     expect(view.prepaid!.balance).toBe(84.97);
   });
 

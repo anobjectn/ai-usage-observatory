@@ -79,7 +79,7 @@ async function pathExists(path: string) {
 
 /** The closest ancestor that exists and is a directory. A file can sit where a listed folder
  * was, such as `tool.command/notes.md` after `tool.command` became a script. */
-async function nearestExistingParent(path: string) {
+export async function nearestExistingParent(path: string) {
   let candidate = dirname(path);
   while (candidate !== dirname(candidate)) {
     if ((await pathExists(candidate))?.isDirectory()) return candidate;

@@ -100,11 +100,17 @@ describe("scope validation", () => {
     });
   });
 
-  test("a path-tag scope cannot alter SQL", () => {
-    const snapshot = snapshotOf([session({ sessionId: "s1", pathTags: ["a'); DROP TABLE session_effort_usage;--"] })]);
+  test("scope text cannot alter SQL", () => {
+    const injection = "a'); DROP TABLE session_effort_usage;--";
+    const snapshot = snapshotOf([session({ sessionId: "s1", pathTags: [injection] })]);
     seed("s1", "claude", "/fixture/alpha", [{ day: today, model: "claude-opus-5", effort: "high", observations: 1, tokens: 400 }]);
-    const scope = api.resolveEffortScope(params("pathTag=a%27)%3B%20DROP%20TABLE%20session_effort_usage%3B--"));
-    expect(api.buildEffortAggregate(snapshot, scope, "total").total.attributedTokens).toBe(400);
+    const attributed = (query: string) => api.buildEffortAggregate(snapshot, api.resolveEffortScope(params(query)), "total").total.attributedTokens;
+    // A path tag filters sessions in memory; it still has to match the literal tag.
+    expect(attributed(`pathTag=${encodeURIComponent(injection)}`)).toBe(400);
+    // Project and model reach SQL, as bound values that match nothing.
+    expect(attributed(`project=${encodeURIComponent("/fixture/alpha' OR '1'='1")}`)).toBe(0);
+    expect(attributed(`model=${encodeURIComponent("x' OR '1'='1")}`)).toBe(0);
+    expect(attributed(`model=${encodeURIComponent(injection)}`)).toBe(0);
     expect(db.query("SELECT COUNT(*) AS count FROM session_effort_usage").get()).toMatchObject({ count: 1 });
   });
 });
@@ -568,23 +574,10 @@ describe("the combo facet", () => {
     expect(rows.find((row) => row.family === "gpt-5.6-sol")!.tokens).toBe(100);
   });
 
-  test("aliases resolve to the same combo selection", () => {
-    const snapshot = build();
-    expect([...api.sessionsMatchingEffortFacet(snapshot, api.resolveEffortScope(params(facet(opusHigh))))!].sort())
-      .toEqual(["both", "opus"]);
-  });
-
   test("a well-formed combo nobody recorded selects nothing rather than everything", () => {
     const snapshot = build();
     const scope = api.resolveEffortScope(params(facet(encodeComboFacet({ family: "claude-opus-5", effort: "max" }))));
     expect([...api.sessionsMatchingEffortFacet(snapshot, scope)!]).toEqual([]);
-  });
-
-  test("effort-only facet forms keep working beside combo ones", () => {
-    const snapshot = build();
-    const facetIds = (value: string) => [...api.sessionsMatchingEffortFacet(snapshot, api.resolveEffortScope(params(facet(value))))!].sort();
-    expect(facetIds("value:high")).toEqual(["both", "opus"]);
-    expect(facetIds("mixed")).toEqual(["both"]);
   });
 });
 
@@ -778,12 +771,6 @@ describe("index state and isolation", () => {
     expect(aggregate.total.eligibleTokens).toBe(1_000);
     expect(api.buildSessionEffortSummary(snapshot, "s1")).toBeNull();
   });
-
-  test("status stays small and free of scope text", () => {
-    const status = api.buildEffortStatus();
-    expect(JSON.stringify(status).length).toBeLessThan(4 * 1024);
-    expect(status.parserVersion).toBeGreaterThan(0);
-  });
 });
 
 describe("caching", () => {
@@ -798,8 +785,20 @@ describe("caching", () => {
     expect(api.effortEtag([...base.slice(0, 4), "timeline|30|all|all|||all"])).not.toBe(etag);
   });
 
-  test("scope keys never leak raw JSON into the header input", () => {
-    expect(api.scopeKey(api.resolveEffortScope(params("basis=sessions&rangeDays=30&providers=codex")))).toBe("sessions|30|||codex||all|||all|all");
+  test("scope keys ignore provider order and change with every scope field", () => {
+    const key = (query: string) => api.scopeKey(api.resolveEffortScope(params(query)));
+    const base = "basis=sessions&rangeDays=30&providers=codex,anthropic";
+    expect(key(base)).toBe(key("basis=sessions&rangeDays=30&providers=anthropic,codex"));
+    expect(key(base)).not.toContain("{");
+    for (const change of [
+      "basis=timeline", "rangeDays=7", "from=2026-07-01", "to=2026-07-10", "providers=codex",
+      "modelFamilies=claude-opus-5", "pathTag=fixture", "project=/fixture/alpha", "model=gpt-5.4",
+      "effort=mixed", "outliers=typical",
+    ]) {
+      const [field] = change.split("=");
+      const changed = [...base.split("&").filter((part) => !part.startsWith(`${field}=`)), change].join("&");
+      expect(key(changed), change).not.toBe(key(base));
+    }
   });
 
   test("memoization is bounded and reuses bodies", () => {

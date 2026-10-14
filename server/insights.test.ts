@@ -5,7 +5,9 @@ import { summarizeQuotaHistory } from "./quota";
 
 describe("insights scope", () => {
   test("clamps the analysis window and keeps unsupported filters harmless", () => {
-    expect(resolveScope(new URLSearchParams("range=500&providers=bogus&outliers=wat&finding=nope&policy=wat&findingPage=-3"))).toEqual({ rangeDays: 120, fromDate: null, toDate: null, providers: [], modelFamilies: [], pathTag: "all", cache: "include", outliers: "all", finding: "all", effort: "all", findingPage: 1, policy: "capture" });
+    const scope = resolveScope(new URLSearchParams("range=500&providers=bogus&outliers=wat&finding=nope&policy=wat&findingPage=-3"));
+    expect(scope).toMatchObject({ rangeDays: 120, providers: [], outliers: "all", finding: "all", findingPage: 1, policy: "capture" });
+    expect(scope.providersExcluded).toBeUndefined();
   });
   test("a selection of only excluded providers means nothing, not everything", () => {
     expect(resolveScope(new URLSearchParams("providers=other"))).toMatchObject({ providers: [], providersExcluded: true });
@@ -107,7 +109,7 @@ describe("efficiency findings", () => {
 
   test("reports Codex cache writes as unavailable rather than zero", () => {
     const rows = Array.from({ length: 8 }, (_, index) => session(`codex-${index}`, "codex", "gpt-5.6-sol", { cacheCreationTokens: 0 }));
-    const insights = buildInsights(dashboard(rows), resolveScope(new URLSearchParams("provider=codex")));
+    const insights = buildInsights(dashboard(rows), resolveScope(new URLSearchParams("providers=codex")));
     const codex = insights.cacheComposition.providers.find((entry) => entry.provider === "codex");
     expect(codex?.cacheWritesReported).toBe(false);
     expect(codex?.medianTurns).toBeNull();

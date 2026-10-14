@@ -61,6 +61,13 @@ describe("collectQuota field preservation", () => {
   });
 
   test("keeps successful endpoints and the last valid provider when usage later fails", async () => {
+    const reading = {
+      provider: "anthropic", status: "ok", source: "anthropic_api", dataAgeMs: 0, capturedAt: 1,
+      snapshot: { kind: "window", fiveHour: { usedPercent: 10, resetsAt: null }, weekly: null },
+    };
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [reading] } } : { body: {} });
+    await collectQuota();
+
     stubFetch((url) => {
       if (url.endsWith("/usage")) return { status: 503, body: {} };
       if (url.endsWith("/resets")) return { body: { codexBankedResetCredits: { credits: [] } } };
@@ -70,7 +77,8 @@ describe("collectQuota field preservation", () => {
     expect(result.available).toBe(true);
     expect(result.sourceState).toBe("degraded");
     expect(result.resets).toBeDefined();
-    expect((result.usage as { providers: unknown[] }).providers).toHaveLength(1);
+    expect((result.usage as { providers: Array<Record<string, unknown>> }).providers.find((entry) => entry.provider === "anthropic"))
+      .toMatchObject({ snapshot: reading.snapshot });
     expect(result.error).toContain("/usage returned 503");
   });
 

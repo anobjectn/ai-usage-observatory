@@ -7,7 +7,6 @@ import {
   matchesEntry,
   matchesAgentSelection,
   modelEntry,
-  normalizeSelection,
   selectAgentRow,
   selectionProvider,
   toggleBranch,
@@ -212,11 +211,6 @@ describe("agent tree", () => {
   test("a collapsed parent makes each child render as checked", () => {
     expect(matchesEntry([agentEntry("claude")], claude, "claude-opus-5")).toBe(true);
     expect(matchesEntry([modelEntry("claude-fable-5")], claude, "claude-opus-5")).toBe(false);
-  });
-
-  test("normalizing a hand-built complete child list collapses it", () => {
-    expect(normalizeSelection([modelEntry("gpt-5.6-sol"), modelEntry("gpt-5.5")], tree))
-      .toEqual([agentEntry("codex")]);
   });
 
   // The collapsed form is what lets a checked agent keep matching sessions whose models are

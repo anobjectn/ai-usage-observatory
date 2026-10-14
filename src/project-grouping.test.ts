@@ -49,8 +49,8 @@ test("projectGroup keeps ordinary projects apart and merges same-name checkouts"
   expect(a.key).toBe(b.key);
   expect(a.automation).toBe(false);
   // Names that merely end in digits are untouched outside dated run dirs.
-  expect(projectGroup("/Users/luis/htdocs/vue3").label).toBe("vue3");
-  expect(projectGroup("/Users/luis/htdocs/02-ring").key).not.toBe(projectGroup("/Users/luis/htdocs/03-orrery").key);
+  expect(projectGroup("/Users/luis/htdocs/api-2")).toEqual({ key: "api-2", label: "api-2", automation: false });
+  expect(projectGroup("/Users/luis/htdocs/api-2").key).not.toBe(projectGroup("/Users/luis/htdocs/api").key);
 });
 
 test("mergeProjectSummaries collapses instances, sums totals, and merges trend days", () => {

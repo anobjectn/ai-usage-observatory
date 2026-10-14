@@ -116,7 +116,9 @@ describe("summarizeTokenTypes", () => {
     expect(summary.costAvailable).toBe(false);
     expect(summary.totalCost).toBeNull();
     expect(summary.rows.every((row) => row.cost === null && row.costShare === null)).toBe(true);
-    expect(summary.rows.every((row) => row.tokens > 0 || row.type === "cacheWrite" || row.type === "input")).toBe(true);
+    // Tokens are still reported when cost is withheld.
+    expect(summary.totalTokens).toBe(4_330_500 + 952_000);
+    expect(summary.rows.find((row) => row.type === "cacheWrite")!.tokens).toBe(300_000);
     expect(summary.withheld).toEqual([{ model: "claude-opus-5", reason: "mismatch" }]);
   });
 
@@ -162,7 +164,7 @@ describe("footnotesFor", () => {
       rateCard: { status: "live", fetchedAt: "2026-09-03T12:00:00.000Z" },
       reasoning: { outputTokens: 12_000, reasoningOutputTokens: 4_000, reportedEvents: 3 },
     });
-    expect(lines).toContain("Cache-write cost is the ccusage residual after input, output, and cache-read rates; about 50% of write tokens were priced at the 1-hour rate.");
+    expect(lines.some((line) => line.includes("about 50% of write tokens were priced at the 1-hour rate"))).toBe(true);
     expect(lines).toContain("Codex reports cache writes as zero.");
     expect(lines.some((line) => line.includes("4,000 reasoning tokens"))).toBe(true);
     expect(lines).toContain("Cache reads count repeated reads, not unique text.");

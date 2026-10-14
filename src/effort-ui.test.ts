@@ -109,8 +109,10 @@ describe("effort presentation", () => {
     expect(familyLabel("claude-fable-5")).toBe("Fable 5");
     expect(familyLabel("claude-haiku-4-5")).toBe("Haiku 4.5");
     expect(familyLabel("gpt-5.6-sol")).toBe("GPT 5.6 Sol");
-    expect(familyColor("claude-fable-5")).toBe(familyColor("claude-fable-5"));
     expect(familyColor("claude-fable-5")).not.toBe(familyColor("claude-opus-5"));
+    // A family released after this build still gets a colour of its own, the same on every call.
+    expect(familyColor("gpt-7-nova")).toBe(familyColor("GPT-7-Nova"));
+    expect(familyColor("gpt-7-nova")).not.toBe(familyColor("unknown"));
   });
 });
 
@@ -146,9 +148,9 @@ describe("Sessions view effort behaviour", () => {
 
   test("a model-and-effort query such as `luna max` finds its sessions", () => {
     const luna = decodedOf([{ family: "gpt-5.6-luna", effort: "max" }]);
-    expect(effortSearchText(luna).includes("luna")).toBe(true);
-    expect("luna max".split(" ").every((word) => effortSearchText(luna).includes(word))).toBe(true);
-    expect("luna max".split(" ").every((word) => effortSearchText(known).includes(word))).toBe(false);
+    // The Sessions search box matches the whole query as one substring.
+    expect(effortSearchText(luna)).toContain("luna max");
+    expect(effortSearchText(known)).not.toContain("luna max");
   });
 
   test("the filter covers All, each value, Mixed, and Unknown", () => {
