@@ -240,6 +240,15 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
         values.push(point);
         cycles.set(point.cycleId, values);
       }
+      // An unstarted window can also report a rolling reset instant that creeps forward with
+      // every snapshot, which mints one `reset:` cycle per reading. A cycle that never left 0%
+      // carries no movement, so it is the same unstarted baseline and must not repeat per id.
+      for (const [cycleId, values] of cycles) {
+        if (values.every((point) => point.kind === "window" && point.usedPercent === 0)) {
+          idle.push(...values);
+          cycles.delete(cycleId);
+        }
+      }
       idle.sort((a, b) => a.observedAt - b.observedAt);
       for (const values of cycles.values()) {
         values.sort((a, b) => a.observedAt - b.observedAt);
@@ -248,7 +257,7 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
       }
       // Every observation across the bracket showed an unstarted window: the session moved
       // this resource by nothing, which is a resolved answer rather than a missing one.
-      if (!cycles.size && idle.length > 1) cycles.set(`idle:${idle[0]!.observedAt}`, idle);
+      if (!cycles.size && idle.length > 1) cycles.set("idle:unstarted", idle);
       for (const [cycleId, values] of cycles) {
         values.sort((a, b) => a.observedAt - b.observedAt);
         if (cycleId.startsWith("observed:") || values.length < 2) {

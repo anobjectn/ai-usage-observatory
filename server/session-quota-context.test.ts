@@ -81,6 +81,32 @@ describe("session quota policy", () => {
     expect(result.reason).toBeNull();
   });
 
+  test("folds an unstarted window with a creeping reset instant into one zero-movement result", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [
+        windowPoint(9 * 60_000, 0, "reset:600000000"),
+        windowPoint(12 * 60_000, 0, "reset:600060000"),
+        windowPoint(15 * 60_000, 0, "reset:600120000"),
+        windowPoint(21 * 60_000, 0, "reset:600180000"),
+      ],
+    }));
+    expect(result.resources[0]!.episodes).toHaveLength(1);
+    expect(result.resources[0]).toMatchObject({ deltaPercentagePoints: 0, cycleCount: 1 });
+  });
+
+  test("drops zero-usage cycles that trail a real cycle after a reset", () => {
+    const result = calculateSessionQuotaContext(input({
+      points: [
+        windowPoint(9 * 60_000, 25, "reset:900000"),
+        windowPoint(14 * 60_000, 31, "reset:900000"),
+        windowPoint(16 * 60_000, 0, "reset:600000000"),
+        windowPoint(18 * 60_000, 0, "reset:600060000"),
+        windowPoint(21 * 60_000, 0, "reset:600120000"),
+      ],
+    }));
+    expect(result.resources[0]!.episodes.map((item) => item.cycleId)).toEqual(["reset:900000"]);
+  });
+
   test("still reports an unreadable cycle when the window carries usage without a reset", () => {
     const result = calculateSessionQuotaContext(input({
       points: [
