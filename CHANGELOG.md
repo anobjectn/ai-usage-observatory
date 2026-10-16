@@ -5,6 +5,18 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.1] - 2026-10-16
+
+### Fixed
+
+- Show one quota impact range for an unstarted window, instead of one
+  "100→100%" row per snapshot in the session details.
+- Hide an expired update check, so the app stops reporting a stale
+  ahead/behind count against origin/main.
+- Place token totals beside model names in the explorer slope chart.
+- Change the update prompt to say the app server updated and offer a
+  "Reload page" button.
+
 ## [1.33.0] - 2026-10-13
 
 ### Added
@@ -228,6 +240,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.33.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.0...v1.33.1
 [1.33.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.32.1...v1.33.0
 [1.32.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.32.0...v1.32.1
 [1.32.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.31.1...v1.32.0
