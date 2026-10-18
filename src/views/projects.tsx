@@ -77,6 +77,7 @@ import {
   chartActiveDot,
   chartAxisProps,
   chartBarCursor,
+  chartColumnRadius,
   chartGridProps,
   chartTickCompact,
   chartTooltipWrapperStyle,
@@ -736,7 +737,7 @@ function ProjectDetails({
                     stackId="providers"
                     fill={provider.color}
                     fillOpacity={0.72}
-                    radius={[3, 3, 0, 0]}
+                    radius={chartColumnRadius}
                   />
                 ))}
                 <Bar
@@ -746,7 +747,7 @@ function ProjectDetails({
                   stackId="providers"
                   fill="var(--color-accent)"
                   fillOpacity={0.46}
-                  radius={[3, 3, 0, 0]}
+                  radius={chartColumnRadius}
                 />
                 <Line
                   yAxisId="runs"

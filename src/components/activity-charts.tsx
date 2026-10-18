@@ -25,6 +25,7 @@ import {
   chartAxisProps,
   chartBarCursor,
   chartGridProps,
+  chartLabelRadius,
   chartLineCursor,
   chartSolidGridProps,
   chartTick,
@@ -1362,7 +1363,7 @@ export function QuotaReferenceLines({
                         y={-10}
                         width={labelWidth + 3}
                         height={11}
-                        rx={1.5}
+                        rx={chartLabelRadius}
                         fill="var(--color-chart-label-backdrop)"
                       />
                       <text

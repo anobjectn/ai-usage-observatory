@@ -33,6 +33,12 @@ export const chartActiveDot = (stroke: string) => ({
   strokeWidth: 2,
 });
 
+/** Bar corner radii (Recharts takes numbers, so these cannot read --radius-* tokens). Columns
+ * round their top; horizontal rows round their end; marker labels use a small rounded box. */
+export const chartColumnRadius: [number, number, number, number] = [3, 3, 0, 0];
+export const chartRowRadius: [number, number, number, number] = [0, 6, 6, 0];
+export const chartLabelRadius = 1.5;
+
 /** Area fills fade from these opacities at the line to the baseline. */
 export const chartAreaOpacity = { top: 0.58, bottom: 0.1 } as const;
 

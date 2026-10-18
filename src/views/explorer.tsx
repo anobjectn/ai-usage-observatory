@@ -24,6 +24,7 @@ import {
   chartAxisProps,
   chartBarCursor,
   chartCategoryTick,
+  chartRowRadius,
   chartSolidGridProps,
   chartTooltipWrapperStyle,
 } from "../components/chart-theme";
@@ -238,7 +239,7 @@ export function Explorer({
                 <Bar
                   dataKey="value"
                   name="Usage"
-                  radius={[0, 6, 6, 0]}
+                  radius={chartRowRadius}
                 >
                   {modelData.map((entry) => (
                     <Cell
