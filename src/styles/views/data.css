@@ -557,6 +557,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The provider and project truncate; the date after them stays whole. */
+.finding__where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.finding__meta>:is(time,span:last-child) {
+  flex: none;
+}
 .finding__meta i,.outlier-list__id i,.measure-table i {
   width: 7px;
   height: 7px;
@@ -810,6 +819,7 @@
 }
 .measure-panel header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   padding-bottom: var(--space-3-5);

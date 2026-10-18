@@ -2675,6 +2675,49 @@ main {
   }
 }
 
+/* Phones. The icon-only actions are square. Below 440px the bar cannot hold every control in one
+   row, so the time range takes a full-width second row instead of pushing the actions out. */
+@media (max-width:620px) {
+  .appearance-button,
+  .refresh-button {
+    flex: 0 0 auto;
+    justify-content: center;
+    width: 35px;
+    padding: 0;
+  }
+}
+@media (max-width:440px) {
+  .topbar:has(.time-range-control) {
+    height: auto;
+    min-height: 72px;
+    align-items: flex-start;
+    padding-block: var(--space-3);
+  }
+  .topbar:has(.time-range-control) .menu-button {
+    height: 35px;
+    place-items: center;
+    padding: 0;
+  }
+  .global-controls {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .appearance-button {
+    margin-left: auto;
+  }
+  .time-range-control {
+    order: 1;
+    flex: 1 0 100%;
+  }
+  .time-range-segmented {
+    display: flex;
+    height: 35px;
+  }
+  .time-range-select {
+    flex: 1;
+  }
+}
+
 /* In-app update: one button above the status card. Its label names the next action; hover,
    focus, or a click opens the information panel above it. */
 .brand-version.has-update::after {

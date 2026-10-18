@@ -103,8 +103,8 @@ export function EfficiencyFindings({
                 })()}
                 <span className="finding__meta">
                   <i style={{ background: providerColor(group.provider) }} />
-                  {providerLabel(group.provider)} · {group.project} ·{" "}
-                  {group.date ? <time dateTime={group.date}>{shortDate(group.date)}</time> : shortDate(group.date)}
+                  <span className="finding__where">{providerLabel(group.provider)} · {group.project} ·</span>
+                  {group.date ? <time dateTime={group.date}>{shortDate(group.date)}</time> : <span>{shortDate(group.date)}</span>}
                 </span>
                 <span className="finding-group__totals">
                   {compactTokens.format(group.processed)} tokens · ${group.cost.toFixed(2)}

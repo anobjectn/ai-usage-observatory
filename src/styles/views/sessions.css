@@ -1285,6 +1285,7 @@
 
 .rate-nudge {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2-5);
   margin-bottom: var(--space-3);
@@ -1307,6 +1308,10 @@
   font-weight: 500;
 }
 
+/* On narrow screens the button drops under the message instead of squeezing it into a column. */
+.rate-nudge>span {
+  flex: 1 1 18rem;
+}
 .rate-nudge button {
   margin-left: auto;
   flex: none;

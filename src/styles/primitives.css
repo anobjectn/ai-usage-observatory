@@ -776,10 +776,15 @@ td>small {
   --quota-value-color: var(--color-provider-warp);
 }
 
+/* A reading that is wider than the column (a model-window label such as "Fable", or a large data
+   text size) puts its label under the value instead of spilling out of the cell. */
 .session-quota-balance>span {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: baseline;
-  gap: var(--space-1);
+  column-gap: var(--space-1);
+  max-width: 100%;
   white-space: nowrap;
 }
 

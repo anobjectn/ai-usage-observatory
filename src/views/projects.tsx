@@ -1136,8 +1136,8 @@ export function Projects({
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <div className="rank-main">
-                  <h3>
-                    {project.label}
+                  <h3 className="project-row__title">
+                    <span>{project.label}</span>
                     {project.automation && (
                       <i
                         className="automation-chip"
