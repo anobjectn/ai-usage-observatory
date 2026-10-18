@@ -228,6 +228,10 @@
 .model-sessions {
   background: transparent;
 }
+.model-sessions>.overline {
+  margin: 0;
+  padding: var(--space-4) var(--space-5) var(--space-2);
+}
 .model-sessions ol {
   list-style: none;
   margin: 0;

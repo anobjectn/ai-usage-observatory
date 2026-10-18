@@ -491,8 +491,9 @@ export function Models({
                                 </EffortState>
                               </section>
                               <div className="model-sessions">
+                                <h3 className="overline" id={`${panelId}-sessions`}>Recent sessions</h3>
                                 {pageSessions.length ? (
-                                  <ol>
+                                  <ol aria-labelledby={`${panelId}-sessions`}>
                                     {pageSessions.map((session) => (
                                       <li key={session.sessionId}>
                                         <a
