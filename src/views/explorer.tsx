@@ -18,9 +18,15 @@ import {
   ModelSignalSlope,
   SLOPE_MEASURE_LABELS,
   ModelSignalTooltip,
-  chartTooltipWrapperStyle,
   Composition,
 } from "../components/activity-charts";
+import {
+  chartAxisProps,
+  chartBarCursor,
+  chartCategoryTick,
+  chartSolidGridProps,
+  chartTooltipWrapperStyle,
+} from "../components/chart-theme";
 
 export function Explorer({
   data,
@@ -209,15 +215,14 @@ export function Explorer({
                 layout="vertical"
                 margin={{ left: 10, right: 16 }}
               >
-                <CartesianGrid stroke="#26312e" horizontal={false} />
+                <CartesianGrid {...chartSolidGridProps} horizontal={false} />
                 <XAxis type="number" hide />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={100}
-                  tick={{ fill: "#a8b5b0", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
+                  tick={chartCategoryTick}
+                  {...chartAxisProps}
                 />
                 <Tooltip
                   content={
@@ -226,7 +231,7 @@ export function Explorer({
                       status={modelEffortStatus.data}
                     />
                   }
-                  cursor={{ fill: "#15211d" }}
+                  cursor={chartBarCursor}
                   isAnimationActive={false}
                   wrapperStyle={chartTooltipWrapperStyle}
                 />

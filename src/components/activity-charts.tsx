@@ -19,6 +19,18 @@ import {
   type EffortScopeInput,
 } from "../hooks/use-effort";
 import { ArrowDownRight, ArrowUpRight, ChevronLeft, ChevronRight, Orbit } from "lucide-react";
+import {
+  chartActiveDot,
+  chartAreaOpacity,
+  chartAxisProps,
+  chartBarCursor,
+  chartGridProps,
+  chartLineCursor,
+  chartSolidGridProps,
+  chartTick,
+  chartTickCompact,
+  chartTooltipWrapperStyle,
+} from "./chart-theme";
 import { dailyHeadroomSeries, type DailyHeadroom } from "../quota-headroom";
 import { modelSignalSlopes, type SlopeMeasure, type SlopeSort } from "../model-slope";
 import {
@@ -342,10 +354,6 @@ const axisClearance = 30;
 const maxTooltipHeight = 470;
 
 const minTooltipHeight = 160;
-
-export const chartTooltipWrapperStyle = {
-  transition: "none",
-} as const;
 
 function ChartTooltip({
   active,
@@ -1355,15 +1363,14 @@ export function QuotaReferenceLines({
                         width={labelWidth + 3}
                         height={11}
                         rx={1.5}
-                        fill="#000"
-                        fillOpacity={0.6}
+                        fill="var(--color-chart-label-backdrop)"
                       />
                       <text
                         x={0}
                         y={0}
                         fill={quotaMarkerColors[marker.provider]}
-                        fontSize={9}
-                        fontFamily="var(--font-label)"
+                        fontSize="var(--chart-text-micro)"
+                        fontFamily="var(--chart-font)"
                         textAnchor="end"
                       >
                         {label.text}
@@ -1559,21 +1566,17 @@ export function ProviderTimeline({
                   <stop
                     offset="0%"
                     stopColor={provider.color}
-                    stopOpacity={0.58}
+                    stopOpacity={chartAreaOpacity.top}
                   />
                   <stop
                     offset="100%"
                     stopColor={provider.color}
-                    stopOpacity={0.13}
+                    stopOpacity={chartAreaOpacity.bottom}
                   />
                 </linearGradient>
               ))}
             </defs>
-            <CartesianGrid
-              stroke="#26312e"
-              strokeDasharray="2 5"
-              vertical={false}
-            />
+            <CartesianGrid {...chartGridProps} vertical={false} />
             <XAxis
               dataKey="period"
               tick={(props) => {
@@ -1590,17 +1593,15 @@ export function ProviderTimeline({
                   />
                 );
               }}
-              tickLine={false}
-              axisLine={false}
+              {...chartAxisProps}
               minTickGap={30}
               height={64}
             />
             <YAxis
               domain={[0, "auto"]}
               tickFormatter={formatCompact}
-              tick={{ fill: "#71807b", fontSize: 12 }}
-              tickLine={false}
-              axisLine={false}
+              tick={chartTick}
+              {...chartAxisProps}
             />
             {headroomLines.length > 0 && (
               <YAxis
@@ -1609,9 +1610,8 @@ export function ProviderTimeline({
                 domain={[0, 100]}
                 ticks={[0, 50, 100]}
                 tickFormatter={(value: number) => `${value}%`}
-                tick={{ fill: "#71807b", fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
+                tick={chartTickCompact}
+                {...chartAxisProps}
                 width={30}
               />
             )}
@@ -1623,7 +1623,7 @@ export function ProviderTimeline({
                   timeZone={timeZone}
                 />
               }
-              cursor={{ stroke: "#71807b", strokeDasharray: "3 3" }}
+              cursor={chartLineCursor}
               offset={0}
               isAnimationActive={false}
               wrapperStyle={chartTooltipWrapperStyle}
@@ -1638,12 +1638,7 @@ export function ProviderTimeline({
                 stroke={provider.color}
                 strokeWidth={1.8}
                 fill={`url(#${provider.key}Area)`}
-                activeDot={{
-                  r: 4,
-                  fill: "#07100f",
-                  stroke: provider.color,
-                  strokeWidth: 2,
-                }}
+                activeDot={chartActiveDot(provider.color)}
               />
             ))}
             {headroomLines.map((line) => {
@@ -1845,24 +1840,18 @@ export function HourlyProviderTimeline({
             data={data}
             margin={{ top: 10, right: 8, left: -18, bottom: 0 }}
           >
-            <CartesianGrid
-              stroke="#26312e"
-              strokeDasharray="2 5"
-              vertical={false}
-            />
+            <CartesianGrid {...chartGridProps} vertical={false} />
             <XAxis
               dataKey="hour"
               tickFormatter={hourTickLabel}
               interval={2}
-              tick={{ fill: "#71807b", fontSize: 12 }}
-              tickLine={false}
-              axisLine={false}
+              tick={chartTick}
+              {...chartAxisProps}
             />
             <YAxis
               tickFormatter={formatCompact}
-              tick={{ fill: "#71807b", fontSize: 12 }}
-              tickLine={false}
-              axisLine={false}
+              tick={chartTick}
+              {...chartAxisProps}
             />
             <Tooltip
               content={
@@ -1871,7 +1860,7 @@ export function HourlyProviderTimeline({
                   timeZone={timeZone}
                 />
               }
-              cursor={{ fill: "#15211d" }}
+              cursor={chartBarCursor}
               offset={0}
               isAnimationActive={false}
               wrapperStyle={chartTooltipWrapperStyle}
@@ -2075,18 +2064,16 @@ export function EffortByDay({
             <div className="bar-chart effort-day-chart" style={{ height: 280 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ left: 10, right: 16 }}>
-                  <CartesianGrid stroke="#26312e" vertical={false} />
+                  <CartesianGrid {...chartSolidGridProps} vertical={false} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: "#a8b5b0", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
+                    tick={chartTickCompact}
+                    {...chartAxisProps}
                     tickFormatter={(value: string) => periodTickLabel(value)}
                   />
                   <YAxis
-                    tick={{ fill: "#a8b5b0", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
+                    tick={chartTickCompact}
+                    {...chartAxisProps}
                     tickFormatter={(value: number) => formatCompact(value)}
                   />
                   <Tooltip
@@ -2099,7 +2086,7 @@ export function EffortByDay({
                         contextByDay={contextByDay}
                       />
                     }
-                    cursor={{ fill: "#15211d" }}
+                    cursor={chartBarCursor}
                     isAnimationActive={false}
                     wrapperStyle={chartTooltipWrapperStyle}
                   />

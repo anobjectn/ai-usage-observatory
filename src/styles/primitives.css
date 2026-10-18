@@ -937,8 +937,8 @@ td>small {
 }
 
 .chart-tooltip {
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border-strong);
+  background: var(--color-chart-tooltip-bg);
+  border: 1px solid var(--color-chart-tooltip-border);
   border-radius: var(--radius-control);
   padding: 10px 12px;
   box-shadow: var(--shadow-panel);

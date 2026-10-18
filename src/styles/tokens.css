@@ -104,6 +104,17 @@
   --color-family-fallback-4: var(--palette-periwinkle);
   --color-family-fallback-5: var(--palette-mauve);
   --color-family-fallback-6: var(--palette-fern);
+  /* Charts (components/chart-theme.ts). Axis labels sit between subtle and muted text so small
+     numerals stay legible; category labels (model names) read brighter. */
+  --color-chart-grid: var(--color-border);
+  --color-chart-label: color-mix(in srgb, var(--color-text) 49%, var(--color-bg));
+  --color-chart-label-strong: color-mix(in srgb, var(--color-text) 72%, var(--color-bg));
+  --color-chart-label-backdrop: color-mix(in srgb, var(--color-bg-deep) 60%, transparent);
+  --color-chart-cursor: var(--color-chart-label);
+  --color-chart-cursor-fill: var(--color-surface-overlay);
+  --color-chart-dot-fill: var(--color-bg);
+  --color-chart-tooltip-bg: var(--color-surface-raised);
+  --color-chart-tooltip-border: var(--color-border-strong);
   /* Canvas scene (scene.tsx reads these as hex): star tints and the orrery core's shading. */
   --color-scene-star: var(--color-text);
   --color-scene-star-warm: var(--palette-peach);
@@ -157,6 +168,11 @@
   --data-text-secondary: calc(10px * var(--data-text-scale));
   --data-text-compact: calc(9px * var(--data-text-scale));
   --data-text-strong: calc(15px * var(--data-text-scale));
+  /* Chart type. The micro size stays fixed: marker label boxes are sized from it. */
+  --chart-font: var(--font-label);
+  --chart-text: var(--text-xs);
+  --chart-text-compact: var(--text-2xs);
+  --chart-text-micro: 9px;
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;

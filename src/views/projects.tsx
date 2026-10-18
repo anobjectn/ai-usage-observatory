@@ -69,11 +69,18 @@ import {
   QuotaReachNotes,
   TooltipModelTail,
   QuotaMarkerLegend,
-  chartTooltipWrapperStyle,
   QuotaReferenceLines,
   EffortByDay,
   timeEffortScope,
 } from "../components/activity-charts";
+import {
+  chartActiveDot,
+  chartAxisProps,
+  chartBarCursor,
+  chartGridProps,
+  chartTickCompact,
+  chartTooltipWrapperStyle,
+} from "../components/chart-theme";
 
 function ProjectDayTooltip({
   active,
@@ -672,11 +679,7 @@ function ProjectDetails({
                 data={chartDays}
                 margin={{ top: 12, right: 4, left: -16, bottom: 0 }}
               >
-                <CartesianGrid
-                  stroke="#26312e"
-                  strokeDasharray="2 5"
-                  vertical={false}
-                />
+                <CartesianGrid {...chartGridProps} vertical={false} />
                 <XAxis
                   dataKey="date"
                   tick={(props) => {
@@ -695,17 +698,15 @@ function ProjectDetails({
                       : [{ color: "var(--color-accent)", value: day?.tokens ?? 0 }];
                     return <ActivityAxisTick {...props} tokens={tokens} />;
                   }}
-                  tickLine={false}
-                  axisLine={false}
+                  {...chartAxisProps}
                   minTickGap={24}
                   height={64}
                 />
                 <YAxis
                   yAxisId="tokens"
                   tickFormatter={formatCompact}
-                  tick={{ fill: "#71807b", fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
+                  tick={chartTickCompact}
+                  {...chartAxisProps}
                 />
                 <YAxis
                   yAxisId="runs"
@@ -720,7 +721,7 @@ function ProjectDetails({
                       timeZone={timeZone}
                     />
                   }
-                  cursor={{ fill: "rgba(183,242,92,.05)" }}
+                  cursor={chartBarCursor}
                   offset={0}
                   isAnimationActive={false}
                   wrapperStyle={chartTooltipWrapperStyle}
@@ -755,12 +756,7 @@ function ProjectDetails({
                   stroke="var(--color-highlight)"
                   strokeWidth={2}
                   dot={false}
-                  activeDot={{
-                    r: 4,
-                    fill: "#07100f",
-                    stroke: "var(--color-highlight)",
-                    strokeWidth: 2,
-                  }}
+                  activeDot={chartActiveDot("var(--color-highlight)")}
                 />
               </BarChart>
             </ResponsiveContainer>

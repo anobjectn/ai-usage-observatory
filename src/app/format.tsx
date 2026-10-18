@@ -92,9 +92,9 @@ export function ActivityAxisTick({ x = 0, y = 0, payload, tokens }: ActivityAxis
       <text
         x={0}
         y={4}
-        fill="#71807b"
-        fontSize={11}
-        fontFamily="var(--font-label)"
+        fill="var(--color-chart-label)"
+        fontSize="var(--chart-text-compact)"
+        fontFamily="var(--chart-font)"
         textAnchor="middle"
         dominantBaseline="hanging"
       >
@@ -106,8 +106,8 @@ export function ActivityAxisTick({ x = 0, y = 0, payload, tokens }: ActivityAxis
           x={0}
           y={19 + index * 12}
           fill={item.color}
-          fontSize={9}
-          fontFamily="var(--font-label)"
+          fontSize="var(--chart-text-micro)"
+          fontFamily="var(--chart-font)"
           fontWeight={600}
           textAnchor="middle"
           dominantBaseline="hanging"

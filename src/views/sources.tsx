@@ -11,6 +11,15 @@ import {
 import { buildAnthropicCreditView, formatCredit } from "../quota-credits";
 import { quotaProviderNotice } from "../quota-notice";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  chartActiveDot,
+  chartAreaOpacity,
+  chartAxisProps,
+  chartDefaultTooltipStyle,
+  chartGridProps,
+  chartLineCursor,
+  chartTickCompact,
+} from "../components/chart-theme";
 import type { DashboardData } from "../types";
 import { Empty, PageTitle } from "./chrome";
 import { type AgentSelection } from "../agent-filter";
@@ -389,20 +398,20 @@ export function Sources({
                   <AreaChart data={warpDays} margin={{ top: 12, right: 12, left: -18, bottom: 0 }}>
                     <defs>
                       <linearGradient id="warpCreditsArea" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-provider-warp)" stopOpacity={0.6} />
-                        <stop offset="100%" stopColor="var(--color-provider-warp)" stopOpacity={0.08} />
+                        <stop offset="0%" stopColor="var(--color-provider-warp)" stopOpacity={chartAreaOpacity.top} />
+                        <stop offset="100%" stopColor="var(--color-provider-warp)" stopOpacity={chartAreaOpacity.bottom} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false} />
-                    <XAxis dataKey="date" tickFormatter={(value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })} tick={{ fill: "#71807b", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
-                    <YAxis tickFormatter={formatCompact} tick={{ fill: "#71807b", fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <CartesianGrid {...chartGridProps} vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })} tick={chartTickCompact} {...chartAxisProps} minTickGap={24} />
+                    <YAxis tickFormatter={formatCompact} tick={chartTickCompact} {...chartAxisProps} />
                     <Tooltip
-                      cursor={{ stroke: "#71807b", strokeDasharray: "3 3" }}
-                      contentStyle={{ background: "#0c1715", border: "1px solid #30413c", borderRadius: 8 }}
+                      cursor={chartLineCursor}
+                      contentStyle={chartDefaultTooltipStyle}
                       labelFormatter={(value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" })}
                       formatter={(value) => [`${formatWarpCredits(Number(value))} credits`, "Warp"]}
                     />
-                    <Area type="monotone" dataKey="credits" name="Warp credits" stroke="var(--color-provider-warp)" strokeWidth={2} fill="url(#warpCreditsArea)" activeDot={{ r: 4, fill: "#07100f", stroke: "var(--color-provider-warp)", strokeWidth: 2 }} />
+                    <Area type="monotone" dataKey="credits" name="Warp credits" stroke="var(--color-provider-warp)" strokeWidth={2} fill="url(#warpCreditsArea)" activeDot={chartActiveDot("var(--color-provider-warp)")} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
