@@ -11,7 +11,7 @@ select {
   background: transparent;
   color: var(--color-text);
   height: 100%;
-  padding: 0 26px 0 5px;
+  padding: 0 var(--space-6) 0 var(--space-1);
   font-size: var(--text-sm);
   outline: 0;
 }
@@ -20,7 +20,7 @@ select {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);
-  padding: 3px;
+  padding: var(--space-1);
   display: flex;
   height: 35px;
 }
@@ -28,7 +28,7 @@ select {
 .segmented button {
   border: 0;
   background: transparent;
-  padding: 0 10px;
+  padding: 0 var(--space-2-5);
   border-radius: var(--radius-control);
   color: var(--color-text-subtle);
   font: var(--text-xs) var(--font-label);
@@ -48,8 +48,8 @@ select {
   border-radius: var(--radius-control);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: 700;
@@ -63,7 +63,7 @@ select {
 .view-stack {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .page-enter {
@@ -99,7 +99,7 @@ select {
 }
 
 .trend--lead {
-  gap: 3px;
+  gap: var(--space-1);
   flex-shrink: 0;
   font: 500 var(--text-md) var(--font-label);
   letter-spacing: -.02em;
@@ -113,7 +113,7 @@ select {
 }
 
 .panel {
-  padding: 20px;
+  padding: var(--space-5);
   min-width: 0;
 }
 
@@ -125,14 +125,14 @@ select {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   min-height: 42px;
 }
 
 .panel-heading h2 {
   font-size: var(--text-lg);
   letter-spacing: -.025em;
-  margin: 5px 0 0;
+  margin: var(--space-1) 0 0;
 }
 
 .panel-heading>span,.panel-heading>svg {
@@ -143,10 +143,10 @@ select {
 .method-chip {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
-  padding: 6px 9px;
+  padding: var(--space-1-5) var(--space-2);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--color-text-muted)!important;
 }
 
@@ -177,19 +177,19 @@ select {
   justify-content: space-between;
   align-items: flex-end;
   min-height: 135px;
-  padding-bottom: 6px;
-  gap: 24px;
+  padding-bottom: var(--space-1-5);
+  gap: var(--space-6);
 }
 .page-title h1 {
   font-size: var(--text-4xl);
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .page-title p {
   max-width: 650px;
   color: var(--color-text-muted);
   font-size: 14px;
   line-height: 1.6;
-  margin: 12px 0 0;
+  margin: var(--space-3) 0 0;
 }
 
 .search {
@@ -200,8 +200,8 @@ select {
   background: var(--color-surface);
   display: flex;
   align-items: center;
-  padding: 0 11px;
-  gap: 8px;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
 }
 .search svg {
   color: var(--color-text-subtle);
@@ -220,7 +220,7 @@ select {
   flex: 0 0 auto;
   border: 0;
   background: none;
-  padding: 3px 0;
+  padding: var(--space-1) 0;
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   text-transform: uppercase;
@@ -248,7 +248,7 @@ table {
 }
 th {
   text-align: left;
-  padding: 13px 16px;
+  padding: var(--space-3) var(--space-4);
   font: var(--text-2xs) var(--font-label);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -261,7 +261,7 @@ th {
   padding: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: inherit;
   font: inherit;
   letter-spacing: inherit;
@@ -279,7 +279,7 @@ th {
   color: var(--color-accent);
 }
 td {
-  padding: 13px 16px;
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--color-border);
   font-size: var(--text-xs);
   vertical-align: middle;
@@ -290,7 +290,7 @@ td>b,td>small {
 td>small {
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .cwd {
   display: block;
@@ -305,12 +305,12 @@ td>small {
   direction: ltr;
 }
 .mini-tags {
-  margin-top: 5px;
+  margin-top: var(--space-1);
 }
 /* Provider pill. The provider class sets --provider-color; unknown providers stay neutral. */
 .agent-pill {
   --provider-color: var(--color-border-strong);
-  padding: 4px 7px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid color-mix(in srgb, var(--provider-color) var(--tint-border), var(--color-border));
   border-radius: var(--radius-chip);
   background: color-mix(in srgb, var(--provider-color) var(--tint-subtle), transparent);
@@ -347,7 +347,7 @@ td>small {
 }
 .pagination {
   border-top: 1px solid var(--color-border);
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -357,7 +357,7 @@ td>small {
 .pagination div {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 .pagination button {
   width: 27px;
@@ -446,7 +446,7 @@ td>small {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 17px;
+  gap: var(--space-4);
   background: radial-gradient(circle at center,var(--color-surface-overlay),var(--color-bg) 50%);
   color: var(--color-text-muted);
   font: var(--text-xs) var(--font-label);
@@ -498,8 +498,8 @@ td>small {
   border-radius: var(--radius-control);
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 11px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
   color: var(--color-text-muted);
   font: var(--text-2xs) var(--font-label);
@@ -520,8 +520,8 @@ td>small {
 .effort-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-pill);
   font: var(--text-2xs) var(--font-label);
@@ -552,7 +552,7 @@ td>small {
 }
 .split-pill>span {
   min-width: 0;
-  padding: 4px 7px;
+  padding: var(--space-1) var(--space-2);
   background: color-mix(in srgb,var(--split-pill-color) var(--tint-medium),var(--color-surface-overlay));
   box-shadow: inset 0 -2px var(--split-pill-color);
   overflow: hidden;
@@ -562,7 +562,7 @@ td>small {
   border-left: 1px solid var(--color-border);
 }
 .split-pill>b {
-  padding: 4px 7px;
+  padding: var(--space-1) var(--space-2);
   color: var(--color-text);
   font-weight: var(--weight-medium);
 }
@@ -570,7 +570,7 @@ td>small {
 .effort-stack-wrap {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -591,7 +591,7 @@ td>small {
 .effort-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
+  gap: var(--space-1-5) var(--space-3-5);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -600,7 +600,7 @@ td>small {
 .effort-legend li {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
 }
@@ -632,21 +632,21 @@ td>small {
 .effort-coverage,.effort-empty {
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-subtle);
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   line-height: 1.5;
 }
 
 .effort-provenance {
   display: grid;
   grid-template-columns: repeat(auto-fit,minmax(150px,1fr));
-  gap: 10px 18px;
-  margin: 12px 0 0;
+  gap: var(--space-2-5) var(--space-4-5);
+  margin: var(--space-3) 0 0;
 }
 
 .effort-provenance div {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -663,7 +663,7 @@ td>small {
 
 @media (max-width: 720px) {
   .effort-legend {
-    gap: 4px 10px;
+    gap: var(--space-1) var(--space-2-5);
   }
   .effort-provenance {
     grid-template-columns: repeat(auto-fit,minmax(120px,1fr));
@@ -678,7 +678,7 @@ td>small {
 .panel-heading-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .session-row__actions {
@@ -691,7 +691,7 @@ td>small {
 }
 
 .session-row__actions .icon-button + .icon-button {
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
 }
 
 /* The ledger keeps nine named columns under every sort. Quota gets enough room for value-first readings; Verdict stays narrow because its rows contain one compact badge. */
@@ -759,7 +759,7 @@ td>small {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: var(--space-1);
   min-height: 25px;
   justify-content: center;
   color: var(--color-text-subtle);
@@ -779,7 +779,7 @@ td>small {
 .session-quota-balance>span {
   display: flex;
   align-items: baseline;
-  gap: 5px;
+  gap: var(--space-1);
   white-space: nowrap;
 }
 
@@ -819,7 +819,7 @@ td>small {
 }
 
 .session-quota-balance__credits span+span {
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   font-size: var(--text-2xs);
   font-weight: var(--weight-regular);
 }
@@ -849,19 +849,19 @@ td>small {
 
 .chart-wrap {
   height: 260px;
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 .provider-legend {
   display: flex;
-  gap: 18px;
-  margin: 3px 0 -2px;
+  gap: var(--space-4-5);
+  margin: var(--space-1) 0 -2px;
 }
 .provider-legend div {
   display: grid;
   grid-template-columns: 6px auto auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
 }
@@ -891,7 +891,7 @@ td>small {
 }
 
 .tooltip-headroom {
-  margin: 2px 0 4px;
+  margin: var(--space-0-5) 0 var(--space-1);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-subtle);
 }
@@ -904,8 +904,8 @@ td>small {
 .quota-marker-legend {
   display: flex;
   justify-content: flex-end;
-  gap: 13px;
-  margin: -12px 0 2px;
+  gap: var(--space-3);
+  margin: -12px 0 var(--space-0-5);
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   text-transform: uppercase;
@@ -914,7 +914,7 @@ td>small {
 .quota-marker-legend span {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
 }
 .quota-marker-legend i {
   display: block;
@@ -931,7 +931,7 @@ td>small {
 }
 
 .usage-trajectory-panel .panel-heading p {
-  margin: 5px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--color-text-subtle);
   font: var(--text-xs)/var(--leading-snug) var(--font-body);
 }
@@ -940,7 +940,7 @@ td>small {
   background: var(--color-chart-tooltip-bg);
   border: 1px solid var(--color-chart-tooltip-border);
   border-radius: var(--radius-control);
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
   box-shadow: var(--shadow-panel);
   font-size: var(--text-xs);
 }
@@ -949,14 +949,14 @@ td>small {
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-subtle);
   display: block;
-  margin-bottom: 7px;
+  margin-bottom: var(--space-2);
 }
 
 .chart-tooltip div {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-1);
 }
 .chart-tooltip i {
   width: 5px;
@@ -970,10 +970,10 @@ td>small {
 .chart-tooltip .chart-tooltip__context {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-height: 16px;
-  margin: 0 0 8px!important;
-  padding: 0 2px 7px;
+  margin: 0 0 var(--space-2)!important;
+  padding: 0 var(--space-0-5) var(--space-2);
   border-bottom: 1px solid var(--color-divider);
 }
 .chart-tooltip .chart-tooltip__context--inline {
@@ -1050,7 +1050,7 @@ td>small {
   top: calc(100% + 8px);
   width: 220px;
   max-width: calc(100vw - 34px);
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
@@ -1082,7 +1082,7 @@ td>small {
   z-index: 90;
   width: 220px;
   max-width: calc(100vw - 24px);
-  padding: 10px 34px 10px 10px;
+  padding: var(--space-2-5) var(--space-8) var(--space-2-5) var(--space-2-5);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
@@ -1145,7 +1145,7 @@ td>small {
 }
 .pinnable-chart-tooltip:not(.pinned-chart-tooltip) .chart-tooltip__body {
   min-height: 0;
-  padding-right: 2px;
+  padding-right: var(--space-0-5);
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -1219,7 +1219,7 @@ td>small {
 }
 .pinned-chart-tooltip .chart-tooltip__body {
   max-height: calc(100dvh - 38px);
-  padding-right: 2px;
+  padding-right: var(--space-0-5);
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -1269,25 +1269,25 @@ td>small {
 
 .tooltip-provider+.tooltip-provider {
   border-top: 1px solid var(--color-border);
-  margin-top: 8px;
-  padding-top: 7px;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
 }
 
 .tooltip-columns,.tooltip-provider__head,.tooltip-projects__head,.tooltip-project-row,.tooltip-project-provider,.tooltip-provider-models li,.tooltip-project-models li {
   display: grid!important;
   grid-template-columns: minmax(0,1fr) 68px 64px;
   align-items: center;
-  column-gap: 10px;
+  column-gap: var(--space-2-5);
 }
 
 .tooltip-columns {
-  margin: 0 0 7px!important;
+  margin: 0 0 var(--space-2)!important;
 }
 
 .tooltip-columns__date {
   display: flex!important;
   align-items: baseline;
-  gap: 9px;
+  gap: var(--space-2);
   min-width: 0;
   margin: 0!important;
 }
@@ -1350,15 +1350,15 @@ td>small {
 }
 
 .tooltip-columns__date:has(.tooltip-date-step) {
-  gap: 5px!important;
+  gap: var(--space-1)!important;
 }
 
 .tooltip-columns__date:has(.tooltip-date-step)>.tooltip-date-label {
-  margin: 0 4px!important;
+  margin: 0 var(--space-1)!important;
 }
 
 .tooltip-empty-day {
-  margin: 9px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
@@ -1383,7 +1383,7 @@ td>small {
 .tooltip-provider__head strong {
   grid-column: 1;
   grid-row: 1;
-  margin-left: 11px;
+  margin-left: var(--space-3);
 }
 
 .tooltip-provider__head b,.tooltip-projects__head b,.tooltip-project-row b,.tooltip-project-provider b,.tooltip-provider-models li b,.tooltip-project-models li b {
@@ -1398,13 +1398,13 @@ td>small {
 
 .tooltip-provider-models {
   list-style: none;
-  margin: 5px 0 0 12px;
-  padding: 1px 0 1px 9px;
+  margin: var(--space-1) 0 0 var(--space-3);
+  padding: 1px 0 1px var(--space-2);
   border-left: 1px solid var(--color-border);
 }
 
 .tooltip-provider-models li,.tooltip-project-models li {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
@@ -1423,7 +1423,7 @@ td>small {
 
 .tooltip-model-more {
   display: block;
-  margin: 5px 0 0 21px;
+  margin: var(--space-1) 0 0 var(--space-5);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-subtle);
 }
@@ -1431,7 +1431,7 @@ td>small {
 .tooltip-more-row {
   display: grid!important;
   grid-template-columns: minmax(0,1fr) 68px 64px;
-  column-gap: 10px;
+  column-gap: var(--space-2-5);
   align-items: center;
 }
 
@@ -1457,17 +1457,17 @@ td>small {
 /* The indent these rows carry as a margin would push a full-width button past the card's right edge, so the button wears it as padding instead. */
 .tooltip-more-toggle.tooltip-model-more {
   margin-left: 0;
-  padding-left: 21px;
+  padding-left: var(--space-5);
 }
 
 .tooltip-more-toggle.tooltip-model-more.project {
   margin-left: 0;
-  padding-left: 20px;
+  padding-left: var(--space-5);
 }
 
 .tooltip-more-toggle.tooltip-project-more {
   margin-left: 0;
-  padding-left: 12px;
+  padding-left: var(--space-3);
 }
 
 .pinnable-chart-tooltip[data-tooltip-interactive="true"] .tooltip-more-toggle,.pinned-chart-tooltip .tooltip-more-toggle {
@@ -1477,7 +1477,7 @@ td>small {
 .tooltip-more-toggle span {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--space-1);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1524,12 +1524,12 @@ td>small {
 
 .tooltip-more-panel .tooltip-project-list {
   counter-reset: none;
-  margin-top: 9px;
+  margin-top: var(--space-2);
 }
 
 .tooltip-quota {
-  margin: 0 0 8px;
-  padding: 6px 8px;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-chip);
   background: color-mix(in srgb,var(--color-surface-overlay) 55%,transparent);
@@ -1540,7 +1540,7 @@ td>small {
 }
 
 .tooltip-quota__row+.tooltip-quota__row {
-  margin-top: 4px!important;
+  margin-top: var(--space-1)!important;
 }
 
 .tooltip-quota__row span {
@@ -1563,8 +1563,8 @@ td>small {
 
 .tooltip-projects {
   border-top: 1px solid var(--color-border-strong);
-  margin-top: 10px;
-  padding-top: 9px;
+  margin-top: var(--space-2-5);
+  padding-top: var(--space-2);
 }
 
 .tooltip-projects__head {
@@ -1586,18 +1586,18 @@ td>small {
 
 .tooltip-project-list {
   list-style: none;
-  margin: 7px 0 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
   counter-reset: project-rank;
 }
 
 .tooltip-project-list>li {
   counter-increment: project-rank;
-  margin-top: 9px;
+  margin-top: var(--space-2);
 }
 
 .tooltip-project-row {
-  gap: 10px!important;
+  gap: var(--space-2-5)!important;
   margin: 0!important;
   font: var(--text-2xs) var(--font-label);
 }
@@ -1622,13 +1622,13 @@ td>small {
 
 .tooltip-project-providers {
   display: block!important;
-  margin: 5px 0 0 12px!important;
-  padding-left: 9px;
+  margin: var(--space-1) 0 0 var(--space-3)!important;
+  padding-left: var(--space-2);
   border-left: 1px solid var(--color-border-strong);
 }
 
 .tooltip-project-providers>section+section {
-  margin-top: 6px;
+  margin-top: var(--space-1-5);
 }
 
 .tooltip-project-provider {
@@ -1640,7 +1640,7 @@ td>small {
 .tooltip-project-provider span {
   grid-column: 1;
   grid-row: 1;
-  margin-left: 11px;
+  margin-left: var(--space-3);
 }
 
 .tooltip-project-provider span {
@@ -1654,18 +1654,18 @@ td>small {
 
 .tooltip-project-models {
   list-style: none;
-  margin: 3px 0 0 11px;
-  padding: 0 0 1px 9px;
+  margin: var(--space-1) 0 0 var(--space-3);
+  padding: 0 0 1px var(--space-2);
   border-left: 1px solid var(--color-border);
 }
 
 .tooltip-model-more.project {
-  margin-left: 20px;
+  margin-left: var(--space-5);
 }
 
 .tooltip-project-more {
   display: block;
-  margin: 9px 0 0 12px;
+  margin: var(--space-2) 0 0 var(--space-3);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
 }
@@ -1683,11 +1683,11 @@ td>small {
 
 /* Explorer effort-by-day */
 .effort-day-panel .effort-day-chart {
-  margin-top: 14px;
+  margin-top: var(--space-3-5);
 }
 
 .effort-day-panel .effort-coverage {
-  margin-top: 10px;
+  margin-top: var(--space-2-5);
 }
 
 /* Two segmented controls have to wrap rather than push the panel into horizontal overscroll. */
@@ -1695,14 +1695,14 @@ td>small {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   max-width: 100%;
 }
 
 .effort-day-panel .panel-heading {
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 @media (max-width:620px) {
@@ -1710,8 +1710,8 @@ td>small {
     justify-content: flex-start;
   }
   .effort-day-controls .segmented button {
-    padding-left: 8px;
-    padding-right: 8px;
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
     font-size: var(--text-2xs);
   }
 }
@@ -1720,8 +1720,8 @@ td>small {
   display: grid;
   grid-template-columns: minmax(0,1fr) auto auto;
   align-items: center;
-  gap: 9px;
-  padding: 4px 0;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
 }
 
 .tooltip-combo-row>b {
@@ -1739,27 +1739,27 @@ td>small {
 
 .tooltip-combo-row>small {
   grid-column: 1/-1;
-  margin-left: 2px;
+  margin-left: var(--space-0-5);
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
 
 .tooltip-effort-row>small {
   grid-column: 1/-1;
-  margin-left: 18px;
+  margin-left: var(--space-4-5);
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
 
 .chart-tooltip .tooltip-effort-subline {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
 
 .chart-tooltip .tooltip-day-context>.overline {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: var(--space-1);
   color: var(--color-text-subtle);
   font-size: var(--text-2xs);
 }
@@ -1768,9 +1768,9 @@ td>small {
   display: grid;
   grid-template-columns: auto auto minmax(0,1fr);
   align-items: baseline;
-  gap: 12px;
-  margin: 0 0 5px;
-  padding: 0 0 8px;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-1);
+  padding: 0 0 var(--space-2);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -1797,9 +1797,9 @@ td>small {
   display: grid;
   grid-template-columns: 9px minmax(58px,1fr) auto auto;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   margin-top: 0;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 .tooltip-effort-row i {
@@ -1828,18 +1828,18 @@ td>small {
 
 .chart-tooltip .tooltip-day-context {
   display: block;
-  margin-top: 8px;
-  padding-top: 7px;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
 }
 .chart-tooltip .tooltip-day-context>div {
   display: grid;
   grid-template-columns: 7px minmax(90px,1fr) auto;
-  gap: 7px;
+  gap: var(--space-2);
 }
 .chart-tooltip .tooltip-day-context .tooltip-day-model {
   grid-template-columns: minmax(90px,1fr) auto;
-  padding-left: 14px;
+  padding-left: var(--space-3-5);
   color: var(--color-text-subtle);
 }
 .tooltip-day-context span {
@@ -1849,7 +1849,7 @@ td>small {
 }
 .tooltip-day-context small {
   display: block;
-  margin: 5px 0 0 14px;
+  margin: var(--space-1) 0 0 var(--space-3-5);
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
@@ -1862,9 +1862,9 @@ td>small {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
-  gap: 5px 12px;
-  margin-top: 9px;
-  padding-top: 8px;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
 }
 .model-signal-tooltip__effort strong {
@@ -1898,7 +1898,7 @@ td>small {
 .project-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .project-sort {
   height: 39px;
@@ -1907,7 +1907,7 @@ td>small {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);
-  padding-left: 11px;
+  padding-left: var(--space-3);
 }
 .project-sort>span,.project-sort>label {
   font: var(--text-2xs) var(--font-label);
@@ -1917,7 +1917,7 @@ td>small {
 }
 .project-sort select {
   font-size: var(--text-xs);
-  padding-right: 23px;
+  padding-right: var(--space-6);
 }
 .project-controls .search:focus-within,.project-sort:focus-within {
   border-color: var(--color-accent);
@@ -1926,7 +1926,7 @@ td>small {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .model-search {
@@ -1943,8 +1943,8 @@ td>small {
   color: var(--color-text-subtle);
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 9px;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
   cursor: pointer;
   font: var(--text-2xs) var(--font-label);
   white-space: nowrap;
@@ -1967,8 +1967,8 @@ td>small {
 }
 
 .token-types {
-  margin-top: 16px;
-  padding: 14px 16px;
+  margin-top: var(--space-4);
+  padding: var(--space-3-5) var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-surface-sunken);
@@ -1978,12 +1978,12 @@ td>small {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
 .token-types__head h4 {
-  margin: 2px 0 0;
+  margin: var(--space-0-5) 0 0;
   font-size: var(--text-sm);
   font-weight: 500;
 }
@@ -2001,7 +2001,7 @@ td>small {
 }
 
 .token-types .measure-scroll {
-  margin-top: 10px;
+  margin-top: var(--space-2-5);
 }
 
 .token-types__table {
@@ -2026,7 +2026,7 @@ td>small {
   height: 8px;
   border-radius: var(--radius-chip);
   flex: none;
-  margin-right: 6px;
+  margin-right: var(--space-1-5);
   vertical-align: middle;
 }
 
@@ -2049,10 +2049,10 @@ td>small {
 }
 
 .token-types__notes {
-  margin-top: 10px;
+  margin-top: var(--space-2-5);
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-1);
 }
 
 .token-types__notes p {
@@ -2063,19 +2063,19 @@ td>small {
 }
 
 .token-types--notice p {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   font-size: var(--text-xs);
   color: var(--color-text-muted);
 }
 
 .token-types__models {
-  margin-top: 10px;
+  margin-top: var(--space-2-5);
   border-top: 1px solid var(--color-border);
 }
 
 .token-types__models>summary {
   cursor: pointer;
-  padding: 9px 0;
+  padding: var(--space-2) 0;
   font: var(--text-2xs) var(--font-label);
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -2083,7 +2083,7 @@ td>small {
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .token-types__models>summary::-webkit-details-marker {
@@ -2104,23 +2104,23 @@ td>small {
 .token-types__models ul {
   list-style: none;
   margin: 0;
-  padding: 0 0 6px;
+  padding: 0 0 var(--space-1-5);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .token-types__models li>b {
   display: block;
   font-size: var(--text-xs);
   font-weight: 500;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 .token-types__models li>b small {
   color: var(--color-text-subtle);
   font-weight: 400;
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
 }
 
 .token-types__models .measure-scroll {
@@ -2170,12 +2170,12 @@ td>small {
   color: var(--color-text-subtle);
   text-transform: uppercase;
   letter-spacing: .1em;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .path-tags,.mini-tags {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   flex-wrap: wrap;
 }
 .path-tags i,.mini-tags i {
@@ -2183,7 +2183,7 @@ td>small {
   font-style: normal;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  padding: 3px 6px;
+  padding: var(--space-1) var(--space-1-5);
   color: var(--color-highlight);
   background: color-mix(in srgb,var(--color-highlight) var(--tint-faint),transparent);
 }
@@ -2201,7 +2201,7 @@ td>small {
 
 .effort-help {
   margin: auto 0 0;
-  padding-top: 12px;
+  padding-top: var(--space-3);
   color: var(--color-text-subtle);
   font: var(--text-xs)/var(--leading-normal) var(--font-body);
 }
@@ -2262,7 +2262,7 @@ td>small {
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   list-style: none;
   box-sizing: content-box;
   max-height: calc(6 * var(--page-jump-option));
@@ -2286,7 +2286,7 @@ td>small {
   width: 100%;
   height: 100%;
   min-width: 30px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-chip);
   background: none;
@@ -2334,7 +2334,7 @@ td>small {
 .page-jump {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   color: inherit;
   font: inherit;
   white-space: nowrap;
@@ -2343,7 +2343,7 @@ td>small {
 /* 27px is the prev/next button size from `.pagination button`; the field sits between them, so it tracks that height rather than a value of its own. */
 .page-jump__input {
   height: 27px;
-  padding: 0 16px 0 6px;
+  padding: 0 var(--space-4) 0 var(--space-1-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);

@@ -183,14 +183,25 @@
   --tracking-label: .06em;
   --tracking-tight: -.025em;
   --link-underline-offset: .3em;
-  /* Space: 4px grid. */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
+  /* Space: --space-N is N units of 4px, and a -5 suffix is a half step (--space-1-5 is 6px).
+     Padding, margin, and gap use these; 1px hairlines and negative optical offsets stay
+     literal. A denser or roomier theme changes --space-unit. */
+  --space-unit: 4px;
+  --space-0-5: calc(var(--space-unit) * .5);
+  --space-1: var(--space-unit);
+  --space-1-5: calc(var(--space-unit) * 1.5);
+  --space-2: calc(var(--space-unit) * 2);
+  --space-2-5: calc(var(--space-unit) * 2.5);
+  --space-3: calc(var(--space-unit) * 3);
+  --space-3-5: calc(var(--space-unit) * 3.5);
+  --space-4: calc(var(--space-unit) * 4);
+  --space-4-5: calc(var(--space-unit) * 4.5);
+  --space-5: calc(var(--space-unit) * 5);
+  --space-5-5: calc(var(--space-unit) * 5.5);
+  --space-6: calc(var(--space-unit) * 6);
+  --space-7: calc(var(--space-unit) * 7);
+  --space-8: calc(var(--space-unit) * 8);
+  --space-10: calc(var(--space-unit) * 10);
   /* Radius roles. */
   --radius-chip: 4px;
   --radius-control: 8px;

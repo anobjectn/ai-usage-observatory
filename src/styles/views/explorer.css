@@ -2,14 +2,14 @@
 
 .model-signal-controls {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
 }
 
 .slope-chart {
   position: relative;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .slope-chart svg {
@@ -29,7 +29,7 @@
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   border: 0;
   background: none;
   padding: 0;
@@ -77,7 +77,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-2-5);
   background: none;
   border: 0;
   padding: 0;
@@ -111,7 +111,7 @@
   position: absolute;
   right: 0;
   transform: translateY(-50%);
-  padding-left: 6px;
+  padding-left: var(--space-1-5);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text);
 }
@@ -122,7 +122,7 @@
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text);
   background: var(--color-surface);
-  padding: 1px 5px;
+  padding: 1px var(--space-1);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-chip);
   pointer-events: none;
@@ -130,7 +130,7 @@
 }
 
 .slope-chart__note {
-  margin: 10px 0 0;
+  margin: var(--space-2-5) 0 0;
   font: var(--text-2xs)/1.6 var(--font-label);
   color: var(--color-text-subtle);
 }
@@ -141,15 +141,15 @@
 .split-grid {
   display: grid;
   grid-template-columns: 1.35fr 1fr;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .bar-chart {
   height: 290px;
-  margin-top: 15px;
+  margin-top: var(--space-4);
 }
 
 .composition {
-  padding-top: 25px;
+  padding-top: var(--space-6);
 }
 .split-grid .composition-bar {
   height: 15px;
@@ -157,7 +157,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   overflow: hidden;
-  margin-bottom: 18px;
+  margin-bottom: var(--space-4-5);
   background: var(--color-border);
   box-shadow: var(--shadow-inset);
 }
@@ -167,7 +167,7 @@
 .composition-groups {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 11px;
+  gap: var(--space-3);
 }
 .composition-group {
   min-width: 0;
@@ -181,12 +181,12 @@
 }
 .composition-group header {
   min-height: 70px;
-  padding: 12px 13px;
+  padding: var(--space-3) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   background: linear-gradient(135deg,color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent),transparent 64%);
 }
 .composition-group:nth-child(2) header {
@@ -196,7 +196,7 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 5px;
+  gap: var(--space-1);
 }
 .composition-group header span {
   color: var(--color-text-subtle);
@@ -213,7 +213,7 @@
   flex: 0 0 auto;
   flex-direction: column;
   align-items: flex-end;
-  gap: 3px;
+  gap: var(--space-1);
 }
 .composition-subtotal strong {
   color: var(--color-text);
@@ -228,8 +228,8 @@
   display: grid;
   grid-template-columns: 8px minmax(0,1fr) auto 31px;
   align-items: center;
-  gap: 7px;
-  padding: 10px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   font-size: 11px;
 }
