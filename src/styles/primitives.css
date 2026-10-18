@@ -159,7 +159,7 @@ select {
 
 /* Shared page title, also used by the Overview hero. Order matters: .page-title h1 below refines it. */
 .hero-grid h1,.page-title h1 {
-  font-size: clamp(34px,4vw,58px);
+  font-size: var(--text-hero);
   line-height: .98;
   letter-spacing: -.055em;
   margin: 0;
@@ -187,7 +187,7 @@ select {
 .page-title p {
   max-width: 650px;
   color: var(--color-text-muted);
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.6;
   margin: var(--space-3) 0 0;
 }
@@ -462,7 +462,7 @@ td>small {
   animation: spin 4s linear infinite;
 }
 .error-state h1 {
-  font: 25px var(--font-body);
+  font: var(--text-title) var(--font-body);
   margin: 0;
   color: var(--color-text);
 }
@@ -657,7 +657,7 @@ td>small {
 
 .effort-provenance dd {
   margin: 0;
-  font-size: var(--data-text-secondary,12.5px);
+  font-size: var(--data-text-secondary);
   overflow-wrap: anywhere;
 }
 
@@ -1398,7 +1398,7 @@ td>small {
 }
 
 .tooltip-provider__head strong {
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .tooltip-provider-models {
@@ -1994,7 +1994,7 @@ td>small {
 }
 
 .token-types__totals {
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
   white-space: nowrap;
 }
@@ -2021,7 +2021,7 @@ td>small {
   display: table-cell;
   max-width: none;
   overflow: visible;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-overflow: clip;
 }
 
@@ -2062,7 +2062,7 @@ td>small {
 
 .token-types__notes p {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
   color: var(--color-text-subtle);
 }
@@ -2166,7 +2166,7 @@ td>small {
 }
 
 .quota-dial strong {
-  font-size: 19px;
+  font-size: var(--text-lg);
   letter-spacing: -.04em;
 }
 

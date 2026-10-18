@@ -42,6 +42,20 @@ describe("design tokens", () => {
     expect(missing).toEqual([]);
   });
 
+  test("stylesheets use tokens for font sizes and radii", async () => {
+    for (const file of new Glob("src/styles/**/*.css").scanSync(".")) {
+      if (file.endsWith("tokens.css")) continue;
+      const text = await Bun.file(file).text();
+      // A line height after the slash in a font shorthand may stay literal; the size may not.
+      const raw = [
+        ...(text.match(/font-size\s*:[^;]*\b\d+(?:\.\d+)?(?:px|r?em)\b/g) ?? []),
+        ...(text.match(/font\s*:[^;/]*?\b\d+(?:\.\d+)?(?:px|r?em)\b/g) ?? []),
+        ...(text.match(/border(?:-[a-z]+)*-radius\s*:[^;]*\b\d+(?:\.\d+)?(?:px|r?em)\b/g) ?? []),
+      ];
+      expect({ file, raw }).toEqual({ file, raw: [] });
+    }
+  });
+
   test("stylesheets use tokens instead of raw colours", async () => {
     for (const file of new Glob("src/styles/**/*.css").scanSync(".")) {
       if (file.endsWith("tokens.css")) continue;

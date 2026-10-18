@@ -162,12 +162,19 @@
   --text-2xl: calc(28px * var(--type-scale-ui));
   --text-3xl: calc(36px * var(--type-scale-ui));
   --text-4xl: calc(44px * var(--type-scale-ui));
+  /* Type roles outside the step scale: dialog and section titles, serif display figures, and the
+     page hero, which also follows the viewport. */
+  --text-title: calc(25px * var(--type-scale-ui));
+  --text-figure: calc(31px * var(--type-scale-ui));
+  --text-figure-xl: calc(52px * var(--type-scale-ui));
+  --text-hero: clamp(calc(34px * var(--type-scale-ui)), 4vw, calc(58px * var(--type-scale-ui)));
   /* Data type: its own Appearance "Data text size" scalar. */
   --data-text-scale: 1.25;
   --data-text-primary: calc(12px * var(--data-text-scale));
   --data-text-secondary: calc(10px * var(--data-text-scale));
   --data-text-compact: calc(9px * var(--data-text-scale));
   --data-text-strong: calc(15px * var(--data-text-scale));
+  --data-text-display: calc(17px * var(--data-text-scale));
   /* Chart type. The micro size stays fixed: marker label boxes are sized from it. */
   --chart-font: var(--font-label);
   --chart-text: var(--text-xs);
@@ -202,7 +209,8 @@
   --space-7: calc(var(--space-unit) * 7);
   --space-8: calc(var(--space-unit) * 8);
   --space-10: calc(var(--space-unit) * 10);
-  /* Radius roles. */
+  /* Radius roles. Marks are the rounded tops of small bars and ticks. */
+  --radius-mark: 2px;
   --radius-chip: 4px;
   --radius-control: 8px;
   --radius-card: 12px;

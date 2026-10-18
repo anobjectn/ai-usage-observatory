@@ -376,7 +376,7 @@
 
 .metric-token-table__value-row strong {
   display: block;
-  font-size: 24px;
+  font-size: var(--text-title);
   letter-spacing: -.04em;
   font-weight: 600;
   margin-bottom: var(--space-1-5);
@@ -700,7 +700,7 @@
   width: 100%;
   min-height: 2px;
   height: calc(var(--reach) * .24);
-  border-radius: 2px 2px 0 0;
+  border-radius: var(--radius-mark) var(--radius-mark) 0 0;
   background: var(--quota-color);
   box-shadow: 0 0 6px color-mix(in srgb,var(--quota-color) var(--tint-bold),transparent);
 }
@@ -1324,7 +1324,7 @@
 
 .top-finding__headline {
   margin: var(--space-0-5) 0 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.55;
 }
 
@@ -1740,7 +1740,7 @@
     font-size: var(--text-xl);
   }
   .hero-grid h1 {
-    font-size: 38px;
+    font-size: var(--text-3xl);
   }
   .panel-wide {
     grid-column: auto;

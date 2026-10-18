@@ -10,7 +10,7 @@
   min-height: 255px;
 }
 .distinction h2 {
-  font-size: 25px;
+  font-size: var(--text-title);
   margin: var(--space-3) 0 var(--space-2);
 }
 .distinction p {
@@ -58,7 +58,7 @@
   margin: var(--space-2-5) var(--space-0-5) var(--space-0-5);
 }
 .intelligence-heading h2 {
-  font-size: 27px;
+  font-size: var(--text-title);
   letter-spacing: -.03em;
   margin: var(--space-2) 0;
 }
@@ -83,7 +83,7 @@
   margin-bottom: var(--space-4);
 }
 .data-section__head h2 {
-  font-size: 19px;
+  font-size: var(--text-lg);
   letter-spacing: -.02em;
   margin: var(--space-2) 0 0;
 }
@@ -182,7 +182,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  font: 52px/.9 var(--font-display);
+  font: var(--text-figure-xl)/.9 var(--font-display);
   margin: var(--space-6) 0 var(--space-2-5);
 }
 .profile-score span {
@@ -269,7 +269,7 @@
   pointer-events: none;
 }
 .provider-effort-pie>div:last-child b {
-  font: 18px/1 var(--font-display);
+  font: var(--text-lg)/1 var(--font-display);
   color: var(--color-text);
 }
 .provider-effort-pie>div:last-child small {
@@ -364,7 +364,7 @@
 }
 .data-facets__lead b {
   color: var(--color-text);
-  font: 14px var(--font-label);
+  font: var(--text-md) var(--font-label);
 }
 .data-facets__lead small {
   display: block;
@@ -422,7 +422,7 @@
 }
 .finding-summary__stat b {
   display: block;
-  font: 31px/1 var(--font-display);
+  font: var(--text-figure)/1 var(--font-display);
 }
 .finding-summary__stat span {
   display: block;
@@ -894,7 +894,7 @@
 .measure-headline b {
   display: block;
   margin: var(--space-2) 0 0;
-  font: 20px/1 var(--font-label);
+  font: var(--text-xl)/1 var(--font-label);
   color: var(--color-text);
 }
 .measure-headline small {
@@ -910,7 +910,7 @@
   min-width: 0;
   margin: var(--space-3) 0 0;
   border-collapse: collapse;
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   font-variant-numeric: tabular-nums;
 }
 .measure-table th,.measure-table td {
@@ -1009,7 +1009,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   text-transform: uppercase;
   letter-spacing: .07em;
 }
@@ -1072,7 +1072,7 @@
 }
 .outlier-summary b {
   display: block;
-  font: 31px/1 var(--font-display);
+  font: var(--text-figure)/1 var(--font-display);
 }
 .outlier-summary span {
   display: block;
@@ -1115,7 +1115,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
 }
 .outlier-list__when {
   color: var(--color-text-subtle);
@@ -1285,7 +1285,7 @@
   color: var(--color-text-subtle);
 }
 .warp-ledger-stats b {
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 .warp-credit-chart {
   height: 235px;
@@ -1301,7 +1301,7 @@
   border-radius: var(--radius-control);
   background: color-mix(in srgb,var(--color-provider-warp) var(--tint-faint),transparent);
   color: var(--color-text-muted);
-  font: 11px/1.55 var(--font-label);
+  font: var(--text-2xs)/var(--leading-normal) var(--font-label);
 }
 .warp-machine-note svg {
   width: 14px;
@@ -1409,7 +1409,7 @@
 }
 .evidence-boundary code {
   color: var(--color-warn);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .evidence-actions {
@@ -1435,7 +1435,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   padding: var(--space-3);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.5;
   color: var(--color-text-muted);
 }
@@ -1488,7 +1488,7 @@
 .effort-board td b {
   display: block;
   color: var(--color-text);
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   font-weight: var(--weight-medium);
 }
 

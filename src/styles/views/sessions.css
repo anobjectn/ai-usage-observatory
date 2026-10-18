@@ -83,7 +83,7 @@
 }
 .session-detail--loading,.session-detail--empty {
   color: var(--color-text-muted);
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   padding: var(--space-6) var(--space-6);
 }
 .session-detail--error {
@@ -119,7 +119,7 @@
   color: var(--color-text-subtle);
 }
 .session-detail__summary strong {
-  font-size: 17px;
+  font-size: var(--text-lg);
 }
 .session-detail__quota-meta {
   min-width: 0;
@@ -146,7 +146,7 @@
 .session-detail__quota-item b {
   overflow: hidden;
   color: var(--color-text);
-  font: 17px var(--font-label);
+  font: var(--text-lg) var(--font-label);
   font-weight: var(--weight-semibold);
   letter-spacing: -.02em;
   text-overflow: ellipsis;
@@ -732,7 +732,7 @@
 .session-quota-context__readout b {
   color: var(--color-text);
   font: var(--data-text-strong) var(--font-label);
-  font-size: calc(var(--data-text-strong) + 2.25px);
+  font-size: var(--data-text-display);
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-semibold);
   letter-spacing: -.025em;
@@ -1234,7 +1234,7 @@
 
 .session-quota-context__balance {
   margin: var(--space-2-5) 0 0;
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
 }
 
@@ -1254,7 +1254,7 @@
 .session-verdict-badge.is-unrated {
   color: var(--color-text-subtle);
   border-style: dashed;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .session-verdict-badge.is-good {
@@ -1292,7 +1292,7 @@
   padding: var(--space-2) var(--space-3);
   border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-control);
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
 }
 
@@ -1319,7 +1319,7 @@
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-text);
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
   padding: var(--space-1) var(--space-2-5);
   cursor: pointer;
 }
@@ -1387,7 +1387,7 @@
 .session-verdict em {
   color: var(--color-danger);
   font-style: normal;
-  font: 11px var(--font-label);
+  font: var(--text-2xs) var(--font-label);
 }
 
 .session-verdict-header span {
@@ -1397,7 +1397,7 @@
 .session-table .session-verdict-header {
   padding-left: var(--space-1);
   padding-right: var(--space-1);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: .03em;
   text-align: center;
 }
@@ -1562,10 +1562,10 @@
   .session-detail__metrics-row--with-quota .token-types__totals,
   .session-detail__metrics-row--with-quota .measure-table,
   .session-detail__metrics-row--with-quota .token-types__notes p {
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
   .session-detail__metrics-row--with-quota .token-types__table tbody th {
-    font-size: 9px;
+    font-size: var(--text-2xs);
   }
   .session-detail__metrics-row--with-quota .token-types__table tbody th i {
     width: 6px;
