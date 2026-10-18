@@ -57,11 +57,11 @@
 }
 
 .model-row:hover td.model-col--model,.model-row:focus-visible td.model-col--model {
-  background: color-mix(in srgb,var(--color-accent) 2.5%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),var(--color-surface));
 }
 
 .model-row--open td.model-col--model {
-  background: color-mix(in srgb,var(--color-accent) 4%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),var(--color-surface));
 }
 
 .model-identity {
@@ -76,7 +76,7 @@
   height: 28px;
   flex: 0 0 auto;
   border-radius: var(--radius-control);
-  color: #101710;
+  color: var(--color-text-inverse);
   display: grid;
   place-items: center;
   font-weight: 800;
@@ -178,7 +178,7 @@
 }
 
 .model-row:hover td:not(.model-col--toggle),.model-row:focus-visible td:not(.model-col--toggle) {
-  background: color-mix(in srgb,var(--color-accent) 2.5%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent);
 }
 
 .model-row:focus-visible td:first-child {
@@ -186,14 +186,14 @@
 }
 
 .model-row--open td {
-  background: color-mix(in srgb,var(--color-accent) 4%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent);
 }
 
 .model-row--open .session-detail-toggle {
   transform: rotate(45deg);
   border-color: transparent;
   color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 10%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
 }
 
 .model-table .model-detail-row>td {
@@ -250,7 +250,7 @@
   text-decoration: none;
 }
 .model-sessions a:hover,.model-sessions a:focus-visible {
-  background: color-mix(in srgb,var(--color-accent) 5%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent);
   outline: 0;
 }
 .model-sessions a>span {
@@ -328,7 +328,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--color-bg) 28%, transparent);
+  background: var(--color-surface-inset);
 }
 .model-sessions-footer .model-session-pagination {
   height: 45px;
@@ -355,7 +355,7 @@
   letter-spacing: .05em;
 }
 .model-collapse:hover,.model-collapse:focus-visible {
-  background: color-mix(in srgb,var(--color-accent) 7%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-subtle),transparent);
   color: var(--color-accent);
   outline: 0;
 }

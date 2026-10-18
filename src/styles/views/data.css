@@ -26,19 +26,19 @@
   height: 45px;
   border-radius: var(--radius-card);
   margin-bottom: 25px;
-  background: color-mix(in srgb,var(--color-accent) 10%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   color: var(--color-accent);
-  border: 1px solid color-mix(in srgb,var(--color-accent) 20%,transparent);
+  border: 1px solid color-mix(in srgb,var(--color-accent) var(--tint-medium),transparent);
 }
 .source-symbol.local {
-  background: rgba(88,217,207,.1);
+  background: color-mix(in srgb,var(--color-highlight) var(--tint-soft),transparent);
   color: var(--color-highlight);
-  border-color: rgba(88,217,207,.2);
+  border-color: color-mix(in srgb,var(--color-highlight) var(--tint-medium),transparent);
 }
 .source-symbol.budget {
-  background: rgba(215,179,255,.1);
+  background: color-mix(in srgb,var(--color-credit) var(--tint-soft),transparent);
   color: var(--color-credit);
-  border-color: rgba(215,179,255,.2);
+  border-color: color-mix(in srgb,var(--color-credit) var(--tint-medium),transparent);
 }
 .method-chip.local i {
   background: var(--color-highlight);
@@ -127,9 +127,9 @@
 .profile-card {
   --provider: var(--color-accent);
   padding: 21px;
-  border: 1px solid color-mix(in srgb,var(--provider) 30%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--provider) var(--tint-border-soft),var(--color-border));
   border-radius: var(--radius-panel);
-  background: radial-gradient(circle at 100% 0,color-mix(in srgb,var(--provider) 14%,transparent),transparent 46%),var(--color-surface);
+  background: radial-gradient(circle at 100% 0,color-mix(in srgb,var(--provider) var(--tint-medium),transparent),transparent 46%),var(--color-surface);
   box-shadow: var(--shadow-panel);
   display: grid;
   grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr));
@@ -163,15 +163,15 @@
   font: var(--text-2xs) var(--font-label);
   text-transform: uppercase;
   letter-spacing: .07em;
-  background: color-mix(in srgb,var(--color-danger) 12%,transparent);
+  background: color-mix(in srgb,var(--color-danger) var(--tint-soft),transparent);
   color: var(--color-danger);
 }
 .profile-band.on-target {
-  background: color-mix(in srgb,var(--color-up) 15%,transparent);
+  background: color-mix(in srgb,var(--color-up) var(--tint-medium),transparent);
   color: var(--color-up);
 }
 .profile-band.drifting {
-  background: color-mix(in srgb,var(--color-warn) 12%,transparent);
+  background: color-mix(in srgb,var(--color-warn) var(--tint-soft),transparent);
   color: var(--color-warn);
 }
 .profile-band.na {
@@ -471,7 +471,7 @@
 }
 .rule-chips button.active {
   border-color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 12%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   color: var(--color-accent);
 }
 .rule-chips button.active b {
@@ -487,9 +487,9 @@
   gap: 11px;
   margin-top: 12px;
   padding: 13px 15px;
-  border: 1px solid color-mix(in srgb,var(--color-accent) 22%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--color-accent) var(--tint-border-soft),var(--color-border));
   border-radius: var(--radius-control);
-  background: color-mix(in srgb,var(--color-accent) 5%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),var(--color-surface));
 }
 .rule-basis>svg {
   width: 15px;
@@ -609,7 +609,7 @@
   color: var(--color-text);
 }
 .finding__recoverable {
-  border-color: color-mix(in srgb,var(--color-warn) 40%,var(--color-border))!important;
+  border-color: color-mix(in srgb,var(--color-warn) var(--tint-border),var(--color-border))!important;
 }
 .finding__recoverable dd {
   color: var(--color-warn);
@@ -713,7 +713,7 @@
 
 .allowance-policy button.active {
   border-color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 12%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   color: var(--color-accent);
 }
 
@@ -1238,11 +1238,11 @@
 }
 .status-label.degraded {
   color: var(--color-warn);
-  border-color: color-mix(in srgb,var(--color-warn) 45%,var(--color-border));
+  border-color: color-mix(in srgb,var(--color-warn) var(--tint-border),var(--color-border));
 }
 
 .warp-ledger-panel {
-  border-color: color-mix(in srgb,var(--color-provider-warp) 28%,var(--color-border));
+  border-color: color-mix(in srgb,var(--color-provider-warp) var(--tint-border-soft),var(--color-border));
 }
 .warp-ledger-panel .panel-heading p {
   max-width: 720px;
@@ -1266,7 +1266,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  background: #0a1311;
+  background: var(--color-surface-sunken);
 }
 .warp-ledger-stats span {
   font: var(--text-2xs) var(--font-label);
@@ -1287,9 +1287,9 @@
   gap: 8px;
   margin: 14px 0 0;
   padding: 11px 12px;
-  border: 1px solid color-mix(in srgb,var(--color-provider-warp) 24%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--color-provider-warp) var(--tint-border-soft),var(--color-border));
   border-radius: var(--radius-control);
-  background: color-mix(in srgb,var(--color-provider-warp) 4%,transparent);
+  background: color-mix(in srgb,var(--color-provider-warp) var(--tint-faint),transparent);
   color: var(--color-text-muted);
   font: 11px/1.55 var(--font-label);
 }
@@ -1550,7 +1550,7 @@
   padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--color-bg) 38%, transparent);
+  background: var(--color-surface-inset);
 }
 
 .effort-privacy h3 {
@@ -1612,7 +1612,7 @@
   padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--color-bg) 38%, transparent);
+  background: var(--color-surface-inset);
 }
 
 .effort-privacy-grid p,.effort-index-actions p {

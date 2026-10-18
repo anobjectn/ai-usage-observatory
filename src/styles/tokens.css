@@ -10,14 +10,9 @@
   color-scheme: dark;
 
   /* ---- 1. Palette ---- */
+  --palette-black: #000;
+  --palette-white: #fff;
   --palette-ink: #07100f;
-  --palette-ink-1: #0d1715;
-  --palette-ink-2: #111d1a;
-  --palette-ink-3: #17231f;
-  --palette-ink-4: #24322e;
-  --palette-ink-5: #35463f;
-  --palette-ink-6: #65736e;
-  --palette-ink-7: #91a19b;
   --palette-paper: #ecf2ef;
   --palette-blue: #78a8ff;
   --palette-lime: #b7f25c;
@@ -30,6 +25,7 @@
   --palette-violet: #d7b3ff;
   --palette-clay: #d97757;
   --palette-silver: #eaeaea;
+  --palette-peach: #ffe3c2;
   /* Muted secondary hues for model families without a fixed colour. */
   --palette-sage: #7fb3a5;
   --palette-lavender: #b39ddb;
@@ -37,20 +33,37 @@
   --palette-periwinkle: #8fa9d9;
   --palette-mauve: #cf8fb1;
   --palette-fern: #86c58a;
+  /* Third-party marks keep their own colours in every theme. */
+  --palette-artificial-analysis: #8842fd;
 
   /* ---- 2. Semantic roles ---- */
-  /* Surfaces, from the page canvas up to floating layers. */
+  /* Neutral anchors. Every other neutral is mixed from these two, so a theme that sets only
+     --color-bg and --color-text keeps the whole ramp in proportion. */
   --color-bg: var(--palette-ink);
-  --color-surface: var(--palette-ink-1);
-  --color-surface-raised: var(--palette-ink-2);
-  --color-surface-overlay: var(--palette-ink-3);
-  /* Lines. */
-  --color-border: var(--palette-ink-4);
-  --color-border-strong: var(--palette-ink-5);
-  /* Text. */
   --color-text: var(--palette-paper);
-  --color-text-muted: var(--palette-ink-7);
-  --color-text-subtle: var(--palette-ink-6);
+  /* Darker than the canvas: expanded detail wells. */
+  --color-bg-deep: var(--palette-black);
+  /* Surfaces, from inset wells up to floating layers. */
+  --color-surface-sunken: color-mix(in srgb, var(--color-text) 1.5%, var(--color-bg));
+  --color-surface: color-mix(in srgb, var(--color-text) 3%, var(--color-bg));
+  --color-surface-raised: color-mix(in srgb, var(--color-text) 5%, var(--color-bg));
+  --color-surface-overlay: color-mix(in srgb, var(--color-text) 8%, var(--color-bg));
+  /* Translucent wells inside panels, and the chrome laid over the scene. */
+  --color-surface-inset: color-mix(in srgb, var(--color-bg) 44%, transparent);
+  --color-surface-glass: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  /* Lines. */
+  --color-border: color-mix(in srgb, var(--color-text) 14.5%, var(--color-bg));
+  --color-border-strong: color-mix(in srgb, var(--color-text) 23%, var(--color-bg));
+  --color-divider: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+  /* Text. */
+  --color-text-muted: color-mix(in srgb, var(--color-text) 63%, var(--color-bg));
+  --color-text-subtle: color-mix(in srgb, var(--color-text) 43%, var(--color-bg));
+  /* Text on saturated or light fills: accent buttons, model marks, labels on chart bars. */
+  --color-text-inverse: var(--color-bg);
+  /* Shadows and scrims. */
+  --color-shadow: var(--palette-black);
+  --color-scrim: color-mix(in srgb, var(--color-shadow) 65%, transparent);
+  --color-scrim-soft: color-mix(in srgb, var(--color-shadow) 40%, transparent);
   /* Interaction. The user's accent is written at runtime; interaction state only. */
   --color-accent: var(--palette-blue);
   /* Fixed secondary emphasis that does not follow the accent: quota context, in-list links. */
@@ -61,6 +74,7 @@
   --color-down: var(--palette-pink);
   --color-warn: var(--palette-yellow);
   --color-danger: var(--palette-red);
+  --color-warn-text: color-mix(in srgb, var(--color-warn) 60%, var(--color-text));
   --color-info: var(--palette-aqua);
   /* Credits and budgets (Warp credits, Fable credit), and suspended quota windows. */
   --color-credit: var(--palette-violet);
@@ -90,6 +104,32 @@
   --color-family-fallback-4: var(--palette-periwinkle);
   --color-family-fallback-5: var(--palette-mauve);
   --color-family-fallback-6: var(--palette-fern);
+  /* Canvas scene (scene.tsx reads these as hex): star tints and the orrery core's shading. */
+  --color-scene-star: var(--color-text);
+  --color-scene-star-warm: var(--palette-peach);
+  --color-scene-star-cool: var(--color-highlight);
+  --color-scene-core: var(--color-surface-raised);
+  --color-scene-core-shade: var(--color-surface);
+  --color-scene-core-dark: var(--color-surface-sunken);
+  --color-scene-core-deep: var(--color-bg);
+  /* Backdrops behind third-party favicons. */
+  --color-logo-backdrop: var(--palette-white);
+  --color-logo-artificial-analysis: var(--palette-artificial-analysis);
+
+  /* Tint strengths for color-mix(in srgb, <tone> <strength>, <base>). Backgrounds, glows, and
+     rings mix a tone into transparent or a surface; borders mix it into --color-border. Light
+     themes usually need stronger tints, so they override these rather than every rule. */
+  --tint-faint: 4%;
+  --tint-subtle: 7%;
+  --tint-soft: 10%;
+  --tint-medium: 16%;
+  --tint-strong: 25%;
+  --tint-bold: 35%;
+  --tint-vivid: 55%;
+  --tint-solid: 75%;
+  --tint-border-soft: 22%;
+  --tint-border: 45%;
+  --tint-border-strong: 60%;
 
   /* ---- 3. Scales ---- */
   /* Font families, and the roles that consume them. Replace the families to retheme type. */
@@ -141,10 +181,16 @@
   --radius-card: 12px;
   --radius-panel: 16px;
   --radius-pill: 999px;
-  /* Elevation roles. */
-  --shadow-panel: 0 24px 80px rgba(0,0,0,.28);
-  --shadow-floating: 0 20px 48px rgba(0,0,0,.58);
-  --shadow-modal: 0 35px 100px rgba(0,0,0,.6);
+  /* Elevation, by size: sm raised controls, md tooltips, lg menus and trays, xl floating cards. */
+  --shadow-sm: 0 2px 8px color-mix(in srgb, var(--color-shadow) 25%, transparent);
+  --shadow-md: 0 8px 22px color-mix(in srgb, var(--color-shadow) 35%, transparent);
+  --shadow-lg: 0 14px 34px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  --shadow-xl: 0 20px 48px color-mix(in srgb, var(--color-shadow) 58%, transparent);
+  --shadow-panel: 0 24px 80px color-mix(in srgb, var(--color-shadow) 28%, transparent);
+  --shadow-modal: 0 35px 100px color-mix(in srgb, var(--color-shadow) 60%, transparent);
+  --shadow-inset: inset 0 1px 2px color-mix(in srgb, var(--color-shadow) 25%, transparent);
+  /* Panel and card fill: a raised-to-sunken sheen over the scene. */
+  --gradient-panel: linear-gradient(145deg, color-mix(in srgb, var(--color-surface-raised) 93%, transparent), color-mix(in srgb, var(--color-surface-sunken) 94%, transparent));
   /* Motion. */
   --ease-standard: cubic-bezier(.4,0,.2,1);
   --ease-decelerate: cubic-bezier(0,0,.2,1);

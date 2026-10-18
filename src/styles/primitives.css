@@ -38,7 +38,7 @@ select {
 .segmented button.active {
   background: var(--color-surface-overlay);
   color: var(--color-accent);
-  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  box-shadow: var(--shadow-sm);
 }
 
 .appearance-button,.refresh-button,.secondary-button,.primary-button {
@@ -78,7 +78,7 @@ select {
 }
 
 .metric-card,.panel,.rank-card {
-  background: linear-gradient(145deg,rgba(18,30,27,.93),rgba(10,19,17,.94));
+  background: var(--gradient-panel);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
@@ -253,7 +253,7 @@ th {
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--color-text-subtle);
-  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+  background: var(--color-surface-inset);
 }
 .sort-header {
   border: 0;
@@ -311,9 +311,9 @@ td>small {
 .agent-pill {
   --provider-color: var(--color-border-strong);
   padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--provider-color) 48%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--provider-color) var(--tint-border), var(--color-border));
   border-radius: var(--radius-chip);
-  background: color-mix(in srgb, var(--provider-color) 7%, transparent);
+  background: color-mix(in srgb, var(--provider-color) var(--tint-subtle), transparent);
   text-transform: uppercase;
   font: var(--text-2xs) var(--font-label);
   color: var(--provider-color);
@@ -381,7 +381,7 @@ td>small {
 .pagination div>button:not(:disabled):is(:hover,:focus-visible) {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 10%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),var(--color-surface));
   outline: 0;
 }
 
@@ -412,7 +412,7 @@ td>small {
 }
 
 .meter--unpriced i {
-  background: repeating-linear-gradient(135deg,color-mix(in srgb,var(--color-warn) 40%,transparent) 0 5px,transparent 5px 10px);
+  background: repeating-linear-gradient(135deg,color-mix(in srgb,var(--color-warn) var(--tint-bold),transparent) 0 5px,transparent 5px 10px);
 }
 .meter,.budget-bar {
   height: 5px;
@@ -447,7 +447,7 @@ td>small {
   place-content: center;
   justify-items: center;
   gap: 17px;
-  background: radial-gradient(circle at center,#17241d,var(--color-bg) 50%);
+  background: radial-gradient(circle at center,var(--color-surface-overlay),var(--color-bg) 50%);
   color: var(--color-text-muted);
   font: var(--text-xs) var(--font-label);
 }
@@ -553,7 +553,7 @@ td>small {
 .split-pill>span {
   min-width: 0;
   padding: 4px 7px;
-  background: color-mix(in srgb,var(--split-pill-color) 16%,var(--color-surface-overlay));
+  background: color-mix(in srgb,var(--split-pill-color) var(--tint-medium),var(--color-surface-overlay));
   box-shadow: inset 0 -2px var(--split-pill-color);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -672,7 +672,7 @@ td>small {
 
 .secondary-button.danger {
   color: var(--color-danger);
-  border-color: color-mix(in srgb,var(--color-danger) 35%,var(--color-border));
+  border-color: color-mix(in srgb,var(--color-danger) var(--tint-border),var(--color-border));
 }
 
 .panel-heading-actions {
@@ -923,11 +923,11 @@ td>small {
 }
 .quota-marker-legend i.anthropic {
   background: var(--color-provider-anthropic);
-  box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-anthropic) 45%,transparent);
+  box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-anthropic) var(--tint-vivid),transparent);
 }
 .quota-marker-legend i.codex {
   background: var(--color-provider-openai);
-  box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-openai) 45%,transparent);
+  box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-openai) var(--tint-vivid),transparent);
 }
 
 .usage-trajectory-panel .panel-heading p {
@@ -937,7 +937,7 @@ td>small {
 }
 
 .chart-tooltip {
-  background: #101a18;
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   padding: 10px 12px;
@@ -974,7 +974,7 @@ td>small {
   min-height: 16px;
   margin: 0 0 8px!important;
   padding: 0 2px 7px;
-  border-bottom: 1px solid color-mix(in srgb,var(--color-border-strong) 72%,transparent);
+  border-bottom: 1px solid var(--color-divider);
 }
 .chart-tooltip .chart-tooltip__context--inline {
   min-height: 0;
@@ -1054,7 +1054,7 @@ td>small {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
-  box-shadow: var(--shadow-floating);
+  box-shadow: var(--shadow-xl);
   color: var(--color-text);
   font: var(--text-2xs)/1.45 var(--font-label);
   font-weight: 400;
@@ -1086,7 +1086,7 @@ td>small {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
-  box-shadow: var(--shadow-floating);
+  box-shadow: var(--shadow-xl);
   color: var(--color-text);
   font: var(--text-2xs)/1.45 var(--font-label);
   font-weight: 400;
@@ -1129,7 +1129,7 @@ td>small {
 }
 .chart-tooltip__context-close:is(:hover,:focus-visible) {
   border-color: var(--color-border-strong);
-  background: color-mix(in srgb,var(--color-accent) 10%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   color: var(--color-accent);
   outline: 0;
 }
@@ -1163,10 +1163,10 @@ td>small {
   width: 20px;
   height: 20px;
   padding: 0;
-  border: 1px solid color-mix(in srgb,var(--color-border-strong) 74%,transparent);
+  border: 1px solid var(--color-divider);
   border-radius: var(--radius-control);
   background: color-mix(in srgb,var(--color-surface-overlay) 92%,transparent);
-  box-shadow: 0 3px 10px rgba(0,0,0,.24);
+  box-shadow: var(--shadow-sm);
   color: var(--color-text-subtle);
   display: grid;
   place-items: center;
@@ -1184,18 +1184,18 @@ td>small {
 }
 .chart-tooltip__pin:is(:hover,:focus-visible) {
   border-color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 12%,var(--color-surface-overlay));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),var(--color-surface-overlay));
   color: var(--color-accent);
   outline: 0;
-  box-shadow: 0 0 0 2px color-mix(in srgb,var(--color-accent) 14%,transparent),0 5px 14px rgba(0,0,0,.3);
+  box-shadow: 0 0 0 2px color-mix(in srgb,var(--color-accent) var(--tint-medium),transparent),var(--shadow-sm);
 }
 .chart-tooltip__pin:active {
   cursor: grabbing;
   transform: translate(-50%,-50%) scale(.96);
 }
 .chart-tooltip__pin.is-pinned {
-  border-color: color-mix(in srgb,var(--color-accent) 74%,var(--color-border));
-  background: color-mix(in srgb,var(--color-accent) 17%,var(--color-surface-overlay));
+  border-color: color-mix(in srgb,var(--color-accent) var(--tint-border-strong),var(--color-border));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-medium),var(--color-surface-overlay));
   color: var(--color-accent);
 }
 .chart-tooltip__pin.is-pinned svg {
@@ -1212,8 +1212,8 @@ td>small {
   position: fixed!important;
   max-width: calc(100vw - 16px);
   pointer-events: auto;
-  border-color: color-mix(in srgb,var(--color-accent) 31%,var(--color-border-strong));
-  box-shadow: 0 18px 52px rgba(0,0,0,.6),0 0 0 1px color-mix(in srgb,var(--color-accent) 7%,transparent);
+  border-color: color-mix(in srgb,var(--color-accent) var(--tint-border),var(--color-border-strong));
+  box-shadow: var(--shadow-xl),0 0 0 1px color-mix(in srgb,var(--color-accent) var(--tint-subtle),transparent);
   transform: none!important;
   animation: pinned-tooltip-in var(--duration-base) var(--ease-decelerate);
 }
@@ -1333,7 +1333,7 @@ td>small {
 
 .tooltip-date-step:is(:hover,:focus-visible) {
   border-color: var(--color-border-strong);
-  background: color-mix(in srgb,var(--color-accent) 10%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   color: var(--color-accent);
   outline: 0;
 }
@@ -1952,7 +1952,7 @@ td>small {
 .model-quick-links button.active {
   background: var(--color-surface-overlay);
   color: var(--color-accent);
-  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  box-shadow: var(--shadow-sm);
 }
 .sr-only {
   position: absolute;
@@ -1971,7 +1971,7 @@ td>small {
   padding: 14px 16px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: #0a1311;
+  background: var(--color-surface-sunken);
 }
 
 .token-types__head {
@@ -2035,8 +2035,8 @@ td>small {
 }
 
 .token-types__table tbody tr:hover {
-  background: color-mix(in srgb,var(--color-highlight) 7%,transparent);
-  box-shadow: inset 2px 0 color-mix(in srgb,var(--color-highlight) 65%,transparent);
+  background: color-mix(in srgb,var(--color-highlight) var(--tint-subtle),transparent);
+  box-shadow: inset 2px 0 color-mix(in srgb,var(--color-highlight) var(--tint-solid),transparent);
 }
 
 .token-types__table tbody tr:hover th,
@@ -2140,7 +2140,7 @@ td>small {
   border-radius: 50%;
   background: conic-gradient(var(--quota-color) var(--fill),var(--color-border) 0);
   position: relative;
-  box-shadow: 0 0 24px color-mix(in srgb,var(--quota-color) 10%,transparent);
+  box-shadow: 0 0 24px color-mix(in srgb,var(--quota-color) var(--tint-soft),transparent);
 }
 
 .quota-dial::before {
@@ -2185,7 +2185,7 @@ td>small {
   border-radius: var(--radius-control);
   padding: 3px 6px;
   color: var(--color-highlight);
-  background: rgba(88,217,207,.05);
+  background: color-mix(in srgb,var(--color-highlight) var(--tint-faint),transparent);
 }
 
 /* Anthropic credit section (Overview quota card) */
@@ -2270,10 +2270,10 @@ td>small {
   overscroll-behavior: contain;
   scroll-snap-type: y mandatory;
   min-width: 100%;
-  border: 1px solid color-mix(in srgb,var(--color-accent) 30%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--color-accent) var(--tint-border-soft),var(--color-border));
   border-radius: var(--radius-control);
   background: var(--color-surface);
-  box-shadow: 0 12px 28px rgba(0,0,0,.5);
+  box-shadow: var(--shadow-lg);
 }
 
 .page-jump__menu li {
@@ -2297,7 +2297,7 @@ td>small {
 }
 
 .page-jump__menu button[data-active=true] {
-  background: color-mix(in srgb,var(--color-accent) 14%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-medium),transparent);
   color: var(--color-accent);
 }
 
@@ -2376,8 +2376,8 @@ td>small {
 }
 
 @keyframes page-jump-pulse{
-  0%,100%{border-color:color-mix(in srgb,var(--color-accent) 16%,#000);box-shadow:0 0 0 0 rgba(0,0,0,0)}
-  50%{border-color:var(--color-accent);box-shadow:0 0 7px color-mix(in srgb,var(--color-accent) 32%,transparent)}
+  0%,100%{border-color:color-mix(in srgb,var(--color-accent) var(--tint-medium),var(--color-bg-deep));box-shadow:0 0 0 0 transparent}
+  50%{border-color:var(--color-accent);box-shadow:0 0 7px color-mix(in srgb,var(--color-accent) var(--tint-bold),transparent)}
 }
 
 @media (prefers-reduced-motion:reduce) {

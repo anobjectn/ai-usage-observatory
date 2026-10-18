@@ -79,8 +79,8 @@
   border-color: var(--color-border-strong);
 }
 .project-card.open {
-  border-color: color-mix(in srgb,var(--color-accent) 38%,var(--color-border));
-  box-shadow: 0 18px 55px rgba(0,0,0,.18);
+  border-color: color-mix(in srgb,var(--color-accent) var(--tint-border),var(--color-border));
+  box-shadow: var(--shadow-panel);
 }
 .project-row {
   width: 100%;
@@ -92,7 +92,7 @@
   cursor: pointer;
 }
 .project-row:hover {
-  background: color-mix(in srgb,var(--color-accent) 3.5%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent);
 }
 .project-row:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -110,18 +110,18 @@
 .project-row:hover .project-row__toggle {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 9%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
 }
 .project-card.open .project-row__toggle {
   transform: rotate(45deg);
   border-color: transparent;
   color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 10%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
 }
 
 .project-detail {
   padding: 20px 22px 17px;
-  background: #000;
+  background: var(--color-bg-deep);
   animation: project-detail-in .24s ease both;
 }
 .project-detail__summary {
@@ -138,7 +138,7 @@
   flex-direction: column;
   gap: 7px;
   padding: 14px 16px;
-  background: #0c1614;
+  background: var(--color-surface-sunken);
 }
 .project-detail__summary span {
   font: var(--text-2xs) var(--font-label);
@@ -163,7 +163,7 @@
   min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+  background: var(--color-surface-inset);
   padding: 15px;
 }
 .project-viz--daily {
@@ -466,7 +466,7 @@
   margin-top: 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+  background: var(--color-surface-inset);
   padding: 15px;
 }
 .project-sessions__head {
@@ -618,7 +618,7 @@
 
 .project-detail>.effort-day-panel {
   margin-top: 12px;
-  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+  background: var(--color-surface-inset);
   box-shadow: none;
 }
 
@@ -689,14 +689,14 @@
 .project-model-sessions__trigger:is(:hover,:focus-visible) {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 9%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   outline: 0;
 }
 
 .project-model-sessions__trigger.is-open {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 13%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-medium),transparent);
 }
 
 .project-model-sessions__trigger:disabled {
@@ -716,7 +716,7 @@
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
-  box-shadow: 0 16px 44px rgba(0,0,0,.55);
+  box-shadow: var(--shadow-xl);
   color: var(--color-text);
   font-size: var(--text-xs);
   animation: project-detail-in .16s ease both;
@@ -780,7 +780,7 @@
 
 .model-sessions-card__close:is(:hover,:focus-visible) {
   border-color: var(--color-border-strong);
-  background: color-mix(in srgb,var(--color-accent) 10%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   color: var(--color-accent);
   outline: 0;
 }

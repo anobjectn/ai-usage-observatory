@@ -16,7 +16,7 @@
 
 aside {
   border-right: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  background: var(--color-surface-glass);
   backdrop-filter: blur(28px);
   padding: 26px 13px 20px;
   position: sticky;
@@ -48,18 +48,18 @@ aside {
   height: 39px;
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in srgb,var(--color-accent) 35%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--color-accent) var(--tint-border),var(--color-border));
   border-radius: 50%;
   color: var(--color-accent);
-  background: radial-gradient(circle,color-mix(in srgb,var(--color-accent) 18%,transparent),transparent);
-  box-shadow: 0 0 25px color-mix(in srgb,var(--color-accent) 12%,transparent);
+  background: radial-gradient(circle,color-mix(in srgb,var(--color-accent) var(--tint-medium),transparent),transparent);
+  box-shadow: 0 0 25px color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   cursor: pointer;
   flex: 0 0 auto;
 }
 
 .brand-home:hover .brand-orbit,.brand-home.active .brand-orbit {
   border-color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 12%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
 }
 
 .brand-home.active,.brand-home.active .brand-orbit {
@@ -132,7 +132,7 @@ aside {
   color: var(--color-text-muted);
   cursor: pointer;
   z-index: 25;
-  box-shadow: 0 7px 20px rgba(0,0,0,.18);
+  box-shadow: var(--shadow-sm);
   transition: border-color var(--duration-base) var(--ease-standard),color var(--duration-base) var(--ease-standard),background var(--duration-base) var(--ease-standard),box-shadow var(--duration-slow) var(--ease-standard);
 }
 
@@ -140,7 +140,7 @@ aside {
   border-color: var(--color-border-strong);
   color: var(--color-text);
   background: var(--color-surface-raised);
-  box-shadow: 0 0 0 3px color-mix(in srgb,var(--color-accent) 10%,transparent),0 10px 26px rgba(0,0,0,.25);
+  box-shadow: 0 0 0 3px color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent),var(--shadow-md);
 }
 
 .sidebar-toggle svg {
@@ -188,7 +188,7 @@ nav button:hover {
 
 /* Lift the active label/icon toward --color-text so a dark accent stays legible on the dark sidebar; light accents shift only slightly and keep their hue. */
 nav button.active {
-  background: linear-gradient(90deg,color-mix(in srgb,var(--color-accent) 12%,transparent),color-mix(in srgb,var(--color-accent) 3%,transparent));
+  background: linear-gradient(90deg,color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent),color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent));
   color: color-mix(in srgb,var(--color-accent) 72%,var(--color-text));
 }
 
@@ -267,7 +267,7 @@ nav button i {
 
 .status-dot.healthy {
   background: var(--color-up);
-  box-shadow: 0 0 10px color-mix(in srgb,var(--color-up) 55%,transparent);
+  box-shadow: 0 0 10px color-mix(in srgb,var(--color-up) var(--tint-vivid),transparent);
 }
 
 .status-dot.unavailable {
@@ -276,7 +276,7 @@ nav button i {
 
 .status-dot.degraded {
   background: var(--color-warn);
-  box-shadow: 0 0 10px color-mix(in srgb,var(--color-warn) 55%,transparent);
+  box-shadow: 0 0 10px color-mix(in srgb,var(--color-warn) var(--tint-vivid),transparent);
 }
 
 .settings-link {
@@ -350,7 +350,7 @@ main {
   position: sticky;
   top: 0;
   z-index: 15;
-  background: color-mix(in srgb, var(--color-bg) 83%, transparent);
+  background: var(--color-surface-glass);
   backdrop-filter: blur(24px);
 }
 
@@ -485,7 +485,7 @@ main {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
-  box-shadow: 0 14px 34px rgba(0,0,0,.45);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -600,7 +600,7 @@ main {
 
 .agent-filter__group label i[data-state="indeterminate"] {
   border-color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 28%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-strong),var(--color-surface));
 }
 
 .agent-filter__group label:has(input:focus-visible) i {
@@ -685,7 +685,7 @@ main {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
-  box-shadow: var(--shadow-floating);
+  box-shadow: var(--shadow-xl);
   color: var(--color-text);
   font: var(--text-2xs)/1.45 var(--font-label);
   white-space: normal!important;
@@ -742,8 +742,8 @@ main {
   padding: 14px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb,var(--color-surface-overlay) 97%,#000);
-  box-shadow: var(--shadow-floating);
+  background: color-mix(in srgb,var(--color-surface-overlay) 96%,var(--color-bg-deep));
+  box-shadow: var(--shadow-xl);
   animation: detail-action-menu-in .14s ease-out both;
 }
 .date-range-popover__head {
@@ -791,7 +791,7 @@ main {
 }
 .date-range-fields input:focus-visible {
   border-color: var(--color-accent);
-  outline: 2px solid color-mix(in srgb,var(--color-accent) 35%,transparent);
+  outline: 2px solid color-mix(in srgb,var(--color-accent) var(--tint-bold),transparent);
   outline-offset: 1px;
 }
 .date-range-error {
@@ -830,7 +830,7 @@ main {
   margin-top: 0;
 }
 .date-range-actions .primary-button:hover,.date-range-actions .primary-button:focus-visible {
-  background: color-mix(in srgb,var(--color-accent) 85%,#000);
+  background: color-mix(in srgb,var(--color-accent) 85%,var(--color-bg-deep));
   border-color: var(--color-accent);
   outline: 0;
 }
@@ -920,9 +920,9 @@ main {
 }
 
 .stale-banner {
-  background: color-mix(in srgb,var(--color-warn) 10%,transparent);
-  color: #ffc29d;
-  border-bottom: 1px solid color-mix(in srgb,var(--color-warn) 22%,transparent);
+  background: color-mix(in srgb,var(--color-warn) var(--tint-soft),transparent);
+  color: var(--color-warn-text);
+  border-bottom: 1px solid color-mix(in srgb,var(--color-warn) var(--tint-strong),transparent);
   padding: 8px 40px;
   font-size: var(--text-sm);
 }
@@ -965,7 +965,7 @@ main {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,.65);
+  background: var(--color-scrim);
   backdrop-filter: blur(8px);
   z-index: 50;
   display: grid;
@@ -976,7 +976,7 @@ main {
   width: min(520px,100%);
   max-height: 90vh;
   overflow: auto;
-  background: #101a18;
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-panel);
   padding: 28px;
@@ -1016,7 +1016,7 @@ main {
   width: 100%;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: #0a1311;
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: 11px;
   outline: none;
@@ -1043,7 +1043,7 @@ main {
 }
 .primary-button {
   background: var(--color-accent);
-  color: #12200d;
+  color: var(--color-text-inverse);
   border-color: var(--color-accent);
   margin-top: 20px;
   justify-content: center;
@@ -1246,9 +1246,9 @@ main {
 .accent-favorite-editor {
   margin-top: 10px;
   padding: 10px 11px;
-  border: 1px solid color-mix(in srgb,var(--color-accent) 28%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--color-accent) var(--tint-border-soft),var(--color-border));
   border-radius: var(--radius-control);
-  background: color-mix(in srgb,var(--color-accent) 5%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),var(--color-surface));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1321,7 +1321,7 @@ main {
   font: var(--text-lg)/1 var(--font-label);
 }
 .data-text-control button:hover,.data-text-control button:focus-visible {
-  background: color-mix(in srgb,var(--color-accent) 10%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
   color: var(--color-accent);
   outline: 0;
 }
@@ -1387,7 +1387,7 @@ main {
   transition: transform var(--duration-base),background var(--duration-base);
 }
 .effect-switch[aria-checked="true"] {
-  background: color-mix(in srgb,var(--color-accent) 22%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-strong),var(--color-surface));
   border-color: var(--color-accent);
 }
 .effect-switch[aria-checked="true"]::after {
@@ -1425,7 +1425,7 @@ main {
   height: 14px;
   border-radius: 50%;
   background: var(--color-accent);
-  box-shadow: 0 0 8px color-mix(in srgb,var(--color-accent) 55%,transparent);
+  box-shadow: 0 0 8px color-mix(in srgb,var(--color-accent) var(--tint-vivid),transparent);
   cursor: pointer;
 }
 .speed-control input[type=range]::-moz-range-thumb {
@@ -1434,7 +1434,7 @@ main {
   border: 0;
   border-radius: 50%;
   background: var(--color-accent);
-  box-shadow: 0 0 8px color-mix(in srgb,var(--color-accent) 55%,transparent);
+  box-shadow: 0 0 8px color-mix(in srgb,var(--color-accent) var(--tint-vivid),transparent);
   cursor: pointer;
 }
 .speed-control output {
@@ -1494,7 +1494,7 @@ main {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center,rgba(0,0,0,.9) 0%,rgba(0,0,0,.87) 30%,rgba(0,0,0,.83) 36%,rgba(0,0,0,.76) 48%,rgba(0,0,0,.66) 62%,rgba(0,0,0,.57) 76%,rgba(0,0,0,.5) 100%);
+  background: radial-gradient(ellipse at center,color-mix(in srgb,var(--color-shadow) 90%,transparent) 0%,color-mix(in srgb,var(--color-shadow) 87%,transparent) 30%,color-mix(in srgb,var(--color-shadow) 83%,transparent) 36%,color-mix(in srgb,var(--color-shadow) 76%,transparent) 48%,color-mix(in srgb,var(--color-shadow) 66%,transparent) 62%,color-mix(in srgb,var(--color-shadow) 57%,transparent) 76%,color-mix(in srgb,var(--color-shadow) 50%,transparent) 100%);
 }
 .appearance-backdrop>.appearance-modal,.appearance-backdrop>.appearance-dismissal {
   z-index: 1;
@@ -1810,7 +1810,7 @@ main {
   height: 14px;
   border-radius: var(--radius-chip);
   object-fit: cover;
-  background: #fff;
+  background: var(--color-logo-backdrop);
   flex: 0 0 auto;
 }
 
@@ -1837,7 +1837,7 @@ main {
   border-left: 1px solid var(--color-border);
 }
 .benchmark-split-pill button:hover,.benchmark-split-pill button:focus-visible {
-  background: color-mix(in srgb,var(--color-accent) 10%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),var(--color-surface));
   outline: 0;
 }
 .benchmark-split-pill button:focus-visible {
@@ -1848,7 +1848,7 @@ main {
   height: 17px;
   border-radius: var(--radius-chip);
   object-fit: cover;
-  background: #fff;
+  background: var(--color-logo-backdrop);
 }
 
 .accent-icon-button.benchmark-trigger {
@@ -1889,11 +1889,11 @@ main {
   height: 16px;
   border-radius: var(--radius-chip);
   object-fit: cover;
-  background: #fff;
+  background: var(--color-logo-backdrop);
 }
 
 .benchmark-trigger-icons img.benchmark-favicon--artificialanalysis,.benchmark-split-pill img.benchmark-favicon--artificialanalysis,.benchmark-tabs button img.benchmark-favicon--artificialanalysis {
-  background: #8842fd;
+  background: var(--color-logo-artificial-analysis);
 }
 
 .benchmark-tabs button:hover {
@@ -1904,7 +1904,7 @@ main {
 .benchmark-tabs button.active {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 10%,var(--color-surface-raised));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-soft),var(--color-surface-raised));
 }
 
 .benchmark-toolbar {
@@ -1951,7 +1951,7 @@ main {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   overflow: hidden;
-  background: #0a1311;
+  background: var(--color-surface-sunken);
   height: min(60vh,640px);
 }
 
@@ -2104,7 +2104,7 @@ main {
   min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--color-bg) 48%, transparent);
+  background: var(--color-surface-inset);
   padding: 9px 10px;
 }
 
@@ -2170,7 +2170,7 @@ main {
 }
 
 .quick-overview__dial .quota-dial::before {
-  background: #101a18;
+  background: var(--color-surface-raised);
 }
 
 .quick-overview__dial .quota-dial strong {
@@ -2270,17 +2270,17 @@ main {
   border-radius: 50%;
   vertical-align: .06em;
   background: var(--color-up);
-  box-shadow: 0 0 7px color-mix(in srgb,var(--color-up) 55%,transparent);
+  box-shadow: 0 0 7px color-mix(in srgb,var(--color-up) var(--tint-vivid),transparent);
 }
 
 .quick-overview__headroom-dot.coast {
   background: var(--color-warn);
-  box-shadow: 0 0 7px color-mix(in srgb,var(--color-warn) 55%,transparent);
+  box-shadow: 0 0 7px color-mix(in srgb,var(--color-warn) var(--tint-vivid),transparent);
 }
 
 .quick-overview__headroom-dot.low {
   background: var(--color-danger);
-  box-shadow: 0 0 7px color-mix(in srgb,var(--color-danger) 55%,transparent);
+  box-shadow: 0 0 7px color-mix(in srgb,var(--color-danger) var(--tint-vivid),transparent);
 }
 
 .quick-overview__row strong {
@@ -2450,7 +2450,7 @@ main {
     border: 1px solid var(--color-border-strong);
     border-radius: 7px;
     background: var(--color-surface-overlay);
-    box-shadow: 0 8px 22px rgba(0,0,0,.35);
+    box-shadow: var(--shadow-md);
     padding: 6px 8px;
     color: var(--color-text);
     font: var(--text-2xs) var(--font-label);
@@ -2519,7 +2519,7 @@ main {
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,.4);
+    background: var(--color-scrim-soft);
     z-index: 19;
   }
   .topbar {
@@ -2577,7 +2577,7 @@ main {
     padding: 12px 20px;
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface-raised, var(--color-bg));
-    box-shadow: 0 14px 28px rgba(0,0,0,.35);
+    box-shadow: var(--shadow-lg);
   }
   .cache-control-slot--tray {
     display: contents;
@@ -2744,11 +2744,11 @@ main {
 .update-control.is-eligible .update-button {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-accent) var(--tint-soft), var(--color-surface));
 }
 
 .update-control.is-eligible .update-button:hover {
-  background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-accent) var(--tint-medium), var(--color-surface));
 }
 
 .update-dot {
@@ -2784,7 +2784,7 @@ main {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-card);
   background: var(--color-surface-raised);
-  box-shadow: 0 14px 40px rgba(0,0,0,.35);
+  box-shadow: var(--shadow-lg);
   font-size: var(--text-xs);
   line-height: 1.45;
   color: var(--color-text);
@@ -2887,7 +2887,7 @@ main {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: color-mix(in srgb, var(--color-bg) 45%, transparent);
+  background: var(--color-surface-inset);
   backdrop-filter: blur(4px) brightness(.8);
   opacity: 0;
   visibility: hidden;
@@ -2911,7 +2911,7 @@ aside::before {
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: color-mix(in srgb, var(--color-bg) 45%, transparent);
+  background: var(--color-surface-inset);
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--update-focus-duration) var(--ease-decelerate), visibility 0s linear var(--update-focus-duration);

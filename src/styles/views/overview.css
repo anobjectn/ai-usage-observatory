@@ -65,7 +65,7 @@
   transform: translate(-50%,-50%);
   color: var(--color-accent);
   pointer-events: none;
-  filter: drop-shadow(0 0 9px color-mix(in srgb,var(--color-accent) 55%,transparent));
+  filter: drop-shadow(0 0 9px color-mix(in srgb,var(--color-accent) var(--tint-vivid),transparent));
 }
 
 .scene-icon svg {
@@ -80,7 +80,7 @@
   display: flex;
   gap: 11px;
   padding: 6px 8px;
-  border: 1px solid color-mix(in srgb,var(--color-border-strong) 75%,transparent);
+  border: 1px solid var(--color-divider);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
   backdrop-filter: blur(8px);
@@ -215,7 +215,7 @@
 .metric-card__split {
   margin-top: 11px;
   padding-top: 9px;
-  border-top: 1px dashed color-mix(in srgb,var(--color-border-strong) 62%,transparent);
+  border-top: 1px dashed var(--color-divider);
 }
 
 .metric-card__split-row {
@@ -299,7 +299,7 @@
   gap: 7px;
   min-width: 0;
   padding: 5px 0;
-  border-top: 1px dashed color-mix(in srgb,var(--color-border-strong) 62%,transparent);
+  border-top: 1px dashed var(--color-divider);
 }
 
 .metric-card__average:first-child {
@@ -409,7 +409,7 @@
 }
 
 .metric-token-table__average-row {
-  border-top: 1px dashed color-mix(in srgb,var(--color-border-strong) 62%,transparent);
+  border-top: 1px dashed var(--color-divider);
 }
 
 .metric-token-table__average-row th {
@@ -485,7 +485,7 @@
   --quota-color: var(--color-provider-anthropic);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--color-bg) 48%, transparent);
+  background: var(--color-surface-inset);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -652,7 +652,7 @@
   height: 4px;
   border-radius: 50%;
   background: var(--quota-color);
-  box-shadow: 0 0 6px color-mix(in srgb,var(--quota-color) 50%,transparent);
+  box-shadow: 0 0 6px color-mix(in srgb,var(--quota-color) var(--tint-vivid),transparent);
 }
 .quota-history time {
   color: var(--color-text-subtle);
@@ -689,7 +689,7 @@
   height: calc(var(--reach) * .24);
   border-radius: 2px 2px 0 0;
   background: var(--quota-color);
-  box-shadow: 0 0 6px color-mix(in srgb,var(--quota-color) 35%,transparent);
+  box-shadow: 0 0 6px color-mix(in srgb,var(--quota-color) var(--tint-bold),transparent);
 }
 
 .reach-pattern__week i[data-empty] {
@@ -746,7 +746,7 @@
   padding: 8px 9px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-chip);
-  background: color-mix(in srgb,var(--quota-color) 5%,transparent);
+  background: color-mix(in srgb,var(--quota-color) var(--tint-faint),transparent);
 }
 
 .reach-pattern__tiers>span,.reach-pattern__tiers>small {
@@ -765,7 +765,7 @@
   align-items: baseline;
   gap: 4px;
   padding: 2px 6px;
-  border: 1px solid color-mix(in srgb,var(--quota-color) 32%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--quota-color) var(--tint-border),var(--color-border));
   border-radius: var(--radius-chip);
   color: var(--color-text);
   font: var(--text-2xs) var(--font-label);
@@ -860,7 +860,7 @@
 @keyframes expiry-pulse {
   50% {
     opacity: .42;
-    text-shadow: 0 0 8px color-mix(in srgb,var(--color-warn) 70%,transparent);
+    text-shadow: 0 0 8px color-mix(in srgb,var(--color-warn) var(--tint-solid),transparent);
   }
 }
 
@@ -954,7 +954,7 @@
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: color-mix(in srgb,var(--provider-color) 2.5%,transparent);
+  background: color-mix(in srgb,var(--provider-color) var(--tint-faint),transparent);
 }
 
 .provider-capacity__row.codex { --provider-color: var(--color-provider-openai); }
@@ -981,7 +981,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--provider-color);
-  box-shadow: 0 0 7px color-mix(in srgb,var(--provider-color) 55%,transparent);
+  box-shadow: 0 0 7px color-mix(in srgb,var(--provider-color) var(--tint-vivid),transparent);
 }
 
 .provider-capacity__row>header small {
@@ -1051,7 +1051,7 @@
   padding: 4px 6px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-chip);
-  background: color-mix(in srgb,var(--color-bg) 50%,transparent);
+  background: var(--color-surface-inset);
 }
 
 .provider-capacity__windows small {
@@ -1109,7 +1109,7 @@
   transition: background var(--duration-speedy) ease;
 }
 .recent-session:has(.recent-session__details:is(:hover,:focus-visible)) {
-  background: color-mix(in srgb,var(--color-accent) 3.5%,transparent);
+  background: color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent);
 }
 .recent-session__details {
   min-width: 0;
@@ -1154,7 +1154,7 @@
 }
 .recent-session__tag:hover,.recent-session__tag:focus-visible {
   border-color: var(--color-accent);
-  background: color-mix(in srgb,var(--color-accent) 8%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-accent) var(--tint-subtle),var(--color-surface));
   color: var(--color-accent);
   outline: 0;
 }
@@ -1173,7 +1173,7 @@
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface-overlay);
-  box-shadow: 0 8px 22px rgba(0,0,0,.38);
+  box-shadow: var(--shadow-md);
   color: var(--color-text);
   font: var(--text-2xs)/1.4 var(--font-label);
   text-align: left;
@@ -1207,8 +1207,8 @@
   justify-self: start;
   padding: 3px 5px;
   font-size: var(--text-2xs);
-  background: color-mix(in srgb,var(--provider-color) 7%,transparent);
-  border-color: color-mix(in srgb,var(--provider-color) 48%,var(--color-border));
+  background: color-mix(in srgb,var(--provider-color) var(--tint-subtle),transparent);
+  border-color: color-mix(in srgb,var(--provider-color) var(--tint-border),var(--color-border));
   color: var(--provider-color);
 }
 
@@ -1399,8 +1399,8 @@
 }
 
 .fable-credit {
-  border: 1px solid color-mix(in srgb,var(--color-credit) 40%,var(--color-border));
-  background: color-mix(in srgb,var(--color-credit) 7%,transparent);
+  border: 1px solid color-mix(in srgb,var(--color-credit) var(--tint-border),var(--color-border));
+  background: color-mix(in srgb,var(--color-credit) var(--tint-subtle),transparent);
   border-radius: var(--radius-control);
   padding: 11px 12px;
   display: flex;
@@ -1408,8 +1408,8 @@
   gap: 5px;
 }
 .fable-credit--expired {
-  border-color: color-mix(in srgb,var(--color-warn) 45%,var(--color-border));
-  background: color-mix(in srgb,var(--color-warn) 7%,transparent);
+  border-color: color-mix(in srgb,var(--color-warn) var(--tint-border),var(--color-border));
+  background: color-mix(in srgb,var(--color-warn) var(--tint-subtle),transparent);
 }
 .fable-credit__head {
   display: flex;
@@ -1432,7 +1432,7 @@
 .fable-credit__badge {
   font-style: normal;
   color: var(--color-warn);
-  border: 1px solid color-mix(in srgb,var(--color-warn) 45%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--color-warn) var(--tint-border),var(--color-border));
   padding: 2px 6px;
   border-radius: var(--radius-control);
 }
@@ -1530,9 +1530,9 @@
 }
 .warp-quota-facts>div {
   padding: 8px 9px;
-  border: 1px solid color-mix(in srgb,var(--quota-color) 18%,var(--color-border));
+  border: 1px solid color-mix(in srgb,var(--quota-color) var(--tint-border-soft),var(--color-border));
   border-radius: var(--radius-control);
-  background: color-mix(in srgb,var(--quota-color) 4%,transparent);
+  background: color-mix(in srgb,var(--quota-color) var(--tint-faint),transparent);
 }
 .warp-quota-facts span {
   display: block;
@@ -1785,15 +1785,15 @@
   gap: 8px;
   align-items: start;
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--color-warn) 45%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-warn) var(--tint-border), var(--color-border));
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--color-warn) 8%, transparent);
+  background: color-mix(in srgb, var(--color-warn) var(--tint-subtle), transparent);
   font-size: var(--text-xs);
   line-height: 1.4;
 }
 .quota-notice.wait {
   border-color: var(--color-border);
-  background: color-mix(in srgb, var(--color-bg) 40%, transparent);
+  background: var(--color-surface-inset);
 }
 .quota-notice__mark {
   display: inline-flex;

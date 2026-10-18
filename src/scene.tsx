@@ -21,7 +21,6 @@ const MAX_STAR_DENSITY = STAR_DENSITY_MULTIPLIERS.length - 1;
 const camera = { yaw: -0.6, pitch: 0.18, vyaw: 0, vpitch: 0, dragging: false, lastInput: 0, version: 0 };
 const AUTO_YAW = 0.07;
 const DRAG = 0.0085;
-const AQUA = "#58d9cf";
 let clock = 0;
 let lastStep = -1;
 
@@ -70,13 +69,44 @@ function channel(hex: string, index: number) { return parseInt(hex.slice(1 + ind
 function mixHex(from: string, to: string, t: number) {
   return `#${[0, 1, 2].map(i => Math.round(channel(from, i) + (channel(to, i) - channel(from, i)) * t).toString(16).padStart(2, "0")).join("")}`;
 }
-// Computed styles come back as "rgb(r, g, b)"; the mixers below index into hex
-// digits, so anything read off the DOM has to be normalized first.
-function toHex(color: string) {
-  if (color.startsWith("#")) return color;
-  const parts = color.match(/\d+(\.\d+)?/g);
-  if (!parts || parts.length < 3) return "#7de3c8";
-  return `#${parts.slice(0, 3).map(part => Math.round(Number(part)).toString(16).padStart(2, "0")).join("")}`;
+// The mixers below index into hex digits, but computed styles arrive in any CSS colour syntax
+// (rgb(), color(srgb …) from color-mix()). Painting one pixel normalizes all of them.
+let probeContext: CanvasRenderingContext2D | null | undefined;
+function toHex(color: string, fallback: string) {
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+  probeContext ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  if (!probeContext || !color) return fallback;
+  probeContext.clearRect(0, 0, 1, 1);
+  probeContext.fillStyle = fallback;
+  probeContext.fillStyle = color;
+  probeContext.fillRect(0, 0, 1, 1);
+  const [r, g, b] = probeContext.getImageData(0, 0, 1, 1).data;
+  return `#${[r, g, b].map(channel => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// Scene colours come from the --color-scene-* tokens so a theme restyles the canvas too. The
+// fallbacks only paint if the stylesheet has not loaded.
+const sceneTokens = {
+  star: ["--color-scene-star", "#ecf2ef"],
+  starWarm: ["--color-scene-star-warm", "#ffe3c2"],
+  starCool: ["--color-scene-star-cool", "#58d9cf"],
+  core: ["--color-scene-core", "#121b1a"],
+  coreShade: ["--color-scene-core-shade", "#0e1716"],
+  coreDark: ["--color-scene-core-dark", "#0a1312"],
+  coreDeep: ["--color-scene-core-deep", "#07100f"],
+} as const;
+type ScenePalette = Record<keyof typeof sceneTokens, string>;
+function readScenePalette(): ScenePalette {
+  const probe = document.createElement("span");
+  probe.hidden = true;
+  document.body.append(probe);
+  const palette = {} as ScenePalette;
+  for (const [key, [token, fallback]] of Object.entries(sceneTokens) as Array<[keyof ScenePalette, readonly [string, string]]>) {
+    probe.style.color = `var(${token}, ${fallback})`;
+    palette[key] = toHex(getComputedStyle(probe).color, fallback);
+  }
+  probe.remove();
+  return palette;
 }
 function rgba(hex: string, alpha: number) { return `rgba(${channel(hex, 0)},${channel(hex, 1)},${channel(hex, 2)},${alpha})`; }
 
@@ -124,9 +154,10 @@ function fitCanvas(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
 export function Starfield({ accent, effects }: { accent: string; effects: SceneEffects }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const propsRef = useRef({ accent, effects });
+  const paletteRef = useRef<ScenePalette | null>(null);
   const dirtyRef = useRef(true);
   const reduced = useReducedMotionRef();
-  useEffect(() => { propsRef.current = { accent, effects }; dirtyRef.current = true; }, [accent, effects]);
+  useEffect(() => { propsRef.current = { accent, effects }; paletteRef.current = readScenePalette(); dirtyRef.current = true; }, [accent, effects]);
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
@@ -169,6 +200,7 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
       drawnClock = clock;
       dirtyRef.current = false;
       const { accent, effects } = propsRef.current;
+      const palette = paletteRef.current ??= readScenePalette();
       ctx.clearRect(0, 0, w, h);
       const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
       const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
@@ -188,8 +220,8 @@ export function Starfield({ accent, effects }: { accent: string; effects: SceneE
         let alpha = star.base;
         if (effects.twinkle && animate) alpha *= 0.68 + 0.32 * Math.sin(clock * star.speed + star.phase);
         const color = effects.twinkle
-          ? star.tint < 0.1 ? accent : star.tint < 0.18 ? AQUA : star.tint < 0.28 ? "#ffe3c2" : "#e2ece7"
-          : "#dfe9e4";
+          ? star.tint < 0.1 ? accent : star.tint < 0.18 ? palette.starCool : star.tint < 0.28 ? palette.starWarm : palette.star
+          : palette.star;
         ctx.fillStyle = rgba(color, Math.min(1, alpha));
         const size = star.size;
         if (size < 1.2) ctx.fillRect(sx, syp, size, size);
@@ -249,18 +281,19 @@ export function TesseractCore({
       t = 0,
       last = 0,
       dirty = true,
-      inherited = "#7de3c8";
+      inherited: string = sceneTokens.starCool[1],
+      palette = readScenePalette();
     const resize = () => {
       ({ w, h } = fitCanvas(canvas, ctx));
-      const color = getComputedStyle(canvas).color;
-      if (color) inherited = toHex(color);
+      inherited = toHex(getComputedStyle(canvas).color, inherited);
+      palette = readScenePalette();
       dirty = true;
       // Paint immediately rather than waiting on a frame, so the glyph is never
       // blank on mount or in tabs where rAF is throttled.
       draw();
     };
     const draw = () => {
-      const accent = toHex(accentRef.current ?? inherited);
+      const accent = toHex(accentRef.current ?? inherited, inherited);
       ctx.clearRect(0, 0, w, h);
       const midX = w / 2,
         midY = h / 2,
@@ -297,7 +330,7 @@ export function TesseractCore({
       for (const [a, b] of TESSERACT_EDGES) {
         const near = (points[a].w + points[b].w) / 2;
         const front = (points[a].screen[2] + points[b].screen[2]) / 2 >= 0;
-        ctx.strokeStyle = rgba(mixHex(AQUA, accent, (near + 1) / 2),
+        ctx.strokeStyle = rgba(mixHex(palette.starCool, accent, (near + 1) / 2),
           (0.32 + 0.5 * (near + 1) / 2) * (front ? 1 : 0.5));
         ctx.beginPath();
         ctx.moveTo(points[a].screen[0], points[a].screen[1]);
@@ -381,9 +414,12 @@ export function headroomOrbitRate(percent: number | null): number {
 export function HeadroomOrrery({ accent, effects, providerColors, headroom, interactive = true }: { accent: string; effects: SceneEffects; providerColors: ProviderColors; headroom: ProviderHeadroom[]; interactive?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const propsRef = useRef({ accent, effects, providerColors, headroom });
+  const paletteRef = useRef<ScenePalette | null>(null);
   const dirtyRef = useRef(true);
   const reduced = useReducedMotionRef();
   useEffect(() => { propsRef.current = { accent, effects, providerColors, headroom }; dirtyRef.current = true; }, [accent, effects, providerColors, headroom]);
+  // Re-read the scene tokens only when the accent changes; headroom updates arrive on every poll.
+  useEffect(() => { paletteRef.current = readScenePalette(); dirtyRef.current = true; }, [accent]);
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
@@ -401,6 +437,7 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
 
     const draw = (animate: boolean) => {
       const { accent, effects, providerColors, headroom } = propsRef.current;
+      const palette = paletteRef.current ??= readScenePalette();
       ctx.clearRect(0, 0, w, h);
       const midX = w / 2, midY = h / 2;
       const D = 3.4, sphereR = Math.min(w, h) * 0.163;
@@ -488,10 +525,10 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
       drawDots(backDots);
 
       const shade = ctx.createRadialGradient(midX - sphereR * 0.3, midY - sphereR * 0.4, 0, midX - sphereR * 0.3, midY - sphereR * 0.4, sphereR * 1.9);
-      shade.addColorStop(0, mixHex("#101b16", accent, 0.42));
-      shade.addColorStop(0.42, "#101916");
-      shade.addColorStop(0.75, "#0c130b");
-      shade.addColorStop(1, "#0a1109");
+      shade.addColorStop(0, mixHex(palette.core, accent, 0.42));
+      shade.addColorStop(0.42, palette.coreShade);
+      shade.addColorStop(0.75, palette.coreDark);
+      shade.addColorStop(1, palette.coreDeep);
       ctx.fillStyle = shade;
       ctx.beginPath(); ctx.arc(midX, midY, sphereR, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = rgba(accent, 0.2);
@@ -540,7 +577,7 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
         for (const [a, b] of TESSERACT_EDGES) {
           const near = (points[a].w + points[b].w) / 2;
           const front = (points[a].screen[2] + points[b].screen[2]) / 2 >= 0;
-          ctx.strokeStyle = rgba(mixHex(AQUA, accent, (near + 1) / 2),
+          ctx.strokeStyle = rgba(mixHex(palette.starCool, accent, (near + 1) / 2),
             (0.24 + 0.38 * (near + 1) / 2) * (front ? 1 : 0.5));
           ctx.beginPath();
           ctx.moveTo(points[a].screen[0], points[a].screen[1]);

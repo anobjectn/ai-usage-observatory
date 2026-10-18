@@ -159,7 +159,7 @@
   overflow: hidden;
   margin-bottom: 18px;
   background: var(--color-border);
-  box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
+  box-shadow: var(--shadow-inset);
 }
 .composition-bar i {
   height: 100%;
@@ -177,7 +177,7 @@
   background: color-mix(in srgb,var(--color-surface) 76%,transparent);
 }
 .composition-group:nth-child(2) {
-  background: color-mix(in srgb,var(--color-series-3) 3%,var(--color-surface));
+  background: color-mix(in srgb,var(--color-series-3) var(--tint-faint),var(--color-surface));
 }
 .composition-group header {
   min-height: 70px;
@@ -187,10 +187,10 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  background: linear-gradient(135deg,color-mix(in srgb,var(--color-accent) 5%,transparent),transparent 64%);
+  background: linear-gradient(135deg,color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent),transparent 64%);
 }
 .composition-group:nth-child(2) header {
-  background: linear-gradient(135deg,color-mix(in srgb,var(--color-series-3) 6%,transparent),transparent 64%);
+  background: linear-gradient(135deg,color-mix(in srgb,var(--color-series-3) var(--tint-subtle),transparent),transparent 64%);
 }
 .composition-group header>div:first-child {
   display: flex;
