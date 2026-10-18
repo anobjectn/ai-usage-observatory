@@ -118,7 +118,7 @@
   height: 26px;
   padding: var(--space-1-5);
   border: 1px solid var(--color-border-strong);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   color: var(--color-text-subtle);
   transition: transform var(--duration-base) ease,border-color var(--duration-base) ease,color var(--duration-base) ease,background var(--duration-base) ease;
 }
@@ -221,7 +221,7 @@
 }
 .project-viz__legend span:last-child i {
   background: var(--color-highlight);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
 }
 .project-chart {
   height: 235px;
@@ -283,7 +283,7 @@
 .project-model-list span i {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   flex: 0 0 auto;
 }
 .project-model-list b {
@@ -770,7 +770,7 @@
 .model-sessions-card__head strong i {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   flex: 0 0 auto;
 }
 

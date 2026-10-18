@@ -20,7 +20,7 @@
   width: 6px;
   height: 6px;
   background: var(--color-accent);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   box-shadow: 0 0 8px var(--color-accent);
 }
 
@@ -97,7 +97,7 @@
 .headroom-orrery__legend i {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   box-shadow: 0 0 7px currentColor;
 }
 .headroom-orrery__legend b {
@@ -177,7 +177,7 @@
   height: 80px;
   right: -45px;
   top: -45px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--color-accent);
   filter: blur(45px);
   opacity: .08;
@@ -502,7 +502,7 @@
   height: 70px;
   right: -45px;
   bottom: -45px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--quota-color);
   filter: blur(32px);
   opacity: .08;
@@ -663,7 +663,7 @@
   top: .45em;
   width: 4px;
   height: 4px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--quota-color);
   box-shadow: 0 0 6px color-mix(in srgb,var(--quota-color) var(--tint-vivid),transparent);
 }
@@ -956,7 +956,7 @@
 .provider-capacity__legend i {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
 }
 
 .provider-capacity__legend span { color: var(--color-text-muted); }
@@ -992,7 +992,7 @@
 .provider-capacity__row>header span i {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--provider-color);
   box-shadow: 0 0 7px color-mix(in srgb,var(--provider-color) var(--tint-vivid),transparent);
 }
@@ -1256,7 +1256,7 @@
   flex: 0 0 auto;
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   box-shadow: 0 0 7px color-mix(in srgb,currentColor 35%,transparent);
 }
 
@@ -1814,7 +1814,7 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   font: 700 var(--text-2xs) var(--font-label);
   color: var(--color-bg);
   background: var(--color-warn);

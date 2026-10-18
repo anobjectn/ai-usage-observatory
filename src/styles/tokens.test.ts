@@ -50,7 +50,7 @@ describe("design tokens", () => {
       const raw = [
         ...(text.match(/font-size\s*:[^;]*\b\d+(?:\.\d+)?(?:px|r?em)\b/g) ?? []),
         ...(text.match(/font\s*:[^;/]*?\b\d+(?:\.\d+)?(?:px|r?em)\b/g) ?? []),
-        ...(text.match(/border(?:-[a-z]+)*-radius\s*:[^;]*\b\d+(?:\.\d+)?(?:px|r?em)\b/g) ?? []),
+        ...(text.match(/border(?:-[a-z]+)*-radius\s*:[^;]*\b\d+(?:\.\d+)?(?:px|r?em|%)/g) ?? []),
       ];
       expect({ file, raw }).toEqual({ file, raw: [] });
     }

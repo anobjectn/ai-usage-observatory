@@ -569,7 +569,7 @@
 .finding__meta i,.outlier-list__id i,.measure-table i {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   flex: 0 0 auto;
 }
 .finding__open {
@@ -1016,7 +1016,7 @@
 .cache-provider__head b i {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
 }
 .cache-provider__head span {
   color: var(--color-text-subtle);

@@ -57,7 +57,7 @@
   position: absolute;
   width: 9px;
   height: 9px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   transform: translate(-50%,-50%);
   border: 2px solid var(--color-surface);
   box-sizing: content-box;
@@ -239,7 +239,7 @@
 .composition-row i {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   box-shadow: 0 0 7px color-mix(in srgb,currentColor 45%,transparent);
 }
 .composition-row span {

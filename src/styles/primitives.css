@@ -153,7 +153,7 @@ select {
 .method-chip i {
   width: 5px;
   height: 5px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--color-accent);
 }
 
@@ -455,7 +455,7 @@ td>small {
   width: 70px;
   height: 70px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   display: grid;
   place-items: center;
   color: var(--color-accent);
@@ -966,7 +966,7 @@ td>small {
 .chart-tooltip i {
   width: 5px;
   height: 5px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
 }
 .chart-tooltip b {
   margin-left: auto;
@@ -1012,7 +1012,7 @@ td>small {
   height: 16px;
   padding: 0;
   border: 1px solid var(--color-border);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: transparent;
   color: var(--color-text-subtle);
   display: grid;
@@ -2142,7 +2142,7 @@ td>small {
   height: 84px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: conic-gradient(var(--quota-color) var(--fill),var(--color-border) 0);
   position: relative;
   box-shadow: 0 0 24px color-mix(in srgb,var(--quota-color) var(--tint-soft),transparent);
@@ -2153,7 +2153,7 @@ td>small {
   position: absolute;
   inset: 6px;
   background: var(--color-surface);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
 }
 
 .quota-dial div {

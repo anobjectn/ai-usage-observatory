@@ -44,7 +44,7 @@
   width: 26px;
   height: 26px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: transparent;
   color: var(--color-text-subtle);
   display: grid;
@@ -319,7 +319,7 @@
 .session-mix__dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
 }
 
 .session-mix__bar {
@@ -1205,7 +1205,7 @@
 .session-reset-divider__provider i {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   box-shadow: 0 0 7px color-mix(in srgb,currentColor 35%,transparent);
 }
 

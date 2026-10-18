@@ -49,7 +49,7 @@ aside {
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb,var(--color-accent) var(--tint-border),var(--color-border));
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   color: var(--color-accent);
   background: radial-gradient(circle,color-mix(in srgb,var(--color-accent) var(--tint-medium),transparent),transparent);
   box-shadow: 0 0 25px color-mix(in srgb,var(--color-accent) var(--tint-soft),transparent);
@@ -216,7 +216,7 @@ nav button i {
   width: 4px;
   height: 4px;
   background: var(--color-accent);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   flex: 0 0 auto;
   opacity: 1;
   transition: opacity var(--duration-speedy) ease;
@@ -259,7 +259,7 @@ nav button i {
 .status-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   display: inline-block;
   flex: 0 0 auto;
   background: var(--color-text-subtle);
@@ -469,7 +469,7 @@ main {
 .agent-filter__provider-marks i {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   box-shadow: 0 0 6px color-mix(in srgb,currentColor 42%,transparent);
 }
 
@@ -1185,7 +1185,7 @@ main {
   width: 32px;
   height: 32px;
   border: 2px solid transparent;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -1382,7 +1382,7 @@ main {
   left: 2px;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--color-text-muted);
   transition: transform var(--duration-base),background var(--duration-base);
 }
@@ -1423,7 +1423,7 @@ main {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--color-accent);
   box-shadow: 0 0 8px color-mix(in srgb,var(--color-accent) var(--tint-vivid),transparent);
   cursor: pointer;
@@ -1432,7 +1432,7 @@ main {
   width: 14px;
   height: 14px;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--color-accent);
   box-shadow: 0 0 8px color-mix(in srgb,var(--color-accent) var(--tint-vivid),transparent);
   cursor: pointer;
@@ -2267,7 +2267,7 @@ main {
   width: .48em;
   height: .48em;
   margin-right: .5em;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   vertical-align: .06em;
   background: var(--color-up);
   box-shadow: 0 0 7px color-mix(in srgb,var(--color-up) var(--tint-vivid),transparent);
@@ -2726,7 +2726,7 @@ main {
   width: 6px;
   height: 6px;
   margin-left: var(--space-1);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--color-accent);
   vertical-align: middle;
 }
@@ -2798,7 +2798,7 @@ main {
   width: 6px;
   height: 6px;
   margin-left: auto;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--color-accent);
   flex: 0 0 auto;
 }

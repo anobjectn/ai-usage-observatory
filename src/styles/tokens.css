@@ -209,13 +209,14 @@
   --space-7: calc(var(--space-unit) * 7);
   --space-8: calc(var(--space-unit) * 8);
   --space-10: calc(var(--space-unit) * 10);
-  /* Radius roles. Marks are the rounded tops of small bars and ticks. */
+  /* Radius roles. Marks are the rounded tops of small bars and ticks. Circle rounds a square box into a dot or ring. */
   --radius-mark: 2px;
   --radius-chip: 4px;
   --radius-control: 8px;
   --radius-card: 12px;
   --radius-panel: 16px;
   --radius-pill: 999px;
+  --radius-circle: 50%;
   /* Elevation, by size: sm raised controls, md tooltips, lg menus and trays, xl floating cards. */
   --shadow-sm: 0 2px 8px color-mix(in srgb, var(--color-shadow) 25%, transparent);
   --shadow-md: 0 8px 22px color-mix(in srgb, var(--color-shadow) 35%, transparent);
