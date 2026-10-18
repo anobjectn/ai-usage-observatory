@@ -529,6 +529,19 @@
 /* Fixed status-chip chrome: this label must not expand the quota-card header at 250% data scale. */
 .quota-card__head span {
   color: var(--quota-color);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.quota-card__plan {
+  padding: var(--space-0-5) var(--space-1-5);
+  border: 1px solid color-mix(in srgb,var(--quota-color) var(--tint-border),var(--color-border));
+  border-radius: var(--radius-chip);
+  background: color-mix(in srgb,var(--quota-color) var(--tint-faint),transparent);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
 }
 .quota-card__head i {
   font-style: normal;

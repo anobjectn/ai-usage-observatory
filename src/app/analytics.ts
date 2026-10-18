@@ -2,6 +2,7 @@ import { dateKeyInTimeZone, systemTimeZone } from "../reporting-time";
 import { providerFromAgent, type ActivityProvider } from "../provider";
 import { type ModelRowInput } from "../token-types";
 import { quotaProviderNotice, type QuotaNotice } from "../quota-notice";
+import { quotaPlanLabel } from "../quota-reaches";
 import type {
   DashboardData,
   EffortIndexStatus,
@@ -15,6 +16,7 @@ import type {
   QuotaHistory,
   QuotaReach,
   QuotaProvider,
+  WindowQuotaSnapshot,
 } from "../types";
 import { aggregateModels } from "../model-aggregation";
 import { type Metric, type ProjectSummary } from "./preferences";
@@ -721,7 +723,15 @@ type QuotaCard = {
   /** Head label: "current", "unavailable", or a stale state with the age of
    * the reading still on screen ("stale · 18m"). */
   stateLabel: string;
+  /** Subscription tier the provider reports on its current snapshot, e.g. "Max 5x". */
+  planLabel: string | null;
 };
+
+/** The specific plan id wins; Anthropic's generic subscription family is the fallback. */
+function snapshotPlanLabel(snapshot: WindowQuotaSnapshot | null): string | null {
+  const plan = snapshot?.extra?.planType?.trim() || snapshot?.extra?.subscriptionType?.trim();
+  return plan ? quotaPlanLabel(plan) : null;
+}
 
 function quotaBucket(
   id: string,
@@ -910,6 +920,7 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       usedResetCount: 0,
       usedResets: [],
       notice: quotaProviderNotice(anthropic),
+      planLabel: snapshotPlanLabel(anthropicSnapshot),
     },
     {
       provider: "codex",
@@ -921,6 +932,7 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       usedResetCount: quotas.history?.codexBankedResets.usedCount ?? 0,
       usedResets: quotas.history?.codexBankedResets.used ?? [],
       notice: quotaProviderNotice(codex),
+      planLabel: snapshotPlanLabel(codexSnapshot),
     },
     {
       provider: "warp",
@@ -932,6 +944,7 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       usedResetCount: 0,
       usedResets: [],
       notice: quotaProviderNotice(warp),
+      planLabel: null,
     },
   ];
 }

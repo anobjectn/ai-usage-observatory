@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
+import { quotaCards } from "./app/analytics";
 import {
+  quotaPlanLabel,
   reachClockSummary,
   reachHourBuckets,
   reachTierBuckets,
   reachWeekBuckets,
 } from "./quota-reaches";
+import type { DashboardData, QuotaProvider, WindowQuotaSnapshot } from "./types";
 
 const TZ = "America/New_York";
 
@@ -105,4 +108,42 @@ test("reachTierBuckets keeps tier provenance and identifies missing history", ()
     { key: "configured\0max-20\0Claude Max 20x", label: "Claude Max 20x", source: "configured", count: 1 },
     { key: "unknown", label: "Unknown", source: "unknown", count: 1 },
   ]);
+});
+
+test("quotaPlanLabel spells out provider plan ids", () => {
+  expect(quotaPlanLabel("max_5x")).toBe("Max 5x");
+  expect(quotaPlanLabel("prolite")).toBe("Pro Lite");
+  expect(quotaPlanLabel("plus")).toBe("Plus");
+  expect(quotaPlanLabel("Claude Max 20x")).toBe("Claude Max 20x");
+});
+
+test("quotaCards shows the tier reported on each window snapshot", () => {
+  const report = (provider: QuotaProvider["provider"], extra: WindowQuotaSnapshot["extra"]): QuotaProvider => ({
+    provider,
+    status: "ok",
+    source: "fixture",
+    snapshot: { kind: "window", fiveHour: null, weekly: null, extra },
+  });
+  const cards = quotaCards({
+    available: true,
+    collectedAt: new Date(0).toISOString(),
+    usage: {
+      generatedAt: 0,
+      providers: [
+        report("anthropic", { planType: "max_5x", subscriptionType: "max" }),
+        report("codex", { planType: "prolite" }),
+      ],
+    },
+  } as DashboardData["quotas"]);
+  expect(cards.map((card) => [card.provider, card.planLabel])).toEqual([
+    ["anthropic", "Max 5x"],
+    ["codex", "Pro Lite"],
+    ["warp", null],
+  ]);
+  const generic = quotaCards({
+    available: true,
+    collectedAt: new Date(0).toISOString(),
+    usage: { generatedAt: 0, providers: [report("anthropic", { subscriptionType: "max" })] },
+  } as DashboardData["quotas"]);
+  expect(generic[0]!.planLabel).toBe("Max");
 });

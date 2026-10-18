@@ -18,9 +18,13 @@ export type ReachTierBucket = {
   count: number;
 };
 
+/** Codex reports some compound plan ids without a separator (its `ProLite`, `ProMax` variants). */
+const joinedPlanIds: Record<string, string> = { prolite: "Pro Lite", promax: "Pro Max" };
+
 export function quotaPlanLabel(label: string | null): string {
   if (!label) return "Unknown";
   if (label !== label.toLowerCase()) return label;
+  if (joinedPlanIds[label]) return joinedPlanIds[label];
   return label
     .split(/[-_\s]+/)
     .filter(Boolean)

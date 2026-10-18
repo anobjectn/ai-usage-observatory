@@ -433,7 +433,14 @@ export function QuotaDials({
               key={card.provider}
             >
               <div className="quota-card__head">
-                <span>{card.providerLabel}</span>
+                <span>
+                  {card.providerLabel}
+                  {card.planLabel && (
+                    <b className="quota-card__plan" title="Subscription tier reported by the provider">
+                      {card.planLabel}
+                    </b>
+                  )}
+                </span>
                 <i>{stateLabel}</i>
               </div>
               <div className="quota-buckets">

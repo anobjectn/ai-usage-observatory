@@ -346,7 +346,14 @@ export type WindowQuotaSnapshot = {
   modelWindows?: Record<string, QuotaWindow>;
   usageCredits?: UsageCredits | null;
   codexCredits?: CodexCredits | null;
-  extra?: { bankedResetCreditsAvailable?: number; rawLimits?: unknown[] | null };
+  extra?: {
+    bankedResetCreditsAvailable?: number;
+    rawLimits?: unknown[] | null;
+    /** Provider plan id, e.g. Anthropic `max_5x` or Codex `prolite`. */
+    planType?: string | null;
+    /** Anthropic's generic subscription family (`max`), used when `planType` is absent. */
+    subscriptionType?: string | null;
+  };
 };
 export type QuotaManualEntry = {
   provider: string;
