@@ -35,22 +35,22 @@
   padding: 0;
   font: var(--text-2xs) var(--font-label);
   letter-spacing: .08em;
-  color: var(--dim);
+  color: var(--color-text-subtle);
   cursor: pointer;
 }
 .slope-chart__sort span {
   font-size: 11px;
-  color: var(--line-bright);
+  color: var(--color-border-strong);
 }
 .slope-chart__sort[data-role=secondary] span {
   font-size: var(--text-2xs);
-  color: var(--dim);
+  color: var(--color-text-subtle);
 }
 .slope-chart__sort:hover,.slope-chart__sort:focus-visible,.slope-chart__sort[data-role=primary] {
-  color: var(--accent);
+  color: var(--color-accent);
 }
 .slope-chart__sort[data-role=primary] span {
-  color: var(--accent);
+  color: var(--color-accent);
 }
 
 .slope-chart__dot {
@@ -59,7 +59,7 @@
   height: 9px;
   border-radius: 50%;
   transform: translate(-50%,-50%);
-  border: 2px solid var(--surface);
+  border: 2px solid var(--color-surface);
   box-sizing: content-box;
   cursor: default;
 }
@@ -88,7 +88,7 @@
 
 .slope-chart__name span {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--color-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -100,7 +100,7 @@
 
 .slope-chart__name b {
   font: var(--text-2xs) var(--font-label);
-  color: var(--text);
+  color: var(--color-text);
   font-weight: 500;
   text-align: right;
   white-space: nowrap;
@@ -113,17 +113,17 @@
   transform: translateY(-50%);
   padding-left: 6px;
   font: var(--text-2xs) var(--font-label);
-  color: var(--text);
+  color: var(--color-text);
 }
 
 .slope-chart__mid {
   position: absolute;
   transform: translate(-50%,-160%);
   font: var(--text-2xs) var(--font-label);
-  color: var(--text);
-  background: var(--surface);
+  color: var(--color-text);
+  background: var(--color-surface);
   padding: 1px 5px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-chip);
   pointer-events: none;
   white-space: nowrap;
@@ -132,7 +132,7 @@
 .slope-chart__note {
   margin: 10px 0 0;
   font: var(--text-2xs)/1.6 var(--font-label);
-  color: var(--dim);
+  color: var(--color-text-subtle);
 }
 
 .explorer-main .chart-wrap {
@@ -154,11 +154,11 @@
 .split-grid .composition-bar {
   height: 15px;
   display: flex;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   overflow: hidden;
   margin-bottom: 18px;
-  background: var(--line);
+  background: var(--color-border);
   box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
 }
 .composition-bar i {
@@ -171,23 +171,23 @@
 }
 .composition-group {
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   overflow: hidden;
-  background: color-mix(in srgb,var(--surface) 76%,transparent);
+  background: color-mix(in srgb,var(--color-surface) 76%,transparent);
 }
 .composition-group:nth-child(2) {
-  background: color-mix(in srgb,var(--color-series-3) 3%,var(--surface));
+  background: color-mix(in srgb,var(--color-series-3) 3%,var(--color-surface));
 }
 .composition-group header {
   min-height: 70px;
   padding: 12px 13px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  background: linear-gradient(135deg,color-mix(in srgb,var(--accent) 5%,transparent),transparent 64%);
+  background: linear-gradient(135deg,color-mix(in srgb,var(--color-accent) 5%,transparent),transparent 64%);
 }
 .composition-group:nth-child(2) header {
   background: linear-gradient(135deg,color-mix(in srgb,var(--color-series-3) 6%,transparent),transparent 64%);
@@ -199,13 +199,13 @@
   gap: 5px;
 }
 .composition-group header span {
-  color: var(--dim);
+  color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   letter-spacing: .1em;
   text-transform: uppercase;
 }
 .composition-group header b {
-  color: var(--text);
+  color: var(--color-text);
   font: 11px/1.3 var(--font-label);
 }
 .composition-subtotal {
@@ -216,11 +216,11 @@
   gap: 3px;
 }
 .composition-subtotal strong {
-  color: var(--text);
+  color: var(--color-text);
   font: var(--data-text-strong) var(--font-label);
 }
 .composition-subtotal small {
-  color: var(--dim);
+  color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   white-space: nowrap;
 }
@@ -230,7 +230,7 @@
   align-items: center;
   gap: 7px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--color-border);
   font-size: 11px;
 }
 .composition-row:last-child {
@@ -244,7 +244,7 @@
 }
 .composition-row span {
   overflow: hidden;
-  color: var(--muted);
+  color: var(--color-text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -252,7 +252,7 @@
   font: var(--data-text-secondary) var(--font-label);
 }
 .composition-row small {
-  color: var(--dim);
+  color: var(--color-text-subtle);
   font: var(--data-text-compact) var(--font-label);
   text-align: right;
 }

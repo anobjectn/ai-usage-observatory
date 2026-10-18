@@ -68,9 +68,9 @@ export const friendlyProject = (value: string) =>
     : value.replace(/^-Users-[^-]+-/, "").replaceAll("-", " / ");
 
 export const providerSeries = [
-  { key: "anthropic", label: "Claude", color: "var(--anthropic-color)" },
-  { key: "codex", label: "Codex", color: "var(--openai-color)" },
-  { key: "warp", label: "Warp", color: "var(--warp-color)" },
+  { key: "anthropic", label: "Claude", color: "var(--color-provider-anthropic)" },
+  { key: "codex", label: "Codex", color: "var(--color-provider-openai)" },
+  { key: "warp", label: "Warp", color: "var(--color-provider-warp)" },
 ] as const;
 
 const stackedProviderSeries = [...providerSeries].reverse();
@@ -86,7 +86,7 @@ export function ActivityAxisTick({ x = 0, y = 0, payload, tokens }: ActivityAxis
   const visibleTokens = tokens.filter((item) => item.value > 0);
   const labels = visibleTokens.length
     ? visibleTokens
-    : [{ color: "var(--dim)", value: 0 }];
+    : [{ color: "var(--color-text-subtle)", value: 0 }];
   return (
     <g transform={`translate(${Number(x)} ${Number(y)})`}>
       <text

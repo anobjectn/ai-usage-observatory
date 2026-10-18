@@ -1239,9 +1239,9 @@ export const sessionProviderLabels: Record<ActivityProvider, string> = {
 };
 
 export const sessionProviderColors: Record<ActivityProvider, string> = {
-  anthropic: "var(--anthropic-color)",
-  codex: "var(--openai-color)",
-  warp: "var(--warp-color)",
+  anthropic: "var(--color-provider-anthropic)",
+  codex: "var(--color-provider-openai)",
+  warp: "var(--color-provider-warp)",
 };
 
 export type SessionMixCombo = Combo & { tokens: number; observations: number };
@@ -1280,7 +1280,7 @@ export function sessionProviderMix(
     const created: SessionMixGroup = {
       provider,
       label: provider === "unknown" ? "Unknown provider" : sessionProviderLabels[provider],
-      color: provider === "unknown" ? "var(--line-bright)" : sessionProviderColors[provider],
+      color: provider === "unknown" ? "var(--color-border-strong)" : sessionProviderColors[provider],
       tokens: null,
       combos: [],
       attributed: 0,

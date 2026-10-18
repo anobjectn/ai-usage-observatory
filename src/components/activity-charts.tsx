@@ -1248,8 +1248,8 @@ export function modelSignalColor(baseColor: string, dominant: string | null) {
 }
 
 const quotaMarkerColors = {
-  anthropic: "var(--anthropic-color)",
-  codex: "var(--openai-color)",
+  anthropic: "var(--color-provider-anthropic)",
+  codex: "var(--color-provider-openai)",
 } as const;
 
 export function QuotaMarkerLegend({ markers }: { markers: QuotaMarker[] }) {

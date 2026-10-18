@@ -135,7 +135,7 @@ describe("labels and colour", () => {
   });
 
   test("unknown families stay neutral rather than borrowing an effort hue", () => {
-    expect(comboColor({ family: "unknown", effort: "high" })).toBe("var(--line-bright)");
+    expect(comboColor({ family: "unknown", effort: "high" })).toBe("var(--color-border-strong)");
   });
 });
 

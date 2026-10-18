@@ -1,52 +1,106 @@
-/* Design tokens. Runtime-written properties (accent, provider colours, both text scales) keep these names. */
+/* Design tokens, in three layers:
+   1. Palette: raw named values. Only this file reads them.
+   2. Semantic roles: what every stylesheet and component consumes. A theme overrides roles
+      (or the palette) and the interface follows.
+   3. Scales: type, space, radius, elevation, and motion.
+   Runtime-written properties: --color-accent and --color-provider-* (App.tsx, from the
+   Appearance settings), --type-scale-ui, and --data-text-scale. */
 
 :root {
-  /* Font roles: replace these three values to theme the entire interface. */
-  --sans-font: "Avenir Next", Avenir, sans-serif;
-  --serif-font: "Iowan Old Style", Georgia, serif;
-  --mono-font: "IBM Plex Mono", Menlo, monospace;
-  --font-body: var(--sans-font);
-  --font-heading: var(--sans-font);
-  --font-label: var(--mono-font);
-  --font-weight-regular: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --bg: #07100f;
-  --surface: #0d1715;
-  --surface-2: #111d1a;
-  --surface-3: #17231f;
-  --line: #24322e;
-  --line-bright: #35463f;
-  --text: #ecf2ef;
-  --muted: #91a19b;
-  --dim: #65736e;
-  --accent: #78a8ff;
-  --anthropic-color: #d97757;
-  --openai-color: #eaeaea;
-  --warp-color: #d7b3ff;
-  --aqua: #58d9cf;
-  --orange: #ff9e64;
-  --violet: #d7b3ff;
-  --red: #ff786f;
-  --radius: var(--radius-panel);
-  --shadow: var(--shadow-panel);
-  --data-text-scale: 1.25;
-  --data-text-primary: 15px;
-  --data-text-secondary: 12.5px;
-  --data-text-compact: 11.25px;
-  --data-text-strong: 18.75px;
-  --ease-standard: cubic-bezier(.4,0,.2,1);
-  --ease-decelerate: cubic-bezier(0,0,.2,1);
-  --ease-accelerate: cubic-bezier(.4,0,1,1);
-  --ease-sidebar: cubic-bezier(.22,1,.36,1);
-  --duration-speedy: 140ms;
-  --duration-base: 200ms;
-  --duration-slow: 300ms;
-  --duration-sidebar: 340ms;
-  --link-underline-offset: .3em;
-  /* ---- Foundation tokens (design-system migration). Unused until a consumer is migrated. ---- */
-  /* Interface type: base px × the Appearance "Interface text size" scalar, written by App.tsx.
-     Data text keeps its own --data-text-* tokens and scalar. */
+  color-scheme: dark;
+
+  /* ---- 1. Palette ---- */
+  --palette-ink: #07100f;
+  --palette-ink-1: #0d1715;
+  --palette-ink-2: #111d1a;
+  --palette-ink-3: #17231f;
+  --palette-ink-4: #24322e;
+  --palette-ink-5: #35463f;
+  --palette-ink-6: #65736e;
+  --palette-ink-7: #91a19b;
+  --palette-paper: #ecf2ef;
+  --palette-blue: #78a8ff;
+  --palette-lime: #b7f25c;
+  --palette-aqua: #58d9cf;
+  --palette-green: #7dd8a5;
+  --palette-yellow: #f2d15c;
+  --palette-orange: #ff9e64;
+  --palette-red: #ff786f;
+  --palette-pink: #f08bb4;
+  --palette-violet: #d7b3ff;
+  --palette-clay: #d97757;
+  --palette-silver: #eaeaea;
+  /* Muted secondary hues for model families without a fixed colour. */
+  --palette-sage: #7fb3a5;
+  --palette-lavender: #b39ddb;
+  --palette-sand: #e6b86a;
+  --palette-periwinkle: #8fa9d9;
+  --palette-mauve: #cf8fb1;
+  --palette-fern: #86c58a;
+
+  /* ---- 2. Semantic roles ---- */
+  /* Surfaces, from the page canvas up to floating layers. */
+  --color-bg: var(--palette-ink);
+  --color-surface: var(--palette-ink-1);
+  --color-surface-raised: var(--palette-ink-2);
+  --color-surface-overlay: var(--palette-ink-3);
+  /* Lines. */
+  --color-border: var(--palette-ink-4);
+  --color-border-strong: var(--palette-ink-5);
+  /* Text. */
+  --color-text: var(--palette-paper);
+  --color-text-muted: var(--palette-ink-7);
+  --color-text-subtle: var(--palette-ink-6);
+  /* Interaction. The user's accent is written at runtime; interaction state only. */
+  --color-accent: var(--palette-blue);
+  /* Fixed secondary emphasis that does not follow the accent: quota context, in-list links. */
+  --color-highlight: var(--palette-aqua);
+  /* Status: stable across any user accent. */
+  --color-success: var(--palette-green);
+  --color-up: var(--color-success);
+  --color-down: var(--palette-pink);
+  --color-warn: var(--palette-yellow);
+  --color-danger: var(--palette-red);
+  --color-info: var(--palette-aqua);
+  /* Credits and budgets (Warp credits, Fable credit), and suspended quota windows. */
+  --color-credit: var(--palette-violet);
+  --color-paused: var(--palette-violet);
+  /* Providers: user-adjustable, written at runtime. */
+  --color-provider-anthropic: var(--palette-clay);
+  --color-provider-openai: var(--palette-silver);
+  --color-provider-warp: var(--palette-violet);
+  /* Effort levels: decoupled from the accent. */
+  --color-effort-low: var(--palette-aqua);
+  --color-effort-medium: var(--palette-blue);
+  --color-effort-high: var(--palette-orange);
+  --color-effort-xhigh: var(--palette-violet);
+  --color-effort-max: var(--palette-red);
+  --color-effort-unknown: var(--color-border-strong);
+  /* Chart series: the categorical order used by every chart. */
+  --color-series-1: var(--palette-lime);
+  --color-series-2: var(--palette-aqua);
+  --color-series-3: var(--palette-orange);
+  --color-series-4: var(--palette-violet);
+  --color-series-5: var(--palette-blue);
+  --color-series-6: var(--palette-yellow);
+  /* Families without a fixed colour draw from this stable secondary set (see combo.ts). */
+  --color-family-fallback-1: var(--palette-sage);
+  --color-family-fallback-2: var(--palette-lavender);
+  --color-family-fallback-3: var(--palette-sand);
+  --color-family-fallback-4: var(--palette-periwinkle);
+  --color-family-fallback-5: var(--palette-mauve);
+  --color-family-fallback-6: var(--palette-fern);
+
+  /* ---- 3. Scales ---- */
+  /* Font families, and the roles that consume them. Replace the families to retheme type. */
+  --font-sans: "Avenir Next", Avenir, sans-serif;
+  --font-serif: "Iowan Old Style", Georgia, serif;
+  --font-mono: "IBM Plex Mono", Menlo, monospace;
+  --font-body: var(--font-sans);
+  --font-heading: var(--font-sans);
+  --font-display: var(--font-serif);
+  --font-label: var(--font-mono);
+  /* Interface type: base px × the Appearance "Interface text size" scalar, written by App.tsx. */
   --type-scale-ui: 1;
   --text-2xs: calc(11px * var(--type-scale-ui));
   --text-xs: calc(12px * var(--type-scale-ui));
@@ -57,6 +111,12 @@
   --text-2xl: calc(28px * var(--type-scale-ui));
   --text-3xl: calc(36px * var(--type-scale-ui));
   --text-4xl: calc(44px * var(--type-scale-ui));
+  /* Data type: its own Appearance "Data text size" scalar. */
+  --data-text-scale: 1.25;
+  --data-text-primary: calc(12px * var(--data-text-scale));
+  --data-text-secondary: calc(10px * var(--data-text-scale));
+  --data-text-compact: calc(9px * var(--data-text-scale));
+  --data-text-strong: calc(15px * var(--data-text-scale));
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
@@ -66,6 +126,7 @@
   --leading-normal: 1.55;
   --tracking-label: .06em;
   --tracking-tight: -.025em;
+  --link-underline-offset: .3em;
   /* Space: 4px grid. */
   --space-1: 4px;
   --space-2: 8px;
@@ -80,39 +141,21 @@
   --radius-card: 12px;
   --radius-panel: 16px;
   --radius-pill: 999px;
-  /* Elevation roles. Panel keeps today's value until step 14 profiles it. */
+  /* Elevation roles. */
   --shadow-panel: 0 24px 80px rgba(0,0,0,.28);
   --shadow-floating: 0 20px 48px rgba(0,0,0,.58);
   --shadow-modal: 0 35px 100px rgba(0,0,0,.6);
-  /* Status colours: stable across any user accent. */
-  --color-up: #7dd8a5;
-  --color-down: #f08bb4;
-  --color-warn: #f2d15c;
-  --color-danger: #ff786f;
-  --color-info: #78a8ff;
-  /* Effort levels: today's hues, decoupled from the accent (medium was var(--accent)). */
-  --color-effort-low: #58d9cf;
-  --color-effort-medium: #78a8ff;
-  --color-effort-high: #ff9e64;
-  --color-effort-xhigh: #d7b3ff;
-  --color-effort-max: #ff786f;
-  --color-effort-unknown: #35463f;
-  /* Chart series: the App.tsx palette, in order. */
-  --color-series-1: #b7f25c;
-  --color-series-2: #58d9cf;
-  --color-series-3: #ff9e64;
-  --color-series-4: #d7b3ff;
-  --color-series-5: #78a8ff;
-  --color-series-6: #f2d15c;
-  /* Families without a fixed colour draw from this stable secondary set (see combo.ts). */
-  --color-family-fallback-1: #7fb3a5;
-  --color-family-fallback-2: #b39ddb;
-  --color-family-fallback-3: #e6b86a;
-  --color-family-fallback-4: #8fa9d9;
-  --color-family-fallback-5: #cf8fb1;
-  --color-family-fallback-6: #86c58a;
-  color-scheme: dark;
+  /* Motion. */
+  --ease-standard: cubic-bezier(.4,0,.2,1);
+  --ease-decelerate: cubic-bezier(0,0,.2,1);
+  --ease-accelerate: cubic-bezier(.4,0,1,1);
+  --ease-sidebar: cubic-bezier(.22,1,.36,1);
+  --duration-speedy: 140ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --duration-sidebar: 340ms;
+
   font-family: var(--font-body);
-  background: var(--bg);
-  color: var(--text);
+  background: var(--color-bg);
+  color: var(--color-text);
 }

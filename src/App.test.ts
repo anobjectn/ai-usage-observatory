@@ -662,7 +662,7 @@ test("every subtotal is a model \u00d7 effort pill, and the remainder is labelle
   const html = renderToStaticMarkup(
     createElement(SessionMixGroupBreakdown, {
       label: "Anthropic",
-      color: "var(--anthropic-color)",
+      color: "var(--color-provider-anthropic)",
       tokens: 1_000,
       combos: [
         { family: "claude-opus-5", effort: "high", tokens: 640, observations: 3 },

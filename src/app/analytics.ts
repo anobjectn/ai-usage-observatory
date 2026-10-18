@@ -601,7 +601,7 @@ export function modelDistribution(rows: MetricRow[], metric: Metric) {
       provider: values.provider,
       color:
         providerSeries.find((series) => series.key === values.provider)?.color ??
-        "var(--aqua)",
+        "var(--color-highlight)",
     }))
     .sort((a, b) => b.value - a.value);
 }

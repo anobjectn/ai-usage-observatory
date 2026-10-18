@@ -75,7 +75,7 @@ export type DataFacets = {
 export const compactTokens = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 export const percent = (value: number | null, digits = 0) => (value === null ? "N/A" : `${(value * 100).toFixed(digits)}%`);
 export const providerLabel = (provider: Provider) => (provider === "anthropic" ? "Claude" : "Codex");
-export const providerColor = (provider: Provider) => (provider === "anthropic" ? "var(--anthropic-color)" : "var(--openai-color)");
+export const providerColor = (provider: Provider) => (provider === "anthropic" ? "var(--color-provider-anthropic)" : "var(--color-provider-openai)");
 export const shortDate = (value: string | null) =>
   value ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "no timestamp";
 /** Deep link to the Sessions view with the row expanded, matching `sessionHref` in App.tsx. */

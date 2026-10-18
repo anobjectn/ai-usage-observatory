@@ -53,8 +53,8 @@ export function comboKind(rawModel: unknown): ComboKind {
 }
 
 const fallbackPalette = [1, 2, 3, 4, 5, 6].map((index) => `var(--color-family-fallback-${index})`);
-const neutral = "var(--line-bright)";
-const warpColor = "var(--warp-color)";
+const neutral = "var(--color-border-strong)";
+const warpColor = "var(--color-provider-warp)";
 
 function stablePaletteColor(value: string) {
   let hash = 0;

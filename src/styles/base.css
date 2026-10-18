@@ -10,7 +10,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--bg);
+  background: var(--color-bg);
 }
 button, input, select, textarea {
   font: inherit;

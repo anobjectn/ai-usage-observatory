@@ -389,8 +389,8 @@ export function Sources({
                   <AreaChart data={warpDays} margin={{ top: 12, right: 12, left: -18, bottom: 0 }}>
                     <defs>
                       <linearGradient id="warpCreditsArea" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--warp-color)" stopOpacity={0.6} />
-                        <stop offset="100%" stopColor="var(--warp-color)" stopOpacity={0.08} />
+                        <stop offset="0%" stopColor="var(--color-provider-warp)" stopOpacity={0.6} />
+                        <stop offset="100%" stopColor="var(--color-provider-warp)" stopOpacity={0.08} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid stroke="#26312e" strokeDasharray="2 5" vertical={false} />
@@ -402,7 +402,7 @@ export function Sources({
                       labelFormatter={(value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" })}
                       formatter={(value) => [`${formatWarpCredits(Number(value))} credits`, "Warp"]}
                     />
-                    <Area type="monotone" dataKey="credits" name="Warp credits" stroke="var(--warp-color)" strokeWidth={2} fill="url(#warpCreditsArea)" activeDot={{ r: 4, fill: "#07100f", stroke: "var(--warp-color)", strokeWidth: 2 }} />
+                    <Area type="monotone" dataKey="credits" name="Warp credits" stroke="var(--color-provider-warp)" strokeWidth={2} fill="url(#warpCreditsArea)" activeDot={{ r: 4, fill: "#07100f", stroke: "var(--color-provider-warp)", strokeWidth: 2 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>

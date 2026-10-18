@@ -689,10 +689,10 @@ function ProjectDetails({
                             providerSeries.find(
                               (provider) =>
                                 provider.key === providerActivity.provider,
-                            )?.color ?? "var(--accent)",
+                            )?.color ?? "var(--color-accent)",
                           value: providerActivity.tokens,
                         }))
-                      : [{ color: "var(--accent)", value: day?.tokens ?? 0 }];
+                      : [{ color: "var(--color-accent)", value: day?.tokens ?? 0 }];
                     return <ActivityAxisTick {...props} tokens={tokens} />;
                   }}
                   tickLine={false}
@@ -743,7 +743,7 @@ function ProjectDetails({
                   dataKey="unattributed"
                   name="Unattributed"
                   stackId="providers"
-                  fill="var(--accent)"
+                  fill="var(--color-accent)"
                   fillOpacity={0.46}
                   radius={[3, 3, 0, 0]}
                 />
@@ -752,13 +752,13 @@ function ProjectDetails({
                   type="monotone"
                   dataKey="runs"
                   name="Activity records"
-                  stroke="var(--aqua)"
+                  stroke="var(--color-highlight)"
                   strokeWidth={2}
                   dot={false}
                   activeDot={{
                     r: 4,
                     fill: "#07100f",
-                    stroke: "var(--aqua)",
+                    stroke: "var(--color-highlight)",
                     strokeWidth: 2,
                   }}
                 />
@@ -845,7 +845,7 @@ function ProjectDetails({
                   <ProjectModelSessions
                     projectName={project.name}
                     modelName={model.name}
-                    color={palette[model.colorIndex % palette.length] ?? "var(--accent)"}
+                    color={palette[model.colorIndex % palette.length] ?? "var(--color-accent)"}
                     rows={projectModelSessionRows(sessions, model.name)}
                     onOpenSession={onOpenSession}
                   />

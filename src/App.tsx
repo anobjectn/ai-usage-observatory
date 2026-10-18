@@ -184,7 +184,7 @@ export function App() {
   }, [cancelSidebarHover, sidebarCollapsed]);
   useEffect(() => cancelSidebarHover, [cancelSidebarHover]);
   useEffect(() => {
-    document.documentElement.style.setProperty("--accent", accent);
+    document.documentElement.style.setProperty("--color-accent", accent);
     const favicon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     if (favicon) favicon.href = faviconHref(accent);
     try {
@@ -193,15 +193,15 @@ export function App() {
   }, [accent]);
   useEffect(() => {
     document.documentElement.style.setProperty(
-      "--anthropic-color",
+      "--color-provider-anthropic",
       providerColors.anthropic,
     );
     document.documentElement.style.setProperty(
-      "--openai-color",
+      "--color-provider-openai",
       providerColors.openai,
     );
     document.documentElement.style.setProperty(
-      "--warp-color",
+      "--color-provider-warp",
       providerColors.warp,
     );
     try {
@@ -288,27 +288,11 @@ export function App() {
     if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`)
       window.history.replaceState(window.history.state, "", next);
   }, [days, customRange, agent, pathTag, showCache]);
+  // One scalar; the --data-text-* tokens in styles/tokens.css multiply their base sizes by it.
   useEffect(() => {
-    const scale = dataTextScale / 100;
     document.documentElement.style.setProperty(
       "--data-text-scale",
-      String(scale),
-    );
-    document.documentElement.style.setProperty(
-      "--data-text-primary",
-      `${12 * scale}px`,
-    );
-    document.documentElement.style.setProperty(
-      "--data-text-secondary",
-      `${10 * scale}px`,
-    );
-    document.documentElement.style.setProperty(
-      "--data-text-compact",
-      `${9 * scale}px`,
-    );
-    document.documentElement.style.setProperty(
-      "--data-text-strong",
-      `${15 * scale}px`,
+      String(dataTextScale / 100),
     );
     try {
       localStorage.setItem(dataTextScaleStorageKey, String(dataTextScale));
