@@ -5,6 +5,28 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.0] - 2026-10-19
+
+### Added
+
+- Add selectable weekly and five-hour headroom lines to activity charts. Label
+  the five-hour series “Claude 5-hour low” and “Codex 5-hour low”; each shows
+  the lowest remaining percentage observed that day. Save selections locally;
+  weekly lines are on by default.
+- Show provider-reported subscription tiers on Anthropic and OpenAI quota cards.
+- Label the recent sessions list in the model detail panel.
+
+### Changed
+
+- Use semantic design tokens for dashboard colors, chart styling, spacing,
+  type sizes, and corner radii.
+
+### Fixed
+
+- Keep top-bar controls and quota readings within their containers on narrow
+  screens.
+- Keep long project titles and finding details inside their panels.
+
 ## [1.33.1] - 2026-10-16
 
 ### Fixed
@@ -240,6 +262,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.34.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.1...v1.34.0
 [1.33.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.0...v1.33.1
 [1.33.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.32.1...v1.33.0
 [1.32.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.32.0...v1.32.1
