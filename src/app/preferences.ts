@@ -58,6 +58,25 @@ export const sidebarCollapsedStorageKey = "usage-observatory:sidebar-collapsed";
 
 export const quickOverviewModeStorageKey = "usage-observatory:quick-overview-mode";
 
+export const headroomLinesStorageKey = "usage-observatory:headroom-lines";
+
+export type HeadroomLineKey =
+  | "headroomAnthropic"
+  | "headroomCodex"
+  | "fiveHourHeadroomAnthropic"
+  | "fiveHourHeadroomCodex";
+
+const headroomLineKeys: HeadroomLineKey[] = [
+  "headroomAnthropic",
+  "headroomCodex",
+  "fiveHourHeadroomAnthropic",
+  "fiveHourHeadroomCodex",
+];
+
+/** Weekly headroom is on by default. Five-hour headroom is off by default because its
+ * daily low point crowds the chart at long ranges. */
+export const defaultHeadroomLines: HeadroomLineKey[] = ["headroomAnthropic", "headroomCodex"];
+
 export const defaultDataTextScale = 125;
 
 export const defaultInterfaceTextScale = 100;
@@ -85,6 +104,25 @@ export function normalizeTextScale(
 export function faviconHref(accent: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="1.5 1.5 21 21" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.341 6.484A10 10 0 0 1 10.266 21.85"/><path d="M3.659 17.516A10 10 0 0 1 13.74 2.152"/><circle cx="12" cy="12" r="3"/><circle cx="19" cy="5" r="2" fill="${accent}"/><circle cx="5" cy="19" r="2" fill="${accent}"/></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+export function savedHeadroomLines(): HeadroomLineKey[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(headroomLinesStorageKey) ?? "null");
+    return Array.isArray(value)
+      ? headroomLineKeys.filter((key) => value.includes(key))
+      : defaultHeadroomLines;
+  } catch {
+    return defaultHeadroomLines;
+  }
+}
+
+export function saveHeadroomLines(lines: HeadroomLineKey[]) {
+  try {
+    localStorage.setItem(headroomLinesStorageKey, JSON.stringify(lines));
+  } catch {
+    // Storage can be unavailable; the choice still applies until reload.
+  }
 }
 
 export function savedAccent() {

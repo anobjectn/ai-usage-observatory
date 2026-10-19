@@ -103,6 +103,23 @@ describe("dailyHeadroomSeries", () => {
     expect(map.get("2026-08-28")).toEqual({ anthropic: null, codex: 50 });
   });
 
+  test("keeps each day's lowest five-hour observation per provider as headroom", () => {
+    const map = dailyHeadroomSeries(
+      history([
+        { provider: "anthropic", window: "fiveHour", capturedAt: at("2026-08-28T09:00:00-04:00"), usedPercent: 40, resetsAt: null, cycleId: "a" },
+        { provider: "anthropic", window: "fiveHour", capturedAt: at("2026-08-28T13:00:00-04:00"), usedPercent: 92, resetsAt: null, cycleId: "a" },
+        // A later, lower reading after a reset must not replace the day's low point.
+        { provider: "anthropic", window: "fiveHour", capturedAt: at("2026-08-28T20:00:00-04:00"), usedPercent: 10, resetsAt: null, cycleId: "b" },
+        { provider: "anthropic", window: "weekly", capturedAt: at("2026-08-28T21:00:00-04:00"), usedPercent: 99, resetsAt: null, cycleId: "c" },
+        { provider: "codex", window: "fiveHour", capturedAt: at("2026-08-28T15:00:00-04:00"), usedPercent: 105, resetsAt: null, cycleId: "d" },
+      ]),
+      ["2026-08-28"],
+      TZ,
+      "fiveHour",
+    );
+    expect(map.get("2026-08-28")).toEqual({ anthropic: 8, codex: 0 });
+  });
+
   test("returns an empty map without a series", () => {
     expect(dailyHeadroomSeries(undefined, ["2026-08-28"], TZ).size).toBe(0);
   });

@@ -64,7 +64,13 @@ import { type DateRange } from "../time-range";
 import { ChartTooltipContext, PinnableChartTooltip, useChartTooltipHold } from "./chart-pins";
 import { TooltipMoreDisclosure } from "./tooltip-disclosure";
 import { chartTooltipDateLabel } from "../chart-pins";
-import { type Metric, palette } from "../app/preferences";
+import {
+  type HeadroomLineKey,
+  type Metric,
+  palette,
+  saveHeadroomLines,
+  savedHeadroomLines,
+} from "../app/preferences";
 import {
   formatMoney,
   formatCompact,
@@ -622,6 +628,8 @@ type TimelineTooltipRow = {
   projectGroups?: Record<string, ProjectActivity[]>;
   /** Weekly-window headroom observed on this day, when the chart overlays it. */
   headroom?: DailyHeadroom;
+  /** Lowest five-hour-window headroom observed on this day, when the chart overlays it. */
+  fiveHourHeadroom?: DailyHeadroom;
 } & Partial<Record<(typeof providerSeries)[number]["key"], number>>;
 
 
@@ -893,6 +901,17 @@ function ActivityDayCard({
           )}
           {row.headroom.codex !== null && (
             <b> · Codex {Math.round(row.headroom.codex)}%</b>
+          )}
+        </p>
+      )}
+      {row?.fiveHourHeadroom && (row.fiveHourHeadroom.anthropic !== null || row.fiveHourHeadroom.codex !== null) && (
+        <p className="tooltip-headroom">
+          Lowest 5-hour headroom
+          {row.fiveHourHeadroom.anthropic !== null && (
+            <b> · Claude {Math.round(row.fiveHourHeadroom.anthropic)}%</b>
+          )}
+          {row.fiveHourHeadroom.codex !== null && (
+            <b> · Codex {Math.round(row.fiveHourHeadroom.codex)}%</b>
           )}
         </p>
       )}
@@ -1261,12 +1280,24 @@ const quotaMarkerColors = {
   codex: "var(--color-provider-openai)",
 } as const;
 
-export function QuotaMarkerLegend({ markers }: { markers: QuotaMarker[] }) {
+/** The key normally tucks up into the right end of the series legend row. Pass
+ * `stacked` when that row already ends with its own items (the headroom
+ * checkboxes), so the key takes its own row instead of covering them. */
+export function QuotaMarkerLegend({
+  markers,
+  stacked = false,
+}: {
+  markers: QuotaMarker[];
+  stacked?: boolean;
+}) {
   if (markers.length === 0) return null;
   const hasClaude = markers.some((marker) => marker.provider === "anthropic");
   const hasCodex = markers.some((marker) => marker.provider === "codex");
   return (
-    <div className="quota-marker-legend" aria-label="Quota event markers">
+    <div
+      className={stacked ? "quota-marker-legend quota-marker-legend--stacked" : "quota-marker-legend"}
+      aria-label="Quota event markers"
+    >
       {hasClaude && <span><i className="anthropic" />Claude events</span>}
       {hasCodex && <span><i className="codex" />Codex events</span>}
     </div>
@@ -1403,10 +1434,21 @@ export function ProviderTimeline({
   quotaHistory: DashboardData["quotas"]["history"];
   timeZone: string;
   emptyText: string;
-  /** Overlay observed weekly-window headroom as dashed lines on a 0–100% right
-   * axis, so a token spike can be read against what it did to the allowance. */
+  /** Overlay observed weekly (dash-dot) and five-hour (dotted) headroom on a
+   * 0–100% right axis, so a token spike can be read against what it did to the
+   * allowance. Legend checkboxes choose which headroom lines show. */
   headroomOverlay?: boolean;
 }) {
+  const [shownHeadroomLines, setShownHeadroomLines] = useState(savedHeadroomLines);
+  const toggleHeadroomLine = (key: HeadroomLineKey, shown: boolean) => {
+    setShownHeadroomLines((current) => {
+      const next = shown
+        ? [...current.filter((item) => item !== key), key]
+        : current.filter((item) => item !== key);
+      saveHeadroomLines(next);
+      return next;
+    });
+  };
   const projectsByDay = new Map<string, Record<string, ProjectActivity[]>>();
   projectActivity.forEach((project) => {
     if (activeProvider && project.provider !== activeProvider) return;
@@ -1485,29 +1527,51 @@ export function ProviderTimeline({
       }),
     };
   });
+  const periods = rows.map((row) => row.period);
   const headroomByDay = headroomOverlay
-    ? dailyHeadroomSeries(quotaHistory ?? undefined, rows.map((row) => row.period), timeZone)
+    ? dailyHeadroomSeries(quotaHistory ?? undefined, periods, timeZone)
     : new Map<string, DailyHeadroom>();
+  const fiveHourHeadroomByDay = headroomOverlay
+    ? dailyHeadroomSeries(quotaHistory ?? undefined, periods, timeZone, "fiveHour")
+    : new Map<string, DailyHeadroom>();
+  // Hidden lines read as null so the tooltip lists only the lines on the chart.
+  const shown = (key: HeadroomLineKey, value: number | null | undefined) =>
+    shownHeadroomLines.includes(key) ? value ?? null : null;
   const chartData = data.map((row) => {
-    const headroom = headroomByDay.get(row.period);
-    return headroom
-      ? {
-          ...row,
-          headroom,
-          headroomAnthropic: headroom.anthropic,
-          headroomCodex: headroom.codex,
-        }
-      : row;
+    const weekly = headroomByDay.get(row.period);
+    const fiveHour = fiveHourHeadroomByDay.get(row.period);
+    const headroom: DailyHeadroom = {
+      anthropic: shown("headroomAnthropic", weekly?.anthropic),
+      codex: shown("headroomCodex", weekly?.codex),
+    };
+    const fiveHourHeadroom: DailyHeadroom = {
+      anthropic: shown("fiveHourHeadroomAnthropic", fiveHour?.anthropic),
+      codex: shown("fiveHourHeadroomCodex", fiveHour?.codex),
+    };
+    return {
+      ...row,
+      headroom,
+      fiveHourHeadroom,
+      headroomAnthropic: headroom.anthropic,
+      headroomCodex: headroom.codex,
+      fiveHourHeadroomAnthropic: fiveHourHeadroom.anthropic,
+      fiveHourHeadroomCodex: fiveHourHeadroom.codex,
+    };
   });
   const headroomLines = (
     [
-      { key: "headroomAnthropic" as const, provider: "anthropic" as const, label: "Claude weekly headroom" },
-      { key: "headroomCodex" as const, provider: "codex" as const, label: "Codex weekly headroom" },
+      { key: "headroomAnthropic" as const, provider: "anthropic" as const, label: "Claude weekly", window: "weekly" as const, byDay: headroomByDay },
+      { key: "headroomCodex" as const, provider: "codex" as const, label: "Codex weekly", window: "weekly" as const, byDay: headroomByDay },
+      { key: "fiveHourHeadroomAnthropic" as const, provider: "anthropic" as const, label: "Claude 5-hour low", window: "fiveHour" as const, byDay: fiveHourHeadroomByDay },
+      { key: "fiveHourHeadroomCodex" as const, provider: "codex" as const, label: "Codex 5-hour low", window: "fiveHour" as const, byDay: fiveHourHeadroomByDay },
     ]
   ).filter(
     (line) =>
-      [...headroomByDay.values()].filter((entry) => entry[line.provider] !== null)
+      [...line.byDay.values()].filter((entry) => entry[line.provider] !== null)
         .length >= 2,
+  );
+  const visibleHeadroomLines = headroomLines.filter((line) =>
+    shownHeadroomLines.includes(line.key),
   );
   const totals = providerSeries.map((provider) => ({
     ...provider,
@@ -1531,19 +1595,32 @@ export function ProviderTimeline({
             <b>{formatCompact(provider.value)}</b>
           </div>
         ))}
-        {headroomLines.map((line) => {
-          const color = providerSeries.find(
-            (provider) => provider.key === line.provider,
-          )?.color;
-          return (
-            <div key={line.key} className="provider-legend__headroom">
-              <i className="provider-legend__dash" style={{ background: color }} />
-              <span>{line.label}</span>
-            </div>
-          );
-        })}
+        {headroomLines.length > 0 && (
+          <fieldset className="provider-legend__headroom-group">
+            <legend>Headroom</legend>
+            {headroomLines.map((line) => {
+              const color = providerSeries.find(
+                (provider) => provider.key === line.provider,
+              )?.color;
+              return (
+                <label key={line.key} className="provider-legend__headroom">
+                  <input
+                    type="checkbox"
+                    checked={shownHeadroomLines.includes(line.key)}
+                    onChange={(event) => toggleHeadroomLine(line.key, event.target.checked)}
+                  />
+                  <i
+                    className={line.window === "weekly" ? "provider-legend__dash" : "provider-legend__dots"}
+                    style={{ background: color }}
+                  />
+                  <span>{line.label}</span>
+                </label>
+              );
+            })}
+          </fieldset>
+        )}
       </div>
-      <QuotaMarkerLegend markers={quotaMarkers} />
+      <QuotaMarkerLegend markers={quotaMarkers} stacked={headroomLines.length > 0} />
       <div
         className="chart-wrap provider-chart"
         aria-label="Token usage by day, split into Claude, Codex, and Warp sections"
@@ -1552,7 +1629,7 @@ export function ProviderTimeline({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
-            margin={{ top: 10, right: headroomLines.length > 0 ? 2 : 8, left: -18, bottom: 0 }}
+            margin={{ top: 10, right: visibleHeadroomLines.length > 0 ? 2 : 8, left: -18, bottom: 0 }}
           >
             <defs>
               {visibleProviders.map((provider) => (
@@ -1604,7 +1681,7 @@ export function ProviderTimeline({
               tick={chartTick}
               {...chartAxisProps}
             />
-            {headroomLines.length > 0 && (
+            {visibleHeadroomLines.length > 0 && (
               <YAxis
                 yAxisId="headroom"
                 orientation="right"
@@ -1642,7 +1719,7 @@ export function ProviderTimeline({
                 activeDot={chartActiveDot(provider.color)}
               />
             ))}
-            {headroomLines.map((line) => {
+            {visibleHeadroomLines.map((line) => {
               const color = providerSeries.find(
                 (provider) => provider.key === line.provider,
               )?.color;
@@ -1654,8 +1731,9 @@ export function ProviderTimeline({
                   dataKey={line.key}
                   name={line.label}
                   stroke={color}
-                  strokeWidth={1.4}
-                  strokeDasharray="1 3 7 3"
+                  {...(line.window === "weekly"
+                    ? { strokeWidth: 1.4, strokeDasharray: "1 3 7 3" }
+                    : { strokeWidth: 2, strokeDasharray: "0 7" })}
                   strokeLinecap="round"
                   strokeOpacity={0.85}
                   dot={false}

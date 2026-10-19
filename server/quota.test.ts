@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectQuota, collectRawQuotaHistory, importAnthropicWebCredits, resolveQuotaPlan, summarizeQuotaHistory } from "./quota";
+import { collectQuota, collectRawQuotaHistory, dailyHeadroomQuotaSeries, importAnthropicWebCredits, resolveQuotaPlan, summarizeQuotaHistory } from "./quota";
 
 const realFetch = globalThis.fetch;
 const realEnabled = process.env.QUOTA_SERVICE_ENABLED;
@@ -277,4 +277,20 @@ test("local history keeps a missing reset instant unknown instead of the epoch",
     else process.env.QUOTA_DB_PATH = previous;
     rmSync(path, { force: true });
   }
+});
+
+test("headroom down-sample keeps each day's last weekly and highest five-hour point", () => {
+  const at = (iso: string) => new Date(iso).getTime();
+  const point = (window: "weekly" | "fiveHour", iso: string, usedPercent: number) =>
+    ({ provider: "anthropic" as const, window, capturedAt: at(iso), usedPercent, resetsAt: null, cycleId: "c" });
+  const result = dailyHeadroomQuotaSeries([
+    point("weekly", "2026-08-28T10:00:00-04:00", 20),
+    point("weekly", "2026-08-28T22:00:00-04:00", 34),
+    point("fiveHour", "2026-08-28T12:00:00-04:00", 91),
+    point("fiveHour", "2026-08-28T23:00:00-04:00", 15),
+  ], "America/New_York");
+  expect(result.map((item) => [item.window, item.usedPercent])).toEqual([
+    ["fiveHour", 91],
+    ["weekly", 34],
+  ]);
 });

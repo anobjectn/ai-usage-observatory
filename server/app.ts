@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { getSnapshot, refresh } from "./collector";
 import { buildInsights, resolveScope } from "./insights";
-import { dailyWeeklyQuotaSeries, importAnthropicWebCredits } from "./quota";
+import { dailyHeadroomQuotaSeries, importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
 import { getSessionQuotaContext } from "./session-quota-context";
 import { collectAllowanceComparisonReport } from "./quota-comparisons";
@@ -25,10 +25,10 @@ const dashboard = (request: Request, value: Awaited<ReturnType<typeof getSnapsho
   const headers = { "Cache-Control": "private, no-cache", ETag: etag };
   if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
   // The full quota series stays server-side for insights; the browser gets a day-grained
-  // weekly-window down-sample for the headroom overlay — the raw series is by far the
-  // largest part of the payload.
+  // weekly and five-hour down-sample for the headroom overlay — the raw series is by far
+  // the largest part of the payload.
   const { series, ...history } = value.quotas.history;
-  const slimSeries = dailyWeeklyQuotaSeries(series, value.timeZone);
+  const slimSeries = dailyHeadroomQuotaSeries(series, value.timeZone);
   return Response.json(
     { ...value, quotas: { ...value.quotas, history: { ...history, series: slimSeries } } },
     { headers },

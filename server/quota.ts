@@ -54,18 +54,23 @@ export function resolveQuotaPlan(
   return reported.specific ? reported.plan : assigned ?? reported.plan;
 }
 
-/** The full series stays server-side for insights; the browser only needs one weekly point per
- * provider per calendar day to draw the headroom overlay, which keeps the dashboard payload slim. */
-export function dailyWeeklyQuotaSeries(series: QuotaSeriesPoint[], timeZone: string): QuotaSeriesPoint[] {
-  const latest = new Map<string, QuotaSeriesPoint>();
+/** The full series stays server-side for insights; the browser only needs two points per
+ * provider per calendar day to draw the headroom overlay: the last weekly observation and the
+ * highest five-hour observation. This keeps the dashboard payload slim. */
+export function dailyHeadroomQuotaSeries(series: QuotaSeriesPoint[], timeZone: string): QuotaSeriesPoint[] {
+  const chosen = new Map<string, QuotaSeriesPoint>();
   const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
   for (const point of series) {
-    if (point.window !== "weekly") continue;
-    const key = `${point.provider}\0${dayOf.format(point.capturedAt)}`;
-    const current = latest.get(key);
-    if (!current || point.capturedAt > current.capturedAt) latest.set(key, point);
+    if (point.window !== "weekly" && point.window !== "fiveHour") continue;
+    const key = `${point.provider}\0${point.window}\0${dayOf.format(point.capturedAt)}`;
+    const current = chosen.get(key);
+    const replaces = !current
+      || (point.window === "weekly"
+        ? point.capturedAt > current.capturedAt
+        : point.usedPercent > current.usedPercent);
+    if (replaces) chosen.set(key, point);
   }
-  return [...latest.values()].sort((a, b) => a.capturedAt - b.capturedAt);
+  return [...chosen.values()].sort((a, b) => a.capturedAt - b.capturedAt);
 }
 
 /** Fold state for the history summary. The summary is a pure sequential fold over rows in

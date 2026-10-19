@@ -22,31 +22,37 @@ function constrainedHeadroom(provider: QuotaProvider | undefined) {
 
 export type DailyHeadroom = { anthropic: number | null; codex: number | null };
 
-/** Weekly-window headroom (100 − used%) at each day's last observation, keyed by
- * calendar day in the reporting timezone. Days without an observation stay
- * absent — the chart bridges gaps visually rather than inventing readings.
- * The weekly window is the overlay's basis because the five-hour window cycles
- * several times inside one daily bucket and would alias badly at day grain. */
+/** Window headroom (100 − used%) per calendar day in the reporting timezone.
+ * Weekly headroom is the day's last observation. Five-hour headroom is the
+ * day's lowest observation: the window cycles several times inside one daily
+ * bucket, so its last reading would alias badly, but its low point shows how
+ * close the day came to the short limit. Days without an observation stay
+ * absent — the chart bridges gaps visually rather than inventing readings. */
 export function dailyHeadroomSeries(
   history: QuotaHistory | undefined,
   periods: string[],
   timeZone = systemTimeZone(),
+  window: "weekly" | "fiveHour" = "weekly",
 ): Map<string, DailyHeadroom> {
   const result = new Map<string, DailyHeadroom>();
   if (!history?.series?.length || periods.length === 0) return result;
   const wanted = new Set(periods);
-  const latest = new Map<string, { capturedAt: number; usedPercent: number }>();
+  const chosen = new Map<string, { capturedAt: number; usedPercent: number }>();
   for (const point of history.series) {
-    if (point.window !== "weekly") continue;
+    if (point.window !== window) continue;
     const day = dateKeyInTimeZone(new Date(point.capturedAt).toISOString(), timeZone);
     if (!day || !wanted.has(day)) continue;
     const key = `${point.provider}\0${day}`;
-    const current = latest.get(key);
-    if (!current || point.capturedAt > current.capturedAt) {
-      latest.set(key, { capturedAt: point.capturedAt, usedPercent: point.usedPercent });
+    const current = chosen.get(key);
+    const replaces = !current
+      || (window === "weekly"
+        ? point.capturedAt > current.capturedAt
+        : point.usedPercent > current.usedPercent);
+    if (replaces) {
+      chosen.set(key, { capturedAt: point.capturedAt, usedPercent: point.usedPercent });
     }
   }
-  for (const [key, point] of latest) {
+  for (const [key, point] of chosen) {
     const [provider, day] = key.split("\0") as ["anthropic" | "codex", string];
     const entry = result.get(day) ?? { anthropic: null, codex: null };
     entry[provider] = Math.max(0, Math.min(100, 100 - point.usedPercent));
