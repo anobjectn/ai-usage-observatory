@@ -600,7 +600,7 @@
   gap: var(--space-2);
   margin: var(--space-3) 0 0;
 }
-.finding__metrics div {
+.finding__metrics :where(div) {
   padding: var(--space-2) var(--space-2-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -618,7 +618,7 @@
   color: var(--color-text);
 }
 .finding__recoverable {
-  border-color: color-mix(in srgb,var(--color-warn) var(--tint-border),var(--color-border))!important;
+  border-color: color-mix(in srgb,var(--color-warn) var(--tint-border),var(--color-border));
 }
 .finding__recoverable dd {
   color: var(--color-warn);

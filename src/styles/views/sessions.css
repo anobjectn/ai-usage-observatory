@@ -613,13 +613,13 @@
   text-underline-offset: 3px;
 }
 .session-row__model-title {
-  display: flex!important;
+  display: flex;
   align-items: center;
   gap: var(--space-1-5);
   min-width: 0;
 }
 .session-row__model-title b {
-  display: block!important;
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -695,7 +695,7 @@
   border-top: 1px solid color-mix(in srgb,var(--color-highlight) var(--tint-border-soft),var(--color-border));
   background: var(--color-surface-inset);
 }
-.session-quota-context__resources>div>span,.session-quota-context__resources>div>small {
+.session-quota-context__resources>:where(div>span,div>small) {
   display: block;
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
@@ -807,7 +807,7 @@
   color: var(--color-warn);
 }
 .session-quota-context__caveat {
-  color: var(--color-warn)!important;
+  color: var(--color-warn);
 }
 .session-quota-context__empty {
   margin: var(--space-2-5) 0 0;
@@ -1155,9 +1155,9 @@
 
 /* Model and effort share one cell. Several recorded combinations wrap below the source model. */
 .session-row__model-effort {
-  display: block!important;
+  display: block;
   margin-top: var(--space-1-5);
-  white-space: normal!important;
+  white-space: normal;
 }
 
 .session-combo-cell {

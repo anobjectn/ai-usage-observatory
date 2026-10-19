@@ -135,7 +135,7 @@ select {
   margin: var(--space-1) 0 0;
 }
 
-.panel-heading>span,.panel-heading>svg {
+.panel-heading>:where(span),.panel-heading>svg {
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
@@ -147,7 +147,7 @@ select {
   display: flex;
   align-items: center;
   gap: var(--space-1-5);
-  color: var(--color-text-muted)!important;
+  color: var(--color-text-muted);
 }
 
 .method-chip i {
@@ -849,7 +849,7 @@ td>small {
 }
 
 .recharts-tooltip-wrapper {
-  z-index: 2!important;
+  z-index: 2;
 }
 
 .chart-wrap {
@@ -950,14 +950,15 @@ td>small {
   font-size: var(--text-xs);
 }
 
-.chart-tooltip>span,.chart-tooltip__body>span {
+/* Container defaults wrap the container in :where(), so one class on a child overrides them without !important. */
+:where(.chart-tooltip,.chart-tooltip__body)>span {
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-subtle);
   display: block;
   margin-bottom: var(--space-2);
 }
 
-.chart-tooltip div {
+:where(.chart-tooltip) div {
   display: flex;
   align-items: center;
   gap: var(--space-1-5);
@@ -968,7 +969,7 @@ td>small {
   height: 5px;
   border-radius: var(--radius-circle);
 }
-.chart-tooltip b {
+:where(.chart-tooltip) b {
   margin-left: auto;
 }
 
@@ -977,13 +978,13 @@ td>small {
   align-items: center;
   gap: var(--space-1-5);
   min-height: 16px;
-  margin: 0 0 var(--space-2)!important;
+  margin: 0 0 var(--space-2);
   padding: 0 var(--space-0-5) var(--space-2);
   border-bottom: 1px solid var(--color-divider);
 }
 .chart-tooltip .chart-tooltip__context--inline {
   min-height: 0;
-  margin: 0!important;
+  margin: 0;
   padding: 0;
   border: 0;
   display: inline-flex;
@@ -998,8 +999,8 @@ td>small {
   margin-right: 1px;
 }
 .chart-tooltip__context-label {
-  display: block!important;
-  margin: 0!important;
+  display: block;
+  margin: 0;
   color: var(--color-accent);
   font: var(--text-2xs) var(--font-label);
   font-weight: 500;
@@ -1029,58 +1030,6 @@ td>small {
   border-color: var(--color-accent);
   color: var(--color-accent);
   outline: 0;
-}
-.chart-tooltip__info::before,.chart-tooltip__info::after {
-  position: absolute;
-  z-index: 20;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity var(--duration-speedy) ease,transform var(--duration-speedy) ease,visibility var(--duration-speedy) ease;
-}
-.chart-tooltip__info::before {
-  content: "";
-  left: 4px;
-  top: calc(100% + 5px);
-  width: 7px;
-  height: 7px;
-  transform: translateY(-3px) rotate(45deg);
-  background: var(--color-surface-overlay);
-  border-right: 1px solid var(--color-border-strong);
-  border-bottom: 1px solid var(--color-border-strong);
-}
-.chart-tooltip__info::after {
-  content: attr(data-context-tooltip);
-  left: -2px;
-  top: calc(100% + 8px);
-  width: 220px;
-  max-width: calc(100vw - 34px);
-  padding: var(--space-2) var(--space-2-5);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-overlay);
-  box-shadow: var(--shadow-xl);
-  color: var(--color-text);
-  font: var(--text-2xs)/1.45 var(--font-label);
-  font-weight: 400;
-  letter-spacing: 0;
-  text-align: left;
-  white-space: normal;
-  transform: translateY(-3px);
-}
-.chart-tooltip__info:is(:hover,:focus-visible)::before,.chart-tooltip__info:is(:hover,:focus-visible)::after {
-  opacity: 1;
-  visibility: visible;
-}
-.chart-tooltip__info:is(:hover,:focus-visible)::before {
-  transform: rotate(45deg);
-}
-.chart-tooltip__info:is(:hover,:focus-visible)::after {
-  transform: none;
-}
-
-.chart-tooltip__info::before,.chart-tooltip__info::after {
-  display: none!important;
 }
 .chart-tooltip__context-popover {
   position: fixed;
@@ -1214,12 +1163,12 @@ td>small {
   isolation: isolate;
 }
 .chart-pin-layer .pinned-chart-tooltip {
-  position: fixed!important;
+  position: fixed;
   max-width: calc(100vw - 16px);
   pointer-events: auto;
   border-color: color-mix(in srgb,var(--color-accent) var(--tint-border),var(--color-border-strong));
   box-shadow: var(--shadow-xl),0 0 0 1px color-mix(in srgb,var(--color-accent) var(--tint-subtle),transparent);
-  transform: none!important;
+  transform: none;
   animation: pinned-tooltip-in var(--duration-base) var(--ease-decelerate);
 }
 .pinned-chart-tooltip .chart-tooltip__body {
@@ -1229,9 +1178,6 @@ td>small {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-strong) transparent;
-}
-.pinned-chart-tooltip.provider-tooltip {
-  transform: none!important;
 }
 .pinned-chart-tooltip .chart-tooltip__pin {
   position: absolute;
@@ -1268,8 +1214,11 @@ td>small {
 .provider-tooltip {
   --tooltip-x: -50%;
   width: var(--tooltip-width,calc(410px + 10ch));
-  transform: translate(var(--tooltip-x),var(--tooltip-y,-6px));
   animation: tooltip-rise .16s ease-out both;
+}
+
+.provider-tooltip:not(.pinned-chart-tooltip) {
+  transform: translate(var(--tooltip-x),var(--tooltip-y,-6px));
 }
 
 .tooltip-provider+.tooltip-provider {
@@ -1279,29 +1228,33 @@ td>small {
 }
 
 .tooltip-columns,.tooltip-provider__head,.tooltip-projects__head,.tooltip-project-row,.tooltip-project-provider,.tooltip-provider-models li,.tooltip-project-models li {
-  display: grid!important;
+  display: grid;
   grid-template-columns: minmax(0,1fr) 68px 64px;
   align-items: center;
   column-gap: var(--space-2-5);
 }
 
+.tooltip-columns,.tooltip-provider__head,.tooltip-projects__head,.tooltip-project-provider {
+  column-gap: var(--space-1-5);
+}
+
 .tooltip-columns {
-  margin: 0 0 var(--space-2)!important;
+  margin: 0 0 var(--space-2);
 }
 
 .tooltip-columns__date {
-  display: flex!important;
-  align-items: baseline;
-  gap: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
   min-width: 0;
-  margin: 0!important;
+  margin: 0;
 }
 .tooltip-columns__date>.tooltip-date-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin: 0!important;
+  margin: 0;
 }
 .chart-tooltip .tooltip-date-label {
   color: var(--color-text);
@@ -1312,7 +1265,7 @@ td>small {
   flex: 0 0 auto;
 }
 .tooltip-columns>span {
-  margin: 0!important;
+  margin: 0;
 }
 
 /* Stepping the card off the hovered point: reachable once the card takes the pointer, the same as every other control inside it. */
@@ -1355,11 +1308,11 @@ td>small {
 }
 
 .tooltip-columns__date:has(.tooltip-date-step) {
-  gap: var(--space-1)!important;
+  gap: var(--space-1);
 }
 
 .tooltip-columns__date:has(.tooltip-date-step)>.tooltip-date-label {
-  margin: 0 var(--space-1)!important;
+  margin: 0 var(--space-1);
 }
 
 .tooltip-empty-day {
@@ -1377,7 +1330,7 @@ td>small {
 }
 
 .tooltip-provider__head {
-  margin: 0!important;
+  margin: 0;
 }
 
 .tooltip-provider__head i,.tooltip-project-provider i {
@@ -1392,7 +1345,7 @@ td>small {
 }
 
 .tooltip-provider__head b,.tooltip-projects__head b,.tooltip-project-row b,.tooltip-project-provider b,.tooltip-provider-models li b,.tooltip-project-models li b {
-  margin-left: 0!important;
+  margin-left: 0;
   text-align: right;
   white-space: nowrap;
 }
@@ -1434,7 +1387,7 @@ td>small {
 }
 
 .tooltip-more-row {
-  display: grid!important;
+  display: grid;
   grid-template-columns: minmax(0,1fr) 68px 64px;
   column-gap: var(--space-2-5);
   align-items: center;
@@ -1541,11 +1494,11 @@ td>small {
 }
 
 .tooltip-quota__row {
-  margin-top: 0!important;
+  margin-top: 0;
 }
 
 .tooltip-quota__row+.tooltip-quota__row {
-  margin-top: var(--space-1)!important;
+  margin-top: var(--space-1);
 }
 
 .tooltip-quota__row span {
@@ -1573,7 +1526,7 @@ td>small {
 }
 
 .tooltip-projects__head {
-  margin: 0!important;
+  margin: 0;
   text-transform: uppercase;
   letter-spacing: .08em;
   color: var(--color-highlight);
@@ -1602,8 +1555,8 @@ td>small {
 }
 
 .tooltip-project-row {
-  gap: var(--space-2-5)!important;
-  margin: 0!important;
+  gap: var(--space-2-5);
+  margin: 0;
   font: var(--text-2xs) var(--font-label);
 }
 
@@ -1626,8 +1579,8 @@ td>small {
 }
 
 .tooltip-project-providers {
-  display: block!important;
-  margin: var(--space-1) 0 0 var(--space-3)!important;
+  display: block;
+  margin: var(--space-1) 0 0 var(--space-3);
   padding-left: var(--space-2);
   border-left: 1px solid var(--color-border-strong);
 }
@@ -1637,7 +1590,7 @@ td>small {
 }
 
 .tooltip-project-provider {
-  margin: 0!important;
+  margin: 0;
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
 }
@@ -1669,7 +1622,6 @@ td>small {
 }
 
 .tooltip-project-more {
-  display: block;
   margin: var(--space-2) 0 0 var(--space-3);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
@@ -1780,7 +1732,7 @@ td>small {
 }
 
 .chart-tooltip .tooltip-effort-head>.tooltip-date-label {
-  margin-left: 0!important;
+  margin-left: 0;
 }
 
 .tooltip-effort-head>.chart-tooltip__context--inline {
@@ -1861,6 +1813,8 @@ td>small {
 
 .chart-tooltip.model-signal-tooltip {
   min-width: calc(220px + 10ch);
+}
+.chart-tooltip.model-signal-tooltip:not(.pinned-chart-tooltip) {
   transform: translate(var(--tooltip-x),-6px);
 }
 .chart-tooltip .model-signal-tooltip__effort {

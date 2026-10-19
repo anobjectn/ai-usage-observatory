@@ -688,7 +688,7 @@ main {
   box-shadow: var(--shadow-xl);
   color: var(--color-text);
   font: var(--text-2xs)/1.45 var(--font-label);
-  white-space: normal!important;
+  white-space: normal;
   overflow-wrap: anywhere;
   opacity: 0;
   visibility: hidden;
@@ -762,21 +762,21 @@ main {
   gap: var(--space-2);
 }
 .date-range-fields label {
-  height: auto!important;
-  padding: 0!important;
-  border: 0!important;
-  background: none!important;
-  display: flex!important;
-  align-items: stretch!important;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  display: flex;
+  align-items: stretch;
   flex-direction: column;
   gap: var(--space-1-5);
 }
 .date-range-fields label>span {
-  margin: 0!important;
-  color: var(--color-text-subtle)!important;
-  font: var(--text-2xs) var(--font-label)!important;
-  letter-spacing: .09em!important;
-  text-transform: uppercase!important;
+  margin: 0;
+  color: var(--color-text-subtle);
+  font: var(--text-2xs) var(--font-label);
+  letter-spacing: .09em;
+  text-transform: uppercase;
 }
 .date-range-fields input {
   width: 100%;
@@ -877,11 +877,11 @@ main {
   gap: var(--space-3);
   font: var(--text-2xs)/1.45 var(--font-label);
 }
-.information-sources a,.information-sources b {
+.information-sources :where(a),.information-sources b {
   color: var(--color-text-muted);
   font-weight: 500;
 }
-.information-sources a:hover {
+.information-sources :where(a):hover {
   color: var(--color-accent);
 }
 .information-sources span {
@@ -895,8 +895,8 @@ main {
   justify-content: flex-end;
   gap: var(--space-2);
   text-align: right;
-  color: var(--color-text)!important;
-  font: 600 var(--text-sm)/1.35 var(--font-label)!important;
+  color: var(--color-text);
+  font: 600 var(--text-sm)/1.35 var(--font-label);
   letter-spacing: .01em;
 }
 .information-sources__repository svg {
@@ -905,7 +905,7 @@ main {
   flex: 0 0 auto;
 }
 .information-sources__repository:hover {
-  color: var(--color-accent)!important;
+  color: var(--color-accent);
 }
 
 .information-sources li>a,.information-sources li>b {
@@ -1004,7 +1004,7 @@ main {
   line-height: 1.6;
   margin-bottom: var(--space-5-5);
 }
-.modal label {
+.modal :where(label) {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -1148,9 +1148,9 @@ main {
   height: 26px;
 }
 .signal-color-note {
-  margin: var(--space-2) 0 0!important;
-  color: var(--color-text-subtle)!important;
-  font: var(--text-2xs)/1.5 var(--font-label)!important;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-subtle);
+  font: var(--text-2xs)/1.5 var(--font-label);
 }
 .accent-control {
   display: flex;
@@ -1181,7 +1181,7 @@ main {
   flex-wrap: wrap;
   margin-top: var(--space-4);
 }
-.accent-favorites button {
+.accent-favorites :where(button) {
   width: 32px;
   height: 32px;
   border: 2px solid transparent;
@@ -1201,15 +1201,6 @@ main {
   opacity: 0;
 }
 .accent-favorites button.selected svg {
-  opacity: 1;
-}
-.accent-favorites.editing button {
-  border-color: var(--color-text);
-  box-shadow: 0 0 0 1px var(--color-accent);
-  color: var(--color-bg);
-}
-.accent-favorites.editing button svg {
-  width: 13px;
   opacity: 1;
 }
 .accent-favorite-controls {
@@ -1479,7 +1470,7 @@ main {
   opacity: .35;
   cursor: not-allowed;
 }
-.appearance-content>p {
+:where(.appearance-content)>p {
   color: var(--color-text-muted);
   font-size: var(--text-xs);
   line-height: 1.6;
@@ -1703,18 +1694,21 @@ main {
   width: 13px;
 }
 .accent-favorite-edit {
-  border-color: var(--color-border)!important;
-  background: var(--color-surface)!important;
-  color: var(--color-text-muted)!important;
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
 }
 .accent-favorite-edit svg {
-  width: 13px!important;
-  opacity: 1!important;
+  width: 13px;
+  opacity: 1;
 }
 .accent-favorite-edit:hover,.accent-favorite-edit:focus-visible,.accent-favorite-edit[aria-pressed="true"] {
-  border-color: var(--color-accent)!important;
-  color: var(--color-accent)!important;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
   outline: 0;
+}
+.accent-favorites.editing .accent-favorite-edit {
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
 .accent-favorites.editing button:not(.accent-favorite-edit) {
   border-color: var(--color-text);
@@ -1736,7 +1730,7 @@ main {
 .web-import-modal {
   max-width: 560px;
 }
-.web-import-modal p {
+.web-import-modal :where(p) {
   color: var(--color-text-muted);
   font-size: var(--text-xs);
   line-height: 1.6;
@@ -1781,20 +1775,19 @@ main {
   margin-top: var(--space-3);
 }
 .web-import-check {
-  flex-direction: row!important;
+  flex-direction: row;
   align-items: center;
   gap: var(--space-2);
   text-transform: none;
   letter-spacing: 0;
   color: var(--color-text-muted);
-  font-size: var(--text-xs);
 }
 .web-import-check input {
   width: auto;
 }
 
 .web-import-error {
-  color: var(--color-warn)!important;
+  color: var(--color-warn);
   font-size: var(--text-xs);
   margin-top: var(--space-1-5);
 }
@@ -2843,7 +2836,7 @@ main {
   height: 10px;
 }
 
-.update-details p {
+.update-details :where(p) {
   margin: 0 0 var(--space-2);
 }
 
@@ -2866,11 +2859,11 @@ main {
 
 .update-meta {
   font-size: var(--text-2xs);
-  margin-bottom: 0 !important;
+  margin-bottom: 0;
 }
 
 .update-running {
-  margin-bottom: var(--space-2) !important;
+  margin-bottom: var(--space-2);
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--color-border);
 }
