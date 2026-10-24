@@ -5,6 +5,16 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.1] - 2026-10-23
+
+### Security
+
+- Restrict browser resource destinations and prevent other sites from framing
+  the Observatory.
+- Serve benchmark icons locally instead of requesting third-party assets.
+- Update Vite, Zod, PostCSS, nanoid, and source-map-js to resolve known
+  security advisories.
+
 ## [1.34.0] - 2026-10-19
 
 ### Added
@@ -262,6 +272,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.34.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.0...v1.34.1
 [1.34.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.1...v1.34.0
 [1.33.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.0...v1.33.1
 [1.33.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.32.1...v1.33.0
