@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { parseAllowedHosts } from "./server/request-host";
+import { securityHeaders } from "./server/security-headers";
 
 /** The commit this bundle was built from. The update flow compares it with the running server. */
 function buildCommit() {
@@ -38,6 +39,8 @@ export default defineConfig(({ mode }) => {
       host: "127.0.0.1",
       port: 5173,
       allowedHosts,
+      // Vite's React refresh preamble is inline; production permits no inline scripts.
+      headers: securityHeaders({ development: true }),
       proxy: {
         "/api": {
           target: "http://127.0.0.1:4318",

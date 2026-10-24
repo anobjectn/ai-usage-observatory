@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createServer as createSocketServer } from "node:net";
 import { createServer } from "vite";
 import react from "@vitejs/plugin-react";
+import { securityHeaders } from "../server/security-headers";
 import { dashboardFixture } from "../tests/fixtures/dashboard";
 
 // Set every local source before the server modules resolve their database paths.
@@ -64,7 +65,7 @@ const testPort = (reservation.address() as import("node:net").AddressInfo).port;
 await new Promise<void>((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));
 const vite = await createServer({
   configFile: false, cacheDir: join(directory, "vite-cache"), plugins: [react()],
-  server: { host: "127.0.0.1", port: testPort, strictPort: true, proxy: {
+  server: { host: "127.0.0.1", port: testPort, strictPort: true, headers: securityHeaders({ development: true }), proxy: {
     "/api": { target: `http://127.0.0.1:${api.port}`, changeOrigin: true },
     "/__browser-test": { target: `http://127.0.0.1:${api.port}`, changeOrigin: true },
   } },

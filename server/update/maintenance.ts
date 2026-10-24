@@ -1,4 +1,6 @@
 import type { UpdateStatus } from "../../src/types";
+import { createHash } from "node:crypto";
+import { secureHandler } from "../security-headers";
 import { requestHostAllowed } from "../request-host";
 import { readUpdatePost, updateJson, type UpdaterReplyLike } from "./policy";
 
@@ -11,7 +13,7 @@ export type MaintenanceHandlers = {
 };
 
 export function createMaintenanceHandler(handlers: MaintenanceHandlers) {
-  return async (request: Request): Promise<Response> => {
+  return secureHandler(async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (!requestHostAllowed(request.headers.get("host"))) return updateJson({ error: "Forbidden host" }, 403);
     const path = url.pathname;
@@ -28,7 +30,7 @@ export function createMaintenanceHandler(handlers: MaintenanceHandlers) {
     if (path.startsWith("/api/")) return updateJson({ error: "updating", message: "AI Usage Observatory is updating" }, 503);
     if (request.method !== "GET" && request.method !== "HEAD") return updateJson({ error: "updating" }, 503);
     return new Response(maintenancePage, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "2" } });
-  };
+  }, { scriptHash: maintenanceScriptHash });
 }
 
 export function startMaintenanceServer(handlers: MaintenanceHandlers) {
@@ -83,3 +85,6 @@ async function poll() {
 }
 poll();
 </script></body></html>`;
+
+// Authorize only this exact inline polling script, including its surrounding whitespace.
+const maintenanceScriptHash = `sha256-${createHash("sha256").update(maintenancePage.split("<script>")[1]!.split("</script>")[0]!).digest("base64")}`;

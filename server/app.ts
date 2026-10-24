@@ -13,6 +13,7 @@ import { deleteEffortDerived, setEffortEnabled } from "./effort-store";
 import { requestHostAllowed, requestOriginAllowed } from "./request-host";
 import { createRule, dbPath, deleteRule, getAnnotationVersion, getSettings, listAdvice, listRules, migrationState, resolveSessionId, setAnnotationText, setSettings, setVerdict, updateAdviceState, updateRule } from "./store";
 import { serverPort } from "./server-port";
+import { secureHandler } from "./security-headers";
 import { createUpdateRoutes } from "./update/routes";
 
 import { annotationBody, effortSettingsBody, externalOpenBody, objectBody, pageNumber, quotaContextsBody, readBody, RequestInputError, ruleBody, settingsBody, snoozeBody, verdictBody } from "./request-body";
@@ -230,7 +231,7 @@ type UpdateRoutes = ReturnType<typeof createUpdateRoutes>;
 const defaultUpdateRoutes = () => createUpdateRoutes({ port: serverPort, dbPath, schemaAhead: () => migrationState.schemaAhead });
 
 export function createRequestHandler(services: Services = { getSnapshot, refresh }, updateRoutes: UpdateRoutes = defaultUpdateRoutes()) {
-  return async (request: Request): Promise<Response> => {
+  return secureHandler(async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     try {
       if (!requestHostAllowed(request.headers.get("host"))) return errorResponse("Forbidden host", 403);
@@ -250,5 +251,5 @@ export function createRequestHandler(services: Services = { getSnapshot, refresh
       }
       return new Response("AI Usage Observatory API is running. Start Vite with `bun run dev:client`.", { status: 200 });
     } catch (error) { return errorResponse(error, error instanceof RequestInputError ? error.status : 500); }
-  };
+  });
 }

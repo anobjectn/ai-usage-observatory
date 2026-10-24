@@ -284,6 +284,14 @@ Usage records, derived indexes, annotations, and app state stay on the machine r
 
 State lives in `.usage-observatory/data.db` (ignored by Git). Set `USAGE_OBSERVATORY_DB` to move it and `QUOTA_SERVICE_URL` to use another quota-service address.
 
+Browser resource requests are restricted by a Content Security Policy. App scripts,
+API connections, fonts, and icons stay on the app origin; generated favicon data URLs
+are allowed. Only the three benchmark sites may load in the comparison viewer,
+where they control their own content and network requests. Other sites cannot frame
+the Observatory. The development server additionally permits inline React refresh
+scripts and local hot-reload WebSockets; production scripts must come from the app
+origin. The update maintenance page permits its exact polling script by hash.
+
 <details>
 <summary>Full privacy details</summary>
 
