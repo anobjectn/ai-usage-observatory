@@ -1885,10 +1885,6 @@ main {
   background: var(--color-logo-backdrop);
 }
 
-.benchmark-trigger-icons img.benchmark-favicon--artificialanalysis,.benchmark-split-pill img.benchmark-favicon--artificialanalysis,.benchmark-tabs button img.benchmark-favicon--artificialanalysis {
-  background: var(--color-logo-artificial-analysis);
-}
-
 .benchmark-trigger-icons img.benchmark-favicon--aicharts,.benchmark-split-pill img.benchmark-favicon--aicharts,.benchmark-tabs button img.benchmark-favicon--aicharts {
   background: var(--color-logo-aicharts);
 }

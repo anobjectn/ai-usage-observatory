@@ -16,13 +16,6 @@ export const BENCHMARK_SITES = [
     favicon: "/benchmarks/aicharts.ico",
     description: "Compare coding-agent setups by benchmark score, task cost, time, and token use.",
   },
-  {
-    id: "artificialanalysis",
-    label: "Artificial Analysis",
-    url: "https://artificialanalysis.ai/",
-    favicon: "/benchmarks/artificialanalysis.ico",
-    description: "Broader model metrics: quality, speed, latency, and price across providers.",
-  },
 ] as const;
 
 export type BenchmarkSiteId = (typeof BENCHMARK_SITES)[number]["id"];

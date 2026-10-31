@@ -34,7 +34,6 @@
   --palette-mauve: #cf8fb1;
   --palette-fern: #86c58a;
   /* Third-party marks keep their own colours in every theme. */
-  --palette-artificial-analysis: #8842fd;
 
   /* ---- 2. Semantic roles ---- */
   /* Neutral anchors. Every other neutral is mixed from these two, so a theme that sets only
@@ -125,7 +124,6 @@
   --color-scene-core-deep: var(--color-bg);
   /* Backdrops behind third-party favicons. */
   --color-logo-backdrop: var(--palette-white);
-  --color-logo-artificial-analysis: var(--palette-artificial-analysis);
   --color-logo-aicharts: var(--palette-black);
 
   /* Tint strengths for color-mix(in srgb, <tone> <strength>, <base>). Backgrounds, glows, and
