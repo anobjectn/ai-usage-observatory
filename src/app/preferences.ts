@@ -60,6 +60,46 @@ export const quickOverviewModeStorageKey = "usage-observatory:quick-overview-mod
 
 export const headroomLinesStorageKey = "usage-observatory:headroom-lines";
 
+export const benchmarkModalSizeStorageKey = "usage-observatory:benchmark-modal-size";
+
+export type BenchmarkModalSize = { width: number; height: number };
+
+/** The window's floor, so a drag or a stale saved value can never shrink it past usable.
+ * The ceiling is the viewport, applied in CSS and in the drag handler. */
+export const benchmarkModalSizeBounds = { minWidth: 520, minHeight: 420, max: 4000 } as const;
+
+/** Returns a whole-pixel size inside the bounds, or null for the default (automatic) size. */
+export function normalizeBenchmarkModalSize(raw: unknown): BenchmarkModalSize | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { width, height } = raw as Record<string, unknown>;
+  if (typeof width !== "number" || typeof height !== "number") return null;
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  const { minWidth, minHeight, max } = benchmarkModalSizeBounds;
+  return {
+    width: Math.min(max, Math.max(minWidth, Math.round(width))),
+    height: Math.min(max, Math.max(minHeight, Math.round(height))),
+  };
+}
+
+export function savedBenchmarkModalSize(): BenchmarkModalSize | null {
+  try {
+    return normalizeBenchmarkModalSize(
+      JSON.parse(localStorage.getItem(benchmarkModalSizeStorageKey) ?? "null"),
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function saveBenchmarkModalSize(size: BenchmarkModalSize | null) {
+  try {
+    if (size === null) localStorage.removeItem(benchmarkModalSizeStorageKey);
+    else localStorage.setItem(benchmarkModalSizeStorageKey, JSON.stringify(size));
+  } catch {
+    // Storage can be unavailable; the size still applies until reload.
+  }
+}
+
 export type HeadroomLineKey =
   | "headroomAnthropic"
   | "headroomCodex"

@@ -59,6 +59,8 @@ import {
   savedFavoriteAccents,
   savedDataTextScale,
   savedInterfaceTextScale,
+  savedBenchmarkModalSize,
+  saveBenchmarkModalSize,
   savedSceneEffects,
   usePrefersReducedMotion,
   sidebarCollapsedStorageKey,
@@ -144,6 +146,7 @@ export function App() {
   const [webImport, setWebImport] = useState(false);
   const [benchmarkSite, setBenchmarkSite] = useState<BenchmarkSiteId | null>(null);
   const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [benchmarkSize, setBenchmarkSize] = useState(savedBenchmarkModalSize);
   const [quickOverview, setQuickOverview] = useState(false);
   const [quickOverviewMode, setQuickOverviewMode] = useState<QuickOverviewMode>(
     savedQuickOverviewMode,
@@ -308,6 +311,7 @@ export function App() {
       localStorage.setItem(interfaceTextScaleStorageKey, String(interfaceTextScale));
     } catch {}
   }, [interfaceTextScale]);
+  useEffect(() => saveBenchmarkModalSize(benchmarkSize), [benchmarkSize]);
   const agents = useMemo(
     () =>
       data
@@ -463,6 +467,7 @@ export function App() {
     setDataTextScale(defaultDataTextScale);
     setInterfaceTextScale(defaultInterfaceTextScale);
     setSceneEffects(defaultSceneEffects);
+    setBenchmarkSize(null);
   };
   if (loading && !data)
     return (
@@ -912,6 +917,8 @@ export function App() {
         <BenchmarkModal
           initialSiteId={benchmarkSite}
           open={benchmarkOpen}
+          size={benchmarkSize}
+          onSizeChange={setBenchmarkSize}
           onClose={() => setBenchmarkOpen(false)}
         />
       )}

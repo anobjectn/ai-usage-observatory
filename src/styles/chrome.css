@@ -1854,6 +1854,43 @@ main {
   width: min(920px,100%);
 }
 
+.benchmark-modal--sized {
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - var(--space-5) * 2);
+  max-height: calc(100vh - var(--space-5) * 2);
+}
+
+.benchmark-modal--sized > * {
+  flex-shrink: 0;
+}
+
+.benchmark-modal--sized > .benchmark-frame {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}
+
+.benchmark-resize-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: linear-gradient(135deg,transparent 0 50%,var(--color-text-subtle) 50% 58%,transparent 58% 72%,var(--color-text-subtle) 72% 80%,transparent 80%);
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: .7;
+}
+
+.benchmark-resize-handle:hover,
+.benchmark-resize-handle:focus-visible {
+  opacity: 1;
+}
+
 .benchmark-backdrop--closed {
   display: none;
 }
@@ -1960,6 +1997,10 @@ main {
 }
 
 @media (max-width:760px) {
+  .benchmark-resize-handle {
+    display: none;
+  }
+
   .benchmark-toolbar {
     align-items: flex-start;
     flex-direction: column;
