@@ -33,6 +33,8 @@ The review bundle must contain:
 - the exact proposed GitHub Release notes;
 - breaking changes, migrations, and upgrade notes, explicitly saying when there
   are none;
+- the embed check result (see below), naming every resource that forbids
+  framing;
 - the verification commands and release mutations that execution will perform.
 
 Every release must update `CHANGELOG.md` and the README project-at-a-glance
@@ -40,6 +42,36 @@ badge group. During preparation, set the Version badge to the approved target,
 verify every other badge against its local source of truth, and include both
 exact changes in the review bundle. Do not omit either file, even when the
 non-version badges remain accurate; apply them only after approval.
+
+### Embed check
+
+The app frames third-party pages (the benchmark viewer, plus any origin in the
+`frame-src` policy in `server/security-headers.ts`). A site can start refusing
+to be framed at any time, and the viewer then shows a blank pane. During
+preparation, run:
+
+```bash
+bun run check:embeds
+```
+
+It fetches each embedded page and reports `OK`, `BLOCKED` (the page sends
+`X-Frame-Options` or a CSP `frame-ancestors` list that excludes the app), or
+`UNVERIFIED` (the request failed or returned an error status). It exits non-zero
+unless every resource is `OK`.
+
+If any resource is not `OK`, pause the release and report each one with its
+reason before anything else in the bundle. Do not decide for the user. They
+choose, per resource, to:
+
+- **Remove it:** delete its entry from `BENCHMARK_SITES`, its icon in
+  `public/benchmarks/`, its styles, and its `frame-src` entry, then rerun the
+  check. These edits are part of the release and need the usual approval.
+- **Ignore it:** keep the resource and release anyway. Record the accepted
+  resource in the review bundle so the choice is visible.
+
+The check reads response headers only. It cannot detect pages that block framing
+with JavaScript, or that refuse requests from scripts but not from browsers, so
+treat `UNVERIFIED` as a prompt to look, not as a pass.
 
 Execution begins only after the user explicitly approves this complete bundle
 and its exact version. If any detail changes, the agent must present the revised
@@ -60,6 +92,8 @@ An agent performing a release must:
 - Stop if identity routing is unmapped or mismatched, the branch has diverged,
   the target tag already exists locally or remotely, verification fails, or
   release scope is unclear.
+- Pause and report when `bun run check:embeds` finds an embedded resource that
+  is not `OK`. Continue only after the user chooses to remove or ignore it.
 - Never move or reuse a published tag. Correct a released defect with a new
   patch release.
 
@@ -138,9 +172,12 @@ the approved `CHANGELOG.md` entry, and update the README Version badge to the
 same target while verifying the remaining badges. `bun.lock` does not currently
 store the root package version, so do not modify it solely for a release.
 
-Run the complete verification suite:
+Run the complete verification suite. The embed check was settled during
+preparation; running it again confirms nothing changed. A non-`OK` resource the
+user already chose to ignore is not a verification failure, but a new one is.
 
 ```bash
+bun run check:embeds
 bun run typecheck
 bun test
 bun run build

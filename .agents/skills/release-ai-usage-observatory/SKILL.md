@@ -19,6 +19,10 @@ its local source of truth. Include both exact changes in the review bundle and
 release mutations. Do not omit either file, even when the non-version badges
 remain accurate. Apply them only after approval.
 
+During preparation, run `bun run check:embeds`. If any embedded third-party page
+forbids framing or cannot be checked, pause and report it first. Let the user
+choose to remove the resource or ignore the finding; do not choose for them.
+
 Treat a new release request or version number as preparation, not approval.
 Execute only after the user explicitly approves the complete review bundle and
 exact version.

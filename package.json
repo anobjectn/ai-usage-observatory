@@ -15,7 +15,8 @@
     "start:server": "bun run server/index.ts",
     "test": "bun test",
     "test:browser": "bun run scripts/test-browser.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:embeds": "bun run scripts/check-embeds.ts"
   },
   "dependencies": {
     "ccusage": "20.0.30",
