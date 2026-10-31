@@ -11,7 +11,7 @@ export function securityHeaders(options: { development?: boolean; scriptHash?: s
       "img-src 'self' data:",
       "font-src 'self'",
       `connect-src 'self'${options.development ? " ws://localhost:5173 ws://127.0.0.1:5173" : ""}`,
-      "frame-src https://slopalytics.com https://deepswe.datacurve.ai https://artificialanalysis.ai",
+      "frame-src https://slopalytics.com https://aicharts.io https://artificialanalysis.ai",
       "frame-ancestors 'none'",
       "base-uri 'none'",
       "form-action 'none'",

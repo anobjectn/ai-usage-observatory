@@ -1889,6 +1889,10 @@ main {
   background: var(--color-logo-artificial-analysis);
 }
 
+.benchmark-trigger-icons img.benchmark-favicon--aicharts,.benchmark-split-pill img.benchmark-favicon--aicharts,.benchmark-tabs button img.benchmark-favicon--aicharts {
+  background: var(--color-logo-aicharts);
+}
+
 .benchmark-tabs button:hover {
   border-color: var(--color-border-strong);
   color: var(--color-text);

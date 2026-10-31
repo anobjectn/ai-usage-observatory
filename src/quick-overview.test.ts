@@ -88,8 +88,8 @@ test("savedQuickOverviewMode restores grid and defaults everything else to gauge
 
 test("benchmarkLoadedAtLabel includes a full local date and time", () => {
   const loadedAt = new Date(2026, 8, 7, 15, 42).getTime();
-  expect(benchmarkLoadedAtLabel(null, "DeepSWE")).toBe("Loading DeepSWE...");
-  const label = benchmarkLoadedAtLabel(loadedAt, "DeepSWE");
+  expect(benchmarkLoadedAtLabel(null, "AI Charts")).toBe("Loading AI Charts...");
+  const label = benchmarkLoadedAtLabel(loadedAt, "AI Charts");
   expect(label.startsWith("Loaded ")).toBe(true);
   expect(label).toContain("2026");
   expect(label).toContain(new Date(loadedAt).toLocaleString(undefined, { month: "short" }));

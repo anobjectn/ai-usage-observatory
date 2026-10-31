@@ -945,7 +945,7 @@ export function BenchmarkModal({
   const [loadedAt, setLoadedAt] = useState<Partial<Record<BenchmarkSiteId, number>>>({});
   const [refreshVersions, setRefreshVersions] = useState<Record<BenchmarkSiteId, number>>({
     slopalytics: 0,
-    deepswe: 0,
+    aicharts: 0,
     artificialanalysis: 0,
   });
   useEffect(() => {

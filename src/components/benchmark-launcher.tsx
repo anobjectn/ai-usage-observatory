@@ -10,11 +10,11 @@ export const BENCHMARK_SITES = [
     description: "Compare AI models by intelligence, cost, speed, and thinking effort.",
   },
   {
-    id: "deepswe",
-    label: "DeepSWE",
-    url: "https://deepswe.datacurve.ai/#leaderboard",
-    favicon: "/benchmarks/deepswe.ico",
-    description: "Cost-vs-performance leaderboard across coding agents.",
+    id: "aicharts",
+    label: "AI Charts",
+    url: "https://aicharts.io/coding",
+    favicon: "/benchmarks/aicharts.ico",
+    description: "Compare coding-agent setups by benchmark score, task cost, time, and token use.",
   },
   {
     id: "artificialanalysis",

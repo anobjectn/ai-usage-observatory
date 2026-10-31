@@ -126,6 +126,7 @@
   /* Backdrops behind third-party favicons. */
   --color-logo-backdrop: var(--palette-white);
   --color-logo-artificial-analysis: var(--palette-artificial-analysis);
+  --color-logo-aicharts: var(--palette-black);
 
   /* Tint strengths for color-mix(in srgb, <tone> <strength>, <base>). Backgrounds, glows, and
      rings mix a tone into transparent or a surface; borders mix it into --color-border. Light
