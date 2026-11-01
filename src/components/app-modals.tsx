@@ -279,7 +279,7 @@ export function AppearanceModal({
           ? minDismissals
           : changedDismissals;
     setDismissal(randomDismissal(options));
-    closeTimer.current = window.setTimeout(onClose, 2050);
+    closeTimer.current = window.setTimeout(onClose, 3050);
   }, [
     accent,
     changeCount,

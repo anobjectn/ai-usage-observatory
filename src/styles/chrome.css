@@ -1498,7 +1498,7 @@ main {
   animation: appearance-blur-out .572s .078s linear both;
 }
 .modal-backdrop--dismissing::before {
-  animation: appearance-shade-out 1.5s .34s var(--ease-decelerate) both;
+  animation: appearance-shade-out 1.5s 1.34s var(--ease-decelerate) both;
 }
 .appearance-modal--dismissing .appearance-content {
   pointer-events: none;
