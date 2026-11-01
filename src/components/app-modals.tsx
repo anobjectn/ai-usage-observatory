@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
@@ -23,9 +23,12 @@ import {
   usePrefersReducedMotion,
   type QuickOverviewMode,
   useVisibleViewportHeight,
+  appearanceModalSizeBounds,
   benchmarkModalSizeBounds,
-  normalizeBenchmarkModalSize,
-  type BenchmarkModalSize,
+  quickOverviewModalSizeBounds,
+  normalizeModalSize,
+  type ModalSize,
+  type ModalSizeBounds,
 } from "../app/preferences";
 import { formatCompact } from "../app/format";
 import { resetCountdownParts, condensedResetCopy, quickOverviewCards } from "../app/analytics";
@@ -175,6 +178,83 @@ function TextScaleSetting({
   );
 }
 
+/** Space the backdrop keeps free around a window, so a drag cannot push it off screen. */
+const modalViewportMargin = 40;
+
+const modalKeyboardResizeStep = 32;
+
+/** Corner grip for a modal. Drag or use the arrow keys to resize; double-click restores the
+ * default size. Modals are centered unless `topAnchoredMargin` gives the vertical space a
+ * top-anchored one keeps free. */
+function ModalResizeHandle({
+  dialogRef,
+  bounds,
+  onSizeChange,
+  topAnchoredMargin,
+}: {
+  dialogRef: RefObject<HTMLDivElement | null>;
+  bounds: ModalSizeBounds;
+  onSizeChange?: (size: ModalSize | null) => void;
+  topAnchoredMargin?: number;
+}) {
+  const start = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const resizeTo = (width: number, height: number) => {
+    onSizeChange?.(
+      normalizeModalSize(
+        {
+          width: Math.min(width, Math.max(bounds.minWidth, window.innerWidth - modalViewportMargin)),
+          height: Math.min(height, Math.max(bounds.minHeight, window.innerHeight - (topAnchoredMargin ?? modalViewportMargin))),
+        },
+        bounds,
+      ),
+    );
+  };
+  return (
+    <button
+      type="button"
+      className="modal-resize-handle"
+      aria-label="Resize window. Use the arrow keys, or double-click to restore the default size."
+      title="Drag to resize. Double-click to restore the default size."
+      onPointerDown={(e) => {
+        const rect = dialogRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        start.current = { x: e.clientX, y: e.clientY, width: rect.width, height: rect.height };
+      }}
+      onPointerMove={(e) => {
+        const from = start.current;
+        if (!from) return;
+        // A centered axis moves each edge half the growth: double the pointer travel keeps the
+        // corner under the cursor.
+        const heightScale = topAnchoredMargin === undefined ? 2 : 1;
+        resizeTo(from.width + 2 * (e.clientX - from.x), from.height + heightScale * (e.clientY - from.y));
+      }}
+      onPointerUp={() => {
+        start.current = null;
+      }}
+      onPointerCancel={() => {
+        start.current = null;
+      }}
+      onDoubleClick={() => onSizeChange?.(null)}
+      onKeyDown={(e) => {
+        const rect = dialogRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const step = modalKeyboardResizeStep;
+        const delta: Record<string, [number, number]> = {
+          ArrowLeft: [-step, 0],
+          ArrowRight: [step, 0],
+          ArrowUp: [0, -step],
+          ArrowDown: [0, step],
+        };
+        const change = delta[e.key];
+        if (!change) return;
+        e.preventDefault();
+        resizeTo(rect.width + change[0], rect.height + change[1]);
+      }}
+    />
+  );
+}
+
 export function AppearanceModal({
   accent,
   onChange,
@@ -189,6 +269,8 @@ export function AppearanceModal({
   sceneEffects,
   onSceneEffectsChange,
   reducedMotion,
+  size = null,
+  onSizeChange,
   onReset,
   onClose,
 }: {
@@ -205,6 +287,9 @@ export function AppearanceModal({
   sceneEffects: SceneEffects;
   onSceneEffectsChange: (value: SceneEffects) => void;
   reducedMotion: boolean;
+  /** Saved window size, or null for the automatic default. */
+  size?: ModalSize | null;
+  onSizeChange?: (size: ModalSize | null) => void;
   onReset: () => void;
   onClose: () => void;
 }) {
@@ -308,7 +393,8 @@ export function AppearanceModal({
     >
       <div
         ref={dialogRef}
-        className={`modal appearance-modal${dismissal ? " appearance-modal--dismissing" : ""}`}
+        className={`modal appearance-modal${size ? " appearance-modal--sized" : ""}${dismissal ? " appearance-modal--dismissing" : ""}`}
+        style={size ? { width: size.width, height: size.height } : undefined}
         role="dialog"
         aria-modal="true"
         aria-labelledby="appearance-modal-title"
@@ -553,6 +639,7 @@ export function AppearanceModal({
             <RotateCcw /> Reset all appearance settings
           </button>
         </div>
+        <ModalResizeHandle dialogRef={dialogRef} bounds={appearanceModalSizeBounds} onSizeChange={onSizeChange} />
       </div>
       {dismissal && (
         <div
@@ -931,11 +1018,6 @@ export function benchmarkLoadedAtLabel(loadedAt: number | null, siteLabel: strin
   })}`;
 }
 
-/** Space the backdrop keeps free around the window, so a drag cannot push it off screen. */
-const benchmarkViewportMargin = 40;
-
-const benchmarkKeyboardResizeStep = 32;
-
 export function BenchmarkModal({
   onClose,
   initialSiteId,
@@ -947,20 +1029,10 @@ export function BenchmarkModal({
   initialSiteId?: BenchmarkSiteId;
   open?: boolean;
   /** Saved window size, or null for the automatic default. */
-  size?: BenchmarkModalSize | null;
-  onSizeChange?: (size: BenchmarkModalSize | null) => void;
+  size?: ModalSize | null;
+  onSizeChange?: (size: ModalSize | null) => void;
 }) {
   const dialogRef = useModalFocusTrap(onClose, open);
-  const resizeStart = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
-  const resizeTo = (width: number, height: number) => {
-    const { minWidth, minHeight } = benchmarkModalSizeBounds;
-    onSizeChange?.(
-      normalizeBenchmarkModalSize({
-        width: Math.min(width, Math.max(minWidth, window.innerWidth - benchmarkViewportMargin)),
-        height: Math.min(height, Math.max(minHeight, window.innerHeight - benchmarkViewportMargin)),
-      }),
-    );
-  };
   const [siteId, setSiteId] = useState<BenchmarkSiteId>(initialSiteId ?? BENCHMARK_SITES[0].id);
   const [visitedSites, setVisitedSites] = useState<Set<BenchmarkSiteId>>(
     () => new Set([initialSiteId ?? BENCHMARK_SITES[0].id]),
@@ -1073,47 +1145,7 @@ export function BenchmarkModal({
             ) : null,
           )}
         </div>
-        <button
-          type="button"
-          className="benchmark-resize-handle"
-          aria-label="Resize window. Use the arrow keys, or double-click to restore the default size."
-          title="Drag to resize. Double-click to restore the default size."
-          onPointerDown={(e) => {
-            const rect = dialogRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            e.currentTarget.setPointerCapture(e.pointerId);
-            resizeStart.current = { x: e.clientX, y: e.clientY, width: rect.width, height: rect.height };
-          }}
-          onPointerMove={(e) => {
-            const start = resizeStart.current;
-            if (!start) return;
-            // The window is centered, so each edge moves half the growth: double the pointer travel
-            // keeps the corner under the cursor.
-            resizeTo(start.width + 2 * (e.clientX - start.x), start.height + 2 * (e.clientY - start.y));
-          }}
-          onPointerUp={() => {
-            resizeStart.current = null;
-          }}
-          onPointerCancel={() => {
-            resizeStart.current = null;
-          }}
-          onDoubleClick={() => onSizeChange?.(null)}
-          onKeyDown={(e) => {
-            const rect = dialogRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            const step = benchmarkKeyboardResizeStep;
-            const delta: Record<string, [number, number]> = {
-              ArrowLeft: [-step, 0],
-              ArrowRight: [step, 0],
-              ArrowUp: [0, -step],
-              ArrowDown: [0, step],
-            };
-            const change = delta[e.key];
-            if (!change) return;
-            e.preventDefault();
-            resizeTo(rect.width + change[0], rect.height + change[1]);
-          }}
-        />
+        <ModalResizeHandle dialogRef={dialogRef} bounds={benchmarkModalSizeBounds} onSizeChange={onSizeChange} />
       </div>
     </div>,
     document.body,
@@ -1171,6 +1203,9 @@ function quickHeadroomState(left: number | null) {
   return { tone: "low", label: "Very low remaining" } as const;
 }
 
+/** The backdrop's top and bottom padding (.quick-overview-backdrop). */
+const quickOverviewVerticalMargin = 92;
+
 export function QuickOverviewModal({
   quotas,
   mode,
@@ -1178,6 +1213,8 @@ export function QuickOverviewModal({
   accent,
   providerColors,
   sceneEffects,
+  size = null,
+  onSizeChange,
   onClose,
 }: {
   quotas: DashboardData["quotas"];
@@ -1186,6 +1223,9 @@ export function QuickOverviewModal({
   accent: string;
   providerColors: ProviderColors;
   sceneEffects: SceneEffects;
+  /** Saved window size, or null for the automatic default. */
+  size?: ModalSize | null;
+  onSizeChange?: (size: ModalSize | null) => void;
   onClose: () => void;
 }) {
   const dialogRef = useModalFocusTrap(onClose);
@@ -1203,7 +1243,8 @@ export function QuickOverviewModal({
     >
       <div
         ref={dialogRef}
-        className={`modal quick-overview-modal quick-overview-modal--${mode}`}
+        className={`modal quick-overview-modal quick-overview-modal--${mode}${size ? " quick-overview-modal--sized" : ""}`}
+        style={size ? { width: size.width, height: size.height } : undefined}
         role="dialog"
         aria-modal="true"
         aria-label="Quick quota overview"
@@ -1217,6 +1258,7 @@ export function QuickOverviewModal({
         >
           <X />
         </button>
+        <div className="quick-overview__body">
         {/* The tesseract preference only swaps the orrery's core (hypercube vs
             telescope), matching the hero orrery; the orrery itself always shows. */}
         <div className="quick-overview__orrery">
@@ -1358,6 +1400,13 @@ export function QuickOverviewModal({
             <LayoutGrid /> Grid
           </button>
         </div>
+        </div>
+        <ModalResizeHandle
+          dialogRef={dialogRef}
+          bounds={quickOverviewModalSizeBounds}
+          onSizeChange={onSizeChange}
+          topAnchoredMargin={quickOverviewVerticalMargin}
+        />
       </div>
     </div>
   );

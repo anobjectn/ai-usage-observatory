@@ -1104,8 +1104,26 @@ main {
   padding: 0 var(--space-2);
   height: auto;
 }
+/* The content scrolls instead of the window, so the resize grip stays in the corner. */
 .appearance-modal {
   width: min(470px,100%);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.appearance-content {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-7);
+}
+/* The default height is the 90vh cap, so a saved size may only go a little below it. */
+.appearance-modal--sized {
+  min-height: 80vh;
+  max-width: calc(100vw - var(--space-5) * 2);
+  max-height: calc(100vh - var(--space-5) * 2);
 }
 .appearance-label {
   display: block;
@@ -1500,6 +1518,10 @@ main {
 .modal-backdrop--dismissing::before {
   animation: appearance-shade-out 1.5s 1.34s var(--ease-decelerate) both;
 }
+.appearance-modal--dismissing .modal-resize-handle {
+  pointer-events: none;
+  opacity: 0;
+}
 .appearance-modal--dismissing .appearance-content {
   pointer-events: none;
   animation: appearance-content-out .12s ease both;
@@ -1871,7 +1893,7 @@ main {
   min-height: 0;
 }
 
-.benchmark-resize-handle {
+.modal-resize-handle {
   position: absolute;
   right: 6px;
   bottom: 6px;
@@ -1886,8 +1908,8 @@ main {
   opacity: .7;
 }
 
-.benchmark-resize-handle:hover,
-.benchmark-resize-handle:focus-visible {
+.modal-resize-handle:hover,
+.modal-resize-handle:focus-visible {
   opacity: 1;
 }
 
@@ -1997,7 +2019,7 @@ main {
 }
 
 @media (max-width:760px) {
-  .benchmark-resize-handle {
+  .modal-resize-handle {
     display: none;
   }
 
@@ -2045,12 +2067,41 @@ main {
   height: 17px;
 }
 
+/* The body scrolls instead of the window, so the resize grip stays in the corner. */
 .quick-overview-modal {
   width: min(800px,100%);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.quick-overview__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   padding: var(--space-4-5);
   display: grid;
   grid-template-columns: 126px minmax(0,1fr);
+  grid-template-rows: auto auto;
   column-gap: var(--space-2);
+}
+
+.quick-overview-modal--sized {
+  max-width: calc(100vw - var(--space-5) * 2);
+  max-height: calc(var(--quick-overview-visible-height, 100vh) - 92px);
+}
+
+.quick-overview-modal--sized .quick-overview__body {
+  grid-template-rows: 1fr auto;
+}
+
+/* Small enough to clear the layout buttons beside it. */
+.quick-overview-modal .modal-resize-handle {
+  right: 3px;
+  bottom: 3px;
+  width: 14px;
+  height: 14px;
 }
 
 .quick-overview-modal .modal-close {
@@ -2357,10 +2408,12 @@ main {
 }
 
 @media (max-width:760px) {
-  .quick-overview-modal {
+  .quick-overview__body {
     display: block;
-    width: min(700px,100%);
     padding: var(--space-4);
+  }
+  .quick-overview-modal {
+    width: min(700px,100%);
     max-height: calc(100svh - 92px);
     max-height: calc(100dvh - 92px);
     max-height: calc(var(--quick-overview-visible-height, 100dvh) - 92px);

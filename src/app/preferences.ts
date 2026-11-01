@@ -62,39 +62,48 @@ export const headroomLinesStorageKey = "usage-observatory:headroom-lines";
 
 export const benchmarkModalSizeStorageKey = "usage-observatory:benchmark-modal-size";
 
-export type BenchmarkModalSize = { width: number; height: number };
+export const appearanceModalSizeStorageKey = "usage-observatory:appearance-modal-size";
 
-/** The window's floor, so a drag or a stale saved value can never shrink it past usable.
+export const quickOverviewModalSizeStorageKey = "usage-observatory:quick-overview-modal-size";
+
+export type ModalSize = { width: number; height: number };
+
+export type ModalSizeBounds = { minWidth: number; minHeight: number; max: number };
+
+/** A window's floor, so a drag or a stale saved value can never shrink it past usable.
  * The ceiling is the viewport, applied in CSS and in the drag handler. */
-export const benchmarkModalSizeBounds = { minWidth: 520, minHeight: 420, max: 4000 } as const;
+export const benchmarkModalSizeBounds: ModalSizeBounds = { minWidth: 520, minHeight: 420, max: 4000 };
+
+/** The default width sits just above this floor. The height floor is viewport-relative, so it
+ * lives in CSS (.appearance-modal--sized). */
+export const appearanceModalSizeBounds: ModalSizeBounds = { minWidth: 440, minHeight: 420, max: 4000 };
+
+export const quickOverviewModalSizeBounds: ModalSizeBounds = { minWidth: 560, minHeight: 240, max: 4000 };
 
 /** Returns a whole-pixel size inside the bounds, or null for the default (automatic) size. */
-export function normalizeBenchmarkModalSize(raw: unknown): BenchmarkModalSize | null {
+export function normalizeModalSize(raw: unknown, bounds: ModalSizeBounds): ModalSize | null {
   if (typeof raw !== "object" || raw === null) return null;
   const { width, height } = raw as Record<string, unknown>;
   if (typeof width !== "number" || typeof height !== "number") return null;
   if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-  const { minWidth, minHeight, max } = benchmarkModalSizeBounds;
   return {
-    width: Math.min(max, Math.max(minWidth, Math.round(width))),
-    height: Math.min(max, Math.max(minHeight, Math.round(height))),
+    width: Math.min(bounds.max, Math.max(bounds.minWidth, Math.round(width))),
+    height: Math.min(bounds.max, Math.max(bounds.minHeight, Math.round(height))),
   };
 }
 
-export function savedBenchmarkModalSize(): BenchmarkModalSize | null {
+export function savedModalSize(key: string, bounds: ModalSizeBounds): ModalSize | null {
   try {
-    return normalizeBenchmarkModalSize(
-      JSON.parse(localStorage.getItem(benchmarkModalSizeStorageKey) ?? "null"),
-    );
+    return normalizeModalSize(JSON.parse(localStorage.getItem(key) ?? "null"), bounds);
   } catch {
     return null;
   }
 }
 
-export function saveBenchmarkModalSize(size: BenchmarkModalSize | null) {
+export function saveModalSize(key: string, size: ModalSize | null) {
   try {
-    if (size === null) localStorage.removeItem(benchmarkModalSizeStorageKey);
-    else localStorage.setItem(benchmarkModalSizeStorageKey, JSON.stringify(size));
+    if (size === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(size));
   } catch {
     // Storage can be unavailable; the size still applies until reload.
   }

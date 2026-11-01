@@ -59,8 +59,14 @@ import {
   savedFavoriteAccents,
   savedDataTextScale,
   savedInterfaceTextScale,
-  savedBenchmarkModalSize,
-  saveBenchmarkModalSize,
+  appearanceModalSizeBounds,
+  appearanceModalSizeStorageKey,
+  benchmarkModalSizeBounds,
+  benchmarkModalSizeStorageKey,
+  quickOverviewModalSizeBounds,
+  quickOverviewModalSizeStorageKey,
+  savedModalSize,
+  saveModalSize,
   savedSceneEffects,
   usePrefersReducedMotion,
   sidebarCollapsedStorageKey,
@@ -146,7 +152,15 @@ export function App() {
   const [webImport, setWebImport] = useState(false);
   const [benchmarkSite, setBenchmarkSite] = useState<BenchmarkSiteId | null>(null);
   const [benchmarkOpen, setBenchmarkOpen] = useState(false);
-  const [benchmarkSize, setBenchmarkSize] = useState(savedBenchmarkModalSize);
+  const [benchmarkSize, setBenchmarkSize] = useState(() =>
+    savedModalSize(benchmarkModalSizeStorageKey, benchmarkModalSizeBounds),
+  );
+  const [quickOverviewSize, setQuickOverviewSize] = useState(() =>
+    savedModalSize(quickOverviewModalSizeStorageKey, quickOverviewModalSizeBounds),
+  );
+  const [appearanceSize, setAppearanceSize] = useState(() =>
+    savedModalSize(appearanceModalSizeStorageKey, appearanceModalSizeBounds),
+  );
   const [quickOverview, setQuickOverview] = useState(false);
   const [quickOverviewMode, setQuickOverviewMode] = useState<QuickOverviewMode>(
     savedQuickOverviewMode,
@@ -311,7 +325,9 @@ export function App() {
       localStorage.setItem(interfaceTextScaleStorageKey, String(interfaceTextScale));
     } catch {}
   }, [interfaceTextScale]);
-  useEffect(() => saveBenchmarkModalSize(benchmarkSize), [benchmarkSize]);
+  useEffect(() => saveModalSize(benchmarkModalSizeStorageKey, benchmarkSize), [benchmarkSize]);
+  useEffect(() => saveModalSize(appearanceModalSizeStorageKey, appearanceSize), [appearanceSize]);
+  useEffect(() => saveModalSize(quickOverviewModalSizeStorageKey, quickOverviewSize), [quickOverviewSize]);
   const agents = useMemo(
     () =>
       data
@@ -468,6 +484,8 @@ export function App() {
     setInterfaceTextScale(defaultInterfaceTextScale);
     setSceneEffects(defaultSceneEffects);
     setBenchmarkSize(null);
+    setAppearanceSize(null);
+    setQuickOverviewSize(null);
   };
   if (loading && !data)
     return (
@@ -909,6 +927,8 @@ export function App() {
           sceneEffects={sceneEffects}
           onSceneEffectsChange={setSceneEffects}
           reducedMotion={reducedMotion}
+          size={appearanceSize}
+          onSizeChange={setAppearanceSize}
           onReset={resetAppearance}
           onClose={() => setAppearance(false)}
         />
@@ -930,6 +950,8 @@ export function App() {
           accent={accent}
           providerColors={providerColors}
           sceneEffects={sceneEffects}
+          size={quickOverviewSize}
+          onSizeChange={setQuickOverviewSize}
           onClose={() => setQuickOverview(false)}
         />
       )}

@@ -55,6 +55,7 @@ function quotasFixture(): DashboardData["quotas"] {
 function renderModal(
   mode: "gauges" | "grid",
   effects: SceneEffects = sceneEffects,
+  size: { width: number; height: number } | null = null,
 ) {
   return renderToStaticMarkup(
     createElement(QuickOverviewModal, {
@@ -64,10 +65,20 @@ function renderModal(
       accent: "#78a8ff",
       providerColors,
       sceneEffects: effects,
+      size,
       onClose: () => {},
     }),
   );
 }
+
+test("the quick overview applies a saved size only when one exists", () => {
+  const sized = renderModal("gauges", sceneEffects, { width: 1000, height: 500 });
+  expect(sized).toContain("quick-overview-modal--sized");
+  expect(sized).toContain("width:1000px;height:500px");
+  const automatic = renderModal("gauges");
+  expect(automatic).not.toContain("quick-overview-modal--sized");
+  expect(automatic).toContain("modal-resize-handle");
+});
 
 test("savedQuickOverviewMode restores grid and defaults everything else to gauges", () => {
   const stored = new Map<string, string>();
