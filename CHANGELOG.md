@@ -5,6 +5,29 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.0] - 2026-10-31
+
+### Added
+
+- Make the External Benchmarks, Appearance, and quick overview windows
+  resizable. Drag the corner grip, use the arrow keys, or double-click the grip
+  to restore the default size. Sizes are saved locally, shrink with the browser
+  window, and are cleared by Reset all appearance settings.
+- Add `bun run check:embeds`, which reports third-party pages that forbid
+  framing. Release preparation pauses when a resource is blocked.
+
+### Changed
+
+- Replace the DeepSWE coding benchmark with AI Charts (aicharts.io/coding),
+  with its own icon.
+- Keep the darkened area visible about a second longer when the Appearance
+  window closes.
+
+### Removed
+
+- Remove the Artificial Analysis benchmark tab, which blocks embedding in the
+  viewer.
+
 ## [1.34.1] - 2026-10-23
 
 ### Security
@@ -272,6 +295,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.35.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.1...v1.35.0
 [1.34.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.0...v1.34.1
 [1.34.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.1...v1.34.0
 [1.33.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.0...v1.33.1
