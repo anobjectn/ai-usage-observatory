@@ -1423,15 +1423,14 @@
   text-decoration-line: none;
 }
 
-.session-table .session-col--header-pagination {
-  padding: var(--space-2) var(--space-1-5);
-}
-
+/* The top pager sits above the table, outside the scroll container, so it never shares a cell
+   with a column header. */
 .session-header-pagination {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-1-5);
+  padding: var(--space-2) var(--space-3);
   letter-spacing: 0;
 }
 

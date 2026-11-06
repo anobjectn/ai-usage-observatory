@@ -393,6 +393,30 @@ export function Sessions({
             </button>
           </div>
         )}
+        <div className="session-header-pagination" role="group" aria-label="Session table pagination">
+          <button
+            type="button"
+            disabled={page === 1}
+            onClick={() => setPage((p) => p - 1)}
+            aria-label="Previous session page"
+          >
+            <ChevronLeft aria-hidden="true" />
+          </button>
+          <PageJump
+            page={page}
+            pages={pages}
+            label="session page"
+            onChange={setPage}
+          />
+          <button
+            type="button"
+            disabled={page === pages}
+            onClick={() => setPage((p) => p + 1)}
+            aria-label="Next session page"
+          >
+            <ChevronRight aria-hidden="true" />
+          </button>
+        </div>
         <div className="table-scroll">
           <table className="session-table">
             <colgroup>
@@ -435,35 +459,8 @@ export function Sessions({
                     Rate
                   </span>
                 </th>
-                <th
-                  className="session-col session-col--header-pagination"
-                  colSpan={2}
-                  scope="colgroup"
-                >
-                  <div className="session-header-pagination" aria-label="Session table pagination">
-                    <button
-                      type="button"
-                      disabled={page === 1}
-                      onClick={() => setPage((p) => p - 1)}
-                      aria-label="Previous session page"
-                    >
-                      <ChevronLeft aria-hidden="true" />
-                    </button>
-                    <PageJump
-                      page={page}
-                      pages={pages}
-                      label="session page"
-                      onChange={setPage}
-                    />
-                    <button
-                      type="button"
-                      disabled={page === pages}
-                      onClick={() => setPage((p) => p + 1)}
-                      aria-label="Next session page"
-                    >
-                      <ChevronRight aria-hidden="true" />
-                    </button>
-                  </div>
+                <th className="session-col session-col--header-actions" colSpan={2} scope="colgroup">
+                  <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
