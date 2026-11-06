@@ -1,5 +1,5 @@
-import { type CSSProperties } from "react";
-import { CircleDollarSign, RefreshCw, Sparkles, Zap } from "lucide-react";
+import { type CSSProperties, useId, useState } from "react";
+import { ChevronRight, CircleDollarSign, RefreshCw, Sparkles, Zap } from "lucide-react";
 import {
   quotaPlanLabel,
   reachClockSummary,
@@ -146,6 +146,52 @@ function importedAgo(capturedAt: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function FableCreditBox({
+  fable,
+  importedAt,
+  importFreshness,
+}: {
+  fable: NonNullable<AnthropicCreditView["fable"]>;
+  importedAt: number | null;
+  importFreshness: CreditFreshness | null;
+}) {
+  return (
+    <div className={`fable-credit${fable.expired ? " fable-credit--expired" : ""}`}>
+      <div className="fable-credit__head">
+        <span>
+          <Sparkles /> Fable transition credit
+        </span>
+        {fable.expired && <i className="fable-credit__badge">expired</i>}
+      </div>
+      <strong>{formatCredit(fable.remaining, fable.currency)}</strong>
+      <div className="fable-credit__meta">
+        {fable.grant !== null && (
+          <span>of {formatCredit(fable.grant, fable.currency)} granted</span>
+        )}
+        {fable.expiresOn && (
+          <span>
+            {fable.expired ? "expired" : "expires"} {fable.expiresOn}
+          </span>
+        )}
+        {fable.campaignId && (
+          <span>
+            {fable.campaignId}
+            {fable.campaignGranted === false ? " · not granted" : ""}
+          </span>
+        )}
+        {importedAt !== null && (
+          <span>
+            imported {importedAgo(importedAt)}
+            {importFreshness && importFreshness !== "fresh"
+              ? ` · ${freshnessLabel[importFreshness]}`
+              : ""}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AnthropicCredits({
   view,
   onUpdate,
@@ -202,40 +248,21 @@ function AnthropicCredits({
           </small>
         </div>
       )}
-      {fable && (
-        <div className={`fable-credit${fable.expired ? " fable-credit--expired" : ""}`}>
-          <div className="fable-credit__head">
+      {fable && fable.expired && (
+        // An expired credit is a record, not headroom, so it stays folded.
+        <details className="fable-credit-history">
+          <summary>
             <span>
-              <Sparkles /> Fable transition credit
+              <ChevronRight aria-hidden="true" />
+              <Sparkles aria-hidden="true" /> Fable transition credit
             </span>
-            {fable.expired && <i className="fable-credit__badge">expired</i>}
-          </div>
-          <strong>{formatCredit(fable.remaining, fable.currency)}</strong>
-          <div className="fable-credit__meta">
-            {fable.grant !== null && (
-              <span>of {formatCredit(fable.grant, fable.currency)} granted</span>
-            )}
-            {fable.expiresOn && (
-              <span>
-                {fable.expired ? "expired" : "expires"} {fable.expiresOn}
-              </span>
-            )}
-            {fable.campaignId && (
-              <span>
-                {fable.campaignId}
-                {fable.campaignGranted === false ? " · not granted" : ""}
-              </span>
-            )}
-            {importedAt !== null && (
-              <span>
-                imported {importedAgo(importedAt)}
-                {importFreshness && importFreshness !== "fresh"
-                  ? ` · ${freshnessLabel[importFreshness]}`
-                  : ""}
-              </span>
-            )}
-          </div>
-        </div>
+            <b>expired</b>
+          </summary>
+          <FableCreditBox fable={fable} importedAt={importedAt} importFreshness={importFreshness} />
+        </details>
+      )}
+      {fable && !fable.expired && (
+        <FableCreditBox fable={fable} importedAt={importedAt} importFreshness={importFreshness} />
       )}
       {onUpdate && (
         <button type="button" className="ghost-button credit-update" onClick={onUpdate}>
@@ -380,6 +407,13 @@ function ReachPattern({
   );
 }
 
+/* The dial fits about six characters inside its ring; the row beside it keeps the full word. */
+function dialStateLabel(state: string): string {
+  if (state === "unavailable") return "n/a";
+  if (state === "suspended") return "paused";
+  return state;
+}
+
 export function QuotaDials({
   quotas,
   timeZone,
@@ -390,6 +424,11 @@ export function QuotaDials({
   onUpdateWebCredits?: () => void;
 }) {
   const cards = quotaCards(quotas);
+  // Where the cards stack, the glance strip shows and the full cards (reset clocks, reach history,
+  // credits) fold behind one toggle, so the spend summary is not three screens down. The
+  // side-by-side desktop layout ignores it.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const quotaGridId = useId();
   const anthropicCredits = buildAnthropicCreditView(
     quotas.usage?.providers.find((provider) => provider.provider === "anthropic"),
   );
@@ -424,7 +463,54 @@ export function QuotaDials({
           </span>
         </div>
       </div>
-      <div className="quota-grid">
+      {/* Where the cards stack, each one's history pushes the next provider down; this strip
+          puts every provider's current headroom first. */}
+      <dl className="quota-glance">
+        {cards.map((card) => (
+          <div className={`quota-glance__provider ${card.provider}`} key={card.provider}>
+            <dt>
+              {card.providerLabel}
+              {card.state === "stale" && (
+                <small className="quota-glance__state">{card.stateLabel}</small>
+              )}
+            </dt>
+            <dd>
+              {card.buckets.map((bucket) => (
+                <span key={bucket.id} className={bucket.state}>
+                  <small>{bucket.windowLabel}</small>
+                  {bucket.usedPercent === null || bucket.state === "expired" ? (
+                    <b>{dialStateLabel(bucket.state)}</b>
+                  ) : (
+                    <>
+                      <b>{Math.max(0, Math.min(100, 100 - bucket.usedPercent)).toFixed(0)}%</b>
+                      <small>left</small>
+                    </>
+                  )}
+                  {bucket.usedPercent !== null && bucket.resetAt !== null && bucket.resetAt > Date.now() && (
+                    <small className="quota-glance__reset">
+                      {bucket.resetVerb} in {formatDuration(bucket.resetAt - Date.now())}
+                    </small>
+                  )}
+                </span>
+              ))}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <button
+        type="button"
+        className="quota-details-toggle"
+        aria-expanded={detailsOpen}
+        aria-controls={quotaGridId}
+        onClick={() => setDetailsOpen((open) => !open)}
+      >
+        <ChevronRight aria-hidden="true" />
+        {detailsOpen ? "Hide provider details" : "Provider details: reset times, reach history, credits"}
+      </button>
+      <div
+        className={`quota-grid${detailsOpen ? "" : " is-collapsed"}`}
+        id={quotaGridId}
+      >
         {cards.map((card) => {
           const stateLabel = card.stateLabel;
           return (
@@ -468,7 +554,7 @@ export function QuotaDials({
                             {left === null ? "—" : `${left.toFixed(0)}%`}
                           </strong>
                           <span>
-                            {left === null ? bucket.state : "left"}
+                            {left === null ? dialStateLabel(bucket.state) : "left"}
                           </span>
                         </div>
                       </div>
@@ -538,30 +624,37 @@ export function QuotaDials({
                       );
                     })}
                   </div>
-                  <div className="reset-summary reset-use">
-                    <div className="reset-summary__heading">
-                      <span>Resets used</span>
+                  {/* Used resets are history, not headroom: they stay folded so the card ends
+                      on what is still available. */}
+                  <details className="reset-summary reset-use">
+                    <summary className="reset-summary__heading">
+                      <span>
+                        <ChevronRight aria-hidden="true" />
+                        Resets used
+                      </span>
                       <b>
                         {quotas.history?.available
                           ? `${card.usedResetCount} observed`
                           : "Not tracked"}
                       </b>
-                    </div>
+                    </summary>
                     {card.usedResets.map((reset) => (
                       <small key={reset.id}>
-                        <Sparkles /> {reset.title} · used{" "}
+                        <Sparkles /> {reset.title}
                         <time dateTime={new Date(reset.usedAt).toISOString()}>
                           {new Date(reset.usedAt).toLocaleString(undefined, {
                             month: "short",
                             day: "numeric",
-                            year: "numeric",
+                            ...(new Date(reset.usedAt).getFullYear() !== new Date().getFullYear()
+                              ? { year: "numeric" as const }
+                              : {}),
                             hour: "numeric",
                             minute: "2-digit",
                           })}
                         </time>
                       </small>
                     ))}
-                  </div>
+                  </details>
                 </div>
               )}
             </article>

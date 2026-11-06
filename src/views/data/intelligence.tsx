@@ -43,23 +43,42 @@ export function UsageIntelligence({
     { days, dateRange, providers, modelFamilies, pathTag, showCache, collectedAt: data.collectedAt },
     facets,
   );
-  const effort = useReasoningEffort({ days, dateRange, providers, modelFamilies, pathTag, facets });
-  // Ordered by volume so the projects worth comparing are first, and disambiguated: two distinct
-  // working directories can share a last path segment, and a duplicated option is unusable.
+  const effort = useReasoningEffort({
+    days,
+    dateRange,
+    providers,
+    modelFamilies,
+    agentSummary: agentSummary(providers, modelFamilies),
+    pathTag,
+    facets,
+  });
+  // Only projects with effort evidence in the current scope, ordered by in-scope volume so the
+  // projects worth comparing are first. The dashboard's project list is all-time and ignores the
+  // range, agent, and path-tag filters, so most of its entries would open an empty board.
+  // The evidence rows are keyed by each observation's own working directory, but the board filters
+  // by the session's, so a session that moved into a subdirectory adds a key the board can never
+  // match; intersecting with the session-keyed project list drops it. Labels are disambiguated:
+  // two working directories can share a last path segment.
   const projectOptions = useMemo(() => {
-    const ranked = [...data.projects].sort((a, b) => b.tokens - a.tokens);
+    const sessionProjects = new Set(data.projects.map((project) => project.name));
+    const ranked = (effort.projectRows ?? [])
+      .filter((row) => sessionProjects.has(row.key) && row.summary.observedObservations + row.summary.unknownObservations > 0)
+      .sort((a, b) => b.summary.eligibleTokens - a.summary.eligibleTokens)
+      .map((row) => row.key);
+    // A selection that falls out of scope stays listed, so the picker never misstates the board.
+    if (effort.project !== "all" && !ranked.includes(effort.project)) ranked.push(effort.project);
     const shortOf = (id: string) => id.split("/").filter(Boolean).at(-1) ?? id;
     const counts = new Map<string, number>();
-    for (const project of ranked) counts.set(shortOf(project.name), (counts.get(shortOf(project.name)) ?? 0) + 1);
-    return ranked.map((project) => {
-      const parts = project.name.split("/").filter(Boolean);
-      const short = shortOf(project.name);
+    for (const id of ranked) counts.set(shortOf(id), (counts.get(shortOf(id)) ?? 0) + 1);
+    return ranked.map((id) => {
+      const parts = id.split("/").filter(Boolean);
+      const short = shortOf(id);
       return {
-        id: project.name,
+        id,
         label: (counts.get(short) ?? 0) > 1 ? parts.slice(-2).join("/") : short,
       };
     });
-  }, [data.projects]);
+  }, [data.projects, effort.projectRows, effort.project]);
   const modelEffort = useEffortAggregate("model", {});
   useEffortRefreshOnIndexChange(effort.status?.indexVersion, [modelEffort.load]);
 

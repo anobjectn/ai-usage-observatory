@@ -754,6 +754,11 @@
   flex-direction: column;
 }
 
+/* The shared help line pins itself to the bottom of its card with an auto top margin. Here the panel stretches to the findings list's height, so that margin would push the help, table and deviations to the bottom. Keep them under the heading and let the spare height fall below the content. */
+.findings-split__aside .effort-analysis>.effort-help {
+  margin-top: 0;
+}
+
 .findings-split__aside .effort-analysis-grid {
   flex: 1 1 auto;
   min-height: 0;
@@ -1332,6 +1337,9 @@
   text-transform: uppercase;
   letter-spacing: .05em;
   text-decoration: none;
+  white-space: nowrap;
+  min-height: 24px;
+  flex-shrink: 0;
 }
 .text-link:hover {
   text-decoration: underline;

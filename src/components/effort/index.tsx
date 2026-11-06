@@ -89,11 +89,16 @@ export function EffortStack({
   basis = "tokens",
   height = 8,
   showLegend = true,
+  showKey = false,
 }: {
   summary: EffortSummary;
   basis?: "tokens" | "observations";
   height?: number;
   showLegend?: boolean;
+  /** One line under the bar naming its two largest levels, for rows too tight for the legend.
+   * "mixed" shows it only when there is more than one level, for rows whose badge already names
+   * a single level. */
+  showKey?: boolean | "mixed";
 }) {
   const capped = capEffortLevels(summary.levels);
   const unknownAmount = basis === "tokens" ? summary.unknownTokens ?? 0 : summary.unknownObservations;
@@ -135,10 +140,25 @@ export function EffortStack({
             <li key={segment.effort}>
               <i style={{ background: effortColor(segment.effort) }} aria-hidden="true" />
               <span>{effortLabel(segment.effort)}</span>
-              <b>{percent(segment.amount / total)}</b>
+              <b>{segment.amount / total < 0.01 ? "<1%" : percent(segment.amount / total)}</b>
             </li>
           ))}
         </ul>
+      )}
+      {showKey && (showKey === true || segments.length > 1) && (
+        <p className="effort-stack-key" aria-hidden="true">
+          {[...segments]
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 2)
+            .map((segment) => (
+              <span key={segment.effort}>
+                <i style={{ background: effortColor(segment.effort) }} />
+                {effortLabel(segment.effort)}{" "}
+                <b>{segment.amount / total < 0.01 ? "<1%" : percent(segment.amount / total)}</b>
+              </span>
+            ))}
+          {segments.length > 2 && <span>+{segments.length - 2}</span>}
+        </p>
       )}
       <p className="effort-stack-summary">{summaryText}</p>
     </div>
@@ -192,19 +212,22 @@ const stateCopy: Record<string, string> = {
 export function EffortState({
   status,
   summary,
+  unavailableMessage,
   children,
 }: {
   status: EffortIndexStatus | null;
   /** Only the coverage state is read, so a combo response can supply it without inventing
    * effort-only levels it does not have. */
   summary?: Pick<EffortSummary, "coverageState"> | null;
+  /** Replaces the generic no-evidence copy, so a caller can name the filters that emptied it. */
+  unavailableMessage?: string;
   children?: React.ReactNode;
 }) {
   if (!status) return <p className="effort-empty">Effort information is unavailable right now.</p>;
   if (!status.enabled) return <p className="effort-empty">{stateCopy.disabled}</p>;
   if (status.phase === "error") return <p className="effort-empty">{stateCopy.error}{status.error ? ` (${status.error})` : ""}</p>;
   if (!summary || summary.coverageState === "unavailable") {
-    if (status.phase !== "indexing") return <p className="effort-empty">{stateCopy.unavailable}</p>;
+    if (status.phase !== "indexing") return <p className="effort-empty">{unavailableMessage ?? stateCopy.unavailable}</p>;
   }
   const usable = summary && summary.coverageState !== "unavailable";
   if (status.phase === "indexing") {

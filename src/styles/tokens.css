@@ -55,8 +55,9 @@
   --color-border-strong: color-mix(in srgb, var(--color-text) 23%, var(--color-bg));
   --color-divider: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
   /* Text. */
-  --color-text-muted: color-mix(in srgb, var(--color-text) 63%, var(--color-bg));
-  --color-text-subtle: color-mix(in srgb, var(--color-text) 43%, var(--color-bg));
+  --color-text-muted: color-mix(in srgb, var(--color-text) 68%, var(--color-bg));
+  /* Subtle text still meets 4.5:1 on every surface up to the overlay layer. */
+  --color-text-subtle: color-mix(in srgb, var(--color-text) 55%, var(--color-bg));
   /* Text on saturated or light fills: accent buttons, model marks, labels on chart bars. */
   --color-text-inverse: var(--color-bg);
   /* Shadows and scrims. */
@@ -85,7 +86,7 @@
   /* Effort levels: decoupled from the accent. */
   --color-effort-low: var(--palette-aqua);
   --color-effort-medium: var(--palette-blue);
-  --color-effort-high: var(--palette-orange);
+  --color-effort-high: var(--palette-sand);
   --color-effort-xhigh: var(--palette-violet);
   --color-effort-max: var(--palette-red);
   --color-effort-unknown: var(--color-border-strong);
@@ -106,7 +107,7 @@
   /* Charts (components/chart-theme.ts). Axis labels sit between subtle and muted text so small
      numerals stay legible; category labels (model names) read brighter. */
   --color-chart-grid: var(--color-border);
-  --color-chart-label: color-mix(in srgb, var(--color-text) 49%, var(--color-bg));
+  --color-chart-label: color-mix(in srgb, var(--color-text) 56%, var(--color-bg));
   --color-chart-label-strong: color-mix(in srgb, var(--color-text) 72%, var(--color-bg));
   --color-chart-label-backdrop: color-mix(in srgb, var(--color-bg-deep) 60%, transparent);
   --color-chart-cursor: var(--color-chart-label);
@@ -152,7 +153,9 @@
   --font-label: var(--font-mono);
   /* Interface type: base px × the Appearance "Interface text size" scalar, written by App.tsx. */
   --type-scale-ui: 1;
-  --text-2xs: calc(11px * var(--type-scale-ui));
+  /* Labels (2xs) take the xs step: below 12px, mono labels and readings were hard to read. The
+     name stays as a role, so a denser theme can shrink labels alone. */
+  --text-2xs: var(--text-xs);
   --text-xs: calc(12px * var(--type-scale-ui));
   --text-sm: calc(13px * var(--type-scale-ui));
   --text-md: calc(15px * var(--type-scale-ui));
@@ -167,13 +170,14 @@
   --text-figure: calc(31px * var(--type-scale-ui));
   --text-figure-xl: calc(52px * var(--type-scale-ui));
   --text-hero: clamp(calc(34px * var(--type-scale-ui)), 4vw, calc(58px * var(--type-scale-ui)));
-  /* Data type: its own Appearance "Data text size" scalar. */
+  /* Data type: its own Appearance "Data text size" scalar. The bases are chosen so the default
+     125% lands on the interface steps (15, 13, 12, 18, 22px) instead of adding in-between sizes. */
   --data-text-scale: 1.25;
   --data-text-primary: calc(12px * var(--data-text-scale));
-  --data-text-secondary: calc(10px * var(--data-text-scale));
-  --data-text-compact: calc(9px * var(--data-text-scale));
-  --data-text-strong: calc(15px * var(--data-text-scale));
-  --data-text-display: calc(17px * var(--data-text-scale));
+  --data-text-secondary: calc(10.4px * var(--data-text-scale));
+  --data-text-compact: calc(9.6px * var(--data-text-scale));
+  --data-text-strong: calc(14.4px * var(--data-text-scale));
+  --data-text-display: calc(17.6px * var(--data-text-scale));
   /* Chart type. The micro size stays fixed: marker label boxes are sized from it. */
   --chart-font: var(--font-label);
   --chart-text: var(--text-xs);
@@ -189,25 +193,31 @@
   --tracking-label: .06em;
   --tracking-tight: -.025em;
   --link-underline-offset: .3em;
-  /* Space: --space-N is N units of 4px, and a -5 suffix is a half step (--space-1-5 is 6px).
-     Padding, margin, and gap use these; 1px hairlines and negative optical offsets stay
-     literal. A denser or roomier theme changes --space-unit. */
+  /* Space: --space-N is N units of 4px. Padding, margin, and gap use these; 1px hairlines and
+     negative optical offsets stay literal. A denser or roomier theme changes --space-unit.
+     The -5 names are kept for existing rules but resolve to the next whole unit, so every gap
+     stays on the 4px grid (--space-1-5 is 8px). --space-0-5 stays a 2px hairline gap. */
   --space-unit: 4px;
   --space-0-5: calc(var(--space-unit) * .5);
   --space-1: var(--space-unit);
-  --space-1-5: calc(var(--space-unit) * 1.5);
+  --space-1-5: calc(var(--space-unit) * 2);
   --space-2: calc(var(--space-unit) * 2);
-  --space-2-5: calc(var(--space-unit) * 2.5);
+  --space-2-5: calc(var(--space-unit) * 3);
   --space-3: calc(var(--space-unit) * 3);
-  --space-3-5: calc(var(--space-unit) * 3.5);
+  --space-3-5: calc(var(--space-unit) * 4);
   --space-4: calc(var(--space-unit) * 4);
-  --space-4-5: calc(var(--space-unit) * 4.5);
+  --space-4-5: calc(var(--space-unit) * 5);
   --space-5: calc(var(--space-unit) * 5);
-  --space-5-5: calc(var(--space-unit) * 5.5);
+  --space-5-5: calc(var(--space-unit) * 6);
   --space-6: calc(var(--space-unit) * 6);
   --space-7: calc(var(--space-unit) * 7);
   --space-8: calc(var(--space-unit) * 8);
   --space-10: calc(var(--space-unit) * 10);
+  /* Control heights: compact controls inside dense rows, the default, and the touch size used on
+     phones (WCAG 2.5.5 enhanced target). */
+  --control-height-sm: 28px;
+  --control-height: 36px;
+  --control-height-touch: 44px;
   /* Radius roles. Marks are the rounded tops of small bars and ticks. Circle rounds a square box into a dot or ring. */
   --radius-mark: 2px;
   --radius-chip: 4px;

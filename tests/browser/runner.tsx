@@ -4,6 +4,8 @@ import { App } from "../../src/App";
 import { quotaRetryDelaysMs, useSessionQuotaContexts } from "../../src/hooks/use-session-quota-contexts";
 import { useUpdate } from "../../src/hooks/use-update";
 import { UpdateControl } from "../../src/components/update-control";
+import { Sessions } from "../../src/views/sessions";
+import { dashboardFixture } from "../fixtures/dashboard";
 import type { UpdateCheck, UpdateJob, UpdateStatus } from "../../src/types";
 import "../../src/styles/index.css";
 
@@ -104,6 +106,40 @@ await test("annotations survive save, remount, and keyboard dismissal", async ()
   await waitFor(() => !document.querySelector('[aria-labelledby="annotation-modal-title"]'), "Escape did not dismiss the saved dialog");
 });
 root.unmount();
+
+await test("compact session sorting returns to page one for field and direction changes", async () => {
+  const data = dashboardFixture();
+  const sessions = Array.from({ length: 45 }, (_, index) => ({
+    ...data.sessions[0],
+    sessionId: `sort-fixture-${index}`,
+    totalCost: index + 1,
+    metadata: { lastActivity: new Date(Date.now() - index * 60_000).toISOString() },
+  }));
+  const fixtureRoot = createRoot(rootElement);
+  try {
+    fixtureRoot.render(<Sessions
+      sessions={sessions}
+      rateCard={data.rateCard}
+      unpricedModels={[]}
+      showCache={true}
+      onEdit={() => {}}
+      collectedAt={data.collectedAt}
+    />);
+    const page = () => document.querySelector<HTMLInputElement>(".session-pager .page-jump__input")?.value;
+    await waitFor(() => page() === "1", "Session pager did not render");
+    for (const [sort, highestOrLowest] of [["cost:desc", "$45.00"], ["cost:asc", "$1.00"]]) {
+      click('[aria-label="Next session page"]');
+      await waitFor(() => page() === "2", "Session pager did not advance");
+      const select = document.querySelector<HTMLSelectElement>(".compact-sort select");
+      assert(select, "Compact sort missing");
+      select.value = sort;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitFor(() => page() === "1", "Changing compact sort did not return to page one");
+      assert(document.querySelector(".session-row .session-col--cost b")?.textContent === highestOrLowest,
+        "Sorting did not show the first session in the new order");
+    }
+  } finally { fixtureRoot.unmount(); }
+});
 
 // Exercise the real hook with controlled network failures and retry timers. Other browser timers
 // keep running normally, and no quota request from these fixtures reaches the server.
