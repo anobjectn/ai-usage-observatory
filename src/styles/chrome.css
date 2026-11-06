@@ -1670,9 +1670,18 @@ main {
 }
 
 @media (max-width:900px) {
+  /* Three columns squeeze the repository link until it wraps away from its icon; it takes its
+     own row here instead. */
   .information-sources {
+    grid-template-columns: minmax(160px,1fr) minmax(0,2fr);
     padding-left: var(--space-5);
     padding-right: var(--space-5);
+  }
+  .information-sources__repository {
+    grid-column: 1/-1;
+    justify-self: start;
+    text-align: left;
+    white-space: nowrap;
   }
 }
 
