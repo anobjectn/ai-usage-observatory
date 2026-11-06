@@ -19,6 +19,7 @@ import {
   useEffortStatus,
 } from "../hooks/use-effort";
 import { quotaContextVersion, useSessionQuotaContexts } from "../hooks/use-session-quota-contexts";
+import { useScrollRemainder } from "../hooks/use-scroll-remainder";
 import { Bot, ChevronRight, CircleDollarSign, Database, Gauge, Tag, Zap } from "lucide-react";
 import { HeadroomOrrery, type ProviderColors, type SceneEffects } from "../scene";
 import { providerHeadroom } from "../quota-headroom";
@@ -273,6 +274,7 @@ export function Overview({
     recent,
     recentTermini(data.quotas, recent, sessionQuota.contexts),
   );
+  const [recentListRef, recentRemainder] = useScrollRemainder<HTMLDivElement>(recentRows.length);
   const cacheShare = totals.traffic
     ? Math.round((totals.cache / totals.traffic) * 100)
     : 0;
@@ -753,7 +755,10 @@ export function Overview({
               All sessions <ChevronRight aria-hidden="true" />
             </a>
           </div>
-          <div className="recent-list">
+          <div
+            className={`recent-list${recentRemainder === "more" ? " recent-list--more" : ""}`}
+            ref={recentListRef}
+          >
             {recent.length ? recentRows.map((row) => {
               if (row.kind === "terminus") {
                 const at = new Date(row.terminus.at).toISOString();
@@ -844,14 +849,15 @@ export function Overview({
                       {/* The project folder is the part of the path that identifies the session;
                        * the full path is in the tooltip and on the Sessions page. */}
                       <small title={session.cwd ?? session.period}>
-                        {/* Phones drop the activity column, so the time moves into this line. */}
-                        {session.metadata?.lastActivity && (
-                          <span className="recent-session__time-inline">
-                            <SessionDateStamp value={session.metadata.lastActivity} /> ·{" "}
-                          </span>
-                        )}
                         {session.cwd?.split("/").filter(Boolean).at(-1) ?? session.period}
                       </small>
+                      {/* Phones drop the activity column, so the time takes a line of its own
+                       * here and the project keeps the full width. */}
+                      {session.metadata?.lastActivity && (
+                        <small className="recent-session__time-inline">
+                          <SessionDateStamp value={session.metadata.lastActivity} />
+                        </small>
+                      )}
                     </span>
                     <span className="path-tags">
                       {session.pathTags.slice(0, 2).map((tag) => (
@@ -896,6 +902,14 @@ export function Overview({
               }
             />}
           </div>
+          {/* The list is cut at a fixed height, so a line under it says whether more rows wait. */}
+          {recent.length > 0 && (
+            <p className="recent-list__foot">
+              {recent.length} {recent.length === 1 ? "session" : "sessions"}
+              {recentRemainder === "more" && " · scroll the list for more"}
+              {recentRemainder === "end" && " · end of list"}
+            </p>
+          )}
         </article>
       </section>
     </div>

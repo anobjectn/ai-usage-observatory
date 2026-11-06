@@ -424,9 +424,10 @@ export function QuotaDials({
   onUpdateWebCredits?: () => void;
 }) {
   const cards = quotaCards(quotas);
-  // Phones show the glance strip and fold the full cards (reset clocks, reach history, credits)
-  // behind one toggle, so the spend summary is not three screens down. Wider layouts ignore it.
-  const [phoneDetailsOpen, setPhoneDetailsOpen] = useState(false);
+  // Where the cards stack, the glance strip shows and the full cards (reset clocks, reach history,
+  // credits) fold behind one toggle, so the spend summary is not three screens down. The
+  // side-by-side desktop layout ignores it.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const quotaGridId = useId();
   const anthropicCredits = buildAnthropicCreditView(
     quotas.usage?.providers.find((provider) => provider.provider === "anthropic"),
@@ -472,11 +473,14 @@ export function QuotaDials({
               {card.buckets.map((bucket) => (
                 <span key={bucket.id} className={bucket.state}>
                   <small>{bucket.windowLabel}</small>
-                  <b>
-                    {bucket.usedPercent === null
-                      ? dialStateLabel(bucket.state)
-                      : `${Math.max(0, Math.min(100, 100 - bucket.usedPercent)).toFixed(0)}%`}
-                  </b>
+                  {bucket.usedPercent === null ? (
+                    <b>{dialStateLabel(bucket.state)}</b>
+                  ) : (
+                    <>
+                      <b>{Math.max(0, Math.min(100, 100 - bucket.usedPercent)).toFixed(0)}%</b>
+                      <small>left</small>
+                    </>
+                  )}
                   {bucket.usedPercent !== null && bucket.resetAt !== null && bucket.resetAt > Date.now() && (
                     <small className="quota-glance__reset">
                       {bucket.resetVerb} in {formatDuration(bucket.resetAt - Date.now())}
@@ -491,15 +495,15 @@ export function QuotaDials({
       <button
         type="button"
         className="quota-details-toggle"
-        aria-expanded={phoneDetailsOpen}
+        aria-expanded={detailsOpen}
         aria-controls={quotaGridId}
-        onClick={() => setPhoneDetailsOpen((open) => !open)}
+        onClick={() => setDetailsOpen((open) => !open)}
       >
         <ChevronRight aria-hidden="true" />
-        {phoneDetailsOpen ? "Hide provider details" : "Provider details: reset times, reach history, credits"}
+        {detailsOpen ? "Hide provider details" : "Provider details: reset times, reach history, credits"}
       </button>
       <div
-        className={`quota-grid${phoneDetailsOpen ? "" : " is-phone-collapsed"}`}
+        className={`quota-grid${detailsOpen ? "" : " is-collapsed"}`}
         id={quotaGridId}
       >
         {cards.map((card) => {
