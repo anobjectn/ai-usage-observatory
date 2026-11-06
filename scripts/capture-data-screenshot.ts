@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 
 const screenshot = resolve(process.env.AIUO_SCREENSHOT_OUTPUT ?? "docs/screenshots/6.data-intelligence.png");
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const viewport = "1558,1072";
+const viewport = "1558,2144";
 const baseUrl = process.env.AIUO_SCREENSHOT_URL ?? "http://127.0.0.1:5173";
 const archiveVersion = process.argv[2];
 
@@ -18,6 +18,7 @@ if (archiveVersion) {
 } else {
   const url = new URL(baseUrl);
   url.searchParams.set("view", "sources");
+  url.searchParams.set("range", "14");
   const process = Bun.spawn([
     chrome,
     "--headless=new",

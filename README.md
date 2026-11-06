@@ -222,7 +222,14 @@ player, so the README uses an explicitly labeled still preview.
 
 To refresh the Data screenshot without a personal Chrome profile or existing
 browser tabs, run `bun run screenshot:data`. The command captures the Data view
-at a fixed 1558 × 1072 CSS-pixel viewport.
+at a fixed 1558 × 2144 CSS-pixel viewport.
+
+For desktop captures, use a window at least 1490 CSS pixels wide and capture
+about two screens of page height. Select a 7-day or 14-day date range. Open the
+most recent AI Usage Observatory session in Sessions, the
+`ai-usage-observatory` project in Projects, and Opus 5.5 in Models. Blur or
+smear any visible references to myessentials or Troy Web, including paths and
+project keys, and inspect every image before publishing.
 
 Before a release, preserve the reviewed image with
 `bun run screenshot:archive -- vX.Y.Z`. The changelog must reference that
