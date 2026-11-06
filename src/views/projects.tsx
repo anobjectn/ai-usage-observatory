@@ -20,7 +20,7 @@ import {
 } from "../hooks/use-effort";
 import { ArrowUpRight, ChevronLeft, ChevronRight, FileText, Search, Plus, X } from "lucide-react";
 import { mergeEffortSummaries, mergeProjectSummaries, type GroupedProjectSummary } from "../project-grouping";
-import { Bar, BarChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type {
   DashboardData,
   EffortSummary,
@@ -75,10 +75,12 @@ import {
 } from "../components/activity-charts";
 import {
   chartActiveDot,
+  chartAreaOpacity,
   chartAxisProps,
   chartBarCursor,
   chartColumnRadius,
   chartGridProps,
+  chartLineCursor,
   chartTickCompact,
   chartTooltipWrapperStyle,
 } from "../components/chart-theme";
@@ -537,6 +539,9 @@ function ProjectDetails({
     (sum, day) => sum + day.unattributed,
     0,
   );
+  // Like the Overview and Explorer timelines: areas across days, columns for a single day, where
+  // an area has nothing to span.
+  const singleDay = chartDays.length <= 1;
   const modelTotals = new Map<string, { tokens: number; cost: number }>();
   days.forEach((day) =>
     day.models.forEach((model) => {
@@ -676,10 +681,35 @@ function ProjectDetails({
             aria-label={`Daily token usage segmented by provider, with activity records for ${friendlyProject(project.name)}`}
           >
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
+              <ComposedChart
                 data={chartDays}
                 margin={{ top: 12, right: 4, left: -16, bottom: 0 }}
               >
+                {!singleDay && (
+                  <defs>
+                    {projectProviderSeries.map((provider) => (
+                      <linearGradient
+                        key={provider.key}
+                        id={`project-${provider.key}-area`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor={provider.color}
+                          stopOpacity={chartAreaOpacity.top}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={provider.color}
+                          stopOpacity={chartAreaOpacity.bottom}
+                        />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                )}
                 <CartesianGrid {...chartGridProps} vertical={false} />
                 <XAxis
                   dataKey="date"
@@ -722,33 +752,66 @@ function ProjectDetails({
                       timeZone={timeZone}
                     />
                   }
-                  cursor={chartBarCursor}
+                  cursor={singleDay ? chartBarCursor : chartLineCursor}
                   offset={0}
                   isAnimationActive={false}
                   wrapperStyle={chartTooltipWrapperStyle}
                 />
                 <QuotaReferenceLines markers={quotaMarkers} yAxisId="tokens" />
-                {[...projectProviderSeries].reverse().map((provider) => (
-                  <Bar
-                    key={provider.key}
-                    yAxisId="tokens"
-                    dataKey={provider.key}
-                    name={provider.label}
-                    stackId="providers"
-                    fill={provider.color}
-                    fillOpacity={0.72}
-                    radius={chartColumnRadius}
-                  />
-                ))}
-                <Bar
-                  yAxisId="tokens"
-                  dataKey="unattributed"
-                  name="Unattributed"
-                  stackId="providers"
-                  fill="var(--color-accent)"
-                  fillOpacity={0.46}
-                  radius={chartColumnRadius}
-                />
+                {singleDay ? (
+                  <>
+                    {[...projectProviderSeries].reverse().map((provider) => (
+                      <Bar
+                        key={provider.key}
+                        yAxisId="tokens"
+                        dataKey={provider.key}
+                        name={provider.label}
+                        stackId="providers"
+                        fill={provider.color}
+                        fillOpacity={0.72}
+                        radius={chartColumnRadius}
+                      />
+                    ))}
+                    <Bar
+                      yAxisId="tokens"
+                      dataKey="unattributed"
+                      name="Unattributed"
+                      stackId="providers"
+                      fill="var(--color-accent)"
+                      fillOpacity={0.46}
+                      radius={chartColumnRadius}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {projectProviderSeries.map((provider) => (
+                      <Area
+                        key={provider.key}
+                        yAxisId="tokens"
+                        type="monotone"
+                        dataKey={provider.key}
+                        name={provider.label}
+                        stroke={provider.color}
+                        strokeWidth={1.8}
+                        fill={`url(#project-${provider.key}-area)`}
+                        activeDot={chartActiveDot(provider.color)}
+                      />
+                    ))}
+                    {unattributedTokens > 0 && (
+                      <Area
+                        yAxisId="tokens"
+                        type="monotone"
+                        dataKey="unattributed"
+                        name="Unattributed"
+                        stroke="var(--color-accent)"
+                        strokeWidth={1.8}
+                        fill="var(--color-accent)"
+                        fillOpacity={chartAreaOpacity.bottom}
+                        activeDot={chartActiveDot("var(--color-accent)")}
+                      />
+                    )}
+                  </>
+                )}
                 <Line
                   yAxisId="runs"
                   type="monotone"
@@ -759,7 +822,7 @@ function ProjectDetails({
                   dot={false}
                   activeDot={chartActiveDot("var(--color-highlight)")}
                 />
-              </BarChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </section>
