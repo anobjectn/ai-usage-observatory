@@ -2258,11 +2258,18 @@ td>small {
   justify-content: flex-end;
 }
 
-@media (max-width:620px) {
+/* Below 900px the title and its description take the full width, and the controls get their own
+   row under them instead of squeezing the copy into a narrow column. */
+@media (max-width:900px) {
   .page-title {
     align-items: flex-start;
     flex-direction: column;
+    min-height: 0;
+    gap: var(--space-4);
   }
+}
+
+@media (max-width:620px) {
   .page-title h1 {
     font-size: var(--text-3xl);
   }
