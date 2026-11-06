@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { systemTimeZone } from "../reporting-time";
-import { EffortBadge, EffortCoverage, EffortStack, EffortState } from "../components/effort";
+import { EffortBadge, EffortStack, EffortState } from "../components/effort";
 import { PageJump } from "../components/page-jump";
 import {
   TokenTypeTable,
@@ -1219,7 +1219,15 @@ export function Projects({
                       </i>
                     )}
                   </h3>
-                  <p>{project.models.slice(0, 3).join(" · ")}</p>
+                  {/* Each model name is one unbreakable unit; the list breaks only between names. */}
+                  <p className="project-row__models">
+                    {project.models.slice(0, 3).map((model, modelIndex) => (
+                      <Fragment key={model}>
+                        {modelIndex > 0 && " · "}
+                        <span>{model}</span>
+                      </Fragment>
+                    ))}
+                  </p>
                   <div className="micro-chart" aria-hidden="true">
                     {project.trend.slice(-14).map((point, i) => (
                       <i
@@ -1241,15 +1249,14 @@ export function Projects({
                   {project.warpCredits ? <small className="rank-stat__credit">+ {formatWarpCredits(project.warpCredits)} Warp credits</small> : null}
                 </div>
                 <div className="rank-stat">
-                  <span>Active days</span>
+                  <span title="Days with recorded activity in this span">Days</span>
                   <b>{projectDayRows(project.trend).length}</b>
                 </div>
                 <div className="project-row__effort">
                   <EffortState status={statusRequest.data} summary={effortSummary}>
                     {effortSummary && (
                       <>
-                        <EffortStack summary={effortSummary} height={6} showLegend={false} />
-                        <EffortCoverage summary={effortSummary} />
+                        <EffortStack summary={effortSummary} height={6} showLegend={false} showKey />
                       </>
                     )}
                   </EffortState>
