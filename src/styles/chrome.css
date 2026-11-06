@@ -846,6 +846,9 @@ main {
 
 .menu-button {
   display: none;
+  min-width: 44px;
+  min-height: 44px;
+  place-items: center;
   background: none;
   border: 0;
   margin-right: var(--space-3);

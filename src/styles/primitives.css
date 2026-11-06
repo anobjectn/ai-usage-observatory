@@ -907,6 +907,7 @@ td>small {
   display: grid;
   grid-template-columns: 12px 22px auto;
   align-items: center;
+  min-height: 24px;
   gap: var(--space-1-5);
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-muted);
@@ -1098,6 +1099,11 @@ td>small {
   place-items: center;
   cursor: help;
   pointer-events: auto;
+}
+.chart-tooltip__info::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
 }
 .chart-tooltip__info svg {
   width: 10px;
