@@ -44,11 +44,13 @@
   padding-left: var(--space-1-5);
   padding-right: var(--space-1-5);
 }
+/* Detail toggles share the icon buttons' rounded square, on every page. */
 .session-detail-toggle {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-circle);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-text-subtle);
   display: grid;
@@ -1255,10 +1257,14 @@
   line-height: 1;
 }
 
+/* The unrated state is a word, not a bare dash, in the table and the cards alike. */
 .session-verdict-badge.is-unrated {
+  width: auto;
+  padding: 0 var(--space-2);
   color: var(--color-text-subtle);
   border-style: dashed;
-  font-size: var(--text-2xs);
+  font: var(--text-2xs) var(--font-label);
+  white-space: nowrap;
 }
 
 .session-verdict-badge.is-good {
@@ -1278,6 +1284,7 @@
 
 .session-carry {
   display: block;
+  white-space: nowrap;
   font: var(--text-2xs) var(--font-label);
   color: var(--color-text-subtle);
   margin-top: 1px;
@@ -1285,6 +1292,12 @@
 
 .session-carry.is-heavy {
   color: var(--color-warn);
+}
+/* The table header's tooltip explains carry; cards have no header, so they carry their own help. */
+.session-carry__help {
+  display: none;
+  vertical-align: middle;
+  margin-left: var(--space-1);
 }
 
 .rate-nudge {
@@ -1434,7 +1447,14 @@
   letter-spacing: 0;
 }
 
-.session-header-pagination>button {
+.session-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-left: auto;
+}
+
+.session-pager>button {
   width: 27px;
   height: 27px;
   flex: 0 0 auto;
@@ -1448,19 +1468,19 @@
   cursor: pointer;
 }
 
-.session-header-pagination>button:disabled {
+.session-pager>button:disabled {
   opacity: .3;
   cursor: default;
 }
 
-.session-header-pagination>button:not(:disabled):is(:hover,:focus-visible) {
+.session-pager>button:not(:disabled):is(:hover,:focus-visible) {
   border-color: var(--color-accent);
   color: var(--color-accent);
   background: color-mix(in srgb,var(--color-accent) var(--tint-soft),var(--color-surface));
   outline: 0;
 }
 
-.session-header-pagination>button svg {
+.session-pager>button svg {
   width: 12px;
 }
 
@@ -1511,6 +1531,7 @@
 
 .session-table .session-col--model small {
   display: block;
+  font-size: var(--data-text-secondary);
   white-space: nowrap;
 }
 
@@ -1614,5 +1635,182 @@
 @media (max-width:620px) {
   .session-detail--warp .session-detail__summary {
     grid-template-columns: repeat(2,1fr);
+  }
+}
+
+/* Below 820px the nine-column ledger would hide output and cost behind a sideways scroll, so each
+   session becomes a card: identity and the detail toggle, then activity, output, and cost side by
+   side, then the quota reading and the working directory. A sort select replaces the header row. */
+@media (max-width:820px) {
+  .table-panel .session-table {
+    display: block;
+    min-width: 0;
+    table-layout: auto;
+  }
+  .session-table colgroup {
+    display: none;
+  }
+  .session-table tbody {
+    display: block;
+  }
+  /* The compact sort select above the cards replaces the header row. */
+  .session-table thead {
+    display: none;
+  }
+  .session-table tr.session-row {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) minmax(0,1.3fr) minmax(0,.8fr) var(--control-height-touch);
+    grid-template-areas:
+      "model model model toggle"
+      "activity tokens cost cost"
+      "quota quota quota quota"
+      "pwd pwd pwd pwd"
+      "verdict verdict actions actions";
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-3);
+    border-top: 1px solid var(--color-border);
+  }
+  .session-table tr.session-row:hover,
+  .session-table tr.session-row:focus-visible,
+  .session-table tr.session-row-open {
+    background: color-mix(in srgb,var(--color-accent) var(--tint-faint),transparent);
+  }
+  .session-table .session-row>td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border-top: 0;
+    background: none;
+    text-align: left;
+  }
+  .session-table .session-row>td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: var(--space-1);
+    color: var(--color-text-subtle);
+    font: var(--text-2xs) var(--font-label);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+  }
+  .session-table .session-col--model {
+    grid-area: model;
+  }
+  .session-table .session-col--activity {
+    grid-area: activity;
+  }
+  .session-table .session-col--tokens {
+    grid-area: tokens;
+  }
+  .session-table .session-col--cost {
+    grid-area: cost;
+  }
+  .session-table .session-col--quota {
+    grid-area: quota;
+  }
+  .session-table .session-col--quota.is-dormant {
+    display: none;
+  }
+  .session-table .session-col--pwd {
+    grid-area: pwd;
+  }
+  .session-table .session-row__verdict {
+    grid-area: verdict;
+    align-self: end;
+  }
+  .session-table .session-row__actions {
+    grid-area: actions;
+    align-self: end;
+    justify-self: end;
+    white-space: nowrap;
+  }
+  .session-table .session-row .session-activity {
+    font-size: var(--text-sm);
+  }
+  .session-table .session-row__toggle {
+    grid-area: toggle;
+    align-self: start;
+  }
+  .session-table .session-row .session-quota-balance {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: var(--space-1) var(--space-3);
+  }
+  .session-table .session-row .session-quota-balance>span {
+    justify-content: flex-start;
+  }
+  .session-table .session-row .icon-button,
+  .session-table .session-detail-toggle {
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
+  }
+  .session-table :is(.session-detail-row,.session-reset-divider) {
+    display: block;
+  }
+  .session-table :is(.session-detail-row,.session-reset-divider)>td {
+    display: block;
+  }
+}
+
+@media (min-width:821px) {
+  .session-table .session-col--tokens small,
+  .session-table .session-row__model-title b {
+    white-space: nowrap;
+  }
+}
+
+/* Tablet widths have room to put identity and the three figures on one line, so a session card
+   is two rows instead of four. */
+@media (min-width:621px) and (max-width:820px) {
+  .session-table tr.session-row {
+    grid-template-columns: minmax(0,1.8fr) repeat(3,minmax(0,1fr)) auto;
+    grid-template-areas:
+      "model activity tokens cost toggle"
+      "quota pwd pwd verdict actions";
+    align-items: start;
+  }
+  .session-table .session-row__toggle {
+    justify-self: end;
+  }
+  .session-table .session-row__verdict {
+    align-self: end;
+  }
+}
+
+@media (max-width:820px) {
+  .session-header-pagination {
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .session-table .session-row__model-title {
+    flex-wrap: wrap;
+  }
+  .session-table .session-row__model-title b {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session-pager>button {
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
+  }
+  .session-carry__help {
+    display: inline-flex;
+  }
+}
+@media (max-width:620px) {
+  .session-header-pagination .compact-sort {
+    flex-basis: 100%;
+  }
+  .rate-nudge button {
+    min-height: var(--control-height-touch);
+  }
+  .session-pager .page-jump__input {
+    height: var(--control-height-touch);
+  }
+  .session-pager>button {
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
   }
 }

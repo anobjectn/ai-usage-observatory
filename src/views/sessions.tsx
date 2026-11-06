@@ -2,7 +2,9 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { compareEffort } from "../effort-model";
 import { ComboFacetSelect } from "../components/effort";
 import { providerFromAgent } from "../provider";
+import { CompactSort } from "../components/compact-sort";
 import { PageJump } from "../components/page-jump";
+import { ChartTooltipContext } from "../components/chart-pins";
 import type { RateCardSummary } from "../types";
 import {
   decodeEffortDigest,
@@ -316,7 +318,7 @@ export function Sessions({
     }, autoScrollDelayMs);
     return () => window.clearTimeout(timeout);
   }, [focusSessionId, page, expanded]);
-  const header = (key: SortKey, label: string, columnClass: string) => (
+  const header = (key: SortKey, label: string, columnClass: string, title?: string) => (
     <th
       className={`session-col ${columnClass}`}
       aria-sort={
@@ -331,6 +333,7 @@ export function Sessions({
         type="button"
         className={`sort-header ${sort.key === key ? "active" : ""}`}
         onClick={() => sortBy(key)}
+        title={title}
       >
         {label}
         <span aria-hidden="true">
@@ -344,7 +347,7 @@ export function Sessions({
       <PageTitle
         eyebrow="SESSION LEDGER"
         title="Trace sessions"
-        description="Expand a session to inspect local prompts, sampled assistant output, files, tools, model mix, and effort. Warp rows add the prompts you typed and the replies you got back to their credit and tool summaries."
+        description="Open a session to inspect its prompts, output, files, tools, models, and effort."
         actions={
           <div className="project-controls">
             <label className="search">
@@ -393,7 +396,20 @@ export function Sessions({
             </button>
           </div>
         )}
-        <div className="session-header-pagination" role="group" aria-label="Session table pagination">
+        <div className="session-header-pagination">
+          <CompactSort
+            options={[
+              { key: "activity", label: "Last activity", kind: "date" },
+              { key: "session", label: "Model", kind: "text" },
+              { key: "cwd", label: "Path", kind: "text" },
+              { key: "tokens", label: "Output", kind: "number" },
+              { key: "cost", label: "Cost", kind: "number" },
+            ]}
+            sortKey={sort.key}
+            direction={sort.direction}
+            onChange={setSort}
+          />
+          <div className="session-pager" role="group" aria-label="Session table pagination">
           <button
             type="button"
             disabled={page === 1}
@@ -416,6 +432,7 @@ export function Sessions({
           >
             <ChevronRight aria-hidden="true" />
           </button>
+          </div>
         </div>
         <div className="table-scroll">
           <table className="session-table">
@@ -452,7 +469,7 @@ export function Sessions({
                 {header("activity", "Last activity", "session-col--activity")}
                 {header("session", "Provider & Model", "session-col--model")}
                 {header("cwd", "pwd", "session-col--pwd")}
-                {header("tokens", "out T", "session-col--tokens")}
+                {header("tokens", "Output", "session-col--tokens", "Output tokens, then the session total. \"N:1 carry\" is cache tokens re-read per output token; it turns yellow at three times the median in view.")}
                 {header("cost", "cost", "session-col--cost")}
                 <th className="session-col session-col--verdict session-verdict-header">
                   <span title="Your own rating of the session. It is never inferred, and it is the only signal in this app that is user-supplied.">
@@ -549,7 +566,7 @@ export function Sessions({
                       }
                     }}
                   >
-                    <td className={`session-col session-col--quota session-row__quota-left${showQuotaBalance ? "" : " is-dormant"}`}>
+                    <td className={`session-col session-col--quota session-row__quota-left${showQuotaBalance ? "" : " is-dormant"}`} data-label="Quota left">
                       {showQuotaBalance && (
                         <SessionQuotaBalanceCell
                           context={quotaContexts[session.sessionId]}
@@ -558,7 +575,7 @@ export function Sessions({
                         />
                       )}
                     </td>
-                    <td className="session-col session-col--activity">
+                    <td className="session-col session-col--activity" data-label="Last active">
                       <span className="session-activity">
                         {session.metadata?.lastActivity
                           ? <SessionDateStamp value={session.metadata.lastActivity} />
@@ -608,7 +625,7 @@ export function Sessions({
                           ))}
                       </span>
                     </td>
-                    <td className="session-col session-col--tokens">
+                    <td className="session-col session-col--tokens" data-label="Output">
                       <b>{formatCompact(session.outputTokens)}</b>
                       <small>
                         {session.source === "warp"
@@ -625,11 +642,19 @@ export function Sessions({
                             title={`Re-read ${Math.round(carry)} cache tokens per output token${medianCarry !== null ? ` · median in view ${Math.round(medianCarry)}:1` : ""}. Token-based: output that deletes code counts the same as output that adds it.`}
                           >
                             {Math.round(carry)}:1 carry
+                            <span
+                              className="session-carry__help"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <ChartTooltipContext
+                                description={`Carry: cache tokens re-read for each output token (${Math.round(carry)} here). It turns yellow at three times the median in view${medianCarry !== null ? ` (${Math.round(medianCarry)}:1)` : ""}.`}
+                              />
+                            </span>
                           </small>
                         );
                       })()}
                     </td>
-                    <td className="session-col session-col--cost">
+                    <td className="session-col session-col--cost" data-label="Cost">
                       {session.source === "warp" ? (
                         <>
                           <b>{formatWarpCredits(session.warp?.credits ?? 0)}</b>
@@ -642,7 +667,7 @@ export function Sessions({
                         </>
                       )}
                     </td>
-                    <td className="session-col session-col--verdict session-row__verdict">
+                    <td className="session-col session-col--verdict session-row__verdict" data-label="Rate">
                       <SessionVerdictBadge verdict={annotationOf(session).verdict} />
                     </td>
                     <td

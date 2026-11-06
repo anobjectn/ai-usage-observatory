@@ -1639,7 +1639,7 @@ export function SessionVerdictBadge({ verdict }: { verdict: SessionVerdict | nul
         className="session-verdict-badge is-unrated"
         title="Not rated — expand the row to rate this session"
       >
-        —
+        Unrated
       </span>
     );
   }
