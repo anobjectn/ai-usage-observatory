@@ -264,7 +264,12 @@ export function TokenTableCard({
         <span>{eyebrow}</span>
         <Icon size={16} />
       </div>
-      <div className="metric-token-table-scroll">
+      <div
+        className="metric-token-table-scroll"
+        role="region"
+        aria-label={`${eyebrow} table`}
+        tabIndex={0}
+      >
         <table className="metric-token-table">
           <thead>
             <tr>

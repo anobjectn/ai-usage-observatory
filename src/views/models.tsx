@@ -343,8 +343,6 @@ export function Models({
                         className={`model-row${open ? " model-row--open" : ""}`}
                         data-model-key={model.model}
                         tabIndex={0}
-                        aria-expanded={open}
-                        aria-controls={panelId}
                         onClick={(event) => {
                           if ((event.target as HTMLElement).closest("a,button,input,select")) return;
                           toggleModel(model.model);

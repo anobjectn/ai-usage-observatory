@@ -540,7 +540,6 @@ export function Sessions({
                     }
                     className={`session-row ${expanded === session.sessionId ? "session-row-open" : ""}`}
                     tabIndex={0}
-                    aria-expanded={expanded === session.sessionId}
                     aria-label={`Toggle details for ${session.modelsUsed[0] ?? "this session"}, effort ${effortSummaryLabel(effortBySession.get(session.sessionId))}`}
                     onClick={() => void toggle(session)}
                     onKeyDown={(event) => {

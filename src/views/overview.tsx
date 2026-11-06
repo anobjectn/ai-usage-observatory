@@ -796,7 +796,6 @@ export function Overview({
                   <a
                     className="recent-session__details"
                     href={sessionHref(session.sessionId)}
-                    aria-label={`Open session details for ${modelName}`}
                     onClick={(event) => {
                       if (
                         event.metaKey ||
