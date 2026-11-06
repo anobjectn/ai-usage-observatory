@@ -575,7 +575,7 @@ export function Sessions({
                         />
                       )}
                     </td>
-                    <td className="session-col session-col--activity" data-label="Last active">
+                    <td className="session-col session-col--activity" data-label="Active">
                       <span className="session-activity">
                         {session.metadata?.lastActivity
                           ? <SessionDateStamp value={session.metadata.lastActivity} />
