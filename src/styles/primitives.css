@@ -1959,6 +1959,9 @@ td>small {
 .project-controls .search:focus-within,.project-sort:focus-within {
   border-color: var(--color-accent);
 }
+:is(.search,.project-sort):has(:focus-visible) {
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
 .model-controls {
   display: flex;
   align-items: center;

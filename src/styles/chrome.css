@@ -712,6 +712,11 @@ main {
 .time-range-select {
   display: none;
 }
+/* The select drops its own outline (primitives.css), so its segmented frame carries the ring. */
+.time-range-segmented:has(.time-range-select:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 
 /* Filters tray. Above 900px it dissolves into the topbar row; below, the Filters button opens it. */
 .filters-button {
