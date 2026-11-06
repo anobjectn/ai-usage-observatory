@@ -8,6 +8,7 @@ import {
   type TokenTypeSummary,
 } from "../token-types";
 import type { RateCardSummary } from "../types";
+import { formatTokensShort } from "../app/format";
 
 /** Same hues the Explorer composition bar assigns to these four types, so a reader can carry
  * the colour from one view to the other. */
@@ -35,6 +36,18 @@ export function formatCostCell(cost: number | null) {
 }
 
 const withheldLabel = "Cost withheld; see the note below the table.";
+
+/** Exact count, or the short form (50.29M) when the table is too narrow for every digit; the
+ * stylesheet picks one from the table's container width. */
+function TokenCount({ value }: { value: number }) {
+  const exact = value.toLocaleString();
+  return (
+    <>
+      <span className="token-count__exact">{exact}</span>
+      <span className="token-count__short" title={exact}>{formatTokensShort(value)}</span>
+    </>
+  );
+}
 
 export function TokenTypeTable({
   summary,
@@ -73,7 +86,10 @@ export function TokenTypeTable({
           <thead>
             <tr>
               <th scope="col">Token type</th>
-              <th scope="col">Exact tokens</th>
+              <th scope="col">
+                <span className="token-count__exact">Exact tokens</span>
+                <span className="token-count__short">Tokens</span>
+              </th>
               <th scope="col">Token share</th>
               <th scope="col">Cost</th>
               <th scope="col">Cost share</th>
@@ -86,7 +102,7 @@ export function TokenTypeTable({
                   <i style={{ background: tokenTypeColors[row.type] }} aria-hidden="true" />
                   {row.label}
                 </th>
-                <td>{row.tokens.toLocaleString()}</td>
+                <td><TokenCount value={row.tokens} /></td>
                 <td>{formatShare(row.tokenShare)}</td>
                 <td aria-label={row.cost === null ? withheldLabel : undefined}>{formatCostCell(row.cost)}</td>
                 <td aria-label={row.costShare === null ? withheldLabel : undefined}>{formatShare(row.costShare)}</td>
@@ -159,7 +175,7 @@ export function TokenTypesByModel({
                         <i style={{ background: tokenTypeColors[row.type] }} aria-hidden="true" />
                         {row.label}
                       </th>
-                      <td>{row.tokens.toLocaleString()}</td>
+                      <td><TokenCount value={row.tokens} /></td>
                       <td>{formatShare(row.tokenShare)}</td>
                       <td>{formatCostCell(row.cost)}</td>
                       <td>{formatShare(row.costShare)}</td>

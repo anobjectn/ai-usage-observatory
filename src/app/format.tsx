@@ -6,6 +6,13 @@ export const formatCompact = (value: number) =>
     maximumFractionDigits: 1,
   }).format(value);
 
+/** Token counts where every digit will not fit: 50.29M, 749.42K. */
+export const formatTokensShort = (value: number) =>
+  Intl.NumberFormat("en", {
+    notation: "compact",
+    maximumFractionDigits: 2,
+  }).format(value);
+
 export const formatMoney = (value: number) =>
   `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 

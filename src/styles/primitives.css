@@ -2013,6 +2013,7 @@ td>small {
 }
 
 .token-types {
+  container-type: inline-size;
   margin-top: var(--space-4);
   padding: var(--space-3-5) var(--space-4);
   border: 1px solid var(--color-border);
@@ -2092,6 +2093,39 @@ td>small {
 
 .token-types__table td {
   color: var(--color-text);
+}
+
+/* Below about 560px the exact counts (449,102,950) run into the share column, so the table
+   switches to short counts (449.1M) and lets the type labels wrap. */
+.token-count__short {
+  display: none;
+}
+@container (max-width:560px) {
+  .token-count__exact {
+    display: none;
+  }
+  .token-count__short {
+    display: inline;
+  }
+  .token-types__table tbody th,
+  .token-types__models .measure-table th {
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  /* Share columns hold at most "97.0%"; the room goes to the type label and the count. */
+  .token-types__table thead th:nth-child(1) {
+    width: 31%;
+  }
+  .token-types__table thead th:nth-child(2),
+  .token-types__table thead th:nth-child(4) {
+    width: 19%;
+  }
+  .token-types__table thead th:nth-child(3) {
+    width: 15%;
+  }
+  .token-types__table tbody th i {
+    margin-right: var(--space-1);
+  }
 }
 
 .token-types__notes {
