@@ -407,7 +407,10 @@ export function Sessions({
             ]}
             sortKey={sort.key}
             direction={sort.direction}
-            onChange={setSort}
+            onChange={(next) => {
+              setSort(next);
+              setPage(1);
+            }}
           />
           <div className="session-pager" role="group" aria-label="Session table pagination">
           <button

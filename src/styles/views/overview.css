@@ -1645,6 +1645,13 @@
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }
+.quota-glance dt .quota-glance__state {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-warn-text);
+  letter-spacing: normal;
+  text-transform: none;
+}
 .quota-glance b {
   color: var(--color-text);
   font: var(--weight-semibold) var(--text-md) var(--font-label);

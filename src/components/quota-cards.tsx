@@ -468,12 +468,17 @@ export function QuotaDials({
       <dl className="quota-glance">
         {cards.map((card) => (
           <div className={`quota-glance__provider ${card.provider}`} key={card.provider}>
-            <dt>{card.providerLabel}</dt>
+            <dt>
+              {card.providerLabel}
+              {card.state === "stale" && (
+                <small className="quota-glance__state">{card.stateLabel}</small>
+              )}
+            </dt>
             <dd>
               {card.buckets.map((bucket) => (
                 <span key={bucket.id} className={bucket.state}>
                   <small>{bucket.windowLabel}</small>
-                  {bucket.usedPercent === null ? (
+                  {bucket.usedPercent === null || bucket.state === "expired" ? (
                     <b>{dialStateLabel(bucket.state)}</b>
                   ) : (
                     <>
