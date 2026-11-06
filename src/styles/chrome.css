@@ -109,6 +109,7 @@ aside {
 }
 
 .sidebar-close {
+  padding: 0;
   border: 0;
   background: none;
   color: var(--color-text-muted);
@@ -371,6 +372,7 @@ main {
 }
 
 .breadcrumbs button {
+  min-height: 24px;
   border: 0;
   background: none;
   padding: 0;
@@ -634,14 +636,18 @@ main {
   cursor: pointer;
   white-space: nowrap;
 }
+/* 14px drawn box in a 24px hit box, as in the chart's headroom legend. */
 .cache-control input {
   appearance: none;
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-chip);
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  margin: -5px;
+  border: 5px solid transparent;
+  border-radius: calc(var(--radius-chip) * 2.25);
   background: var(--color-surface-overlay);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -656,8 +662,9 @@ main {
   transition: transform var(--duration-speedy) ease;
 }
 .cache-control input:checked {
-  border-color: var(--color-accent);
   background: var(--color-accent);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 .cache-control input:checked::after {
   transform: translateY(-1px) rotate(-45deg) scale(1);
@@ -849,6 +856,7 @@ main {
   min-width: 44px;
   min-height: 44px;
   place-items: center;
+  padding: 0;
   background: none;
   border: 0;
   margin-right: var(--space-3);
@@ -889,6 +897,10 @@ main {
   color: var(--color-text-muted);
   font-weight: 500;
 }
+.information-sources :where(a) {
+  display: inline-block;
+  min-height: 24px;
+}
 .information-sources :where(a):hover {
   color: var(--color-accent);
 }
@@ -904,6 +916,7 @@ main {
   gap: var(--space-2);
   text-align: right;
   color: var(--color-text);
+  min-height: 24px;
   font: 600 var(--text-sm)/1.35 var(--font-label);
   letter-spacing: .01em;
 }
@@ -2050,6 +2063,7 @@ main {
 .quick-overview-button {
   width: 35px;
   height: 35px;
+  padding: 0;
   flex: 0 0 auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -2625,6 +2639,7 @@ main {
   }
   .filters-button {
     position: relative;
+    padding: 0;
     display: grid;
     place-items: center;
     flex: 0 0 auto;
@@ -3109,5 +3124,29 @@ aside > * {
     right: 100%;
     width: 12px;
     height: auto;
+  }
+}
+
+/* Phones: every top-bar action is a 44px touch target. */
+@media (max-width:620px) {
+  .quick-overview-button,
+  .filters-button,
+  .appearance-button,
+  .refresh-button,
+  .topbar:has(.time-range-control) .menu-button {
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
+  }
+  .benchmark-split-pill {
+    height: var(--control-height-touch);
+  }
+  .benchmark-split-pill button {
+    width: 40px;
+  }
+  .time-range-segmented {
+    height: var(--control-height-touch);
+  }
+  .time-range-segmented .time-range-custom {
+    width: var(--control-height-touch);
   }
 }

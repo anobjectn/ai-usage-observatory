@@ -89,11 +89,16 @@ export function EffortStack({
   basis = "tokens",
   height = 8,
   showLegend = true,
+  showKey = false,
 }: {
   summary: EffortSummary;
   basis?: "tokens" | "observations";
   height?: number;
   showLegend?: boolean;
+  /** One line under the bar naming its two largest levels, for rows too tight for the legend.
+   * "mixed" shows it only when there is more than one level, for rows whose badge already names
+   * a single level. */
+  showKey?: boolean | "mixed";
 }) {
   const capped = capEffortLevels(summary.levels);
   const unknownAmount = basis === "tokens" ? summary.unknownTokens ?? 0 : summary.unknownObservations;
@@ -135,10 +140,25 @@ export function EffortStack({
             <li key={segment.effort}>
               <i style={{ background: effortColor(segment.effort) }} aria-hidden="true" />
               <span>{effortLabel(segment.effort)}</span>
-              <b>{percent(segment.amount / total)}</b>
+              <b>{segment.amount / total < 0.01 ? "<1%" : percent(segment.amount / total)}</b>
             </li>
           ))}
         </ul>
+      )}
+      {showKey && (showKey === true || segments.length > 1) && (
+        <p className="effort-stack-key" aria-hidden="true">
+          {[...segments]
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 2)
+            .map((segment) => (
+              <span key={segment.effort}>
+                <i style={{ background: effortColor(segment.effort) }} />
+                {effortLabel(segment.effort)}{" "}
+                <b>{segment.amount / total < 0.01 ? "<1%" : percent(segment.amount / total)}</b>
+              </span>
+            ))}
+          {segments.length > 2 && <span>+{segments.length - 2}</span>}
+        </p>
       )}
       <p className="effort-stack-summary">{summaryText}</p>
     </div>

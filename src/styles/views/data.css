@@ -1332,6 +1332,9 @@
   text-transform: uppercase;
   letter-spacing: .05em;
   text-decoration: none;
+  white-space: nowrap;
+  min-height: 24px;
+  flex-shrink: 0;
 }
 .text-link:hover {
   text-decoration: underline;
