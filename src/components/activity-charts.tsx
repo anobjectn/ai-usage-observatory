@@ -133,14 +133,43 @@ function MetricTrend({
   size?: "compact" | "lead";
 }) {
   const direction = value >= 0 ? "up" : "down";
+  // Past ten times the prior figure a percentage stops reading as a comparison (a tiny baseline
+  // turns into "22081%"), so the change shows as a neutral multiple instead.
+  if (unit === "%" && value >= 900) {
+    const multiple = value / 100 + 1;
+    const label = `${multiple >= 100 ? Math.round(multiple) : multiple.toFixed(multiple >= 20 ? 0 : 1)}×`;
+    return (
+      <span
+        className={`trend-up trend--multiple${size === "lead" ? " trend--lead" : ""}`}
+        aria-label={`${label} the ${context}`}
+      >
+        <ArrowUpRight />
+        {label}
+      </span>
+    );
+  }
+  // A share moves in percentage points, which read as "pts", not as a percent change.
+  const amount =
+    unit === "% share"
+      ? `${Math.abs(value)} ${Math.abs(value) === 1 ? "pt" : "pts"}`
+      : `${Math.abs(value)}%`;
+  if (value === 0) {
+    return (
+      <span
+        className={`trend-up trend--multiple${size === "lead" ? " trend--lead" : ""}`}
+        aria-label={`No change, ${context}`}
+      >
+        ±{amount}
+      </span>
+    );
+  }
   return (
     <span
       className={`${direction === "up" ? "trend-up" : "trend-down"}${size === "lead" ? " trend--lead" : ""}`}
-      aria-label={`${direction === "up" ? "Up" : "Down"} ${Math.abs(value)}${unit}, ${context}`}
+      aria-label={`${direction === "up" ? "Up" : "Down"} ${amount}, ${context}`}
     >
       {direction === "up" ? <ArrowUpRight /> : <ArrowDownRight />}
-      {Math.abs(value)}
-      {unit}
+      {amount}
     </span>
   );
 }
@@ -264,6 +293,24 @@ export function TokenTableCard({
         <span>{eyebrow}</span>
         <Icon size={16} />
       </div>
+      {/* Narrow cards cannot fit three headline figures side by side, so they lead with a stacked
+          list and the table below keeps only the averages. */}
+      <dl className="metric-token-headlines">
+        {columns.map((column) => (
+          <div key={column.key}>
+            <dt>{column.label}</dt>
+            <dd>
+              <strong>{column.value}</strong>
+              {column.trend !== undefined && <MetricTrend value={column.trend} />}
+              <span className="metric-token-headlines__detail">
+                {column.detail}
+                {column.trend !== undefined && column.baseline &&
+                  ` · vs ${column.baseline} prior`}
+              </span>
+            </dd>
+          </div>
+        ))}
+      </dl>
       <div
         className="metric-token-table-scroll"
         role="region"
@@ -271,6 +318,12 @@ export function TokenTableCard({
         tabIndex={0}
       >
         <table className="metric-token-table">
+          {averageRows.length > 0 && (
+            <caption className="metric-token-table__caption">
+              <span>AVERAGES</span>
+              <small>active days · vs prior span</small>
+            </caption>
+          )}
           <thead>
             <tr>
               <th scope="col" />
@@ -1391,7 +1444,14 @@ export function QuotaReferenceLines({
                 {labels.map((label) => {
                   const labelX = Number(viewBox.x) +
                     (label.side === "right" ? 11 + sharedXIndex * 7 : -2 - sharedXIndex * 7);
-                  const labelWidth = label.text.length * 5.4;
+                  // A short phone plot cannot hold the whole rotated label, so it ends in an
+                  // ellipsis inside the plot; the event tooltip keeps the full text.
+                  const plotHeight = "height" in viewBox ? Number(viewBox.height) : Infinity;
+                  const maxChars = Math.max(4, Math.floor((plotHeight - 8) / 5.4));
+                  const text = label.text.length > maxChars
+                    ? `${label.text.slice(0, maxChars - 1).trimEnd()}…`
+                    : label.text;
+                  const labelWidth = text.length * 5.4;
                   return (
                     <g key={label.side} transform={`translate(${labelX} ${labelY}) rotate(-90)`}>
                       <rect
@@ -1410,7 +1470,7 @@ export function QuotaReferenceLines({
                         fontFamily="var(--chart-font)"
                         textAnchor="end"
                       >
-                        {label.text}
+                        {text}
                       </text>
                     </g>
                   );
@@ -1695,7 +1755,7 @@ export function ProviderTimeline({
                 tickFormatter={(value: number) => `${value}%`}
                 tick={chartTickCompact}
                 {...chartAxisProps}
-                width={30}
+                width={40}
               />
             )}
             <Tooltip

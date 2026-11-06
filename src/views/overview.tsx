@@ -840,8 +840,18 @@ export function Overview({
                       {session.agent}
                     </span>
                     <span className="session-main">
-                      <b>{modelName}</b>
-                      <small>{session.cwd ?? session.period}</small>
+                      <b title={modelName}>{modelName}</b>
+                      {/* The project folder is the part of the path that identifies the session;
+                       * the full path is in the tooltip and on the Sessions page. */}
+                      <small title={session.cwd ?? session.period}>
+                        {/* Phones drop the activity column, so the time moves into this line. */}
+                        {session.metadata?.lastActivity && (
+                          <span className="recent-session__time-inline">
+                            <SessionDateStamp value={session.metadata.lastActivity} /> ·{" "}
+                          </span>
+                        )}
+                        {session.cwd?.split("/").filter(Boolean).at(-1) ?? session.period}
+                      </small>
                     </span>
                     <span className="path-tags">
                       {session.pathTags.slice(0, 2).map((tag) => (

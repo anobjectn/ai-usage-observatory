@@ -268,6 +268,7 @@
 
 .metric-card__averages-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
@@ -284,7 +285,6 @@
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   text-align: right;
-  white-space: nowrap;
 }
 
 .metric-card__average-grid {
@@ -396,6 +396,23 @@
   font-size: var(--text-2xs);
 }
 
+.metric-token-table__caption {
+  display: none;
+  padding: var(--space-3) 0 var(--space-2);
+  border-top: 1px solid var(--color-border);
+  text-align: left;
+}
+.metric-token-table__caption span {
+  color: var(--color-highlight);
+  font: 500 var(--text-2xs) var(--font-label);
+  letter-spacing: .11em;
+}
+.metric-token-table__caption small {
+  margin-left: var(--space-2);
+  color: var(--color-text-subtle);
+  font: var(--text-2xs) var(--font-label);
+}
+
 .metric-token-table__divider td {
   padding: var(--space-3) 0 var(--space-2);
   border-top: 1px solid var(--color-border);
@@ -450,6 +467,45 @@
   height: 10px;
 }
 
+.metric-token-headlines {
+  display: none;
+  margin: var(--space-3) 0 0;
+}
+.metric-token-headlines>div {
+  display: grid;
+  grid-template-columns: 56px minmax(0,1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--color-divider);
+}
+.metric-token-headlines>div:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.metric-token-headlines dt {
+  padding-top: var(--space-1);
+  color: var(--color-text-subtle);
+  font: var(--text-xs) var(--font-label);
+  letter-spacing: .08em;
+}
+.metric-token-headlines dd {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+}
+.metric-token-headlines strong {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -.03em;
+}
+.metric-token-headlines__detail {
+  grid-column: 1/-1;
+  color: var(--color-text-subtle);
+  font: var(--text-xs) var(--font-label);
+}
+
 .metric-token-table__empty-trend {
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
@@ -459,7 +515,6 @@
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   letter-spacing: .02em;
-  white-space: nowrap;
 }
 
 .metric-card>.metric-baseline {
@@ -746,10 +801,27 @@
 }
 
 .reach-pattern__log summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 24px;
   cursor: pointer;
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   letter-spacing: .04em;
+}
+
+/* display:flex drops the native marker, so the disclosure draws its own. */
+.reach-pattern__log summary::-webkit-details-marker {
+  display: none;
+}
+.reach-pattern__log summary::before {
+  content: "▸";
+  display: inline-block;
+  transition: transform var(--duration-speedy) ease;
+}
+.reach-pattern__log[open] summary::before {
+  transform: rotate(90deg);
 }
 
 .reach-pattern__log summary:hover {
@@ -887,6 +959,45 @@
   border-top: 1px dashed var(--color-border);
   font-size: var(--data-text-compact);
 }
+.reset-use>summary {
+  min-height: 24px;
+  cursor: pointer;
+  list-style: none;
+}
+.reset-use>summary::-webkit-details-marker {
+  display: none;
+}
+.reset-use>summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.reset-use>summary svg {
+  width: 12px;
+  height: 12px;
+  color: var(--color-text-subtle);
+  transition: transform var(--duration-speedy) ease;
+}
+.reset-use[open]>summary svg {
+  transform: rotate(90deg);
+}
+.reset-use>summary:hover span {
+  color: var(--color-text);
+}
+.reset-use>summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-chip);
+}
+.reset-use>small {
+  display: grid;
+  grid-template-columns: 10px minmax(0,1fr) auto;
+  gap: var(--space-2);
+}
+.reset-use>small time {
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+}
 
 .dashboard-grid {
   display: grid;
@@ -901,7 +1012,7 @@
 .provider-capacity-panel .panel-heading p {
   margin: var(--space-1) 0 0;
   color: var(--color-text-subtle);
-  font: var(--text-2xs) var(--font-label);
+  font: var(--text-sm) var(--font-body);
 }
 
 .provider-capacity {
@@ -1119,6 +1230,35 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* While more rows wait below, the list's foot fades out, so a cut row reads as "scroll for more";
+   the fade clears once the list reaches its end. */
+@property --recent-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes recent-list-fade {
+  from,95% {
+    --recent-fade: 56px;
+  }
+  to {
+    --recent-fade: 0px;
+  }
+}
+/* Browsers without scroll-driven animations keep a fixed fade, so the cut row still reads as
+   "more below". */
+@supports not (animation-timeline: scroll()) {
+  .recent-list {
+    mask-image: linear-gradient(to bottom,var(--color-shadow) calc(100% - 40px),transparent);
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .recent-list {
+    mask-image: linear-gradient(to bottom,var(--color-shadow) calc(100% - var(--recent-fade)),transparent);
+    animation: recent-list-fade linear both;
+    animation-timeline: scroll(self);
+  }
+}
 .recent-session {
   display: grid;
   grid-template-columns: minmax(0,1fr) 38px;
@@ -1301,6 +1441,15 @@
 .session-main b,.session-metric b {
   font-size: var(--text-xs);
 }
+.session-main b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-session__time-inline {
+  display: none;
+  color: var(--color-text-muted);
+}
 .session-main small {
   white-space: nowrap;
   overflow: hidden;
@@ -1414,6 +1563,161 @@
 .credit-line small {
   color: var(--color-text-muted);
   font: var(--data-text-compact) var(--font-label);
+}
+
+/* An expired transition credit folds to one line; opening it shows the full record. */
+.fable-credit-history>summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 24px;
+  color: var(--color-text-subtle);
+  font: var(--text-2xs) var(--font-label);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+.fable-credit-history>summary::-webkit-details-marker {
+  display: none;
+}
+.fable-credit-history>summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.fable-credit-history>summary svg {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--duration-speedy) ease;
+}
+.fable-credit-history[open]>summary svg:first-child {
+  transform: rotate(90deg);
+}
+.fable-credit-history>summary b {
+  color: var(--color-warn-text);
+  font-weight: var(--weight-medium);
+}
+.fable-credit-history>summary:hover span {
+  color: var(--color-text);
+}
+.fable-credit-history>summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-chip);
+}
+.fable-credit-history[open]>.fable-credit {
+  margin-top: var(--space-2);
+}
+
+/* Current headroom for every provider in one strip. Only where the quota cards stack. */
+.quota-glance {
+  display: none;
+  margin: var(--space-4) 0 0;
+}
+.quota-glance__provider {
+  display: grid;
+  grid-template-columns: 96px minmax(0,1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--color-divider);
+}
+.quota-glance__provider:first-child {
+  border-top: 0;
+}
+.quota-glance dt {
+  color: var(--provider-color,var(--color-text));
+  font: var(--weight-medium) var(--text-2xs) var(--font-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.quota-glance__provider.anthropic {
+  --provider-color: var(--color-provider-anthropic);
+}
+.quota-glance__provider.codex {
+  --provider-color: var(--color-provider-openai);
+}
+.quota-glance__provider.warp {
+  --provider-color: var(--color-provider-warp);
+}
+.quota-glance dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+.quota-glance dd span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+.quota-glance small {
+  color: var(--color-text-subtle);
+  font: var(--text-2xs) var(--font-label);
+}
+.quota-glance b {
+  color: var(--color-text);
+  font: var(--weight-semibold) var(--text-md) var(--font-label);
+}
+.quota-glance :is(.unavailable,.suspended,.stale,.expired) b {
+  color: var(--color-text-subtle);
+  font-weight: var(--weight-regular);
+}
+.quota-glance__reset {
+  margin-left: var(--space-1);
+}
+.quota-details-toggle {
+  display: none;
+}
+@media (max-width:1100px) {
+  .quota-glance {
+    display: block;
+  }
+}
+@media (max-width:620px) {
+  .quota-details-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--control-height-touch);
+    margin-top: var(--space-3);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font: var(--text-2xs) var(--font-label);
+    letter-spacing: .04em;
+    text-align: left;
+    cursor: pointer;
+  }
+  .quota-details-toggle svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    transition: transform var(--duration-speedy) ease;
+  }
+  .quota-details-toggle[aria-expanded="true"] svg {
+    transform: rotate(90deg);
+  }
+  .quota-details-toggle:is(:hover,:focus-visible) {
+    border-color: var(--color-accent);
+    color: var(--color-text);
+  }
+  .quota-details-toggle:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  .quota-grid.is-phone-collapsed {
+    display: none;
+  }
+  .quota-grid {
+    margin-top: var(--space-3);
+  }
 }
 
 .fable-credit {
@@ -1688,6 +1992,12 @@
   .recent-panel {
     grid-column: auto;
   }
+  /* The 1240px track widths add up to more than a tablet panel, which pushed the chevron under
+     the tag button; the flexible tracks give way here instead. */
+  .recent-session__details {
+    grid-template-columns: 64px 92px 62px minmax(0,1fr) max-content 76px 16px;
+    gap: var(--space-2);
+  }
   .headroom-orrery__legend {
     align-items: start;
   }
@@ -1751,6 +2061,24 @@
   .metric-card--wide {
     grid-column: auto;
   }
+  .metric-token-headlines {
+    display: block;
+  }
+  .metric-token-table {
+    min-width: 0;
+  }
+  .metric-token-table__value-row {
+    display: none;
+  }
+  .metric-token-table__divider {
+    display: none;
+  }
+  .metric-token-table__caption {
+    display: table-caption;
+  }
+  .metric-token-table :is(th,td) {
+    padding-right: var(--space-2);
+  }
   .metric-card>strong {
     font-size: var(--text-xl);
   }
@@ -1765,6 +2093,9 @@
   }
   .recent-session__details {
     grid-template-columns: 58px minmax(0,1fr) 70px 15px;
+  }
+  .recent-session__time-inline {
+    display: inline;
   }
   .recent-session__quota,
   .recent-session__activity,
