@@ -1705,12 +1705,6 @@
     grid-column: 3;
     margin-top: 0;
   }
-  .rank-card {
-    grid-template-columns: 40px 1fr 90px;
-  }
-  .rank-stat:nth-last-child(-n+2) {
-    display: none;
-  }
 }
 
 /* Three quota cards need about 300px each for the dial and its copy; below that they stack. */
@@ -1804,10 +1798,6 @@
   }
   .metric-card {
     padding: var(--space-3-5);
-  }
-  .rank-card {
-    grid-template-columns: 30px 1fr 80px;
-    padding: var(--space-4) var(--space-3);
   }
 }
 
