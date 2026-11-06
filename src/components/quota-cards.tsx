@@ -380,6 +380,13 @@ function ReachPattern({
   );
 }
 
+/* The dial fits about six characters inside its ring; the row beside it keeps the full word. */
+function dialStateLabel(state: string): string {
+  if (state === "unavailable") return "n/a";
+  if (state === "suspended") return "paused";
+  return state;
+}
+
 export function QuotaDials({
   quotas,
   timeZone,
@@ -468,7 +475,7 @@ export function QuotaDials({
                             {left === null ? "—" : `${left.toFixed(0)}%`}
                           </strong>
                           <span>
-                            {left === null ? bucket.state : "left"}
+                            {left === null ? dialStateLabel(bucket.state) : "left"}
                           </span>
                         </div>
                       </div>
