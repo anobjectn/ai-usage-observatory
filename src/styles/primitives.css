@@ -269,7 +269,7 @@ th {
   cursor: pointer;
 }
 .sort-header span {
-  color: var(--color-border-strong);
+  color: var(--color-text-subtle);
   font-size: var(--text-xs);
 }
 .sort-header:hover,.sort-header.active {

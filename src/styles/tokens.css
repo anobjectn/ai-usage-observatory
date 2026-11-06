@@ -55,8 +55,9 @@
   --color-border-strong: color-mix(in srgb, var(--color-text) 23%, var(--color-bg));
   --color-divider: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
   /* Text. */
-  --color-text-muted: color-mix(in srgb, var(--color-text) 63%, var(--color-bg));
-  --color-text-subtle: color-mix(in srgb, var(--color-text) 43%, var(--color-bg));
+  --color-text-muted: color-mix(in srgb, var(--color-text) 68%, var(--color-bg));
+  /* Subtle text still meets 4.5:1 on every surface up to the overlay layer. */
+  --color-text-subtle: color-mix(in srgb, var(--color-text) 55%, var(--color-bg));
   /* Text on saturated or light fills: accent buttons, model marks, labels on chart bars. */
   --color-text-inverse: var(--color-bg);
   /* Shadows and scrims. */
@@ -106,7 +107,7 @@
   /* Charts (components/chart-theme.ts). Axis labels sit between subtle and muted text so small
      numerals stay legible; category labels (model names) read brighter. */
   --color-chart-grid: var(--color-border);
-  --color-chart-label: color-mix(in srgb, var(--color-text) 49%, var(--color-bg));
+  --color-chart-label: color-mix(in srgb, var(--color-text) 56%, var(--color-bg));
   --color-chart-label-strong: color-mix(in srgb, var(--color-text) 72%, var(--color-bg));
   --color-chart-label-backdrop: color-mix(in srgb, var(--color-bg-deep) 60%, transparent);
   --color-chart-cursor: var(--color-chart-label);
