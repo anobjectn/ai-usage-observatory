@@ -37,7 +37,6 @@ import {
   userScrollCancelWindowMs,
   autoScrollDelayMs,
   modelsHref,
-  palette,
   sessionHref,
 } from "../app/preferences";
 import {
@@ -58,6 +57,17 @@ import {
 } from "../app/analytics";
 import { timeEffortScope, modelAvatarLetter } from "../components/activity-charts";
 import { SessionEffortCell } from "../components/session-detail";
+import { CompactSort } from "../components/compact-sort";
+
+const providerColorByAgent: Record<string, string> = {
+  claude: "var(--color-provider-anthropic)",
+  codex: "var(--color-provider-openai)",
+  warp: "var(--color-provider-warp)",
+};
+
+function modelProviderColor(agents: string[]) {
+  return providerColorByAgent[agents[0] ?? ""] ?? "var(--color-border-strong)";
+}
 
 export function Models({
   data,
@@ -265,7 +275,7 @@ export function Models({
       <PageTitle
         eyebrow="MODEL SPECTROGRAPH"
         title="Model mix and efficiency"
-        description="One row per model. Sort any column to compare API-equivalent cost, output volume, and cache behavior; open a row for token types, effort distribution, and its sessions. Warp models contribute recorded tokens, while provider credits stay separate from dollar estimates."
+        description="Compare cost, output, and cache use per model; open a row for its token types, effort, and sessions."
         actions={
           <div className="model-controls">
             <label className="search model-search">
@@ -296,6 +306,25 @@ export function Models({
         <Empty text="No models match that filter." />
       ) : (
         <section className="panel table-panel model-table-panel">
+          <div className="model-table-toolbar">
+            <CompactSort
+              options={[
+                { key: "output", label: "Output", kind: "number" },
+                { key: "cost", label: "Cost", kind: "number" },
+                { key: "total", label: "Total tokens", kind: "number" },
+                { key: "sessions", label: "Sessions", kind: "number" },
+                { key: "perMtok", label: "$/Mtok", kind: "number" },
+                { key: "outputShare", label: "Out share", kind: "number" },
+                { key: "input", label: "Input", kind: "number" },
+                { key: "cacheRead", label: "Cache read", kind: "number" },
+                { key: "cacheWrite", label: "Cache write", kind: "number" },
+                { key: "model", label: "Model", kind: "text" },
+              ]}
+              sortKey={sort.key}
+              direction={sort.direction}
+              onChange={setSort}
+            />
+          </div>
           <div className="table-scroll" ref={scrollRef}>
             <table className="model-table" ref={tableRef}>
               <thead>
@@ -336,7 +365,9 @@ export function Models({
                     effortSummary !== null &&
                     effortSummary.coverageState !== "unavailable";
                   const effortCombos = effortCombosByModel.get(model.model) ?? [];
-                  const color = palette[index % palette.length];
+                  // Avatars and cost meters take the provider's color, so hue always means
+                  // provider; the letter and name tell models apart.
+                  const color = modelProviderColor(model.agents);
                   return (
                     <Fragment key={model.model}>
                       <tr
@@ -373,20 +404,20 @@ export function Models({
                               {indexing && <small>indexing</small>}
                             </div>
                             {effortUsable && effortSummary && (
-                              <EffortStack summary={effortSummary} height={5} showLegend={false} />
+                              <EffortStack summary={effortSummary} height={5} showLegend={false} showKey="mixed" />
                             )}
                           </div>
                         </td>
-                        <td className="model-col num">{modelSessions.length}</td>
-                        <td className="model-col num">{formatCompact(model.tokens)}</td>
-                        <td className="model-col num">
+                        <td className="model-col num model-col--sessions" data-label="Sessions">{modelSessions.length}</td>
+                        <td className="model-col num model-col--total" data-label="Total">{formatCompact(model.tokens)}</td>
+                        <td className="model-col num model-col--output" data-label="Output">
                           {formatCompact(warpOnly ? model.tokens : model.outputTokens)}
                           {warpOnly && <small>recorded</small>}
                         </td>
-                        <td className="model-col num">{formatCompact(model.inputTokens)}</td>
-                        <td className="model-col num">{formatCompact(model.cacheReadTokens)}</td>
-                        <td className="model-col num">{formatCompact(model.cacheCreationTokens)}</td>
-                        <td className="model-col num model-col--cost">
+                        <td className="model-col num model-col--input" data-label="Input">{formatCompact(model.inputTokens)}</td>
+                        <td className="model-col num model-col--cacheRead" data-label="Cache read">{formatCompact(model.cacheReadTokens)}</td>
+                        <td className="model-col num model-col--cacheWrite" data-label="Cache write">{formatCompact(model.cacheCreationTokens)}</td>
+                        <td className="model-col num model-col--cost" data-label="Cost">
                           <div className="model-cost-cell">
                             {model.priced ? (
                               <b>{formatMoney(model.cost)}</b>
@@ -416,10 +447,10 @@ export function Models({
                             </span>
                           </div>
                         </td>
-                        <td className="model-col num">
+                        <td className="model-col num model-col--perMtok" data-label="$/Mtok">
                           {row.perMtok === null ? "—" : `$${row.perMtok.toFixed(2)}`}
                         </td>
-                        <td className="model-col num">
+                        <td className="model-col num model-col--outputShare" data-label="Out share">
                           {row.outputShare === null ? "—" : `${(row.outputShare * 100).toFixed(2)}%`}
                         </td>
                         <td className="model-col model-col--toggle">
