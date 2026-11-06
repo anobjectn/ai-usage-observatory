@@ -2362,6 +2362,17 @@ td>small {
   font: var(--text-xs)/var(--leading-normal) var(--font-body);
 }
 
+.effort-scope-note {
+  margin: var(--space-1-5) 0 0;
+  color: var(--color-text-subtle);
+  font: var(--text-xs)/var(--leading-normal) var(--font-body);
+}
+
+.effort-scope-note b {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
 .session-effort {
   min-width: 0;
   display: flex;

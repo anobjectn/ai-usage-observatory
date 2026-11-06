@@ -212,19 +212,22 @@ const stateCopy: Record<string, string> = {
 export function EffortState({
   status,
   summary,
+  unavailableMessage,
   children,
 }: {
   status: EffortIndexStatus | null;
   /** Only the coverage state is read, so a combo response can supply it without inventing
    * effort-only levels it does not have. */
   summary?: Pick<EffortSummary, "coverageState"> | null;
+  /** Replaces the generic no-evidence copy, so a caller can name the filters that emptied it. */
+  unavailableMessage?: string;
   children?: React.ReactNode;
 }) {
   if (!status) return <p className="effort-empty">Effort information is unavailable right now.</p>;
   if (!status.enabled) return <p className="effort-empty">{stateCopy.disabled}</p>;
   if (status.phase === "error") return <p className="effort-empty">{stateCopy.error}{status.error ? ` (${status.error})` : ""}</p>;
   if (!summary || summary.coverageState === "unavailable") {
-    if (status.phase !== "indexing") return <p className="effort-empty">{stateCopy.unavailable}</p>;
+    if (status.phase !== "indexing") return <p className="effort-empty">{unavailableMessage ?? stateCopy.unavailable}</p>;
   }
   const usable = summary && summary.coverageState !== "unavailable";
   if (status.phase === "indexing") {

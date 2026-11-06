@@ -6,6 +6,7 @@ import {
   decodeEffortDigest,
   deleteEffortDerivedObservations,
   setEffortIndexing,
+  useEffortAggregate,
   useEffortComboBoard,
   useEffortRefreshOnIndexChange,
   useEffortSessions,
@@ -20,15 +21,47 @@ import {
   EFFORT_HELP,
   familyLabel,
 } from "../../components/effort";
-import { effortLabel } from "../../combo";
+import { comboLabel, effortLabel, parseComboFacet } from "../../combo";
 import type { DataFacets } from "./insights";
-import type { DateRange } from "../../time-range";
+import { dateRangeLabel, type DateRange } from "../../time-range";
+
+/** Reads the Model × effort facet the way its select labels it. */
+function effortFacetLabel(value: string) {
+  const combo = parseComboFacet(value);
+  if (combo) return comboLabel(combo);
+  if (value.startsWith("value:")) return `${effortLabel(value.slice("value:".length))} effort`;
+  if (value === "mixed") return "mixed effort";
+  if (value === "unknown") return "unknown effort";
+  return "all efforts";
+}
+
+/** One filter the card inherits from the page. `active` means it narrows the evidence. */
+export type InheritedFilter = { label: string; active: boolean };
+
+/** The page filters the evidence card inherits, in the order the page shows them. The card states
+ * them because a narrow scope otherwise reads as missing data. */
+function inheritedFilters({ days, dateRange, agentSummary, pathTag, facets }: {
+  days: string;
+  dateRange: DateRange | null;
+  agentSummary: string;
+  pathTag: string;
+  facets: DataFacets;
+}): InheritedFilter[] {
+  return [
+    { label: days === "all" ? "all history" : days === "custom" ? dateRangeLabel(dateRange) : days === "1" ? "the last day" : `the last ${days} days`, active: days !== "all" },
+    { label: agentSummary, active: agentSummary !== "all agents" },
+    { label: pathTag === "all" ? "all path tags" : `path ${pathTag}`, active: pathTag !== "all" },
+    { label: facets.outliers === "typical" ? "typical sessions only" : facets.outliers === "only" ? "outlier sessions only" : "all sessions", active: facets.outliers !== "all" },
+    { label: effortFacetLabel(facets.effort), active: facets.effort !== "all" },
+  ];
+}
 
 export function useReasoningEffort({
   days,
   dateRange,
   providers,
   modelFamilies,
+  agentSummary,
   pathTag,
   facets,
 }: {
@@ -36,6 +69,8 @@ export function useReasoningEffort({
   dateRange: DateRange | null;
   providers: string[];
   modelFamilies: string[];
+  /** The global Agent filter as the facet row words it. */
+  agentSummary: string;
   pathTag: string;
   facets: DataFacets;
 }) {
@@ -61,16 +96,23 @@ export function useReasoningEffort({
     [scope, project],
   );
   const board = useEffortComboBoard(boardScope);
+  // The project picker is built from this, not from the dashboard's all-time project list: it is
+  // the same scope as the board minus the project itself, so every option has evidence to show.
+  const projectEvidence = useEffortAggregate("project", scope);
   const digest = useEffortSessions(scope);
-  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [board.load, digest.load]);
+  useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [board.load, digest.load, projectEvidence.load]);
 
   const decoded = useMemo(() => decodeEffortDigest(digest.data), [digest.data]);
+  const filters = useMemo(
+    () => inheritedFilters({ days, dateRange, agentSummary, pathTag, facets }),
+    [days, dateRange, agentSummary, pathTag, facets],
+  );
   const status = statusRequest.data ?? board.data?.status ?? null;
   const [busy, setBusy] = useState<"toggle" | "delete" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const reload = async () => {
-    await Promise.all([statusRequest.load(), board.load(), digest.load()]);
+    await Promise.all([statusRequest.load(), board.load(), digest.load(), projectEvidence.load()]);
   };
   const toggle = async () => {
     if (!status) return;
@@ -99,7 +141,7 @@ export function useReasoningEffort({
     }
   };
 
-  return { status, board, decoded, busy, actionError, toggle, remove, project, setProject, pathTag };
+  return { status, board, filters, projectRows: projectEvidence.data?.rows ?? null, decoded, busy, actionError, toggle, remove, project, setProject, pathTag };
 }
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
@@ -180,7 +222,7 @@ export function ReasoningEffortAnalysis({
   /** Project ids the dashboard knows about, already ordered and disambiguated for display. */
   projects: Array<{ id: string; label: string }>;
 }) {
-  const { status, board, project, setProject, pathTag } = effort;
+  const { status, board, filters, project, setProject } = effort;
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({ key: "tokens", direction: "desc" });
   const data = board.data;
   const rows = useMemo(() => {
@@ -190,10 +232,15 @@ export function ReasoningEffortAnalysis({
   const sortBy = (key: SortKey) =>
     setSort((current) => (current.key === key ? { key, direction: current.direction === "desc" ? "asc" : "desc" } : { key, direction: "desc" }));
 
-  const subtitle = [
-    project === "all" ? "all projects" : projects.find((option) => option.id === project)?.label ?? projectName(project),
-    pathTag === "all" ? "all path tags" : pathTag,
-  ].join(" · ");
+  const projectLabel = project === "all" ? "all projects" : projects.find((option) => option.id === project)?.label ?? projectName(project);
+  // Range, agent, and path tag always show, so the scope reads in full; the session facets show
+  // only when they narrow it.
+  const scopeText = filters.filter((filter, index) => index < 3 || filter.active).map((filter) => filter.label).join(" · ");
+  const narrowing = [...(project === "all" ? [] : [projectLabel]), ...filters.filter((filter) => filter.active).map((filter) => filter.label)];
+
+  const emptyMessage = narrowing.length > 0
+    ? `No model × effort evidence matches ${narrowing.join(" · ")}. Widen the range or clear a filter to see more.`
+    : "No model × effort evidence has been recorded yet.";
 
   return (
     <section className="panel effort-analysis">
@@ -201,7 +248,7 @@ export function ReasoningEffortAnalysis({
         <div>
           <span className="overline">MODEL × EFFORT EVIDENCE</span>
           <h2>What works where</h2>
-          <p>{subtitle}</p>
+          <p>{projectLabel}</p>
         </div>
         <div className="effort-board__controls">
           <label>
@@ -217,9 +264,13 @@ export function ReasoningEffortAnalysis({
         </div>
       </div>
       <p className="effort-help">{EFFORT_HELP}</p>
-      <EffortState status={status} summary={data ? { coverageState: data.coverageState } : null}>
+      <p className="effort-scope-note">
+        Filtered by the page to <b>{scopeText}</b>. A narrow scope can leave few or no rows, and the project
+        list includes only projects with evidence in it.
+      </p>
+      <EffortState status={status} summary={data ? { coverageState: data.coverageState } : null} unavailableMessage={emptyMessage}>
         {rows.length === 0 ? (
-          <p className="effort-empty">No family × effort evidence is available in this scope.</p>
+          <p className="effort-empty">{emptyMessage}</p>
         ) : (
           <>
             <div className="table-scroll effort-board">
@@ -273,7 +324,7 @@ export function ReasoningEffortAnalysis({
             </div>
             {data && <EffortCoverage summary={data.coverage} indexing={data.status.phase === "indexing"} />}
             <p className="effort-coverage">
-              {data?.sessionsScoped ?? 0} sessions in scope.
+              {data?.sessionsScoped ?? 0} sessions match the current filters.
               {(data?.tiedSessions ?? 0) > 0 && ` ${data!.tiedSessions} tied sessions excluded from outcome cohorts.`}
               {` Outcome columns need ${LED_SESSION_FLOOR} led sessions; verdict rates need ${RATED_SESSION_FLOOR} ratings.`}
             </p>
