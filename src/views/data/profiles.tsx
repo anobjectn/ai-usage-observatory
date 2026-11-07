@@ -155,7 +155,7 @@ export function AllowanceProfiles({
 }) {
   return (
     <section className="data-section">
-      <header className="data-section__head">
+      <header className="data-section__head allowance-profiles__head">
         <div>
           <span className="overline">SUBSCRIPTION ALLOWANCE</span>
           <h2>
