@@ -5,6 +5,37 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.36.0] - 2026-11-07
+
+### Added
+
+- Show compact session and model cards on narrow screens, with sorting controls.
+- Show quota headroom and spend first on narrow Overview screens.
+- Label project effort bars and show daily project activity as areas.
+- Add an optional `.env.example` documenting local configuration.
+
+### Changed
+
+- Improve quota card layout, remaining-capacity labels, and session-list
+  continuation cues.
+- Use a wider default quick quota window and collapse provider notice details
+  behind a visible summary.
+- Refresh the screenshot gallery and document the capture and privacy protocol.
+  See the [v1.36.0 Data screenshot](docs/screenshots/releases/v1.36.0/6.data-intelligence.png).
+- Clarify first-time setup, everyday startup, and in-app and terminal updates
+  in the README.
+- Ignore local environment files while keeping `.env.example` tracked.
+
+### Fixed
+
+- Keep allowance target-policy button labels within their controls.
+- Improve keyboard focus, control target sizes, contrast, and accessible labels.
+- Keep project figures, page controls, quota details, and footer content usable
+  across screen sizes.
+- Preserve quota freshness and reset compact-sort pagination.
+- Scope project effort evidence to the selected filters and keep its content
+  under the correct heading.
+
 ## [1.35.0] - 2026-10-31
 
 ### Added
@@ -295,6 +326,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.36.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.35.0...v1.36.0
 [1.35.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.1...v1.35.0
 [1.34.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.0...v1.34.1
 [1.34.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.33.1...v1.34.0
