@@ -2100,7 +2100,7 @@ main {
 
 /* The body scrolls instead of the window, so the resize grip stays in the corner. */
 .quick-overview-modal {
-  width: min(800px,100%);
+  width: min(1100px,100%);
   padding: 0;
   display: flex;
   flex-direction: column;

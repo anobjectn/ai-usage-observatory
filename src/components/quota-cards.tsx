@@ -676,18 +676,17 @@ export function QuotaNoticeCallout({
   compact?: boolean;
 }) {
   return (
-    <div
+    <details
       className={`quota-notice ${notice.kind}${compact ? " compact" : ""}`}
-      role="status"
     >
-      <span className="quota-notice__mark" aria-hidden="true">
+      <summary><span className="quota-notice__mark" aria-hidden="true">
         {notice.kind === "act" ? "!" : "…"}
-      </span>
+      </span><b>{notice.kind === "act" ? "Reading needs attention" : "Reading may be out of date"}</b></summary>
       <div>
         <b>{notice.headline}</b>
         <span>{notice.nextStep}</span>
         {!compact && <small>Reported: {notice.raw}</small>}
       </div>
-    </div>
+    </details>
   );
 }

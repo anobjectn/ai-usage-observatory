@@ -20,20 +20,64 @@ Provider dashboards show how much capacity remains. The Observatory ties that us
 
 Higher or lower usage is not treated as better. The Observatory gives you a consistent record: set a baseline, change how you work, and measure the result.
 
-## Run locally
+## Install and run locally
 
-Requires Bun 1.3 or newer.
+Requires Git and Bun 1.3 or newer.
+
+### First-time setup
+
+Clone the repository, install dependencies, and build the app once:
 
 ```bash
+git clone https://github.com/anobjectn/ai-usage-observatory.git
+cd ai-usage-observatory
 bun install
 bun run build
-bun run start    # http://127.0.0.1:4318
 ```
+
+### Start the app
+
+From the `ai-usage-observatory` directory, run:
+
+```bash
+bun run start
+```
+
+Open [http://127.0.0.1:4318](http://127.0.0.1:4318). Stop the app with Ctrl+C
+in the terminal. You do not need to reinstall or rebuild for each start.
 
 `bun run start` runs a small launcher that supervises the server and supports in-app updates.
 To run the server without the launcher, use `bun run start:server`.
 
 For frontend development with Vite, run `bun run dev` and open `http://127.0.0.1:5173`.
+
+### Check for and install updates
+
+**In the app:** select **Check for updates** at the bottom of the sidebar. If an
+update is available and the checkout is eligible, select **Update and restart**.
+The app checks automatically once a day as well. See the details below for
+requirements and recovery.
+
+**In a terminal:** from the repository directory, check the remote and compare
+your current branch with its upstream:
+
+```bash
+git fetch origin
+git status -sb
+```
+
+If `main` is behind `origin/main` and your working tree is clean, stop the app
+with Ctrl+C, then update, install dependencies, rebuild, and start it again:
+
+```bash
+git pull --ff-only origin main
+bun install --frozen-lockfile
+bun run build
+bun run start
+```
+
+Review `git status` before updating. The fast-forward-only pull will not merge
+divergent history; resolve local changes or branch differences before proceeding.
 
 <details>
 <summary>Update from the app</summary>
@@ -230,6 +274,9 @@ most recent AI Usage Observatory session in Sessions, the
 `ai-usage-observatory` project in Projects, and Opus 5.5 in Models. Blur or
 smear any visible references to myessentials or Troy Web, including paths and
 project keys, and inspect every image before publishing.
+Wait for charts and details to finish rendering, capture at native resolution,
+and limit redaction to the sensitive text. For the quick quota modal, use a
+single-height capture and its wide default size so the providers fit in one row.
 
 Before a release, preserve the reviewed image with
 `bun run screenshot:archive -- vX.Y.Z`. The changelog must reference that
@@ -674,10 +721,6 @@ Under consideration, with no committed timeline: git-aware worktree
 canonicalization, touched-file indexing, task classification, filesystem
 watching, native provider collectors, and multi-account attribution within a
 provider.
-
-Updating is the most likely next improvement. Today a new version means
-replacing a downloaded copy or running `git pull` in a clone; a built-in check
-that reports a new release and applies it in place would remove that step.
 
 </details>
 

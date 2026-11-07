@@ -2134,9 +2134,6 @@
 /* Provider collection failures translated into a next step. Sits under the dials in
    the quota card, the quick-overview modal (compact), and the quota evidence panel. */
 .quota-notice {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: var(--space-2);
   align-items: start;
   padding: var(--space-2) var(--space-2-5);
   border: 1px solid color-mix(in srgb, var(--color-warn) var(--tint-border), var(--color-border));
@@ -2145,6 +2142,17 @@
   font-size: var(--text-xs);
   line-height: 1.4;
 }
+.quota-notice summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+}
+.quota-notice summary::-webkit-details-marker { display: none; }
+.quota-notice summary::after { content: "▸"; margin-left: auto; }
+.quota-notice[open] summary::after { content: "▾"; }
+.quota-notice > div { margin: var(--space-2) 0 0 26px; }
 .quota-notice.wait {
   border-color: var(--color-border);
   background: var(--color-surface-inset);

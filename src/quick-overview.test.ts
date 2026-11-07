@@ -236,6 +236,8 @@ test("a stale Claude Code token renders a next-step notice in both modes", () =>
       }),
     );
     expect(html).toContain("Run any prompt in Claude Code");
+    expect(html).toMatch(/<details class="quota-notice act compact"><summary>/);
+    expect(html).toContain("Reading needs attention");
     // The compact variant omits the producer's raw wording.
     expect(html).not.toContain("401 from oauth/usage");
   }
