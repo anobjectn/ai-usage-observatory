@@ -51,6 +51,9 @@ To run the server without the launcher, use `bun run start:server`.
 
 For frontend development with Vite, run `bun run dev` and open `http://127.0.0.1:5173`.
 
+All settings are optional. To change one, copy `.env.example` to `.env.local` (ignored by Git) and
+uncomment the lines you need.
+
 ### Check for and install updates
 
 **In the app:** select **Check for updates** at the bottom of the sidebar. If an
@@ -160,7 +163,7 @@ test URL; the normal app remains available on its existing port.
 <details>
 <summary>Private remote access with Tailscale</summary>
 
-Remote access is disabled by default. The app stays bound to localhost unless you explicitly allow a remote hostname. To expose it privately through [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve), add the Mac's exact Tailscale DNS name to an ignored `.env.local` file without a scheme or port:
+Remote access is disabled by default. The app stays bound to localhost unless you explicitly allow a remote hostname. To expose it privately through [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve), add the Mac's exact Tailscale DNS name to an ignored `.env.local` file (see `.env.example`) without a scheme or port:
 
 ```dotenv
 USAGE_OBSERVATORY_ALLOWED_HOSTS=your-mac.your-tailnet.ts.net

@@ -3,7 +3,9 @@ dist/
 .DS_Store
 *.log
 .usage-observatory/
-.env.local
+.env
+.env.*
+!.env.example
 usage-observatory-plan.md
 reports/ccusage-audits
 _temp/
