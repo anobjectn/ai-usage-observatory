@@ -1,5 +1,6 @@
 import { compareEffort, effortRank, normalizeEffort } from "./effort-model";
 import { familyOf } from "./model-family";
+import { providerFromModel, type ActivityProvider } from "./provider";
 import type { EffortComboDayRow } from "./types";
 
 /** Model family × provider-recorded effort. `High` alone is not a decision unit: `Opus 5 · High`
@@ -108,6 +109,29 @@ const fixedFamilyColors: Record<string, string> = {
 export function familyColor(family: string) {
   if (!family || family === UNKNOWN_COMBO_KEY) return neutral;
   return fixedFamilyColors[family.toLowerCase()] ?? stablePaletteColor(`family:${family.toLowerCase()}`);
+}
+
+const providerColors: Record<ActivityProvider, string> = {
+  anthropic: "var(--color-provider-anthropic)",
+  codex: "var(--color-provider-openai)",
+  warp: warpColor,
+};
+
+/** The provider hue a combo pill is drawn in. Families answer "which chart series"; the pill
+ * answers "whose model, at what effort", so it follows the user's provider colours instead. */
+export function providerColor(family: string) {
+  if (!family || family === UNKNOWN_COMBO_KEY) return neutral;
+  const provider = providerFromModel(family);
+  return provider ? providerColors[provider] : neutral;
+}
+
+export const EFFORT_LEVEL_COUNT = 5;
+
+/** 1–5 position on the canonical effort scale, or null for Unknown, Other, and values the
+ * providers add later: a level the scale does not know is labelled, never placed on it. */
+export function effortLevel(effort: string): number | null {
+  const rank = effortRank(effort);
+  return effort && rank < EFFORT_LEVEL_COUNT ? rank + 1 : null;
 }
 
 /** Compact family label for pills and legends, without discarding the release family. */

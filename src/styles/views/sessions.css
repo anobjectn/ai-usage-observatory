@@ -359,21 +359,34 @@
 
 .session-mix__combos li {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto;
+  grid-template-columns: 9px minmax(0,1fr) auto;
   align-items: center;
   column-gap: var(--space-2);
   row-gap: 1px;
   min-width: 0;
 }
 
-.session-mix__combos li>.split-pill {
+/* The swatch ties a row to its segment in the bar above; the pill itself is in provider colour. */
+.session-mix__combos li>i {
   grid-column: 1;
+  grid-row: 1/span 2;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-chip);
+}
+
+.session-mix__combos li>i.is-unattributed {
+  background: repeating-linear-gradient(135deg,var(--color-border-strong),var(--color-border-strong) 2px,transparent 2px,transparent 4px);
+}
+
+.session-mix__combos li>.split-pill {
+  grid-column: 2;
   grid-row: 1/span 2;
   justify-self: start;
 }
 
 .session-mix__combos li>b {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
   color: var(--color-text-muted);
   font: var(--text-2xs) var(--font-label);
@@ -384,7 +397,7 @@
 }
 
 .session-mix__combos li>small {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 2;
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);

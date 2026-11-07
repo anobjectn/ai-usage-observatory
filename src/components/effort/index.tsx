@@ -2,12 +2,14 @@ import type { Combo, ComboKind } from "../../combo";
 import type { EffortCoverageFields, EffortIndexStatus, EffortSummary } from "../../types";
 import { capEffortLevels } from "../../effort-model";
 import {
+  EFFORT_LEVEL_COUNT,
   comboLabel,
   effortColor,
+  effortLevel,
   effortLabel,
   encodeComboFacet,
-  familyColor,
   familyLabel,
+  providerColor,
 } from "../../combo";
 
 /** Compact UI says "Effort"; help text says "provider-recorded reasoning effort". Effort is an
@@ -18,32 +20,31 @@ export const EFFORT_HELP = "Provider-recorded reasoning effort, as written by th
 
 /** Colour and label vocabulary lives in `src/combo.ts` so the server can use it too; it is
  * re-exported here because every existing view imports it from this module. */
-export { comboColor, comboLabel, comboShortLabel, effortColor, effortLabel, effortShortLabel, familyColor, familyLabel } from "../../combo";
+export { comboColor, comboLabel, comboShortLabel, effortColor, effortLabel, effortShortLabel, familyColor, familyLabel, providerColor } from "../../combo";
 
-/** One combo rendered as its family and its recorded effort, never as effort alone. */
+/** One combo rendered as its family and its recorded effort, never as effort alone. The whole
+ * pill is drawn in its provider's hue; the effort half deepens with the level and carries a
+ * five-step meter, so the level reads without relying on hue alone. */
 export function ComboPill({ combo, trailing }: { combo: Combo; trailing?: string }) {
+  const level = effortLevel(combo.effort);
+  const label = effortLabel(combo.effort);
   return (
-    <SplitPill
-      left={{ label: familyLabel(combo.family), color: familyColor(combo.family) }}
-      right={{ label: effortLabel(combo.effort), color: effortColor(combo.effort) }}
-      trailing={trailing}
-    />
-  );
-}
-
-export function SplitPill({
-  left,
-  right,
-  trailing,
-}: {
-  left: { label: string; color: string };
-  right: { label: string; color: string };
-  trailing?: string;
-}) {
-  return (
-    <span className="split-pill">
-      <span style={{ ["--split-pill-color" as string]: left.color }}>{left.label}</span>
-      <span style={{ ["--split-pill-color" as string]: right.color }}>{right.label}</span>
+    <span
+      className="split-pill combo-pill"
+      data-effort-level={level ?? undefined}
+      style={{ ["--split-pill-color" as string]: providerColor(combo.family) }}
+    >
+      <span>{familyLabel(combo.family)}</span>
+      <span className={level === null ? "combo-pill__effort is-unscaled" : "combo-pill__effort"}>
+        {label}
+        {level !== null && (
+          <i className="combo-pill__meter" aria-hidden="true">
+            {Array.from({ length: EFFORT_LEVEL_COUNT }, (_, index) => (
+              <i key={index} className={index < level ? "is-on" : undefined} />
+            ))}
+          </i>
+        )}
+      </span>
       {trailing && <b>{trailing}</b>}
     </span>
   );

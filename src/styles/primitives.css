@@ -552,12 +552,17 @@ td>small {
   border-style: dashed;
 }
 
+/* A model × effort pill. Hue says whose model it is (the user's provider colour); the effort
+   half deepens with the level and carries a five-step meter, so the level never rests on
+   colour alone. The deepest tint still keeps body text above 4.5:1 for the lightest provider. */
 .split-pill {
+  --split-pill-color: var(--color-border-strong);
+  --split-pill-edge: color-mix(in srgb,var(--split-pill-color) var(--tint-border-soft),var(--color-border));
   display: inline-flex;
   align-items: stretch;
   max-width: 100%;
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--split-pill-edge);
   border-radius: var(--radius-pill);
   background: var(--color-surface-overlay);
   font: var(--text-2xs) var(--font-label);
@@ -566,18 +571,58 @@ td>small {
 .split-pill>span {
   min-width: 0;
   padding: var(--space-1) var(--space-2);
-  background: color-mix(in srgb,var(--split-pill-color) var(--tint-medium),var(--color-surface-overlay));
+  background: color-mix(in srgb,var(--split-pill-color) var(--tint-soft),var(--color-surface-overlay));
   box-shadow: inset 0 -2px var(--split-pill-color);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .split-pill>span+span {
-  border-left: 1px solid var(--color-border);
+  border-left: 1px solid var(--split-pill-edge);
 }
 .split-pill>b {
   padding: var(--space-1) var(--space-2);
   color: var(--color-text);
   font-weight: var(--weight-medium);
+}
+
+.combo-pill {
+  --combo-pill-effort-tint: var(--tint-soft);
+}
+.combo-pill[data-effort-level="1"] { --combo-pill-effort-tint: var(--tint-faint); }
+.combo-pill[data-effort-level="2"] { --combo-pill-effort-tint: 12%; }
+.combo-pill[data-effort-level="3"] { --combo-pill-effort-tint: 20%; }
+.combo-pill[data-effort-level="4"] { --combo-pill-effort-tint: 28%; }
+.combo-pill[data-effort-level="5"] { --combo-pill-effort-tint: 35%; }
+.split-pill>.combo-pill__effort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  background: color-mix(in srgb,var(--split-pill-color) var(--combo-pill-effort-tint),var(--color-surface-overlay));
+}
+/* Unknown, Other, and values off the canonical scale: labelled, never placed on the meter. */
+.split-pill>.combo-pill__effort.is-unscaled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-overlay);
+  box-shadow: inset 0 -2px var(--color-border-strong);
+}
+.combo-pill__meter {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 0.75em;
+}
+.combo-pill__meter>i {
+  width: 2px;
+  border-radius: var(--radius-mark);
+  background: color-mix(in srgb,var(--color-text) 20%,transparent);
+}
+.combo-pill__meter>i:nth-child(1) { height: 40%; }
+.combo-pill__meter>i:nth-child(2) { height: 55%; }
+.combo-pill__meter>i:nth-child(3) { height: 70%; }
+.combo-pill__meter>i:nth-child(4) { height: 85%; }
+.combo-pill__meter>i:nth-child(5) { height: 100%; }
+.combo-pill__meter>i.is-on {
+  background: var(--split-pill-color);
 }
 
 .effort-stack-wrap {
@@ -1813,7 +1858,7 @@ td>small {
 
 .chart-tooltip .tooltip-combo-row {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto auto;
+  grid-template-columns: 9px minmax(0,1fr) auto auto;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) 0;
@@ -1832,9 +1877,21 @@ td>small {
   text-align: right;
 }
 
+/* The chart series this row is drawn as. The pill carries provider and effort; the swatch
+   carries the per-family series colour, so the two never contradict each other. */
+.tooltip-combo-row>i {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-chip);
+}
+
+.tooltip-combo-row>.split-pill {
+  justify-self: start;
+}
+
 .tooltip-combo-row>small {
   grid-column: 1/-1;
-  margin-left: var(--space-0-5);
+  margin-left: var(--space-4-5);
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
 }

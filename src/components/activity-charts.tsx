@@ -2391,7 +2391,10 @@ function EffortDayTooltip({
         return (
           <div key={key} className={combo ? "tooltip-combo-row" : "tooltip-effort-row"}>
             {combo ? (
-              <ComboPill combo={combo} />
+              <>
+                <i style={{ background: comboSeriesColor(key) }} aria-hidden="true" />
+                <ComboPill combo={combo} />
+              </>
             ) : (
               <>
                 <i style={{ background: isCombo ? comboSeriesColor(key) : effortColor(key) }} aria-hidden="true" />

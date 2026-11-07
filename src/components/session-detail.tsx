@@ -1404,6 +1404,7 @@ export function SessionMixGroupBreakdown({
               key={comboKey(combo)}
               title={`${comboLabel(combo)} · ${formatCompact(combo.tokens)} tokens · ${formatCompact(combo.observations)} observations · ${sharePercent(combo.tokens, basis)} of ${label}`}
             >
+              <i style={{ background: comboColor(combo) }} aria-hidden="true" />
               <ComboPill combo={combo} />
               <b>{formatCompact(combo.tokens)}</b>
               <small>
@@ -1421,6 +1422,7 @@ export function SessionMixGroupBreakdown({
             >
               {/* One neutral slot, not a model × effort pair: neither was recorded for these
                   tokens. It keeps the pill shape so it reads as part of the same list. */}
+              <i className="is-unattributed" aria-hidden="true" />
               <span className="split-pill">
                 <span>No effort recorded</span>
               </span>

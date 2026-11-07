@@ -18,7 +18,7 @@ import {
   selectComboSeries,
 } from "./combo";
 import { compareEffort, effortRank, sortEffortBuckets } from "./effort-model";
-import { effortColor, familyColor } from "./combo";
+import { effortColor, effortLevel, familyColor, providerColor } from "./combo";
 
 const bucket = (family: string, effort: string, tokens: number, observations = 0) => ({ family, effort, tokens, observations });
 const amount = (family: string, effort: string, value: number) => ({ family, effort, amount: value });
@@ -41,6 +41,22 @@ describe("effort ordering", () => {
     expect(effortColor("max")).toBe("var(--color-effort-max)");
     expect(effortColor("max")).not.toBe(effortColor("unknown"));
     expect(effortColor("max")).not.toBe(effortColor("xhigh"));
+  });
+});
+
+describe("combo pill colour", () => {
+  test("follows the provider, not the family", () => {
+    expect(providerColor("claude-opus-5-5")).toBe("var(--color-provider-anthropic)");
+    expect(providerColor("claude-sonnet-5-5")).toBe(providerColor("claude-opus-5-5"));
+    expect(providerColor("gpt-6.1-terra")).toBe("var(--color-provider-openai)");
+    expect(providerColor("unknown")).toBe(providerColor("mystery-model"));
+  });
+
+  test("places only canonical efforts on the five-step scale", () => {
+    expect(["low", "medium", "high", "xhigh", "max"].map(effortLevel)).toEqual([1, 2, 3, 4, 5]);
+    expect(effortLevel("")).toBeNull();
+    expect(effortLevel("other")).toBeNull();
+    expect(effortLevel("ludicrous")).toBeNull();
   });
 });
 
