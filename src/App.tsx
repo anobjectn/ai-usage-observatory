@@ -141,6 +141,23 @@ export function App() {
   const [sidebar, setSidebar] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement | null>(null);
+  // State, not a ref: the bar mounts only after the boot screen, and the observer must follow it.
+  const [topbar, setTopbar] = useState<HTMLElement | null>(null);
+  // The root's scroll-padding-top reads this, so scrolled-to content clears the bar even when the
+  // bar wraps to two rows on narrow screens.
+  useEffect(() => {
+    const bar = topbar;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const write = () => root.style.setProperty("--topbar-height", `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+    write();
+    const observer = new ResizeObserver(write);
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--topbar-height");
+    };
+  }, [topbar]);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const filtersButton = useRef<HTMLButtonElement | null>(null);
   const filtersTray = useRef<HTMLDivElement | null>(null);
@@ -643,7 +660,7 @@ export function App() {
         {sceneEffects.starfield && !reducedMotion && (
           <Starfield accent={accent} effects={sceneEffects} />
         )}
-        <header className="topbar">
+        <header className="topbar" ref={setTopbar}>
           <button
             ref={menuButton}
             className="menu-button"

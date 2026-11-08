@@ -183,7 +183,6 @@
 .model-row {
   cursor: pointer;
   outline: 0;
-  scroll-margin-top: 72px;
 }
 
 .model-row td {

@@ -1113,15 +1113,11 @@ export function Projects({
         return;
       const card = openProjectRef.current;
       if (!card) return;
-      const topbarHeight =
-        document.querySelector<HTMLElement>(".topbar")?.getBoundingClientRect().height ?? 72;
-      const target = Math.max(
-        0,
-        window.scrollY + card.getBoundingClientRect().top - topbarHeight - 18,
-      );
-      if (Math.abs(target - window.scrollY) < 12) return;
-      window.scrollTo({
-        top: target,
+      // The root's scroll-padding-top already clears the sticky top bar.
+      const offset = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+      if (Math.abs(card.getBoundingClientRect().top - offset) < 12) return;
+      card.scrollIntoView({
+        block: "start",
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
           ? "auto"
           : "smooth",

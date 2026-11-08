@@ -15,7 +15,6 @@
 .session-row {
   cursor: pointer;
   outline: 0;
-  scroll-margin-top: 72px;
 }
 .session-row td {
   transition: background var(--duration-base) ease;

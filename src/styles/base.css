@@ -3,6 +3,11 @@
 * {
   box-sizing: border-box;
 }
+/* Anything scrolled into view (scrollIntoView, anchors, keyboard focus) stops below the sticky
+   top bar instead of under it. App.tsx keeps --topbar-height in step with the bar's real height. */
+html {
+  scroll-padding-top: calc(var(--topbar-height) + var(--space-4));
+}
 :where(h1, h2, h3, h4, h5, h6) {
   font-family:var(--font-heading);
 }

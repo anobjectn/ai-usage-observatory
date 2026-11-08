@@ -4,7 +4,7 @@
       (or the palette) and the interface follows.
    3. Scales: type, space, radius, elevation, and motion.
    Runtime-written properties: --color-accent and --color-provider-* (App.tsx, from the
-   Appearance settings), --type-scale-ui, and --data-text-scale. */
+   Appearance settings), --type-scale-ui, --data-text-scale, and --topbar-height. */
 
 :root {
   color-scheme: dark;
@@ -226,6 +226,8 @@
   --radius-panel: 16px;
   --radius-pill: 999px;
   --radius-circle: 50%;
+  /* The sticky top bar's height, for scroll offsets. Rewritten at runtime when the bar wraps. */
+  --topbar-height: 72px;
   /* Elevation, by size: sm raised controls, md tooltips, lg menus and trays, xl floating cards. */
   --shadow-sm: 0 2px 8px color-mix(in srgb, var(--color-shadow) 25%, transparent);
   --shadow-md: 0 8px 22px color-mix(in srgb, var(--color-shadow) 35%, transparent);
