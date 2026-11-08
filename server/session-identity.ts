@@ -1,9 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { basename, join } from "node:path";
+import { plainTranscriptPath, transcriptStem } from "./transcript-file";
 
+/** Derived from the transcript's plain `.jsonl` path, so a log Codex compresses in place keeps
+ * its ID, annotations, and derived rows. */
 export function stableSessionId(agent: string, sourceRelativePath: string, nativeSessionKey: string) {
   const hash = new Bun.CryptoHasher("sha256");
-  hash.update(`${agent}\0${sourceRelativePath}\0${nativeSessionKey}`);
+  hash.update(`${agent}\0${plainTranscriptPath(sourceRelativePath)}\0${nativeSessionKey}`);
   return hash.digest("hex").slice(0, 24);
 }
 
@@ -20,7 +23,7 @@ export async function archivedSessionId(database: Database, root: string, relati
   const rows = database.query("SELECT session_id, source_file FROM session_paths WHERE agent = 'codex' AND native_session_key = ?")
     .all(nativeKey) as Array<{ session_id: string; source_file: string }>;
   const otherRoot = join(root, archived ? ".codex/sessions" : ".codex/archived_sessions") + "/";
-  const candidates = rows.filter((row) => row.source_file.startsWith(otherRoot) && basename(row.source_file) === basename(relativePath));
+  const candidates = rows.filter((row) => row.source_file.startsWith(otherRoot) && transcriptStem(row.source_file) === transcriptStem(relativePath));
   if (candidates.length !== 1 || await Bun.file(candidates[0].source_file).exists()) return null;
   return candidates[0].session_id;
 }
@@ -29,7 +32,7 @@ export async function archivedSessionId(database: Database, root: string, relati
  * reconstructs that old ID without guessing from a native key shared by a different file. */
 export function recoverArchivedAnnotation(database: Database, relativePath: string, nativeKey: string, sessionId: string) {
   if (!relativePath.startsWith(".codex/archived_sessions/")) return;
-  const filename = basename(relativePath);
+  const filename = basename(plainTranscriptPath(relativePath));
   const date = /^rollout-(\d{4})-(\d{2})-(\d{2})T/.exec(filename);
   if (!date) return;
   const oldId = stableSessionId("codex", `.codex/sessions/${date[1]}/${date[2]}/${date[3]}/${filename}`, nativeKey);

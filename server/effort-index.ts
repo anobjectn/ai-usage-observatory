@@ -14,6 +14,7 @@ import {
   type EffortParserState,
 } from "./effort-parse";
 import { decodeCodexUsageState, encodeCodexUsageState, lenient, planCodexReplay, tailOf } from "./codex-replay";
+import { isCompressedTranscript, openTranscriptReader } from "./transcript-file";
 import {
   commitEffortSpan,
   effortGeneration,
@@ -57,7 +58,8 @@ export function isEffortIndexing() {
 }
 
 async function hashBoundary(sourceFile: string, offset: number) {
-  if (offset <= 0) return "";
+  // A compressed log is never appended to, so it has no resume boundary to prove.
+  if (offset <= 0 || isCompressedTranscript(sourceFile)) return "";
   const start = Math.max(0, offset - RESUME_HASH_BYTES);
   const bytes = new Uint8Array(await Bun.file(sourceFile).slice(start, offset).arrayBuffer());
   const hasher = new Bun.CryptoHasher("sha256");
@@ -81,6 +83,8 @@ function classify(source: SessionSource, state: EffortSessionState | undefined):
   if (source.size === state.sourceSize && source.mtimeMs !== state.sourceMtime) {
     return { kind: "rebuild", reason: "rewritten-in-place" };
   }
+  // Compressed logs are finished: parsed whole once, then left alone until the file changes.
+  if (isCompressedTranscript(source.sourceFile)) return { kind: "skip" };
   if (state.lastOffset < source.size) return { kind: "append" };
   return { kind: "skip" };
 }
@@ -126,7 +130,8 @@ const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
  * interruption anywhere here is safe to resume from. */
 export async function indexOneSession(source: SessionSource, entry: Work, options: { budgetMs?: number; chunkBytes?: number } = {}): Promise<{ done: boolean; offset: number }> {
   const generation = effortGeneration();
-  const budgetMs = options.budgetMs ?? TIME_SLICE_MS;
+  // A compressed log decompresses forward only and cannot resume mid-file, so it runs to the end.
+  const budgetMs = isCompressedTranscript(source.sourceFile) ? Number.POSITIVE_INFINITY : options.budgetMs ?? TIME_SLICE_MS;
   const chunkBytes = options.chunkBytes ?? CHUNK_BYTES;
   const agent = source.agent as Agent;
   if (entry.kind === "rebuild") resetEffortSession(source.sessionId);
@@ -178,7 +183,9 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
   };
   const decoder = new TextDecoder();
   const started = Date.now();
-  const size = source.size;
+  const reader = openTranscriptReader(source.sourceFile, source.size);
+  // Unknown (Infinity) for a compressed log: its end is the first empty read.
+  const size = reader.size;
   let committed = false;
   /** False once derived data has been deleted under this pass; the caller then stops. */
   const commit = async (accumulator: EffortAccumulator, at: number) => {
@@ -186,90 +193,94 @@ export async function indexOneSession(source: SessionSource, entry: Work, option
     return commitSpan(source, accumulator, state, at, totals, generation);
   };
 
-  while (cursor + carry.length < size) {
-    const readFrom = cursor + carry.length;
-    const readTo = Math.min(size, readFrom + chunkBytes);
-    const chunk = new Uint8Array(await Bun.file(source.sourceFile).slice(readFrom, readTo).arrayBuffer());
-    if (chunk.length === 0) break;
+  try {
+    while (cursor + carry.length < size) {
+      const readFrom = cursor + carry.length;
+      const readTo = Math.min(size, readFrom + chunkBytes);
+      const chunk = await reader.read(readFrom, readTo);
+      if (chunk.length === 0) break;
 
-    const accumulator = createAccumulator();
-    let buffer: Uint8Array<ArrayBufferLike>;
-    if (skippingOversizedLine) {
-      const terminator = chunk.indexOf(newline);
-      if (terminator < 0) {
-        accumulator.skippedBytes += chunk.length;
-        oversizedTail = tailOf(oversizedTail, chunk);
-        cursor = readFrom + chunk.length;
-        if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
-        // No time-slice exit inside an over-limit line: a resumed span would start mid-line and
-        // lose the head that says what the line is.
+      const accumulator = createAccumulator();
+      let buffer: Uint8Array<ArrayBufferLike>;
+      if (skippingOversizedLine) {
+        const terminator = chunk.indexOf(newline);
+        if (terminator < 0) {
+          accumulator.skippedBytes += chunk.length;
+          oversizedTail = tailOf(oversizedTail, chunk);
+          cursor = readFrom + chunk.length;
+          if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
+          // No time-slice exit inside an over-limit line: a resumed span would start mid-line and
+          // lose the head that says what the line is.
+          await yieldToLoop();
+          continue;
+        }
+        accumulator.skippedBytes += terminator + 1;
+        finishOversizedLine(accumulator, state, agent, oversizedHead, lenient(tailOf(oversizedTail, chunk.subarray(0, terminator))));
+        cursor = readFrom + terminator + 1;
+        skippingOversizedLine = false;
+        buffer = chunk.slice(terminator + 1);
+      } else {
+        buffer = carry.length ? concat(carry, chunk) : chunk;
+      }
+
+      const lastNewline = buffer.lastIndexOf(newline);
+      if (lastNewline < 0) {
+        // No complete line in the buffered span. Multi-byte UTF-8 is safe because nothing is
+        // decoded until a terminator is seen.
+        if (buffer.length > MAX_LINE_BYTES) {
+          recordOversizedLine(accumulator, state, agent, buffer.length, headOf(buffer, 0));
+          beginOversized(buffer);
+          skippingOversizedLine = true;
+          carry = new Uint8Array(0);
+          cursor = readFrom + chunk.length;
+          if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
+        } else {
+          carry = buffer;
+        }
+        if (!skippingOversizedLine && Date.now() - started >= budgetMs) return { done: false, offset: cursor };
         await yieldToLoop();
         continue;
       }
-      accumulator.skippedBytes += terminator + 1;
-      finishOversizedLine(accumulator, state, agent, oversizedHead, lenient(tailOf(oversizedTail, chunk.subarray(0, terminator))));
-      cursor = readFrom + terminator + 1;
-      skippingOversizedLine = false;
-      buffer = chunk.slice(terminator + 1);
-    } else {
-      buffer = carry.length ? concat(carry, chunk) : chunk;
-    }
 
-    const lastNewline = buffer.lastIndexOf(newline);
-    if (lastNewline < 0) {
-      // No complete line in the buffered span. Multi-byte UTF-8 is safe because nothing is
-      // decoded until a terminator is seen.
-      if (buffer.length > MAX_LINE_BYTES) {
-        recordOversizedLine(accumulator, state, agent, buffer.length, headOf(buffer, 0));
-        beginOversized(buffer);
-        skippingOversizedLine = true;
-        carry = new Uint8Array(0);
-        cursor = readFrom + chunk.length;
-        if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
-      } else {
-        carry = buffer;
+      // `buffer` always begins exactly at `cursor`: either it is the carried bytes plus this chunk,
+      // or the remainder after an oversized line was discarded up to and including its terminator.
+      // Lines are located by byte scan and decoded individually, so the 4 MiB limit is enforced per
+      // line rather than per buffer, and no multi-byte sequence is ever decoded across a boundary.
+      let lineStart = 0;
+      for (;;) {
+        const terminator = buffer.indexOf(newline, lineStart);
+        if (terminator < 0 || terminator > lastNewline) break;
+        const length = terminator - lineStart;
+        // An over-limit line is never decoded whole; only its head and tail are read, to tell a
+        // boundary from a replay or attachment that merely happens to be enormous.
+        if (length > MAX_LINE_BYTES) {
+          const line = buffer.subarray(lineStart, terminator);
+          recordOversizedLine(accumulator, state, agent, length, headOf(line, 0));
+          finishOversizedLine(accumulator, state, agent, headOf(line, 0), lenient(tailOf(new Uint8Array(0), line)));
+        } else consumeEffortLine(decoder.decode(buffer.subarray(lineStart, terminator)), agent, accumulator, state);
+        lineStart = terminator + 1;
       }
+      cursor += lastNewline + 1;
+      carry = buffer.slice(lastNewline + 1);
+      // An incomplete trailing fragment is never persisted; it is re-read from `cursor` next pass.
+      if (carry.length > MAX_LINE_BYTES) {
+        recordOversizedLine(accumulator, state, agent, carry.length, headOf(carry, 0));
+        beginOversized(carry);
+        skippingOversizedLine = true;
+        cursor += carry.length;
+        carry = new Uint8Array(0);
+      }
+      if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
       if (!skippingOversizedLine && Date.now() - started >= budgetMs) return { done: false, offset: cursor };
       await yieldToLoop();
-      continue;
     }
-
-    // `buffer` always begins exactly at `cursor`: either it is the carried bytes plus this chunk,
-    // or the remainder after an oversized line was discarded up to and including its terminator.
-    // Lines are located by byte scan and decoded individually, so the 4 MiB limit is enforced per
-    // line rather than per buffer, and no multi-byte sequence is ever decoded across a boundary.
-    let lineStart = 0;
-    for (;;) {
-      const terminator = buffer.indexOf(newline, lineStart);
-      if (terminator < 0 || terminator > lastNewline) break;
-      const length = terminator - lineStart;
-      // An over-limit line is never decoded whole; only its head and tail are read, to tell a
-      // boundary from a replay or attachment that merely happens to be enormous.
-      if (length > MAX_LINE_BYTES) {
-        const line = buffer.subarray(lineStart, terminator);
-        recordOversizedLine(accumulator, state, agent, length, headOf(line, 0));
-        finishOversizedLine(accumulator, state, agent, headOf(line, 0), lenient(tailOf(new Uint8Array(0), line)));
-      } else consumeEffortLine(decoder.decode(buffer.subarray(lineStart, terminator)), agent, accumulator, state);
-      lineStart = terminator + 1;
-    }
-    cursor += lastNewline + 1;
-    carry = buffer.slice(lastNewline + 1);
-    // An incomplete trailing fragment is never persisted; it is re-read from `cursor` next pass.
-    if (carry.length > MAX_LINE_BYTES) {
-      recordOversizedLine(accumulator, state, agent, carry.length, headOf(carry, 0));
-      beginOversized(carry);
-      skippingOversizedLine = true;
-      cursor += carry.length;
-      carry = new Uint8Array(0);
-    }
-    if (!await commit(accumulator, cursor)) return { done: true, offset: cursor };
-    if (!skippingOversizedLine && Date.now() - started >= budgetMs) return { done: false, offset: cursor };
-    await yieldToLoop();
+    // An empty file, or a file whose only new bytes are an unterminated final line, still needs a
+    // state row; without one the backlog would offer the same session forever.
+    if (!committed) await commit(createAccumulator(), cursor);
+    return { done: true, offset: cursor };
+  } finally {
+    await reader.close();
   }
-  // An empty file, or a file whose only new bytes are an unterminated final line, still needs a
-  // state row; without one the backlog would offer the same session forever.
-  if (!committed) await commit(createAccumulator(), cursor);
-  return { done: true, offset: cursor };
 }
 
 /** The first bytes of a line, decoded leniently: a multi-byte sequence cut at the window edge

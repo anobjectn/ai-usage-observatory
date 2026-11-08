@@ -23,8 +23,9 @@ process.env.USAGE_OBSERVATORY_DB = join(scratch, "parity.db");
 type Agent = "claude" | "codex";
 const globs: Array<[Agent, string]> = [
   ["claude", ".claude/projects/**/*.jsonl"],
-  ["codex", ".codex/sessions/**/*.jsonl"],
-  ["codex", ".codex/archived_sessions/**/*.jsonl"],
+  // Codex compresses older rollouts to `.jsonl.zst`; the indexer reads both forms.
+  ["codex", ".codex/sessions/**/*.{jsonl,jsonl.zst}"],
+  ["codex", ".codex/archived_sessions/**/*.{jsonl,jsonl.zst}"],
 ];
 
 async function run(command: string[]) {
@@ -51,11 +52,15 @@ async function main() {
   const { parseHead } = await import("../../../../server/path-indexer");
   const { PARSER_VERSION, consumeEffortLine, createAccumulator, emptyState, startCodexReplay } = await import("../../../../server/effort-parse");
   const { planCodexReplay } = await import("../../../../server/codex-replay");
+  const { isCompressedTranscript, plainTranscriptPath, readTranscriptHead } = await import("../../../../server/transcript-file");
 
   const sources: Array<{ agent: Agent; file: string }> = [];
   for (const [agent, pattern] of globs) {
     for await (const relative of new Bun.Glob(pattern).scan({ cwd: homedir(), absolute: false, onlyFiles: true, dot: true })) {
-      sources.push({ agent, file: join(homedir(), relative) });
+      const file = join(homedir(), relative);
+      // Same rule as the indexer: while the plain log still exists, it is the session.
+      if (isCompressedTranscript(file) && await Bun.file(plainTranscriptPath(file)).exists()) continue;
+      sources.push({ agent, file });
     }
   }
   sources.sort((left, right) => left.file.localeCompare(right.file));
@@ -78,7 +83,7 @@ async function main() {
       if (state.codexReplayPlan) quality.forks++;
     }
     // Whole-file reads keep this simple; the indexer's chunking and resume logic has its own tests.
-    for (const line of (await Bun.file(source.file).text()).split("\n")) consumeEffortLine(line, source.agent, accumulator, state);
+    for (const line of (await readTranscriptHead(source.file, Number.MAX_SAFE_INTEGER)).split("\n")) consumeEffortLine(line, source.agent, accumulator, state);
     quality.parseErrors += accumulator.parseErrors;
     quality.contextGaps += accumulator.contextGaps;
     quality.skippedBytes += accumulator.skippedBytes;

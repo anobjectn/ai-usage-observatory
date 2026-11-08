@@ -250,6 +250,19 @@ export function activeBlockExpiry(blocks: Array<{ isActive: boolean; endTime: st
   return ends.length ? Math.min(...ends) : null;
 }
 
+/** A rollout stored both plain and compressed is counted once, so a pair alone is reported but
+ * stays healthy. A plain copy older than its compressed copy is degraded: it was most likely
+ * restored from a backup over a log Codex had already compressed, and the older copy is the
+ * one that is counted. */
+export function pathIndexHealth(joined: number, duplicates: PathIndexResult["duplicateTranscripts"]) {
+  const base = `${joined} transcript sessions joined · metadata only`;
+  if (!duplicates?.pairs) return { name: "Path index", status: "healthy" as const, detail: base, kind: "local metadata" };
+  const pairs = `${duplicates.pairs} Codex ${duplicates.pairs === 1 ? "rollout is" : "rollouts are"} on disk both plain and compressed, counted once from the plain copy`;
+  if (!duplicates.stalePlain.length) return { name: "Path index", status: "healthy" as const, detail: `${base} · ${pairs}`, kind: "local metadata" };
+  const stale = `${duplicates.stalePlain.length} plain ${duplicates.stalePlain.length === 1 ? "copy is" : "copies are"} older than the compressed copy, probably restored from a backup; move the plain copy aside once it matches`;
+  return { name: "Path index", status: "degraded" as const, detail: `${base} · ${pairs} · ${stale}`, kind: "local metadata" };
+}
+
 export function ccusageCacheUsable(cache: { fingerprint: string; expiresAt: number | null } | null, fingerprint: string, now: number) {
   return cache?.fingerprint === fingerprint && (cache.expiresAt === null || now < cache.expiresAt);
 }
@@ -342,7 +355,7 @@ async function buildSnapshot() {
         kind: "local analytics",
       },
       { name: "Pricing rate card", status: rateCardHealthEntry.status, detail: rateCardHealthEntry.detail, kind: "local analytics" },
-      { name: "Path index", status: "healthy", detail: `${transcriptSessions.filter((session) => session.cwd).length} transcript sessions joined · metadata only`, kind: "local metadata" },
+      pathIndexHealth(transcriptSessions.filter((session) => session.cwd).length, paths.duplicateTranscripts),
       {
         name: "Warp local ledger",
         status: !warp.available ? "unavailable" : warp.schema.missing.length ? "degraded" : "healthy",

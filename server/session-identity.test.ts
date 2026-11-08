@@ -1,10 +1,10 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
-import { mkdir, rename, utimes, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, utimes, writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { db, getAnnotation, getAnnotationVersion, setAnnotationText, setVerdict } from "./store";
-import { getSessionSource, indexSessionPaths, stableSessionId } from "./path-indexer";
+import { getPathIndex, getSessionSource, indexSessionPaths, stableSessionId } from "./path-indexer";
 
 const workspace = mkdtempSync(join(tmpdir(), "aiuo-session-identity-"));
 let caseNumber = 0;
@@ -137,4 +137,61 @@ test("coexisting active and archived copies are not treated as a move", async ()
   const archivedId = catalog.find((row) => row.sourceFile.includes("archived_sessions"))!.sessionId;
   expect(getAnnotation(initial).note).toBe("Active copy");
   expect(getAnnotation(archivedId).note).toBe("");
+});
+
+/** Codex's in-place compression: `rollout-….jsonl` becomes `rollout-….jsonl.zst`. */
+async function compressInPlace(file: string) {
+  await writeFile(`${file}.zst`, Bun.zstdCompressSync(await Bun.file(file).bytes()));
+  await rm(file);
+  return `${file}.zst`;
+}
+
+test("compressing a transcript in place keeps its identity, annotations, and report keys", async () => {
+  const plain = await create(activeRelative);
+  const sessionId = (await indexSessionPaths(root)).catalog[0].sessionId;
+  setAnnotationText(sessionId, { tags: ["keep"], note: "Survives compression" });
+  const compressed = await compressInPlace(plain);
+  const next = await indexSessionPaths(root);
+  expect(next.catalog.map((source) => source.sessionId)).toEqual([sessionId]);
+  expect(next.removedSessionIds).toEqual([]);
+  expect(getSessionSource(sessionId)?.sourceFile).toBe(compressed);
+  expect(getAnnotation(sessionId)).toMatchObject({ tags: ["keep"], note: "Survives compression" });
+  // ccusage reports the compressed rollout under its plain dated key.
+  expect(getPathIndex()[`codex:2026/09/30/${filename.replace(/\.jsonl$/, "")}`]?.sessionId).toBe(sessionId);
+});
+
+test("a log first seen compressed gets the ID its plain form would have had", async () => {
+  await compressInPlace(await create(activeRelative));
+  const [source] = (await indexSessionPaths(root)).catalog;
+  expect(source.sessionId).toBe(stableSessionId("codex", activeRelative, nativeKey));
+  expect(getSessionSource(source.sessionId)?.cwd).toBe("/fixture/project");
+});
+
+test("while both forms exist, the plain log is the one session", async () => {
+  const plain = await create(activeRelative);
+  await writeFile(`${plain}.zst`, Bun.zstdCompressSync(await Bun.file(plain).bytes()));
+  // Codex restoring a compressed session for resume: the plain copy is the newer one.
+  await utimes(`${plain}.zst`, new Date("2026-10-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z"));
+  const { catalog, duplicateTranscripts } = await indexSessionPaths(root);
+  expect(catalog.map((source) => source.sourceFile)).toEqual([plain]);
+  expect(duplicateTranscripts).toEqual({ pairs: 1, stalePlain: [] });
+});
+
+test("a plain copy restored beside a newer compressed copy is counted once and reported as stale", async () => {
+  // A backup restore copies the plain log back after Codex had already compressed it.
+  const compressed = await compressInPlace(await create(activeRelative));
+  const sessionId = (await indexSessionPaths(root)).catalog[0].sessionId;
+  setAnnotationText(sessionId, { tags: ["keep"], note: "Survives the restore" });
+  const plain = compressed.slice(0, -".zst".length);
+  await writeFile(plain, transcript);
+  await utimes(plain, new Date("2026-09-30T12:00:00Z"), new Date("2026-09-30T12:00:00Z"));
+  const restored = await indexSessionPaths(root);
+  expect(restored.catalog.map((source) => [source.sessionId, source.sourceFile])).toEqual([[sessionId, plain]]);
+  expect(restored.duplicateTranscripts).toEqual({ pairs: 1, stalePlain: [activeRelative] });
+  // Moving the stale plain copy aside hands the session back to the compressed log, same ID.
+  await rm(plain);
+  const cleaned = await indexSessionPaths(root);
+  expect(cleaned.catalog.map((source) => [source.sessionId, source.sourceFile])).toEqual([[sessionId, compressed]]);
+  expect(cleaned.duplicateTranscripts).toEqual({ pairs: 0, stalePlain: [] });
+  expect(getAnnotation(sessionId).note).toBe("Survives the restore");
 });

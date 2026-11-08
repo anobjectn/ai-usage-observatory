@@ -295,7 +295,7 @@ For Projects captures, open `ai-usage-observatory` and scroll it into view so
 **On its own** (no provider quota connection):
 
 - Six connected views — Overview, Explorer, Sessions, Projects, Models, and Data — share one dataset. Date, agent, path, and cache controls carry context between them.
-- Usage by day, week, month, session, project instance, and reconstructed five-hour block, using pinned `ccusage@20.0.30`.
+- Usage by day, week, month, session, project instance, and reconstructed five-hour block, using pinned `ccusage@20.0.48`.
 - Input, output, cache-read, and cache-creation tokens, with an option to exclude cache traffic.
 - Cost, model mix, and effort as model family x effort, the unit an effort label is comparable in. Missing effort labels are never shown as known data.
 - Path rules (glob or regular expression) applied retroactively to indexed history, plus durable session tags, notes, and verdicts.
@@ -335,7 +335,7 @@ History and per-session views need quota-service v1.3.0 or newer; tier assignmen
 
 Usage records, derived indexes, annotations, and app state stay on the machine running the Observatory. The server binds to localhost, sends no telemetry, and uploads no prompts, responses, or usage records. `ccusage` may fetch current pricing data; that request carries none of your usage.
 
-- **Path index:** default, metadata-only. Reads only the opening bytes of each session file to recover the session ID and working directory.
+- **Path index:** default, metadata-only. Reads only the opening bytes of each session file to recover the session ID and working directory. Codex rollouts compressed to `.jsonl.zst` are read the same way and keep their session ID. A rollout found both plain and compressed is counted once, from the plain copy as `ccusage` does; source health flags a plain copy older than its compressed copy, which usually means it was restored from a backup.
 - **Effort indexing:** opt-in, off by default. Stores categories and counts only, never prompts, responses, reasoning, commands, tool data, or file contents.
 - **Session detail:** the one place your own prompts and sampled assistant output appear. Read on demand, sent only to your localhost browser, never stored.
 
@@ -710,7 +710,7 @@ assignment can replace a generic `snapshot_json.extra.subscriptionType` value.
 
 ## Sources and scope
 
-- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.30 by ryoppippi (MIT) supplies local usage analytics and API-equivalent price estimates.
+- [`ccusage`](https://github.com/ccusage/ccusage) v20.0.48 by ryoppippi (MIT) supplies local usage analytics and API-equivalent price estimates.
 - Local Claude Code and Codex session files supply session metadata, on-demand prompt and output samples, and opt-in effort categories.
 - [`quota-service`](https://github.com/anobjectn/quota-service) optionally supplies provider allowance data. It is a separate localhost service, not a bundled dependency.
 

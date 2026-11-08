@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { appendFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,6 +32,17 @@ async function writeSource(agent: "claude" | "codex", body: string, options: { c
     ON CONFLICT(session_id) DO UPDATE SET source_mtime = excluded.source_mtime, source_size = excluded.source_size`)
     .run(sessionId, agent, sessionId, sourceFile, options.cwd ?? "/fixture/project", info.mtimeMs, info.size);
   return { sessionId, agent, sourceFile, mtimeMs: info.mtimeMs, size: info.size, sourceIdentity: `${info.dev}:${info.ino}` };
+}
+
+/** Replaces a source with the `.jsonl.zst` copy Codex leaves when it compresses an old rollout. */
+async function compress(source: Source): Promise<Source> {
+  const sourceFile = `${source.sourceFile}.zst`;
+  await writeFile(sourceFile, Bun.zstdCompressSync(await Bun.file(source.sourceFile).bytes()));
+  await rm(source.sourceFile);
+  const info = await stat(sourceFile);
+  db.query("UPDATE session_paths SET source_file = ?, source_mtime = ?, source_size = ? WHERE session_id = ?")
+    .run(sourceFile, info.mtimeMs, info.size, source.sessionId);
+  return { ...source, sourceFile, mtimeMs: info.mtimeMs, size: info.size, sourceIdentity: `${info.dev}:${info.ino}` };
 }
 
 async function restat(source: Source): Promise<Source> {
@@ -140,7 +151,23 @@ describe("incremental indexing", () => {
     }
   });
 
-  test("a fork subtracts the history it copied from its parent, across resumed spans", async () => {
+  test("a compressed log is parsed whole in one pass, matches its plain form, then leaves the backlog", async () => {
+    const body = codexBody(6);
+    const plain = await writeSource("codex", body);
+    await index.indexOneSession(plain, { kind: "rebuild", reason: "new" }, { budgetMs: 60_000 });
+    const compressed = await compress(await writeSource("codex", body));
+    // No time budget and tiny chunks: a compressed log cannot resume mid-file, so it must still finish.
+    const result = await index.indexOneSession(compressed, { kind: "rebuild", reason: "new" }, { budgetMs: 0, chunkBytes: 700 });
+    expect(result.done).toBe(true);
+    expect(result.offset).toBe(body.length);
+    expect(derived(compressed.sessionId)).toEqual(derived(plain.sessionId));
+    expect(store.getEffortState(compressed.sessionId)!.resumeHash).toBe("");
+    expect(index.buildBacklog([compressed])).toEqual([]);
+    // A replaced compressed file is a different file and is parsed again.
+    expect(index.buildBacklog([{ ...compressed, sourceIdentity: "replaced" }])).toHaveLength(1);
+  });
+
+  test.each(["plain", "compressed"])("a fork subtracts the history it copied from its %s parent, across resumed spans", async (form) => {
     const usage = (input: number) => ({ input_tokens: input, cached_input_tokens: 0, output_tokens: 100, reasoning_output_tokens: 0, total_tokens: input + 100 });
     const at = (second: number, ms = 0) => `2026-07-01T15:00:${String(second).padStart(2, "0")}.${String(ms).padStart(3, "0")}Z`;
     const meta = (payload: Record<string, unknown>, timestamp: string) => JSON.stringify({ timestamp, type: "session_meta", payload });
@@ -151,7 +178,7 @@ describe("incremental indexing", () => {
       fixtures.codexTokenCount({ last: usage(2000), timestamp: at(2) }),
       // Recorded after the fork instant: the fork never copied it, so it must not mask anything.
       fixtures.codexTokenCount({ last: usage(3000), timestamp: at(40) }),
-    ]), { sessionId: "parent-rollout" });
+    ]), { sessionId: "parent-rollout" }).then((source) => (form === "compressed" ? compress(source) : source));
     const child = await writeSource("codex", fixtures.transcript([
       meta({ id: "child-rollout", forked_from_id: "parent-rollout" }, at(30)),
       meta({ id: "parent-rollout" }, at(30)),

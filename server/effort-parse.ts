@@ -3,7 +3,7 @@ import { dateKeyInTimeZone } from "../src/reporting-time";
 
 /** Bumping this rebuilds every session from byte zero. The constant lives in code, never in the
  * database, so a checkout can never disagree with the rows it is reading. */
-export const PARSER_VERSION = 10;
+export const PARSER_VERSION = 11;
 
 /** A single line is buffered only up to this size. Crossing it records a gap and a skipped-byte
  * count; no transcript fragment is ever persisted. */

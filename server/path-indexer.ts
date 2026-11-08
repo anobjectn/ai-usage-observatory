@@ -3,18 +3,20 @@ import { basename, dirname, relative } from "node:path";
 import { stat } from "node:fs/promises";
 import { db, listRules } from "./store";
 import { archivedSessionId, recoverArchivedAnnotation, resolveSessionAlias, stableSessionId } from "./session-identity";
+import { isCompressedTranscript, plainTranscriptPath, readTranscriptHead, transcriptStem } from "./transcript-file";
 export { stableSessionId } from "./session-identity";
 
 type IndexedPath = { sessionId: string; agent: string; nativeKey: string; cwd: string | null; sourceFile: string };
 
 export function sessionReportKeys(agent: string, nativeKey: string, sourceFile: string) {
   // Every Copilot session file is named `events.jsonl`, so its basename identifies nothing.
-  const keys = new Set(agent === "copilot" ? [nativeKey] : [nativeKey, basename(sourceFile, ".jsonl")]);
+  const keys = new Set(agent === "copilot" ? [nativeKey] : [nativeKey, transcriptStem(sourceFile)]);
   if (agent === "codex") {
     const normalized = sourceFile.replaceAll("\\", "/");
     const marker = "/.codex/sessions/";
     const markerIndex = normalized.indexOf(marker);
-    if (markerIndex >= 0) keys.add(normalized.slice(markerIndex + marker.length).replace(/\.jsonl$/, ""));
+    // ccusage reports a compressed rollout under its plain key, without `.jsonl.zst`.
+    if (markerIndex >= 0) keys.add(normalized.slice(markerIndex + marker.length).replace(/\.jsonl(?:\.zst)?$/, ""));
   }
   return [...keys];
 }
@@ -27,7 +29,7 @@ export function sessionReportKeys(agent: string, nativeKey: string, sourceFile: 
 const headScanBytes = 4_000_000;
 
 export async function parseHead(file: string, agent: IndexedAgent) {
-  const text = await Bun.file(file).slice(0, headScanBytes).text();
+  const text = await readTranscriptHead(file, headScanBytes);
   // Only the first 80 lines matter; find where they end instead of splitting all 4 MB into
   // an array of every line in the window.
   let end = -1;
@@ -38,7 +40,7 @@ export async function parseHead(file: string, agent: IndexedAgent) {
   const lines = (end === -1 ? text : text.slice(0, end)).split("\n");
   let cwd: string | null = null;
   // Every Copilot session writes `events.jsonl`; its directory carries the session id.
-  let nativeKey = agent === "copilot" ? basename(dirname(file)) : basename(file, ".jsonl");
+  let nativeKey = agent === "copilot" ? basename(dirname(file)) : transcriptStem(file);
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
@@ -86,7 +88,15 @@ export type PathIndexResult = {
   /** Files indexed for attribution only. They never enter the effort catalog, but ccusage reads
    * them, so they belong in the fingerprint that decides whether ccusage has to run again. */
   attributionOnly?: Array<Pick<SessionSource, "sourceFile" | "mtimeMs" | "size">>;
+  /** Codex rollouts present both plain and compressed. Codex keeps both only for the moment it
+   * takes to resume a compressed session, so a lasting pair was usually copied back from a
+   * backup. Each pair is counted once, from the plain copy, as ccusage does. */
+  duplicateTranscripts?: DuplicateTranscripts;
 };
+
+/** `stalePlain` lists pairs whose compressed copy is newer than the plain one: the plain copy
+ * is not the log Codex last wrote, so it may be missing that copy's latest lines. */
+export type DuplicateTranscripts = { pairs: number; stalePlain: string[] };
 
 // Codex moves a session's transcript here once it ages the session out of
 // `.codex/sessions/`, without renaming it — ccusage still reports it (by its
@@ -107,30 +117,45 @@ async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string, root
   type Source = Omit<SessionSource, "agent"> & { agent: A };
   const catalog: Source[] = [];
   const changed: Source[] = [];
+  const duplicates: DuplicateTranscripts = { pairs: 0, stalePlain: [] };
+  type Existing = { session_id: string; native_session_key: string; source_mtime: number; source_size: number; cwd: string | null };
   for await (const sourceRelativePath of glob.scan({ cwd: root, absolute: false, onlyFiles: true, dot: true })) {
     const sourceFile = `${root}/${sourceRelativePath}`;
+    const compressed = isCompressedTranscript(sourceFile);
+    // While Codex still has the plain log beside its compressed copy, the plain file is the
+    // session: it is the one that can still grow.
+    if (compressed && await Bun.file(plainTranscriptPath(sourceFile)).exists()) {
+      duplicates.pairs++;
+      const [plainInfo, compressedInfo] = await Promise.all([stat(plainTranscriptPath(sourceFile)), stat(sourceFile)]);
+      if (compressedInfo.mtimeMs > plainInfo.mtimeMs) duplicates.stalePlain.push(plainTranscriptPath(sourceRelativePath));
+      continue;
+    }
     const info = await stat(sourceFile);
     const identity = Number.isFinite(info.dev) && Number.isFinite(info.ino) ? `${info.dev}:${info.ino}` : null;
-    const existing = existingQuery.get(sourceFile) as { session_id: string; native_session_key: string; source_mtime: number; source_size: number; cwd: string | null } | null;
+    const own = existingQuery.get(sourceFile) as Existing | null;
+    // A freshly compressed log takes over its plain file's row, so the session keeps its ID. The
+    // takeover always runs the full update below, which repoints the row at the new file.
+    const inherited = !own && compressed ? existingQuery.get(plainTranscriptPath(sourceFile)) as Existing | null : null;
+    const existing = own ?? inherited;
     let sessionId = existing?.session_id ?? "";
     let nativeSessionKey = existing?.native_session_key ?? "";
-    if (existing?.source_mtime === info.mtimeMs) {
+    if (own?.source_mtime === info.mtimeMs) {
       // Backfills the size column for databases migrated from before it existed.
-      if (existing.source_size !== info.size) touchSize.run(info.size, existing.session_id);
+      if (own.source_size !== info.size) touchSize.run(info.size, own.session_id);
       // A row can be left with cwd unresolved by a bug in an earlier version of the header
       // parse (an early line too big for the window it used, say) rather than by the
       // transcript genuinely never stating one. The mtime match above would otherwise skip
       // this file forever, so a null cwd always gets one more try — cheap once it resolves,
       // since this branch then stops running for it.
-      if (existing.cwd === null) {
+      if (own.cwd === null) {
         const { cwd } = await parseHead(sourceFile, agent);
-        if (cwd) touchCwd.run(cwd, existing.session_id);
+        if (cwd) touchCwd.run(cwd, own.session_id);
       }
-    } else if (existing && existing.cwd !== null && info.size >= existing.source_size) {
+    } else if (own && own.cwd !== null && info.size >= own.source_size) {
       // These transcripts are append-only, and appends never rewrite the head, so a grown file
       // with an already-resolved cwd keeps its identity without the 4 MB head re-read. A file
       // that shrank was replaced, not appended to, and falls through to the full parse.
-      touchStats.run(info.mtimeMs, info.size, existing.session_id);
+      touchStats.run(info.mtimeMs, info.size, own.session_id);
     } else {
       const { cwd, nativeKey } = await parseHead(sourceFile, agent);
       nativeSessionKey = nativeKey;
@@ -149,7 +174,7 @@ async function indexGlob<A extends IndexedAgent>(agent: A, pattern: string, root
     catalog.push(source);
     if (existing?.source_mtime !== info.mtimeMs) changed.push(source);
   }
-  return { catalog, changed };
+  return { catalog, changed, duplicates };
 }
 
 export async function indexSessionPaths(root = homedir()): Promise<PathIndexResult & { indexed: number }> {
@@ -157,8 +182,8 @@ export async function indexSessionPaths(root = homedir()): Promise<PathIndexResu
   // are awaited to completion before anything is pruned.
   const [claude, codex, codexArchived, copilot] = await Promise.all([
     indexGlob("claude", ".claude/projects/**/*.jsonl", root),
-    indexGlob("codex", ".codex/sessions/**/*.jsonl", root),
-    indexGlob("codex", ".codex/archived_sessions/**/*.jsonl", root),
+    indexGlob("codex", ".codex/sessions/**/*.{jsonl,jsonl.zst}", root),
+    indexGlob("codex", ".codex/archived_sessions/**/*.{jsonl,jsonl.zst}", root),
     indexGlob("copilot", ".copilot/session-state/*/events.jsonl", root),
   ]);
   const catalog = [...claude.catalog, ...codex.catalog, ...codexArchived.catalog];
@@ -172,7 +197,11 @@ export async function indexSessionPaths(root = homedir()): Promise<PathIndexResu
     const remove = db.query("DELETE FROM session_paths WHERE session_id = ?");
     db.transaction(() => removedSessionIds.forEach((sessionId) => remove.run(sessionId)))();
   }
-  return { catalog, changed, removedSessionIds, attributionOnly: copilot.catalog, indexed: changed.length + copilot.changed.length };
+  const duplicateTranscripts: DuplicateTranscripts = {
+    pairs: codex.duplicates.pairs + codexArchived.duplicates.pairs,
+    stalePlain: [...codex.duplicates.stalePlain, ...codexArchived.duplicates.stalePlain].sort(),
+  };
+  return { catalog, changed, removedSessionIds, attributionOnly: copilot.catalog, duplicateTranscripts, indexed: changed.length + copilot.changed.length };
 }
 
 function globRegex(pattern: string) {

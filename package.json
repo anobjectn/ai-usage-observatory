@@ -19,7 +19,7 @@
     "check:embeds": "bun run scripts/check-embeds.ts"
   },
   "dependencies": {
-    "ccusage": "20.0.30",
+    "ccusage": "20.0.48",
     "lucide-react": "1.25.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",

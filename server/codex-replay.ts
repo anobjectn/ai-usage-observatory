@@ -13,6 +13,7 @@ import {
   type EffortParserState,
 } from "./effort-parse";
 import { db } from "./store";
+import { transcriptStream } from "./transcript-file";
 
 /** A Codex fork or subagent rollout opens with the usage history of the rollout it came from,
  * rewritten to the fork instant. ccusage subtracts that history by matching it against the
@@ -45,7 +46,8 @@ async function* transcriptLines(sourceFile: string): AsyncGenerator<string | { h
   const decoder = new TextDecoder();
   let carry: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   let oversized: { head: string; tail: Uint8Array } | null = null;
-  for await (const chunk of Bun.file(sourceFile).stream()) {
+  // Decompresses as it goes, so a compressed parent rollout still yields its history.
+  for await (const chunk of transcriptStream(sourceFile)) {
     let start = 0;
     for (;;) {
       const terminator = chunk.indexOf(newline, start);

@@ -1,4 +1,5 @@
 import { getSessionSource } from "./path-indexer";
+import { readTranscriptHead } from "./transcript-file";
 import { stat } from "node:fs/promises";
 
 type JsonRecord = Record<string, unknown>;
@@ -370,7 +371,7 @@ async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   // Claude and Codex transcript formats.
   if (source.agent === "copilot") return detailUnavailable;
 
-  const raw = await Bun.file(source.sourceFile).slice(0, 12_000_000).text();
+  const raw = await readTranscriptHead(source.sourceFile, 12_000_000);
   return parseSessionDetailJsonl(raw);
 }
 
