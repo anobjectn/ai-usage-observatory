@@ -127,6 +127,16 @@ export function providerColor(family: string) {
 
 export const EFFORT_LEVEL_COUNT = 5;
 
+/** The pill scheme as one fill: provider hue, deepening with effort. For marks that sit beside a
+ * combo pill (share pies, a provider's own share bar) rather than in a multi-family chart. */
+export function comboProviderColor(combo: Combo) {
+  const base = providerColor(combo.family);
+  if (base === neutral) return base;
+  const level = effortLevel(combo.effort);
+  const weight = level === null ? 60 : 40 + level * 12;
+  return weight >= 100 ? base : `color-mix(in oklab, ${base} ${weight}%, var(--color-surface))`;
+}
+
 /** 1–5 position on the canonical effort scale, or null for Unknown, Other, and values the
  * providers add later: a level the scale does not know is labelled, never placed on it. */
 export function effortLevel(effort: string): number | null {

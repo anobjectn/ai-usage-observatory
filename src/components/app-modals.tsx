@@ -33,6 +33,7 @@ import {
 import { formatCompact } from "../app/format";
 import { resetCountdownParts, condensedResetCopy, quickOverviewCards } from "../app/analytics";
 import { CLAUDE_USAGE_URL, QuotaNoticeCallout } from "./quota-cards";
+import { PieGlyph } from "./pie-glyph";
 import { type BenchmarkSiteId, BENCHMARK_SITES } from "./benchmark-launcher";
 
 const sceneEffectOptions: {
@@ -1353,12 +1354,11 @@ export function QuickOverviewModal({
                       key={bucket.id}
                     >
                       <b>
-                        {headroom && (
-                          <i
+                        {headroom && left !== null && (
+                          <PieGlyph
+                            share={left / 100}
                             className={`quick-overview__headroom-dot ${headroom.tone}`}
-                            role="img"
-                            aria-label={headroom.label}
-                            title={headroom.label}
+                            label={headroom.label}
                           />
                         )}
                         {bucket.windowLabel}

@@ -625,6 +625,14 @@ td>small {
   background: var(--split-pill-color);
 }
 
+.pie-glyph {
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  overflow: visible;
+}
+
 .effort-stack-wrap {
   display: flex;
   flex-direction: column;
@@ -954,7 +962,7 @@ td>small {
 }
 .provider-legend div {
   display: grid;
-  grid-template-columns: 6px auto auto;
+  grid-template-columns: 10px auto auto;
   align-items: center;
   gap: var(--space-1-5);
   font: var(--text-2xs) var(--font-label);
@@ -964,6 +972,10 @@ td>small {
   width: 6px;
   height: 6px;
   border-radius: var(--radius-chip);
+}
+.provider-legend .pie-glyph {
+  width: 10px;
+  height: 10px;
 }
 .provider-legend b {
   color: var(--color-text);
@@ -1516,15 +1528,21 @@ td>small {
   margin: 0;
 }
 
-.tooltip-provider__head i,.tooltip-project-provider i {
+/* The provider's share of the point (or of the project), sharing a cell with its label. */
+.tooltip-provider__head>:is(i,.pie-glyph),.tooltip-project-provider>:is(i,.pie-glyph) {
   grid-column: 1;
   grid-row: 1;
+}
+
+.tooltip-provider__head>.pie-glyph,.tooltip-project-provider>.pie-glyph {
+  width: 9px;
+  height: 9px;
 }
 
 .tooltip-provider__head strong {
   grid-column: 1;
   grid-row: 1;
-  margin-left: var(--space-3);
+  margin-left: calc(9px + var(--space-1-5));
 }
 
 .tooltip-provider__head b,.tooltip-projects__head b,.tooltip-project-row b,.tooltip-project-provider b,.tooltip-provider-models li b,.tooltip-project-models li b {
@@ -1781,7 +1799,7 @@ td>small {
 .tooltip-project-provider span {
   grid-column: 1;
   grid-row: 1;
-  margin-left: var(--space-3);
+  margin-left: calc(9px + var(--space-1-5));
 }
 
 .tooltip-project-provider span {
@@ -1858,7 +1876,7 @@ td>small {
 
 .chart-tooltip .tooltip-combo-row {
   display: grid;
-  grid-template-columns: 9px minmax(0,1fr) auto auto;
+  grid-template-columns: 11px minmax(0,1fr) auto auto;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) 0;
@@ -1877,12 +1895,11 @@ td>small {
   text-align: right;
 }
 
-/* The chart series this row is drawn as. The pill carries provider and effort; the swatch
-   carries the per-family series colour, so the two never contradict each other. */
-.tooltip-combo-row>i {
-  width: 9px;
-  height: 9px;
-  border-radius: var(--radius-chip);
+/* The row's share of the day, in the chart series colour this row is drawn as. The pill
+   carries provider and effort; the pie carries the per-family series colour. */
+.tooltip-combo-row>.pie-glyph,.tooltip-effort-row>.pie-glyph {
+  width: 11px;
+  height: 11px;
 }
 
 .tooltip-combo-row>.split-pill {
@@ -1947,17 +1964,11 @@ td>small {
 
 .chart-tooltip .tooltip-effort-row {
   display: grid;
-  grid-template-columns: 9px minmax(58px,1fr) auto auto;
+  grid-template-columns: 11px minmax(58px,1fr) auto auto;
   align-items: center;
   gap: var(--space-2);
   margin-top: 0;
   padding: var(--space-1) 0;
-}
-
-.tooltip-effort-row i {
-  width: 9px;
-  height: 9px;
-  border-radius: var(--radius-chip);
 }
 
 .tooltip-effort-row span {
@@ -2200,11 +2211,10 @@ td>small {
   text-overflow: clip;
 }
 
-.token-types__table tbody th i {
+.token-types__table tbody th .pie-glyph {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-chip);
+  width: 11px;
+  height: 11px;
   flex: none;
   margin-right: var(--space-1-5);
   vertical-align: middle;
@@ -2256,7 +2266,7 @@ td>small {
   .token-types__table thead th:nth-child(3) {
     width: 15%;
   }
-  .token-types__table tbody th i {
+  .token-types__table tbody th .pie-glyph {
     margin-right: var(--space-1);
   }
 }

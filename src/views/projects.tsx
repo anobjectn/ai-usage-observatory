@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { systemTimeZone } from "../reporting-time";
 import { EffortBadge, EffortStack, EffortState } from "../components/effort";
 import { PageJump } from "../components/page-jump";
+import { PieGlyph } from "../components/pie-glyph";
 import {
   TokenTypeTable,
   TokenTypesByModel,
@@ -153,7 +154,10 @@ function ProjectDayTooltip({
         return (
           <section className="tooltip-provider" key={providerActivity.provider}>
             <div className="tooltip-provider__head">
-              <i style={{ background: provider.color }} />
+              <PieGlyph
+                share={row.tokens > 0 ? providerActivity.tokens / row.tokens : 0}
+                color={provider.color}
+              />
               <strong>{provider.label}</strong>
               <b>{formatCompact(providerActivity.tokens)}</b>
               <b>{formatMoney(providerActivity.cost)}</b>

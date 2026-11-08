@@ -9,6 +9,7 @@ import {
 } from "../token-types";
 import type { RateCardSummary } from "../types";
 import { formatTokensShort } from "../app/format";
+import { PieGlyph } from "./pie-glyph";
 
 /** Same hues the Explorer composition bar assigns to these four types, so a reader can carry
  * the colour from one view to the other. */
@@ -99,7 +100,7 @@ export function TokenTypeTable({
             {summary.rows.map((row) => (
               <tr key={row.type}>
                 <th scope="row">
-                  <i style={{ background: tokenTypeColors[row.type] }} aria-hidden="true" />
+                  <PieGlyph share={row.tokenShare ?? 0} color={tokenTypeColors[row.type]} />
                   {row.label}
                 </th>
                 <td><TokenCount value={row.tokens} /></td>
@@ -172,7 +173,7 @@ export function TokenTypesByModel({
                   {summary.rows.map((row) => (
                     <tr key={row.type}>
                       <th scope="row">
-                        <i style={{ background: tokenTypeColors[row.type] }} aria-hidden="true" />
+                        <PieGlyph share={row.tokenShare ?? 0} color={tokenTypeColors[row.type]} />
                         {row.label}
                       </th>
                       <td><TokenCount value={row.tokens} /></td>

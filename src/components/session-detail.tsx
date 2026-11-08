@@ -5,11 +5,11 @@ import {
   EffortCoverage,
   EffortState,
   EFFORT_HELP,
-  comboColor,
   effortLabel,
   sharePercent,
 } from "./effort";
-import { comboKey, comboLabel, compareComboKeys, type Combo, parseComboFacet } from "../combo";
+import { comboKey, comboLabel, comboProviderColor, compareComboKeys, type Combo, parseComboFacet } from "../combo";
+import { PieGlyph } from "./pie-glyph";
 import { providerFromAgent, providerFromModel, type ActivityProvider } from "../provider";
 import { TokenTypeTable, TokenTypesNotice, cacheHiddenNotice, warpOnlyNotice } from "./token-types";
 import { summarizeTokenTypes } from "../token-types";
@@ -1384,7 +1384,7 @@ export function SessionMixGroupBreakdown({
             .map((combo) => (
               <i
                 key={comboKey(combo)}
-                style={{ width: `${(combo.tokens / basis) * 100}%`, background: comboColor(combo) }}
+                style={{ width: `${(combo.tokens / basis) * 100}%`, background: comboProviderColor(combo) }}
                 title={`${comboLabel(combo)} · ${formatCompact(combo.tokens)} tokens · ${sharePercent(combo.tokens, basis)}`}
               />
             ))}
@@ -1404,7 +1404,7 @@ export function SessionMixGroupBreakdown({
               key={comboKey(combo)}
               title={`${comboLabel(combo)} · ${formatCompact(combo.tokens)} tokens · ${formatCompact(combo.observations)} observations · ${sharePercent(combo.tokens, basis)} of ${label}`}
             >
-              <i style={{ background: comboColor(combo) }} aria-hidden="true" />
+              <PieGlyph share={basis > 0 ? combo.tokens / basis : 0} color={comboProviderColor(combo)} />
               <ComboPill combo={combo} />
               <b>{formatCompact(combo.tokens)}</b>
               <small>
@@ -1422,7 +1422,7 @@ export function SessionMixGroupBreakdown({
             >
               {/* One neutral slot, not a model × effort pair: neither was recorded for these
                   tokens. It keeps the pill shape so it reads as part of the same list. */}
-              <i className="is-unattributed" aria-hidden="true" />
+              <PieGlyph share={unattributed / basis} color="var(--color-border-strong)" />
               <span className="split-pill">
                 <span>No effort recorded</span>
               </span>

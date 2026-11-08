@@ -344,6 +344,10 @@
   height: 100%;
 }
 
+.session-mix__bar i+i {
+  box-shadow: inset 1px 0 color-mix(in srgb,var(--color-bg-deep) 70%,transparent);
+}
+
 .session-mix__bar i.is-unattributed {
   background: repeating-linear-gradient(135deg,var(--color-border-strong),var(--color-border-strong) 2px,transparent 2px,transparent 4px);
 }
@@ -359,24 +363,19 @@
 
 .session-mix__combos li {
   display: grid;
-  grid-template-columns: 9px minmax(0,1fr) auto;
+  grid-template-columns: 14px minmax(0,1fr) auto;
   align-items: center;
   column-gap: var(--space-2);
   row-gap: 1px;
   min-width: 0;
 }
 
-/* The swatch ties a row to its segment in the bar above; the pill itself is in provider colour. */
-.session-mix__combos li>i {
+/* Each row's share of the provider total, in the same fill as its segment in the bar above. */
+.session-mix__combos li>.pie-glyph {
   grid-column: 1;
   grid-row: 1/span 2;
-  width: 9px;
-  height: 9px;
-  border-radius: var(--radius-chip);
-}
-
-.session-mix__combos li>i.is-unattributed {
-  background: repeating-linear-gradient(135deg,var(--color-border-strong),var(--color-border-strong) 2px,transparent 2px,transparent 4px);
+  width: 14px;
+  height: 14px;
 }
 
 .session-mix__combos li>.split-pill {
@@ -1604,9 +1603,9 @@
   .session-detail__metrics-row--with-quota .token-types__table tbody th {
     font-size: var(--text-2xs);
   }
-  .session-detail__metrics-row--with-quota .token-types__table tbody th i {
-    width: 6px;
-    height: 6px;
+  .session-detail__metrics-row--with-quota .token-types__table tbody th .pie-glyph {
+    width: 9px;
+    height: 9px;
     margin-right: var(--space-1);
   }
   .session-detail__metrics-row--with-quota .measure-table th,

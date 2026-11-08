@@ -18,7 +18,7 @@ import {
   selectComboSeries,
 } from "./combo";
 import { compareEffort, effortRank, sortEffortBuckets } from "./effort-model";
-import { effortColor, effortLevel, familyColor, providerColor } from "./combo";
+import { comboProviderColor, effortColor, effortLevel, familyColor, providerColor } from "./combo";
 
 const bucket = (family: string, effort: string, tokens: number, observations = 0) => ({ family, effort, tokens, observations });
 const amount = (family: string, effort: string, value: number) => ({ family, effort, amount: value });
@@ -57,6 +57,14 @@ describe("combo pill colour", () => {
     expect(effortLevel("")).toBeNull();
     expect(effortLevel("other")).toBeNull();
     expect(effortLevel("ludicrous")).toBeNull();
+  });
+
+  test("share marks deepen with effort and reach the provider hue at max", () => {
+    const opus = (effort: string) => comboProviderColor({ family: "claude-opus-5-5", effort });
+    expect(opus("max")).toBe("var(--color-provider-anthropic)");
+    expect(opus("low")).toContain("var(--color-provider-anthropic) 52%");
+    expect(opus("high")).not.toBe(opus("low"));
+    expect(comboProviderColor({ family: "unknown", effort: "high" })).toBe(providerColor("unknown"));
   });
 });
 

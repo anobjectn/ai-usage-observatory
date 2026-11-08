@@ -63,6 +63,7 @@ import { familyOf } from "../model-family";
 import { type DateRange } from "../time-range";
 import { ChartTooltipContext, PinnableChartTooltip, useChartTooltipHold } from "./chart-pins";
 import { TooltipMoreDisclosure } from "./tooltip-disclosure";
+import { PieGlyph } from "./pie-glyph";
 import { chartTooltipDateLabel } from "../chart-pins";
 import {
   type HeadroomLineKey,
@@ -783,8 +784,9 @@ export function TooltipModelTail({
 
 
 /** One project row inside the activity tooltip: its totals, then a provider and
- * model breakdown under it. */
-function TooltipProjectEntry({ project }: { project: TooltipProject }) {
+ * model breakdown under it. Provider pies measure against the whole point's total, the same
+ * denominator as the provider pies above them, so slices compare across the tooltip. */
+function TooltipProjectEntry({ project, pointTotal }: { project: TooltipProject; pointTotal: number }) {
   return (
     <li>
       <div className="tooltip-project-row">
@@ -801,7 +803,10 @@ function TooltipProjectEntry({ project }: { project: TooltipProject }) {
           return (
             <section key={providerActivity.provider}>
               <div className="tooltip-project-provider">
-                <i style={{ background: provider.color }} />
+                <PieGlyph
+                  share={pointTotal > 0 ? providerActivity.tokens / pointTotal : 0}
+                  color={provider.color}
+                />
                 <span>{provider.label}</span>
                 <b>{formatCompact(providerActivity.tokens)}</b>
                 <b>{formatMoney(providerActivity.cost)}</b>
@@ -902,6 +907,7 @@ function ActivityDayCard({
   const point = row?.period ?? row?.hour ?? fallbackLabel;
   const dateLabel = timelineRowLabel(row, fallbackLabel);
   const providers = timelineProviderEntries(row, seriesKeys);
+  const providerTotal = providers.reduce((sum, provider) => sum + provider.tokens, 0);
   const projects = tooltipProjects(row);
   const visibleProjects = projects.slice(0, 4);
   const projectTotal = projects.reduce(
@@ -909,6 +915,9 @@ function ActivityDayCard({
     0,
   );
   const projectCost = projects.reduce((sum, project) => sum + project.cost, 0);
+  /** Project rows are a subset of the point; the larger of the two totals guards a pie against
+   * ever overfilling if the project index runs ahead of the provider totals. */
+  const pointTotal = Math.max(providerTotal, projectTotal);
   const step = (delta: number) => {
     const next = current + delta;
     if (next < 0 || next >= rows.length) return;
@@ -979,7 +988,10 @@ function ActivityDayCard({
         return (
           <section className="tooltip-provider" key={provider.key}>
             <div className="tooltip-provider__head">
-              <i style={{ background: provider.color }} />
+              <PieGlyph
+                share={pointTotal > 0 ? provider.tokens / pointTotal : 0}
+                color={provider.color}
+              />
               <strong>{provider.label}</strong>
               <b>{formatCompact(provider.tokens)}</b>
               <b>{formatMoney(provider.cost)}</b>
@@ -1015,7 +1027,7 @@ function ActivityDayCard({
           </div>
           <ol className="tooltip-project-list">
             {visibleProjects.map((project) => (
-              <TooltipProjectEntry key={project.projectId} project={project} />
+              <TooltipProjectEntry key={project.projectId} project={project} pointTotal={pointTotal} />
             ))}
           </ol>
           {projects.length > visibleProjects.length && (
@@ -1038,6 +1050,7 @@ function ActivityDayCard({
                   <TooltipProjectEntry
                     key={project.projectId}
                     project={project}
+                    pointTotal={pointTotal}
                   />
                 ))}
               </ol>
@@ -1650,12 +1663,13 @@ export function ProviderTimeline({
     timeZone,
   );
   if (visibleProviders.length === 0) return <Empty text={emptyText} />;
+  const legendTotal = visibleProviders.reduce((sum, provider) => sum + provider.value, 0);
   return (
     <>
       <div className="provider-legend" aria-label="Activity providers">
         {visibleProviders.map((provider) => (
           <div key={provider.key}>
-            <i style={{ background: provider.color }} />
+            <PieGlyph share={legendTotal > 0 ? provider.value / legendTotal : 0} color={provider.color} />
             <span>{provider.label}</span>
             <b>{formatCompact(provider.value)}</b>
           </div>
@@ -1962,12 +1976,13 @@ export function HourlyProviderTimeline({
   const visibleStackedProviders = [...visibleProviders].reverse();
   const quotaMarkers = hourlyQuotaMarkers(quotaHistory, date, activeProvider, timeZone);
   if (visibleProviders.length === 0) return <Empty text={emptyText} />;
+  const legendTotal = visibleProviders.reduce((sum, provider) => sum + provider.value, 0);
   return (
     <>
       <div className="provider-legend" aria-label="Activity providers">
         {visibleProviders.map((provider) => (
           <div key={provider.key}>
-            <i style={{ background: provider.color }} />
+            <PieGlyph share={legendTotal > 0 ? provider.value / legendTotal : 0} color={provider.color} />
             <span>{provider.label}</span>
             <b>{formatCompact(provider.value)}</b>
           </div>
@@ -2392,12 +2407,15 @@ function EffortDayTooltip({
           <div key={key} className={combo ? "tooltip-combo-row" : "tooltip-effort-row"}>
             {combo ? (
               <>
-                <i style={{ background: comboSeriesColor(key) }} aria-hidden="true" />
+                <PieGlyph share={point.total > 0 ? amount / point.total : 0} color={comboSeriesColor(key)} />
                 <ComboPill combo={combo} />
               </>
             ) : (
               <>
-                <i style={{ background: isCombo ? comboSeriesColor(key) : effortColor(key) }} aria-hidden="true" />
+                <PieGlyph
+                  share={point.total > 0 ? amount / point.total : 0}
+                  color={isCombo ? comboSeriesColor(key) : effortColor(key)}
+                />
                 <span>{isCombo ? comboSeriesLabel(key) : effortLabel(key)}</span>
               </>
             )}
@@ -2490,7 +2508,7 @@ export function Composition({ rows }: { rows: MetricRow[] }) {
             </header>
             {group.items.map((item) => (
               <div className="composition-row" key={item.label}>
-                <i style={{ background: item.color }} />
+                <PieGlyph share={all > 0 ? item.value / all : 0} color={item.color} />
                 <span>{item.label}</span>
                 <b>{formatCompact(item.value)}</b>
                 <small>{Math.round((item.value / all) * 100)}%</small>

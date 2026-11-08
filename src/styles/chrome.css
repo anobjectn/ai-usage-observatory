@@ -2378,25 +2378,22 @@ main {
   font-size: var(--text-xs);
 }
 
+/* A pie of the window's remaining share, toned by headroom. */
 .quick-overview__headroom-dot {
-  display: inline-block;
-  width: .48em;
-  height: .48em;
-  margin-right: .5em;
-  border-radius: var(--radius-circle);
-  vertical-align: .06em;
-  background: var(--color-up);
-  box-shadow: 0 0 7px color-mix(in srgb,var(--color-up) var(--tint-vivid),transparent);
+  width: .78em;
+  height: .78em;
+  margin-right: .45em;
+  vertical-align: -.08em;
+  color: var(--color-up);
+  filter: drop-shadow(0 0 3px color-mix(in srgb,currentColor var(--tint-vivid),transparent));
 }
 
 .quick-overview__headroom-dot.coast {
-  background: var(--color-warn);
-  box-shadow: 0 0 7px color-mix(in srgb,var(--color-warn) var(--tint-vivid),transparent);
+  color: var(--color-warn);
 }
 
 .quick-overview__headroom-dot.low {
-  background: var(--color-danger);
-  box-shadow: 0 0 7px color-mix(in srgb,var(--color-danger) var(--tint-vivid),transparent);
+  color: var(--color-danger);
 }
 
 .quick-overview__row strong {
