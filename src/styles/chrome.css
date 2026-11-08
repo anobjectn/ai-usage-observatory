@@ -1859,6 +1859,12 @@ main {
   flex: 0 0 auto;
 }
 
+/* A site whose page answered with an error, or not at all. Dimmed, never disabled. */
+.benchmark-favicon.is-unreachable {
+  filter: grayscale(1);
+  opacity: .45;
+}
+
 .benchmark-split-pill {
   flex: 0 0 auto;
   height: 35px;

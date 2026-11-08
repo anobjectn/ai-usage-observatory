@@ -1,7 +1,7 @@
 /** `bun run check:embeds`: fetches every page the app embeds and reports the ones whose headers
  * forbid framing. Exits 1 when any embed is blocked or could not be checked, so a release pauses
  * for a decision: remove the resource, or accept the broken embed. */
-import { BENCHMARK_SITES } from "../src/components/benchmark-launcher";
+import { BENCHMARK_SITES } from "../src/benchmark-sites";
 import { embedVerdict, frameSrcOrigins } from "../server/embed-check";
 import { securityHeaders } from "../server/security-headers";
 

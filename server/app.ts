@@ -14,6 +14,7 @@ import { requestHostAllowed, requestOriginAllowed } from "./request-host";
 import { createRule, dbPath, deleteRule, getAnnotationVersion, getSettings, listAdvice, listRules, migrationState, resolveSessionId, setAnnotationText, setSettings, setVerdict, updateAdviceState, updateRule } from "./store";
 import { serverPort } from "./server-port";
 import { secureHandler } from "./security-headers";
+import { benchmarkStatus } from "./benchmark-status";
 import { createUpdateRoutes } from "./update/routes";
 
 import { annotationBody, effortSettingsBody, externalOpenBody, objectBody, pageNumber, quotaContextsBody, readBody, RequestInputError, ruleBody, settingsBody, snoozeBody, verdictBody } from "./request-body";
@@ -70,6 +71,8 @@ function isWithin(directory: string, target: string) {
 
 async function api(request: Request, url: URL, services: Services) {
   const path = url.pathname;
+  // Answered before any snapshot work: it touches only the benchmark pages, never usage data.
+  if (request.method === "GET" && path === "/api/benchmarks/status") return json(await benchmarkStatus());
   if (request.method === "GET" && path === "/api/dashboard") return dashboard(request, await services.getSnapshot());
   if (request.method === "GET" && path === "/api/insights") {
     const snapshot = await services.getSnapshot();

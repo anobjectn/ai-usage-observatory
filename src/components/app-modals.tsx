@@ -34,7 +34,8 @@ import { formatCompact } from "../app/format";
 import { resetCountdownParts, condensedResetCopy, quickOverviewCards } from "../app/analytics";
 import { CLAUDE_USAGE_URL, QuotaNoticeCallout } from "./quota-cards";
 import { PieGlyph } from "./pie-glyph";
-import { type BenchmarkSiteId, BENCHMARK_SITES } from "./benchmark-launcher";
+import { type BenchmarkSiteId, BENCHMARK_SITES, benchmarkFaviconClass } from "./benchmark-launcher";
+import { benchmarkSiteTitle, useBenchmarkStatus } from "../hooks/use-benchmark-status";
 
 const sceneEffectOptions: {
   key: "starfield" | "parallax" | "twinkle" | "tesseract";
@@ -1035,6 +1036,7 @@ export function BenchmarkModal({
 }) {
   const dialogRef = useModalFocusTrap(onClose, open);
   const [siteId, setSiteId] = useState<BenchmarkSiteId>(initialSiteId ?? BENCHMARK_SITES[0].id);
+  const siteStatus = useBenchmarkStatus();
   const [visitedSites, setVisitedSites] = useState<Set<BenchmarkSiteId>>(
     () => new Set([initialSiteId ?? BENCHMARK_SITES[0].id]),
   );
@@ -1094,19 +1096,23 @@ export function BenchmarkModal({
         <span className="overline">EXTERNAL BENCHMARKS</span>
         <h2 id="benchmark-title">Compare cost and efficiency</h2>
         <div className="benchmark-tabs" role="tablist">
-          {BENCHMARK_SITES.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              role="tab"
-              aria-selected={entry.id === siteId}
-              className={entry.id === siteId ? "active" : ""}
-              onClick={() => chooseSite(entry.id)}
-            >
-              <img className={`benchmark-favicon benchmark-favicon--${entry.id}`} src={entry.favicon} alt="" loading="lazy" />
-              {entry.label}
-            </button>
-          ))}
+          {BENCHMARK_SITES.map((entry) => {
+            const unreachable = siteStatus[entry.id]?.state === "unreachable";
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                role="tab"
+                aria-selected={entry.id === siteId}
+                className={entry.id === siteId ? "active" : ""}
+                onClick={() => chooseSite(entry.id)}
+                title={unreachable ? benchmarkSiteTitle(entry.label, siteStatus[entry.id]) : undefined}
+              >
+                <img className={benchmarkFaviconClass(entry.id, unreachable)} src={entry.favicon} alt="" loading="lazy" />
+                {entry.label}
+              </button>
+            );
+          })}
         </div>
         <div className="benchmark-toolbar">
           <p>{site.description}</p>

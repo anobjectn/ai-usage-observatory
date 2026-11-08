@@ -343,8 +343,10 @@ State lives in `.usage-observatory/data.db` (ignored by Git). Set `USAGE_OBSERVA
 
 Browser resource requests are restricted by a Content Security Policy. App scripts,
 API connections, fonts, and icons stay on the app origin; generated favicon data URLs
-are allowed. Only the three benchmark sites may load in the comparison viewer,
-where they control their own content and network requests. Other sites cannot frame
+are allowed. Only the two benchmark sites may load in the comparison viewer,
+where they control their own content and network requests. To dim a benchmark
+icon whose page is failing, the local server requests each benchmark page at most
+once every ten minutes while the app is open; the request carries no usage data. Other sites cannot frame
 the Observatory. The development server additionally permits inline React refresh
 scripts and local hot-reload WebSockets; production scripts must come from the app
 origin. The update maintenance page permits its exact polling script by hash.
