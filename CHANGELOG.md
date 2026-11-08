@@ -5,6 +5,43 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.37.0] - 2026-11-08
+
+### Added
+
+- Read Codex's compressed session logs (`.jsonl.zst`). Codex compresses older
+  rollouts in place since its October 14 update; those sessions now count
+  again, with project paths, effort, and session detail, and keep the IDs and
+  annotations they had before compression.
+- Flag in source health a Codex rollout stored both plain and compressed, and
+  mark it degraded when the plain copy is older, which usually means it was
+  restored from a backup over a log Codex had already compressed.
+- Show share pies in place of colour dots wherever a row carries a share: the
+  session model × effort mix, quick-overview quota rows, the model × effort and
+  activity day tooltips, project tooltips, token-type tables, Explorer
+  composition rows, and provider legends.
+- Dim a benchmark icon whose page is answering with an error or not at all, with
+  the reason in its tooltip. The site still opens.
+
+### Changed
+
+- Upgrade `ccusage` from 20.0.30 to 20.0.48. Historical Codex token totals and
+  API-equivalent cost rise as compressed logs are counted.
+- Rebuild the effort index once on first start (parser version 11), so forked
+  Codex sessions re-read parents that were compressed.
+- Colour model × effort pills by provider. The effort half deepens with the
+  level and carries a five-step meter, so the level never rests on colour alone.
+- Draw the session model × effort bar and its pies in the same
+  provider-and-effort fill as the pills, and measure activity tooltip pies
+  against the day's total so slices compare across the tooltip.
+- Refresh the Home, Sessions, Projects, Data, and quick quota screenshots.
+  See the [v1.37.0 Data screenshot](docs/screenshots/releases/v1.37.0/6.data-intelligence.png).
+
+### Fixed
+
+- Keep opened projects, scrolled-to sessions, and focused controls clear of the
+  sticky top bar, including when the bar wraps on narrow screens.
+
 ## [1.36.0] - 2026-11-07
 
 ### Added
@@ -326,6 +363,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.37.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.35.0...v1.36.0
 [1.35.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.1...v1.35.0
 [1.34.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.0...v1.34.1
