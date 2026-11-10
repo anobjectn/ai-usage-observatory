@@ -236,7 +236,9 @@ test("a stale Claude Code token renders a next-step notice in both modes", () =>
       }),
     );
     expect(html).toContain("Run any prompt in Claude Code");
-    expect(html).toMatch(/<details class="quota-notice act compact"><summary>/);
+    // The notice folds to its mark inside the card header; the words stay in the markup for
+    // screen readers and the tooltip.
+    expect(html).toMatch(/<header><span>Anthropic<\/span><details class="quota-notice act compact"><summary title="[^"]+">/);
     expect(html).toContain("Reading needs attention");
     // The compact variant omits the producer's raw wording.
     expect(html).not.toContain("401 from oauth/usage");

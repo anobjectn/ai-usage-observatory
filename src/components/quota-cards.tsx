@@ -850,7 +850,7 @@ export function QuotaNoticeCallout({
     <details
       className={`quota-notice ${notice.kind}${compact ? " compact" : ""}`}
     >
-      <summary><span className="quota-notice__mark" aria-hidden="true">
+      <summary title={compact ? notice.headline : undefined}><span className="quota-notice__mark" aria-hidden="true">
         {notice.kind === "act" ? "!" : "…"}
       </span><b>{notice.kind === "act" ? "Reading needs attention" : "Reading may be out of date"}</b></summary>
       <div>

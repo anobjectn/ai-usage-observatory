@@ -1290,9 +1290,9 @@ export function QuickOverviewModal({
               >
                 <header>
                   <span>{card.providerLabel}</span>
+                  {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                   <i>{card.stateLabel}</i>
                 </header>
-                {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                 <div className="quick-overview__dials">
                   {card.buckets.map((bucket) => {
                     const left =
@@ -1345,9 +1345,9 @@ export function QuickOverviewModal({
               >
                 <header>
                   <span>{card.providerLabel}</span>
+                  {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                   <i>{card.stateLabel}</i>
                 </header>
-                {card.notice && <QuotaNoticeCallout notice={card.notice} compact />}
                 {card.buckets.map((bucket) => {
                   const left =
                     bucket.usedPercent === null
