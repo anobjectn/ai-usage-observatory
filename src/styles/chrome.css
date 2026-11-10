@@ -1268,7 +1268,12 @@ main {
 .accent-icon-button:hover,.accent-icon-button:focus-visible,.accent-icon-button[aria-pressed="true"] {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  outline: 0;
+}
+/* Pressed and focused share a border, so focus adds its own ring; otherwise focusing the selected
+   button would change nothing (WCAG 2.4.7). */
+.accent-icon-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 .accent-icon-button svg {
   width: 13px;
@@ -2136,12 +2141,19 @@ main {
   grid-template-rows: 1fr auto;
 }
 
-/* Small enough to clear the layout buttons beside it. */
+/* A 24px target (WCAG 2.5.8) that still draws the small 14px grip in the corner; the layout
+   buttons keep clear of it. */
 .quick-overview-modal .modal-resize-handle {
   right: 3px;
   bottom: 3px;
-  width: 14px;
-  height: 14px;
+  width: 24px;
+  height: 24px;
+  background-size: 14px 14px;
+  background-position: right bottom;
+  background-repeat: no-repeat;
+}
+.quick-overview-modal .quick-overview__mode {
+  margin-right: var(--space-3);
 }
 
 .quick-overview-modal .modal-close {
@@ -2450,6 +2462,20 @@ main {
   margin-top: var(--space-3);
 }
 
+/* Below 900px the hero's orrery rules (side offsets, centring transforms) also reach this copy
+   and push its legend over the first provider card. It is decoration here and its legend repeats
+   the dial values, so the modal is the providers alone. */
+@media (max-width:900px) {
+  .quick-overview__orrery {
+    display: none;
+  }
+  .quick-overview__providers,.quick-overview__groups {
+    grid-column: 1/-1;
+    grid-row: 1;
+    margin-top: 0;
+  }
+}
+
 @media (max-width:760px) {
   .quick-overview__body {
     display: block;
@@ -2460,12 +2486,6 @@ main {
     max-height: calc(100svh - 92px);
     max-height: calc(100dvh - 92px);
     max-height: calc(var(--quick-overview-visible-height, 100dvh) - 92px);
-  }
-  /* The phone hero rules (side offsets, centring transforms) also reach this copy of the orrery
-     and pushed its legend off the card. It is decoration here and its legend repeats the dial
-     values, so the modal is the providers alone. */
-  .quick-overview__orrery {
-    display: none;
   }
   .quick-overview__providers,.quick-overview__groups {
     margin-top: var(--space-3-5);

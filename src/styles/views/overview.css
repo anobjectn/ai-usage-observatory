@@ -2144,9 +2144,15 @@
   }
   /* The 1240px track widths add up to more than a tablet panel, which pushed the chevron under
      the tag button; the flexible tracks give way here instead. */
+  /* The title keeps a readable minimum; the effort pills give way and wrap instead of
+     squeezing it to a column of single letters. */
   .recent-session__details {
-    grid-template-columns: 64px 92px 62px minmax(0,1fr) max-content 76px 16px;
+    grid-template-columns: 64px 92px 62px minmax(140px,1fr) minmax(0,max-content) 76px 16px;
     gap: var(--space-2);
+  }
+  .recent-session .session-effort {
+    flex-wrap: wrap;
+    gap: var(--space-1);
   }
   .headroom-orrery__legend {
     align-items: start;
@@ -2267,8 +2273,9 @@
   .quota-glance__bucket+.quota-glance__bucket::before {
     content: none;
   }
+  /* Stacked rows keep their 24px info buttons from overlapping (WCAG 2.5.8 target spacing). */
   .quota-glance dd {
-    column-gap: var(--space-4);
+    gap: var(--space-2) var(--space-4);
   }
   .recent-session__quota,
   .recent-session__activity,
@@ -2438,6 +2445,7 @@
   .period-glance dd { margin: var(--space-1) 0 0; color: var(--color-text); font: var(--weight-semibold) var(--text-lg) var(--font-label); }
 }
 
-@media (max-width:768px) {
+/* Only the phone row, where the title has the full width, may wrap its words anywhere. */
+@media (max-width:620px) {
   .recent-session .session-main :is(b, small), .recent-session .path-tags i { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 }

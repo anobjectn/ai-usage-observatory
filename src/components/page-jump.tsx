@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   useEffect,
   useId,
   useLayoutEffect,
@@ -150,9 +151,9 @@ export function PageJump({
           aria-label={`Go to ${label} (1 to ${pages})`}
           aria-busy={loading}
           value={draft}
-          // Sized from the widest page number rather than the `size` attribute,
-          // which the caret's padding would otherwise eat into.
-          style={{ width: `calc(${String(pages).length}ch + 26px)` }}
+          // Sized from the widest page number plus the field's own padding and border
+          // (see .page-jump__input), so the caret never covers the digits.
+          style={{ "--page-jump-digits": String(pages).length } as CSSProperties}
           onChange={(event) => setDraft(event.target.value)}
           onFocus={(event) => event.target.select()}
           onBlur={commit}
