@@ -1141,7 +1141,7 @@ export function Projects({
       <PageTitle
         eyebrow="PROJECT CARTOGRAPHY"
         title="Where the work happened"
-        description="Select a project to inspect daily activity, model mix, and observed time range. Warp credits remain separate from API-equivalent cost."
+        description="Select a project to inspect daily activity, model mix, and observed time range. Effort bars show tokens by recorded effort level, unknown included. Warp credits remain separate from API-equivalent cost."
         actions={
           <div className="project-controls">
             <label className="search">

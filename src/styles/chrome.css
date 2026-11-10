@@ -161,7 +161,7 @@ nav {
 }
 
 nav button {
-  height: 43px;
+  height: var(--control-height-touch);
   border: 0;
   background: transparent;
   color: var(--color-text-muted);
@@ -401,7 +401,7 @@ main {
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   border-radius: var(--radius-control);
-  height: 35px;
+  height: var(--control-height);
   padding-left: var(--space-2-5);
 }
 
@@ -560,7 +560,7 @@ main {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 29px;
+  height: var(--control-height-sm);
   padding: 0 var(--space-3);
   border: 0;
   border-radius: 0;
@@ -795,7 +795,7 @@ main {
 }
 .date-range-fields input {
   width: 100%;
-  height: 35px;
+  height: var(--control-height);
   padding: 0 var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -824,7 +824,7 @@ main {
   border-top: 1px solid var(--color-border);
 }
 .date-range-actions button {
-  height: 31px;
+  height: var(--control-height-sm);
   padding: 0 var(--space-2-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -1225,7 +1225,7 @@ main {
 }
 .accent-favorites :where(button) {
   width: 32px;
-  height: 32px;
+  height: var(--control-height-sm);
   border: 2px solid transparent;
   border-radius: var(--radius-circle);
   display: grid;
@@ -1251,8 +1251,8 @@ main {
   margin-top: var(--space-3);
 }
 .accent-icon-button {
-  height: 30px;
-  min-width: 30px;
+  height: var(--control-height-sm);
+  min-width: var(--control-height-sm);
   padding: 0 var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -1342,7 +1342,7 @@ main {
   font: var(--text-2xs)/1.45 var(--font-label);
 }
 .data-text-control {
-  height: 34px;
+  height: var(--control-height);
   display: grid;
   grid-template-columns: 32px 58px 32px;
   border: 1px solid var(--color-border);
@@ -1483,7 +1483,7 @@ main {
 }
 .reset-appearance {
   width: 100%;
-  height: 38px;
+  height: var(--control-height);
   margin-top: var(--space-5-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -1734,8 +1734,8 @@ main {
   flex: 1;
 }
 .accent-copy-button {
-  width: 30px;
-  height: 30px;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -1875,7 +1875,7 @@ main {
 
 .benchmark-split-pill {
   flex: 0 0 auto;
-  height: 35px;
+  height: var(--control-height);
   display: flex;
   align-items: stretch;
   border: 1px solid var(--color-border);
@@ -2084,8 +2084,8 @@ main {
 }
 
 .quick-overview-button {
-  width: 35px;
-  height: 35px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
   flex: 0 0 auto;
   border: 1px solid var(--color-border);
@@ -2669,8 +2669,8 @@ main {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    width: 35px;
-    height: 35px;
+    width: var(--control-height);
+    height: var(--control-height);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-control);
     background: var(--color-surface);
@@ -2818,7 +2818,7 @@ main {
   .refresh-button {
     flex: 0 0 auto;
     justify-content: center;
-    width: 35px;
+    width: var(--control-height);
     padding: 0;
   }
 }
@@ -2830,7 +2830,7 @@ main {
     padding-block: var(--space-3);
   }
   .topbar:has(.time-range-control) .menu-button {
-    height: 35px;
+    height: var(--control-height);
     place-items: center;
     padding: 0;
   }
@@ -2847,7 +2847,7 @@ main {
   }
   .time-range-segmented {
     display: flex;
-    height: 35px;
+    height: var(--control-height);
   }
   .time-range-select {
     flex: 1;

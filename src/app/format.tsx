@@ -111,9 +111,9 @@ export function ActivityAxisTick({ x = 0, y = 0, payload, tokens }: ActivityAxis
         <text
           key={`${item.color}-${index}`}
           x={0}
-          y={19 + index * 12}
+          y={19 + index * 13}
           fill={item.color}
-          fontSize="var(--chart-text-micro)"
+          fontSize="var(--chart-text-tick)"
           fontFamily="var(--chart-font)"
           fontWeight={600}
           textAnchor="middle"

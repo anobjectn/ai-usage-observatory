@@ -22,7 +22,7 @@ select {
   background: var(--color-surface);
   padding: var(--space-1);
   display: flex;
-  height: 35px;
+  height: var(--control-height);
 }
 
 .segmented button {
@@ -44,7 +44,7 @@ select {
 .appearance-button,.refresh-button,.secondary-button,.primary-button {
   border: 1px solid var(--color-border);
   background: var(--color-surface-raised);
-  height: 35px;
+  height: var(--control-height);
   border-radius: var(--radius-control);
   display: flex;
   align-items: center;
@@ -84,14 +84,13 @@ select {
   box-shadow: var(--shadow-panel);
 }
 
+/* Up and down are not good or bad for cost, tokens, or cache share, so trends are neutral and
+   the arrow carries the direction. */
 .trend-up,.trend-down {
   display: flex;
   align-items: center;
-  color: var(--color-up);
+  color: var(--color-text-muted);
   font: var(--text-2xs) var(--font-label);
-}
-.trend-down {
-  color: var(--color-down);
 }
 .trend--multiple,.trend-up.trend--multiple {
   color: var(--color-text-muted);
@@ -197,7 +196,7 @@ select {
 
 .search {
   width: 280px;
-  height: 39px;
+  height: var(--control-height);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);
@@ -340,8 +339,8 @@ td>small {
   --provider-color: var(--color-provider-warp);
 }
 .icon-button {
-  width: 30px;
-  height: 30px;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -850,8 +849,10 @@ td>small {
 }
 
 /* Vertical mini table: one row per window, remaining value then its compact window label. */
+/* Values are neutral: the row's agent pill already names the provider, and a provider tint on a
+   healthy reading (Anthropic's orange) read as an alert. */
 .session-quota-balance {
-  --quota-value-color: var(--color-highlight);
+  --quota-value-color: var(--color-text);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -862,15 +863,6 @@ td>small {
   font: var(--text-2xs) var(--font-label);
 }
 
-.session-quota-balance.anthropic {
-  --quota-value-color: var(--color-provider-anthropic);
-}
-.session-quota-balance.codex {
-  --quota-value-color: var(--color-provider-openai);
-}
-.session-quota-balance.warp {
-  --quota-value-color: var(--color-provider-warp);
-}
 
 /* A reading that is wider than the column (a model-window label such as "Fable", or a large data
    text size) puts its label under the value instead of spilling out of the cell. */
@@ -2069,7 +2061,7 @@ td>small {
   gap: var(--space-2);
 }
 .project-sort {
-  height: 39px;
+  height: var(--control-height);
   display: flex;
   align-items: center;
   border: 1px solid var(--color-border);
@@ -2129,7 +2121,7 @@ td>small {
   border-color: var(--color-accent);
 }
 .model-quick-links button {
-  height: 31px;
+  height: var(--control-height-sm);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -2662,7 +2654,6 @@ td>small {
   .page-title h1 { text-wrap: balance; }
 }
 
-.effort-stack-caption { display: block; margin-bottom: var(--space-1); color: var(--color-text-muted); font: var(--text-xs)/1.4 var(--font-body); }
 @media (max-width:620px) {
   .page-title { gap: var(--space-3); }
   .page-title h1 { font-size: var(--text-2xl); }

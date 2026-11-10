@@ -1317,8 +1317,11 @@ export function QuickOverviewModal({
                             <strong>
                               {left === null ? "—" : `${left.toFixed(0)}%`}
                             </strong>
+                            {/* "suspended" is wider than the ring; the caption below spells it out. */}
                             <span>
-                              {left === null ? bucket.state : "left"}
+                              {left === null
+                                ? bucket.state === "suspended" ? "paused" : bucket.state
+                                : "left"}
                             </span>
                           </div>
                         </div>

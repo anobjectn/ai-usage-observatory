@@ -45,8 +45,8 @@
 }
 /* Detail toggles share the icon buttons' rounded square, on every page. */
 .session-detail-toggle {
-  width: 30px;
-  height: 30px;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   padding: 0;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
@@ -1036,7 +1036,7 @@
 }
 .compact-action-popover>button {
   width: 100%;
-  height: 30px;
+  height: var(--control-height-sm);
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-control);

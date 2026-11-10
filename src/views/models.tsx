@@ -326,8 +326,8 @@ export function Models({
             />
           </div>
           <details className="model-metric-help">
-            <summary>How to read cost, cache & output</summary>
-            <p>Blended $/M tokens uses priced traffic only, including cache. Cache-heavy traffic can lower this rate; it is not an output-token price or a capability ranking. Warp credits remain separate. Output / total includes input and cache in the denominator. Expand a model for its token breakdown.</p>
+            <summary>How to read effort, cost, cache & output</summary>
+            <p>Effort bars show each model's tokens by recorded effort level, with unrecorded tokens kept in as Unknown. $/Mtok is a blended rate over priced traffic only, including cache. Cache-heavy traffic can lower this rate; it is not an output-token price or a capability ranking. Warp credits remain separate. Out share is output over all tokens, input and cache included. Expand a model for its token breakdown.</p>
           </details>
           <div className="table-scroll" ref={scrollRef}>
             <table className="model-table" ref={tableRef}>
@@ -454,10 +454,10 @@ export function Models({
                             </span>
                           </div>
                         </td>
-                        <td className="model-col num model-col--perMtok" data-label="Blended $/M tokens">
+                        <td className="model-col num model-col--perMtok" data-label="$/Mtok">
                           {row.perMtok === null ? "—" : `$${row.perMtok.toFixed(2)}`}
                         </td>
-                        <td className="model-col num model-col--outputShare" data-label="Output / total">
+                        <td className="model-col num model-col--outputShare" data-label="Out share">
                           {row.outputShare === null ? "—" : `${(row.outputShare * 100).toFixed(2)}%`}
                         </td>
                         <td className="model-col model-col--toggle">

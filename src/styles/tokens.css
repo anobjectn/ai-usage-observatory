@@ -33,6 +33,11 @@
   --palette-periwinkle: #8fa9d9;
   --palette-mauve: #cf8fb1;
   --palette-fern: #86c58a;
+  /* Effort levels: teal, leaf and lime brighten as they climb; rose and magenta mark the top two. */
+  --palette-teal: #3f8f86;
+  --palette-leaf: #6fbf73;
+  --palette-rose: #e58fc0;
+  --palette-magenta: #ff4f9a;
   /* Third-party marks keep their own colours in every theme. */
 
   /* ---- 2. Semantic roles ---- */
@@ -85,12 +90,13 @@
   --color-provider-anthropic: var(--palette-clay);
   --color-provider-openai: var(--palette-silver);
   --color-provider-warp: var(--palette-violet);
-  /* Effort levels: decoupled from the accent. */
-  --color-effort-low: var(--palette-aqua);
-  --color-effort-medium: var(--palette-blue);
-  --color-effort-high: var(--palette-sand);
-  --color-effort-xhigh: var(--palette-violet);
-  --color-effort-max: var(--palette-red);
+  /* Effort levels: an ordered run of distinct hues that brightens as it climbs and skips every hue with another
+     job: amber (warnings), blue (accent), violet (Warp, credits), clay (Anthropic), red (danger). */
+  --color-effort-low: var(--palette-teal);
+  --color-effort-medium: var(--palette-leaf);
+  --color-effort-high: var(--palette-lime);
+  --color-effort-xhigh: var(--palette-rose);
+  --color-effort-max: var(--palette-magenta);
   --color-effort-unknown: var(--color-neutral-mark);
   /* Chart series: the categorical order used by every chart. */
   --color-series-1: var(--palette-lime);
@@ -160,7 +166,9 @@
   --text-2xs: var(--text-xs);
   --text-xs: calc(12px * var(--type-scale-ui));
   --text-sm: calc(14px * var(--type-scale-ui));
-  --text-md: calc(15px * var(--type-scale-ui));
+  /* md shares the sm size: 14 and 15px read as one step, so the scale keeps a single one. The
+     name stays as a role for body copy. */
+  --text-md: var(--text-sm);
   --text-lg: calc(18px * var(--type-scale-ui));
   --text-xl: calc(22px * var(--type-scale-ui));
   --text-2xl: calc(28px * var(--type-scale-ui));
@@ -168,14 +176,14 @@
   --text-4xl: calc(44px * var(--type-scale-ui));
   /* Type roles outside the step scale: dialog and section titles, serif display figures, and the
      page hero, which also follows the viewport. */
-  --text-title: calc(25px * var(--type-scale-ui));
+  --text-title: var(--text-2xl);
   --text-figure: calc(31px * var(--type-scale-ui));
   --text-figure-xl: calc(52px * var(--type-scale-ui));
   --text-hero: clamp(calc(34px * var(--type-scale-ui)), 4vw, calc(58px * var(--type-scale-ui)));
   /* Data type: its own Appearance "Data text size" scalar. The bases are chosen so the default
      125% lands on the interface steps (15, 13, 12, 18, 22px) instead of adding in-between sizes. */
   --data-text-scale: 1.25;
-  --data-text-primary: calc(12px * var(--data-text-scale));
+  --data-text-primary: calc(11.2px * var(--data-text-scale));
   --data-text-secondary: calc(11.2px * var(--data-text-scale));
   --data-text-compact: calc(9.6px * var(--data-text-scale));
   --data-text-strong: calc(14.4px * var(--data-text-scale));
@@ -185,6 +193,8 @@
   --chart-text: var(--text-xs);
   --chart-text-compact: var(--text-2xs);
   --chart-text-micro: 9px;
+  /* Per-tick totals under the activity axis: values a reader compares, so above the micro size. */
+  --chart-text-tick: 11px;
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;

@@ -211,12 +211,8 @@ export function Overview({
   );
   const capacityRows = providerCapacityRows(daily, data.quotas);
   const providerMix = capacityRows.map((row) => ({
-    name:
-      row.provider === "anthropic"
-        ? "Claude"
-        : row.provider === "codex"
-          ? "Codex"
-          : "Warp",
+    // The same provider names as the capacity rows below and the subscription windows.
+    name: row.label,
     value: row.tokens,
     share: row.tokenShare,
     color:
@@ -354,11 +350,6 @@ export function Overview({
             />
           </div>
         </div>
-        <dl className="period-glance" aria-label="Period at a glance">
-          <div><dt>API-equiv. cost</dt><dd>{formatMoney(totals.cost)}</dd></div>
-          <div><dt>Total tokens</dt><dd>{formatCompact(totals.tokens)}</dd></div>
-          <div><dt>Cache read share</dt><dd>{cacheShare}%</dd></div>
-        </dl>
         <div className="metric-grid">
           <MetricCard
             eyebrow="API-EQUIVALENT COST"
@@ -553,7 +544,11 @@ export function Overview({
               </div>
               {capacityRows.map((row) => {
                 const stateLabel = row.state === "ok" ? "current" : row.state;
-                const load = row.highestUsedPercent;
+                // Quota reads as headroom everywhere on this page: percent left, never percent used.
+                const left =
+                  row.highestUsedPercent === null
+                    ? null
+                    : Math.max(0, Math.min(100, 100 - row.highestUsedPercent));
                 return (
                   <section
                     className={`provider-capacity__row ${row.provider} ${row.state}`}
@@ -571,11 +566,11 @@ export function Overview({
                           <i style={{ width: `${row.tokenShare}%` }} />
                         </div>
                       </div>
-                      <div className={load !== null && load >= 90 ? "is-pressured" : undefined}>
-                        <span>Highest quota use</span>
-                        <b>{load === null ? "—" : `${load.toFixed(0)}%`}</b>
+                      <div className={left !== null && left <= 10 ? "is-pressured" : undefined}>
+                        <span>Lowest quota left</span>
+                        <b>{left === null ? "—" : `${left.toFixed(0)}%`}</b>
                         <div className="provider-capacity__track" aria-hidden="true">
-                          <i style={{ width: `${load ?? 0}%` }} />
+                          <i style={{ width: `${left ?? 0}%` }} />
                         </div>
                       </div>
                     </div>
@@ -589,7 +584,7 @@ export function Overview({
                           <b>
                             {window.usedPercent === null
                               ? window.state
-                              : `${window.usedPercent.toFixed(0)}% used`}
+                              : `${Math.max(0, Math.min(100, 100 - window.usedPercent)).toFixed(0)}% left`}
                           </b>
                         </span>
                       ))}
@@ -865,9 +860,13 @@ export function Overview({
                       )}
                     </span>
                     <span className="path-tags">
-                      {session.pathTags.slice(0, 2).map((tag) => (
-                        <i key={tag}>{tag}</i>
-                      ))}
+                      {/* A tag that only repeats the project folder beside it adds nothing. */}
+                      {session.pathTags
+                        .filter((tag) => tag !== session.cwd?.split("/").filter(Boolean).at(-1))
+                        .slice(0, 2)
+                        .map((tag) => (
+                          <i key={tag}>{tag}</i>
+                        ))}
                     </span>
                     <span className="session-effort">
                       <SessionEffortCell
@@ -911,7 +910,7 @@ export function Overview({
           {recent.length > 0 && (
             <p className="recent-list__foot">
               {recent.length} {recent.length === 1 ? "session" : "sessions"}
-              {recentRemainder === "more" && " · scroll the list for more"}
+              {recentRemainder === "more" && " · scroll for more"}
               {recentRemainder === "end" && " · end of list"}
             </p>
           )}

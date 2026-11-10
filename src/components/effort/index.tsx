@@ -75,7 +75,8 @@ export function EffortBadge({ summary, showBasis = false }: { summary: EffortSum
   return (
     <span
       className={`effort-badge${summary.mixed ? " effort-badge-mixed" : ""}`}
-      style={summary.mixed ? undefined : { borderColor: color, color }}
+      // The level colours its border only: the lighter ramp steps are too dim to be text.
+      style={summary.mixed ? undefined : { borderColor: color }}
       title={`${detail} · ${percent(summary.tokenCoverage)} of tokens attributed`}
     >
       {showBasis ? `Recorded: ${label}` : label}
@@ -125,7 +126,6 @@ export function EffortStack({
   const summaryText = segments.map((segment) => `${effortLabel(segment.effort)} ${percent(segment.amount / total)}`).join(", ");
   return (
     <div className="effort-stack-wrap">
-      {showKey && <span className="effort-stack-caption">{basis === "tokens" ? "Tokens by effort" : "Observations by effort"} · incl. unknown</span>}
       <div className="effort-stack" style={{ height }} role="img" aria-label={`Effort by ${basis}: ${summaryText}`}>
         {segments.map((segment) => (
           <i
@@ -149,9 +149,8 @@ export function EffortStack({
       )}
       {showKey && (
         <p className="effort-stack-key" aria-hidden="true">
-          {[...segments]
-            .sort((a, b) => b.amount - a.amount)
-            .map((segment) => (
+          {/* Level order, like the bar: a key sorted by share made each dot a colour-matching task. */}
+          {segments.map((segment) => (
               <span key={segment.effort}>
                 <i style={{ background: effortColor(segment.effort) }} />
                 {effortLabel(segment.effort)}{" "}

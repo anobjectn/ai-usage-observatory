@@ -153,7 +153,7 @@
 }
 
 .metric-range .segmented {
-  height: 37px;
+  height: var(--control-height);
 }
 
 .metric-grid {
@@ -1235,6 +1235,10 @@
   padding-bottom: var(--space-2);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* An always-visible thin scrollbar: the fade alone did not show that the list scrolls. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-mark) transparent;
+  scrollbar-gutter: stable;
 }
 /* While more rows wait below, the list's last row's height fades out, so the cut row reads as
    "more below"; the fade clears once the list reaches its end. */
@@ -1288,8 +1292,8 @@
 .recent-session__tag {
   position: relative;
   align-self: center;
-  width: 30px;
-  height: 30px;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -1654,8 +1658,8 @@
   color: var(--color-text-subtle);
 }
 .quota-glance__bucket .pie-glyph {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   color: var(--provider-color,var(--color-text));
 }
 .quota-glance__bucket.is-low .pie-glyph {
@@ -1697,7 +1701,7 @@
 }
 .quota-glance__pct {
   color: var(--color-text);
-  font: var(--weight-semibold) var(--text-sm) var(--font-label);
+  font: var(--weight-semibold) var(--text-lg) var(--font-label);
   font-variant-numeric: tabular-nums;
 }
 .quota-glance__bucket.is-low .quota-glance__pct {
@@ -2147,12 +2151,18 @@
   /* The title keeps a readable minimum; the effort pills give way and wrap instead of
      squeezing it to a column of single letters. */
   .recent-session__details {
-    grid-template-columns: 64px 92px 62px minmax(140px,1fr) minmax(0,max-content) 76px 16px;
+    grid-template-columns: 64px 92px 62px minmax(120px,1fr) fit-content(190px) 76px 16px;
     gap: var(--space-2);
   }
   .recent-session .session-effort {
     flex-wrap: wrap;
     gap: var(--space-1);
+  }
+  /* The title and project wrap at their hyphens and commas instead of being cut off. */
+  .recent-session .session-main :is(b,small) {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: break-word;
   }
   .headroom-orrery__legend {
     align-items: start;
@@ -2243,8 +2253,33 @@
   .recent-session {
     grid-template-columns: minmax(0,1fr) var(--control-height-touch);
   }
+  /* The title and project take the full row; agent, tokens and cost sit on a second line, so a
+     model name is never broken mid-word in a narrow column. */
   .recent-session__details {
-    grid-template-columns: 58px minmax(0,1fr) 70px 15px;
+    grid-template-columns: max-content minmax(0,1fr) 15px;
+    row-gap: var(--space-1-5);
+  }
+  .recent-session__details .session-main {
+    grid-column: 1/3;
+    grid-row: 1;
+  }
+  .recent-session__details .agent-pill {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .recent-session__details .session-metric {
+    grid-column: 2;
+    grid-row: 2;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .recent-session__details>svg {
+    grid-column: 3;
+    grid-row: 1/3;
+    align-self: center;
   }
   .recent-session__tag {
     width: var(--control-height-touch);
@@ -2265,6 +2300,11 @@
   .quota-glance dt .quota-glance__state {
     display: block;
     margin: 0;
+    white-space: nowrap;
+  }
+  /* Window letters share one column, so pies and percentages line up down the card. */
+  .quota-glance__bucket>b {
+    min-width: 2ch;
   }
   .quota-details-toggle {
     min-height: var(--control-height-touch);
@@ -2424,26 +2464,28 @@
 }
 
 /* Keep the selected-period summary ahead of subscription administration. */
-.hero-grid { min-height: 160px; }
-.hero-grid h1 { font-size: var(--text-4xl); line-height: 1.15; }
-.hero-grid .headroom-orrery { height: 150px; width: 200px; }
-.hero-copy { margin-top: var(--space-3); }
+/* The hero is a compact masthead: the quota summary beneath it is the page's first read, so the
+   title stays below the summary figures in weight and the orrery carries no legend of its own
+   (the summary states the same headroom). */
+.hero-grid { min-height: 0; grid-template-columns: 1fr 150px; }
+.hero-grid .kicker { margin-bottom: var(--space-2); }
+.hero-grid h1 { font-size: var(--text-2xl); line-height: 1.15; }
+.hero-grid .headroom-orrery { height: 96px; width: 150px; }
+.hero-grid .headroom-orrery__legend { display: none; }
+.hero-copy { max-width: none; margin: var(--space-1) 0 0; font-size: var(--text-sm); line-height: 1.5; }
+@media (max-width:900px) {
+  .hero-grid { grid-template-columns: 1fr; }
+}
 @media (max-width:620px) {
-  .hero-grid { min-height: 0; }
-  .hero-grid h1 { font-size: var(--text-3xl); }
-  .hero-copy { font-size: var(--text-sm); margin-bottom: 0; }
+  .hero-grid { padding-bottom: 0; }
+  .hero-grid h1 { font-size: var(--text-xl); }
+  .hero-grid .kicker,.hero-copy { display: none; }
 }
 
 .metric-grid { align-items: stretch; }
 .effort-panel { align-self: start; }
 .quota-notice summary { min-height: var(--control-height-sm); }
 
-.period-glance { display: none; }
-@media (max-width:620px) {
-  .period-glance { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-2); margin: 0; padding: var(--space-3) 0; border-block: 1px solid var(--color-border); }
-  .period-glance dt { color: var(--color-text-muted); font: var(--text-xs)/1.4 var(--font-body); min-height: 2.8em; }
-  .period-glance dd { margin: var(--space-1) 0 0; color: var(--color-text); font: var(--weight-semibold) var(--text-lg) var(--font-label); }
-}
 
 /* Only the phone row, where the title has the full width, may wrap its words anywhere. */
 @media (max-width:620px) {

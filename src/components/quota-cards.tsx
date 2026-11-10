@@ -639,7 +639,7 @@ export function QuotaDials({
     <section className="quota-panel panel">
       {/* One heading line: the title and the toggle for the full provider cards. */}
       <div className="quota-panel__heading">
-        <h2>Subscription windows</h2>
+        <h2>Subscription windows · quota left</h2>
         <button
           type="button"
           className="quota-details-toggle"
