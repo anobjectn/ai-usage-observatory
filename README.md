@@ -1,6 +1,6 @@
 # AI Usage Observatory
 
-![Version](https://img.shields.io/badge/version-1.37.0-0f766e)
+![Version](https://img.shields.io/badge/version-1.38.0-0f766e)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%201.3%2B-fbf0df?logo=bun&logoColor=black)
 ![Language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Privacy](https://img.shields.io/badge/privacy-local--first%20%26%20no%20telemetry-0f766e)
@@ -200,7 +200,7 @@ Click any screenshot to open it at full size. The gallery reflects the current
 application; release changelogs preserve version-specific captures.
 
 <a href="docs/screenshots/1.dashboard.png">
-  <img src="docs/screenshots/1.dashboard.png" width="100%" alt="Overview dashboard with provider allowance windows, headroom, reset timing, and usage trajectory">
+  <img src="docs/screenshots/1.dashboard.png" width="100%" alt="Overview dashboard with a subscription-window quota summary, summary and trajectory cards, activity chart, and effort mix">
 </a>
 
 <sub>Overview — provider allowance, headroom, reset timing, and usage trajectory</sub>
@@ -221,9 +221,9 @@ application; release changelogs preserve version-specific captures.
     </td>
     <td width="50%">
       <a href="docs/screenshots/3.sessions.png">
-        <img src="docs/screenshots/3.sessions.png" width="100%" alt="Session ledger with provider-colored closing quota values, transcript context, tool activity, and patch details">
+        <img src="docs/screenshots/3.sessions.png" width="100%" alt="Session ledger with closing quota values, transcript context, tool activity, and patch details">
       </a>
-      <sub>Sessions — provider-colored quota balances, transcript context, tool activity, and patch detail</sub>
+      <sub>Sessions — quota balances, transcript context, tool activity, and patch detail</sub>
     </td>
   </tr>
   <tr>

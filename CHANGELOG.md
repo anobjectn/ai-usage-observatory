@@ -5,6 +5,46 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.0] - 2026-11-10
+
+### Changed
+
+- Lead Overview with quota. Subscription windows is now a compact summary of
+  each window's percent left and time to reset, with details on hover, under a
+  smaller page header. Upcoming banked-reset expirations are listed and become
+  more prominent as they near. The full provider cards open from Details, and
+  the app remembers whether it is open.
+- Show quota as percent left throughout Overview, including Use vs limits.
+- Recolor effort levels so they no longer share colors with warnings, the
+  accent, or providers, and list every level in order in effort legends.
+- Show trend arrows and the Sessions quota column in neutral colors, so a rising
+  cost or a healthy reading no longer looks like a status.
+- Make small text larger and higher in contrast, and give toolbar and compact
+  controls consistent heights.
+- On phones and tablets, give Latest sessions titles room so model names are no
+  longer cut off.
+- Fold the quick quota screen's "reading needs attention" banner into a warning
+  icon in the provider header. Hover or click it for the details.
+- Label sessions in the Sessions list by their note, or a short ID, instead of a
+  truncated date range.
+- Add a short guide to reading the Models table's effort, cost, cache, and
+  output columns.
+- Refresh the Overview screenshot.
+  See the [v1.38.0 Overview screenshot](docs/screenshots/releases/v1.38.0/1.dashboard.png).
+
+### Fixed
+
+- Fix the quick quota screen on phones and tablets, where the provider legend
+  spilled over the cards.
+- Show the current page number in pagers with three to nine pages.
+- Show a keyboard focus ring on the quick quota layout buttons, and enlarge the
+  window's resize handle.
+
+### Added
+
+- Page the Projects list, 12 projects at a time.
+- On phones, label the quota shortcut and move benchmark links into a More menu.
+
 ## [1.37.0] - 2026-11-08
 
 ### Added
@@ -363,6 +403,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.38.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.35.0...v1.36.0
 [1.35.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.34.1...v1.35.0
