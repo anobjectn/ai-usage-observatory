@@ -690,10 +690,13 @@ export function PinnableChartTooltip({
 export function ChartTooltipContext({
   label,
   description,
+  infoLabel: infoLabelOverride,
   className = "",
 }: {
   label?: string;
-  description?: string;
+  description?: ReactNode;
+  /** Names the info button when no visible label sits beside it. */
+  infoLabel?: string;
   className?: string;
 }) {
   const descriptionId = useId();
@@ -797,7 +800,7 @@ export function ChartTooltipContext({
   }, [description, popoverOpen]);
 
   if (!label && !description) return null;
-  const infoLabel = label ? `About ${label}` : "More information";
+  const infoLabel = infoLabelOverride ?? (label ? `About ${label}` : "More information");
   const cancelPointerDismiss = () => {
     if (pointerDismissTimerRef.current === null) return;
     window.clearTimeout(pointerDismissTimerRef.current);

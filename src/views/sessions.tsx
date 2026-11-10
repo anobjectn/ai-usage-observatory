@@ -604,7 +604,7 @@ export function Sessions({
                             <i className="session-range-exception">Outside active range</i>
                           )}
                         </span>
-                        <small>{session.period.slice(0, 18)}</small>
+                        <small title={session.period}>{annotationOf(session).note.trim().split("\n")[0].slice(0, 72) || `Session · ${session.sessionId.slice(-12)}`}</small>
                         <span className="session-row__model-effort">
                           <SessionEffortCell
                             decoded={effortBySession.get(session.sessionId)}

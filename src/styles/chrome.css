@@ -356,6 +356,9 @@ main {
 }
 
 .breadcrumbs {
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-right: var(--space-3);
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -3139,8 +3142,8 @@ aside > * {
   }
 }
 
-/* Phones: every top-bar action is a 44px touch target. */
-@media (max-width:620px) {
+/* Touch-width layouts: top-bar actions keep a 44px touch target. */
+@media (max-width:900px) {
   .quick-overview-button,
   .filters-button,
   .appearance-button,
@@ -3161,4 +3164,26 @@ aside > * {
   .time-range-segmented .time-range-custom {
     width: var(--control-height-touch);
   }
+}
+
+@media (max-width:900px) {
+  .appearance-button span, .refresh-button span { display: none; }
+}
+
+.benchmark-shortcuts, .quota-shortcut-label { display: none; }
+@media (max-width:900px) {
+  .global-controls .benchmark-split-pill { display: none; }
+  .quota-shortcut-label { display: inline; font: var(--text-xs) var(--font-body); }
+  .global-controls .quick-overview-button { display: flex; align-items: center; justify-content: center; gap: var(--space-1); width: auto; padding: 0 var(--space-2); }
+  .benchmark-shortcuts { display: block; position: relative; flex: none; }
+  .benchmark-shortcuts summary { display: grid; place-items: center; list-style: none; cursor: pointer; width: var(--control-height-touch); height: var(--control-height-touch); border: 1px solid var(--color-control-border); border-radius: var(--radius-control); font: var(--text-xs) var(--font-body); }
+  .benchmark-shortcuts summary::-webkit-details-marker { display: none; }
+  .benchmark-shortcuts > div { position: absolute; top: calc(100% + var(--space-2)); left: 0; z-index: 30; min-width: 180px; padding: var(--space-3); display: grid; gap: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-card); background: var(--color-surface-raised); box-shadow: var(--shadow-panel); }
+  .benchmark-shortcuts span { color: var(--color-text-muted); font: var(--text-xs) var(--font-body); }
+  .benchmark-shortcuts button { min-height: var(--control-height-touch); text-align: left; padding: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-control); color: var(--color-text); background: var(--color-surface); cursor: pointer; }
+  .benchmark-shortcuts :is(summary,button):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+}
+
+@media (min-width:901px) and (max-width:1500px) {
+  .topbar:has(.global-filter--agent):has(.time-range-control) .breadcrumbs > :is(button,svg) { display: none; }
 }

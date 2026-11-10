@@ -686,7 +686,7 @@ export function App() {
               title="Quick quota overview"
               aria-label="Open quick quota overview"
             >
-              <Gauge />
+              <Gauge /><span className="quota-shortcut-label">Quota</span>
             </button>
             <BenchmarkSplitLauncher onOpen={openBenchmark} />
             {/* Below 900px the topbar cannot fit the filters, so this button opens them as a

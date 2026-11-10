@@ -354,6 +354,11 @@ export function Overview({
             />
           </div>
         </div>
+        <dl className="period-glance" aria-label="Period at a glance">
+          <div><dt>API-equiv. cost</dt><dd>{formatMoney(totals.cost)}</dd></div>
+          <div><dt>Total tokens</dt><dd>{formatCompact(totals.tokens)}</dd></div>
+          <div><dt>Cache read share</dt><dd>{cacheShare}%</dd></div>
+        </dl>
         <div className="metric-grid">
           <MetricCard
             eyebrow="API-EQUIVALENT COST"

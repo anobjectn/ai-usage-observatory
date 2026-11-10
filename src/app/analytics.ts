@@ -696,7 +696,7 @@ export function percentagePointChange(current: number, previous: number) {
 
 type QuotaState = "ok" | "stale" | "suspended" | "unavailable" | "expired";
 
-type QuotaBucket = {
+export type QuotaBucket = {
   id: string;
   windowLabel: string;
   usedPercent: number | null;
@@ -710,7 +710,7 @@ type QuotaBucket = {
   reaches?: QuotaReach[];
 };
 
-type QuotaCard = {
+export type QuotaCard = {
   provider: "anthropic" | "codex" | "warp";
   providerLabel: string;
   state: QuotaState;

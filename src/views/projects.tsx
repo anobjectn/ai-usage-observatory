@@ -1060,6 +1060,8 @@ export function Projects({
   const [openProject, setOpenProject] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("tokens-desc");
+  const [projectPage, setProjectPage] = useState(1);
+  const projectPageSize = 12;
   const openProjectRef = useRef<HTMLElement | null>(null);
   const lastUserScrollAt = useUserScrollIntent();
   const effortScope = timeEffortScope(dateRange, "timeline");
@@ -1106,6 +1108,15 @@ export function Projects({
       return direction === "asc" ? comparison : -comparison;
     });
   }, [scopedProjects, query, sort]);
+  const projectPages = Math.max(1, Math.ceil(visibleProjects.length / projectPageSize));
+  const currentProjectPage = Math.min(projectPage, projectPages);
+  const projectStart = (currentProjectPage - 1) * projectPageSize;
+  const pageProjects = visibleProjects.slice(projectStart, projectStart + projectPageSize);
+  useEffect(() => { setProjectPage(1); }, [metricRange, customRange]);
+  const changeProjectPage = (page: number) => {
+    setProjectPage(page);
+    setOpenProject(null);
+  };
   useEffect(() => {
     if (!openProject) return;
     const timeout = window.setTimeout(() => {
@@ -1138,14 +1149,14 @@ export function Projects({
               <span className="sr-only">Search projects</span>
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => { setQuery(event.target.value); setProjectPage(1); }}
                 placeholder="Search projects…"
               />
               {query && (
                 <button
                   type="button"
                   className="search-clear"
-                  onClick={() => setQuery("")}
+                  onClick={() => { setQuery(""); setProjectPage(1); }}
                   aria-label="Clear project search"
                 >
                   Clear
@@ -1156,7 +1167,7 @@ export function Projects({
               <span>Sort</span>
               <select
                 value={sort}
-                onChange={(event) => setSort(event.target.value)}
+                onChange={(event) => { setSort(event.target.value); setProjectPage(1); }}
               >
                 <option value="tokens-desc">Tokens: high to low</option>
                 <option value="tokens-asc">Tokens: low to high</option>
@@ -1171,8 +1182,19 @@ export function Projects({
           </div>
         }
       />
+      {visibleProjects.length > 0 && (
+        <div className="project-pagination">
+          <span role="status">{projectStart + 1}–{Math.min(projectStart + projectPageSize, visibleProjects.length)} of {visibleProjects.length} projects</span>
+          <div className="session-pager" role="group" aria-label="Project pagination">
+            <button type="button" disabled={currentProjectPage === 1} aria-label="Previous project page" onClick={() => changeProjectPage(currentProjectPage - 1)}><ChevronLeft aria-hidden="true" /></button>
+            <PageJump page={currentProjectPage} pages={projectPages} label="project page" onChange={changeProjectPage} />
+            <button type="button" disabled={currentProjectPage === projectPages} aria-label="Next project page" onClick={() => changeProjectPage(currentProjectPage + 1)}><ChevronRight aria-hidden="true" /></button>
+          </div>
+        </div>
+      )}
       <section className="card-list project-list">
-        {visibleProjects.map((project, index) => {
+        {pageProjects.map((project, pageIndex) => {
+          const index = projectStart + pageIndex;
           const open = openProject === project.name;
           const effortSummary = mergeEffortSummaries(
             project.memberIds

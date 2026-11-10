@@ -56,6 +56,8 @@ export const interfaceTextScaleStorageKey = "usage-observatory:interface-text-sc
 
 export const sidebarCollapsedStorageKey = "usage-observatory:sidebar-collapsed";
 
+export const quotaDetailsOpenStorageKey = "usage-observatory:quota-details-open";
+
 export const quickOverviewModeStorageKey = "usage-observatory:quick-overview-mode";
 
 export const headroomLinesStorageKey = "usage-observatory:headroom-lines";
@@ -250,6 +252,20 @@ export function savedSidebarCollapsed() {
   } catch {
     return false;
   }
+}
+
+export function savedQuotaDetailsOpen() {
+  try {
+    return localStorage.getItem(quotaDetailsOpenStorageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveQuotaDetailsOpen(open: boolean) {
+  try {
+    localStorage.setItem(quotaDetailsOpenStorageKey, String(open));
+  } catch {}
 }
 
 export type QuickOverviewMode = "gauges" | "grid";

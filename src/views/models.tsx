@@ -325,6 +325,10 @@ export function Models({
               onChange={setSort}
             />
           </div>
+          <details className="model-metric-help">
+            <summary>How to read cost, cache & output</summary>
+            <p>Blended $/M tokens uses priced traffic only, including cache. Cache-heavy traffic can lower this rate; it is not an output-token price or a capability ranking. Warp credits remain separate. Output / total includes input and cache in the denominator. Expand a model for its token breakdown.</p>
+          </details>
           <div className="table-scroll" ref={scrollRef}>
             <table className="model-table" ref={tableRef}>
               <thead>
@@ -400,7 +404,7 @@ export function Models({
                         <td className="model-col model-col--effort">
                           <div className="model-effort-cell">
                             <div>
-                              <EffortBadge summary={effortUsable ? effortSummary : null} />
+                              <EffortBadge summary={effortUsable ? effortSummary : null} showBasis />
                               {indexing && <small>indexing</small>}
                             </div>
                             {effortUsable && effortSummary && (
@@ -409,7 +413,10 @@ export function Models({
                           </div>
                         </td>
                         <td className="model-col num model-col--sessions" data-label="Sessions">{modelSessions.length}</td>
-                        <td className="model-col num model-col--total" data-label="Total">{formatCompact(model.tokens)}</td>
+                        <td className="model-col num model-col--total" data-label="Total">
+                          {formatCompact(model.tokens)}
+                          <small className="model-cache-share">{model.tokens > 0 ? `${Math.round((model.cacheReadTokens + model.cacheCreationTokens) / model.tokens * 100)}% cache` : "No tokens"}</small>
+                        </td>
                         <td className="model-col num model-col--output" data-label="Output">
                           {formatCompact(warpOnly ? model.tokens : model.outputTokens)}
                           {warpOnly && <small>recorded</small>}
@@ -447,10 +454,10 @@ export function Models({
                             </span>
                           </div>
                         </td>
-                        <td className="model-col num model-col--perMtok" data-label="$/Mtok">
+                        <td className="model-col num model-col--perMtok" data-label="Blended $/M tokens">
                           {row.perMtok === null ? "—" : `$${row.perMtok.toFixed(2)}`}
                         </td>
-                        <td className="model-col num model-col--outputShare" data-label="Out share">
+                        <td className="model-col num model-col--outputShare" data-label="Output / total">
                           {row.outputShare === null ? "—" : `${(row.outputShare * 100).toFixed(2)}%`}
                         </td>
                         <td className="model-col model-col--toggle">
@@ -512,7 +519,7 @@ export function Models({
                                         <EffortCoverage summary={effortSummary} indexing={indexing} />
                                       </div>
                                       <div>
-                                        <span className="overline">OBSERVATION DISTRIBUTION</span>
+                                        <span className="overline">RUNS OBSERVED</span>
                                         <EffortStack summary={effortSummary} basis="observations" height={8} />
                                       </div>
                                     </>

@@ -1,5 +1,5 @@
 import { type CSSProperties, useId, useState } from "react";
-import { ChevronRight, CircleDollarSign, RefreshCw, Sparkles, Zap } from "lucide-react";
+import { ChevronRight, CircleDollarSign, Clock3, RefreshCw, Sparkles, Zap } from "lucide-react";
 import {
   quotaPlanLabel,
   reachClockSummary,
@@ -19,6 +19,7 @@ import { warpQuotaSummary } from "../warp-quota";
 import { type QuotaNotice } from "../quota-notice";
 import type { DashboardData, QuotaReach, QuotaProvider } from "../types";
 import { ChartTooltipContext } from "./chart-pins";
+import { PieGlyph } from "./pie-glyph";
 import {
   formatDuration,
   formatDate,
@@ -27,7 +28,8 @@ import {
   resetCopy,
   expiryCopy,
 } from "../app/format";
-import { quotaCards } from "../app/analytics";
+import { quotaCards, type QuotaBucket, type QuotaCard } from "../app/analytics";
+import { saveQuotaDetailsOpen, savedQuotaDetailsOpen } from "../app/preferences";
 
 function WarpQuotaDetails({ report }: { report: QuotaProvider | undefined }) {
   const summary = warpQuotaSummary(report);
@@ -414,6 +416,194 @@ function dialStateLabel(state: string): string {
   return state;
 }
 
+/* The glance names each window in a character or two; its info popover spells the window out. */
+function glanceWindowLabel(windowLabel: string): string {
+  if (windowLabel === "5-hour") return "5h";
+  return windowLabel.charAt(0).toLowerCase();
+}
+
+/* Whole hours past the first hour: the glance answers "how long, roughly"; the popover is exact.
+   On screen the units run together ("1d4h"); accessible names pass a space. */
+function glanceCountdown(ms: number, gap = ""): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000));
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  if (days > 0) return hours > 0 ? `${days}d${gap}${hours}h` : `${days}d`;
+  return hours > 0 ? `${hours}h` : `${minutes}m`;
+}
+
+/* A banked reset escalates as it nears expiry: tinted inside a week, glowing inside three days,
+   pulsing red inside the last day. */
+type ExpiryStage = "soon" | "near" | "lapsing" | null;
+function expiryStage(ms: number): ExpiryStage {
+  if (ms <= 86_400_000) return "lapsing";
+  if (ms <= 3 * 86_400_000) return "near";
+  if (ms <= 7 * 86_400_000) return "soon";
+  return null;
+}
+
+/** Headroom the glance may present as current; an expired window's old percentage is not. */
+function glanceLeft(bucket: QuotaBucket): number | null {
+  if (bucket.usedPercent === null || bucket.state === "expired") return null;
+  return Math.max(0, Math.min(100, 100 - bucket.usedPercent));
+}
+
+/** Label/value rows for a glance popover; the popover sizes to its longest row. */
+function GlanceTip({
+  title,
+  aside,
+  rows,
+  note,
+}: {
+  title: string;
+  aside?: string | null;
+  rows: Array<[label: string, value: string] | false | null | undefined>;
+  note?: string;
+}) {
+  return (
+    <span className="quota-glance-tip">
+      <span className="quota-glance-tip__head">
+        <b>{title}</b>
+        {aside && <i>{aside}</i>}
+      </span>
+      <span className="quota-glance-tip__rows">
+        {rows.filter((row): row is [string, string] => Boolean(row)).map(([label, value]) => (
+          <span key={label}>
+            <span>{label}</span>
+            <span>{value}</span>
+          </span>
+        ))}
+      </span>
+      {note && <small>{note}</small>}
+    </span>
+  );
+}
+
+function GlanceBucket({
+  card,
+  bucket,
+  trackingSince,
+}: {
+  card: QuotaCard;
+  bucket: QuotaBucket;
+  trackingSince: string | null;
+}) {
+  const left = glanceLeft(bucket);
+  const untilReset =
+    left !== null && bucket.resetAt !== null && bucket.resetAt > Date.now()
+      ? bucket.resetAt - Date.now()
+      : null;
+  const summary = `${bucket.windowLabel}: ${left === null ? bucket.state : `${left.toFixed(0)}% left`}${
+    untilReset === null ? "" : `, ${bucket.resetVerb} in ${glanceCountdown(untilReset, " ")}`
+  }`;
+  const resetLabel = bucket.resetVerb === "renews" ? "Renews" : "Resets";
+  return (
+    <span
+      className={`quota-glance__bucket ${bucket.state}${left !== null && left < 20 ? " is-low" : ""}`}
+    >
+      <b>{glanceWindowLabel(bucket.windowLabel)}</b>
+      <PieGlyph share={(left ?? 0) / 100} label={summary} />
+      {left === null ? (
+        <small>{dialStateLabel(bucket.state)}</small>
+      ) : (
+        <>
+          <span className="quota-glance__pct" aria-hidden="true">{left.toFixed(0)}%</span>
+          {untilReset !== null && (
+            <small className="quota-glance__reset">
+              <Clock3 aria-hidden="true" />
+              {glanceCountdown(untilReset)}
+            </small>
+          )}
+        </>
+      )}
+      <ChartTooltipContext
+        className="quota-glance__info"
+        infoLabel={`${card.providerLabel} ${bucket.windowLabel} details`}
+        description={
+          <GlanceTip
+            title={`${card.providerLabel} · ${bucket.windowLabel}`}
+            aside={card.planLabel}
+            rows={[
+              left === null
+                ? ["Status", bucket.detail]
+                : ["Left", `${left.toFixed(0)}% · ${(100 - left).toFixed(0)}% used`],
+              left !== null && bucket.detail !== `${left.toFixed(0)}% left` && ["Used", bucket.detail],
+              bucket.state === "suspended"
+                ? ["Status", "Rate limit temporarily suspended"]
+                : [resetLabel, resetCopy(bucket.resetAt, bucket.resetVerb).replace(/^(resets|renews) /, "")],
+              bucket.historyWindow && [
+                "Limit hit",
+                bucket.reachedCount === undefined
+                  ? "not tracked"
+                  : `${bucket.reachedCount}×${trackingSince ? ` since ${trackingSince}` : ""}`,
+              ],
+              card.state !== "ok" && ["Reading", card.stateLabel],
+            ]}
+            note={
+              bucket.historyWindow && bucket.reachedCount !== undefined
+                ? "Window levels are provider reported; limit hits are counted locally."
+                : "Provider reported."
+            }
+          />
+        }
+      />
+    </span>
+  );
+}
+
+/** Banked resets restore headroom on demand; the glance lists when each unused one lapses. */
+function GlanceResets({ card }: { card: QuotaCard }) {
+  const now = Date.now();
+  const credits = card.bankedResets
+    .map((credit) => ({ ...credit, at: credit.expiresAt ? Date.parse(credit.expiresAt) : NaN }))
+    .sort((a, b) => (Number.isFinite(a.at) ? a.at : Infinity) - (Number.isFinite(b.at) ? b.at : Infinity));
+  const upcoming = credits.filter((credit) => Number.isFinite(credit.at) && credit.at > now);
+  const lapsing = upcoming.some((credit) => expiryStage(credit.at - now) === "lapsing");
+  return (
+    <div
+      className={`quota-glance__provider ${card.provider} quota-glance__resets${lapsing ? " has-lapsing" : ""}`}
+    >
+      <dt>Resets</dt>
+      <dd>
+        <span className="quota-glance__bucket">
+          <b>{credits.length}</b>
+          <small>banked</small>
+        </span>
+        {upcoming.length > 0 && (
+          <span className="quota-glance__bucket quota-glance__expiries">
+            <small>{upcoming.length === 1 ? "expires" : "expire"}</small>
+            {upcoming.map((credit) => (
+              <small
+                className={`quota-glance__reset quota-glance__expiry${
+                  expiryStage(credit.at - now) ? ` is-${expiryStage(credit.at - now)}` : ""
+                }`}
+                key={credit.id}
+              >
+                <Clock3 aria-hidden="true" />
+                {glanceCountdown(credit.at - now)}
+              </small>
+            ))}
+            <ChartTooltipContext
+              className="quota-glance__info"
+              infoLabel={`${card.providerLabel} banked reset expirations`}
+              description={
+                <GlanceTip
+                  title={`${card.providerLabel} · banked resets`}
+                  rows={credits.map((credit, index) => [
+                    credits.length > 1 ? `${credit.title} ${index + 1}` : credit.title,
+                    expiryCopy(credit.expiresAt).text.replace(/^expires /, ""),
+                  ])}
+                  note="Unused resets lapse at expiry."
+                />
+              }
+            />
+          </span>
+        )}
+      </dd>
+    </div>
+  );
+}
+
 export function QuotaDials({
   quotas,
   timeZone,
@@ -424,10 +614,11 @@ export function QuotaDials({
   onUpdateWebCredits?: () => void;
 }) {
   const cards = quotaCards(quotas);
-  // Where the cards stack, the glance strip shows and the full cards (reset clocks, reach history,
-  // credits) fold behind one toggle, so the spend summary is not three screens down. The
-  // side-by-side desktop layout ignores it.
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const codexCard = cards.find((card) => card.provider === "codex");
+  // The glance strip always shows; the full cards (reset clocks, reach history, credits) fold
+  // behind one toggle. The choice is saved locally, so a reader who keeps them open is not
+  // re-opening them on every visit.
+  const [detailsOpen, setDetailsOpen] = useState(savedQuotaDetailsOpen);
   const quotaGridId = useId();
   const anthropicCredits = buildAnthropicCreditView(
     quotas.usage?.providers.find((provider) => provider.provider === "anthropic"),
@@ -446,25 +637,29 @@ export function QuotaDials({
     : null;
   return (
     <section className="quota-panel panel">
-      <div className="panel-heading">
-        <div>
-          <span className="overline">SUBSCRIPTION WINDOWS</span>
-          <h2>Usage & resets</h2>
-        </div>
-        <div className="quota-heading-meta">
-          {trackingSince && <span>History since {trackingSince}</span>}
-          {quotas.history?.available && (
-            <span className="method-chip local">
-              <i /> locally counted
-            </span>
-          )}
-          <span className="method-chip">
-            <i /> provider reported
-          </span>
-        </div>
+      {/* One heading line: the title and the toggle for the full provider cards. */}
+      <div className="quota-panel__heading">
+        <h2>Subscription windows</h2>
+        <button
+          type="button"
+          className="quota-details-toggle"
+          aria-expanded={detailsOpen}
+          aria-controls={quotaGridId}
+          aria-label="Provider details: reset times, reach history, credits"
+          title="Reset times, reach history, credits"
+          onClick={() => {
+            const next = !detailsOpen;
+            setDetailsOpen(next);
+            saveQuotaDetailsOpen(next);
+          }}
+        >
+          {detailsOpen ? "Hide details" : "Details"}
+          <ChevronRight aria-hidden="true" />
+        </button>
       </div>
-      {/* Where the cards stack, each one's history pushes the next provider down; this strip
-          puts every provider's current headroom first. */}
+      {/* Every provider's current headroom in a line or two: a pie, a short window name and the
+          time to its reset, with the full reading behind each info button. Providers and the
+          banked-reset group flow inline and wrap as whole groups. */}
       <dl className="quota-glance">
         {cards.map((card) => (
           <div className={`quota-glance__provider ${card.provider}`} key={card.provider}>
@@ -476,37 +671,13 @@ export function QuotaDials({
             </dt>
             <dd>
               {card.buckets.map((bucket) => (
-                <span key={bucket.id} className={bucket.state}>
-                  <small>{bucket.windowLabel}</small>
-                  {bucket.usedPercent === null || bucket.state === "expired" ? (
-                    <b>{dialStateLabel(bucket.state)}</b>
-                  ) : (
-                    <>
-                      <b>{Math.max(0, Math.min(100, 100 - bucket.usedPercent)).toFixed(0)}%</b>
-                      <small>left</small>
-                    </>
-                  )}
-                  {bucket.usedPercent !== null && bucket.resetAt !== null && bucket.resetAt > Date.now() && (
-                    <small className="quota-glance__reset">
-                      {bucket.resetVerb} in {formatDuration(bucket.resetAt - Date.now())}
-                    </small>
-                  )}
-                </span>
+                <GlanceBucket card={card} bucket={bucket} trackingSince={trackingSince} key={bucket.id} />
               ))}
             </dd>
           </div>
         ))}
+        {codexCard && codexCard.bankedResets.length > 0 && <GlanceResets card={codexCard} />}
       </dl>
-      <button
-        type="button"
-        className="quota-details-toggle"
-        aria-expanded={detailsOpen}
-        aria-controls={quotaGridId}
-        onClick={() => setDetailsOpen((open) => !open)}
-      >
-        <ChevronRight aria-hidden="true" />
-        {detailsOpen ? "Hide provider details" : "Provider details: reset times, reach history, credits"}
-      </button>
       <div
         className={`quota-grid${detailsOpen ? "" : " is-collapsed"}`}
         id={quotaGridId}
@@ -577,7 +748,7 @@ export function QuotaDials({
                               <b>
                                 {bucket.reachedCount === undefined
                                   ? "Not tracked"
-                                  : `${bucket.reachedCount}× observed`}
+                                  : `${bucket.reachedCount}× observed${trackingSince ? ` since ${trackingSince}` : ""}`}
                               </b>
                             </div>
                             {bucket.reachedAt && bucket.reachedAt.length > 0 && (

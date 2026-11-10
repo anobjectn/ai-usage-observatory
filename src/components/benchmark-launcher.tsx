@@ -33,6 +33,7 @@ export function BenchmarkTriggerIcons({ className }: { className?: string }) {
 export function BenchmarkSplitLauncher({ onOpen }: { onOpen: (siteId: BenchmarkSiteId) => void }) {
   const status = useBenchmarkStatus();
   return (
+    <>
     <div className="benchmark-split-pill" aria-label="Open benchmark comparison">
       {BENCHMARK_SITES.map((entry) => {
         const unreachable = status[entry.id]?.state === "unreachable";
@@ -49,5 +50,18 @@ export function BenchmarkSplitLauncher({ onOpen }: { onOpen: (siteId: BenchmarkS
         );
       })}
     </div>
+    <details className="benchmark-shortcuts">
+      <summary>More</summary>
+      <div>
+        <span>Benchmarks</span>
+        {BENCHMARK_SITES.map((entry) => (
+          <button key={entry.id} type="button" onClick={(event) => {
+            event.currentTarget.closest("details")?.removeAttribute("open");
+            onOpen(entry.id);
+          }}>{entry.label}</button>
+        ))}
+      </div>
+    </details>
+    </>
   );
 }

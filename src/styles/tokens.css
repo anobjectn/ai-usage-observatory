@@ -52,6 +52,8 @@
   --color-surface-glass: color-mix(in srgb, var(--color-bg) 88%, transparent);
   /* Lines. */
   --color-border: color-mix(in srgb, var(--color-text) 14.5%, var(--color-bg));
+  --color-neutral-mark: color-mix(in srgb, var(--color-text) 42%, var(--color-bg));
+  --color-control-border: var(--color-neutral-mark);
   --color-border-strong: color-mix(in srgb, var(--color-text) 23%, var(--color-bg));
   --color-divider: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
   /* Text. */
@@ -89,7 +91,7 @@
   --color-effort-high: var(--palette-sand);
   --color-effort-xhigh: var(--palette-violet);
   --color-effort-max: var(--palette-red);
-  --color-effort-unknown: var(--color-border-strong);
+  --color-effort-unknown: var(--color-neutral-mark);
   /* Chart series: the categorical order used by every chart. */
   --color-series-1: var(--palette-lime);
   --color-series-2: var(--palette-aqua);
@@ -157,7 +159,7 @@
      name stays as a role, so a denser theme can shrink labels alone. */
   --text-2xs: var(--text-xs);
   --text-xs: calc(12px * var(--type-scale-ui));
-  --text-sm: calc(13px * var(--type-scale-ui));
+  --text-sm: calc(14px * var(--type-scale-ui));
   --text-md: calc(15px * var(--type-scale-ui));
   --text-lg: calc(18px * var(--type-scale-ui));
   --text-xl: calc(22px * var(--type-scale-ui));
@@ -174,7 +176,7 @@
      125% lands on the interface steps (15, 13, 12, 18, 22px) instead of adding in-between sizes. */
   --data-text-scale: 1.25;
   --data-text-primary: calc(12px * var(--data-text-scale));
-  --data-text-secondary: calc(10.4px * var(--data-text-scale));
+  --data-text-secondary: calc(11.2px * var(--data-text-scale));
   --data-text-compact: calc(9.6px * var(--data-text-scale));
   --data-text-strong: calc(14.4px * var(--data-text-scale));
   --data-text-display: calc(17.6px * var(--data-text-scale));

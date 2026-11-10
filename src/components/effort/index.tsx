@@ -63,7 +63,7 @@ const compact = (value: number) => new Intl.NumberFormat("en-US", { notation: "c
 
 /** A session with two or more observed values reads as Mixed; its underlying distribution stays
  * available in the tooltip and in expanded detail. */
-export function EffortBadge({ summary }: { summary: EffortSummary | null }) {
+export function EffortBadge({ summary, showBasis = false }: { summary: EffortSummary | null; showBasis?: boolean }) {
   if (!summary || summary.coverageState === "unavailable") {
     return <span className="effort-badge effort-badge-unknown" title={EFFORT_HELP}>Unknown</span>;
   }
@@ -78,7 +78,7 @@ export function EffortBadge({ summary }: { summary: EffortSummary | null }) {
       style={summary.mixed ? undefined : { borderColor: color, color }}
       title={`${detail} · ${percent(summary.tokenCoverage)} of tokens attributed`}
     >
-      {label}
+      {showBasis ? `Recorded: ${label}` : label}
     </span>
   );
 }
@@ -96,9 +96,9 @@ export function EffortStack({
   basis?: "tokens" | "observations";
   height?: number;
   showLegend?: boolean;
-  /** One line under the bar naming its two largest levels, for rows too tight for the legend.
-   * "mixed" shows it only when there is more than one level, for rows whose badge already names
-   * a single level. */
+  /** Compact named token/observation key. Every nonzero level stays visible so rounding and
+   * unknown coverage cannot make a recorded Mixed badge look like a single known level.
+   * The legacy "mixed" option also shows the key for a single visible segment. */
   showKey?: boolean | "mixed";
 }) {
   const capped = capEffortLevels(summary.levels);
@@ -125,6 +125,7 @@ export function EffortStack({
   const summaryText = segments.map((segment) => `${effortLabel(segment.effort)} ${percent(segment.amount / total)}`).join(", ");
   return (
     <div className="effort-stack-wrap">
+      {showKey && <span className="effort-stack-caption">{basis === "tokens" ? "Tokens by effort" : "Observations by effort"} · incl. unknown</span>}
       <div className="effort-stack" style={{ height }} role="img" aria-label={`Effort by ${basis}: ${summaryText}`}>
         {segments.map((segment) => (
           <i
@@ -146,11 +147,10 @@ export function EffortStack({
           ))}
         </ul>
       )}
-      {showKey && (showKey === true || segments.length > 1) && (
+      {showKey && (
         <p className="effort-stack-key" aria-hidden="true">
           {[...segments]
             .sort((a, b) => b.amount - a.amount)
-            .slice(0, 2)
             .map((segment) => (
               <span key={segment.effort}>
                 <i style={{ background: effortColor(segment.effort) }} />
@@ -158,7 +158,6 @@ export function EffortStack({
                 <b>{segment.amount / total < 0.01 ? "<1%" : percent(segment.amount / total)}</b>
               </span>
             ))}
-          {segments.length > 2 && <span>+{segments.length - 2}</span>}
         </p>
       )}
       <p className="effort-stack-summary">{summaryText}</p>

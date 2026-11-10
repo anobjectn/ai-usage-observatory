@@ -1466,8 +1466,8 @@
 }
 
 .session-pager>button {
-  width: 27px;
-  height: 27px;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   flex: 0 0 auto;
   padding: 0;
   border: 1px solid var(--color-border);
@@ -1480,7 +1480,7 @@
 }
 
 .session-pager>button:disabled {
-  opacity: .3;
+  opacity: .55;
   cursor: default;
 }
 
