@@ -34,7 +34,7 @@ import { formatCompact } from "../app/format";
 import { resetCountdownParts, condensedResetCopy, quickOverviewCards } from "../app/analytics";
 import { CLAUDE_USAGE_URL, QuotaNoticeCallout } from "./quota-cards";
 import { PieGlyph } from "./pie-glyph";
-import { type BenchmarkSiteId, BENCHMARK_SITES, benchmarkFaviconClass } from "./benchmark-launcher";
+import { type BenchmarkSiteId, BENCHMARK_LINKS, BENCHMARK_SITES, benchmarkFaviconClass } from "./benchmark-launcher";
 import { benchmarkSiteTitle, useBenchmarkStatus } from "../hooks/use-benchmark-status";
 
 const sceneEffectOptions: {
@@ -1113,6 +1113,21 @@ export function BenchmarkModal({
               </button>
             );
           })}
+          {BENCHMARK_LINKS.map((entry) => (
+            <a
+              key={entry.id}
+              className="benchmark-tabs__link"
+              href={entry.url}
+              target="_blank"
+              rel="noreferrer"
+              title={`${entry.description} Opens in a new tab: the site does not allow embedding.`}
+            >
+              <img className={`benchmark-favicon benchmark-favicon--${entry.id}`} src={entry.favicon} alt="" loading="lazy" />
+              {entry.label}
+              <ExternalLink aria-hidden="true" />
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          ))}
         </div>
         <div className="benchmark-toolbar">
           <p>{site.description}</p>
