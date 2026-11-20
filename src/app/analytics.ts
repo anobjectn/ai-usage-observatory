@@ -20,7 +20,7 @@ import type {
 } from "../types";
 import { aggregateModels } from "../model-aggregation";
 import { type Metric, type ProjectSummary } from "./preferences";
-import { providerKey, formatCompact, providerSeries, formatDuration, formatWarpCredits } from "./format";
+import { providerKey, formatCompact, formatCompactDate, providerSeries, formatDuration, formatWarpCredits } from "./format";
 
 const fiveHoursMs = 5 * 60 * 60 * 1_000;
 
@@ -1172,38 +1172,64 @@ export function sessionQuotaEvents(
 }
 
 
-/** One range per quota cycle, in remaining terms, oldest first: a session that spanned a reset
- * reads `25→0, 100→75`. Episodes inside one cycle collapse to first start → last end. */
+/** Quota ranges in remaining terms, oldest first: a session that spanned a reset reads
+ * `25→0, 100→75`. Episodes inside one cycle join only while each picks up where the last left
+ * off; a gap means the counter moved while this session was idle, so the range splits there and
+ * that movement is not counted. Each range keeps the activity span it covers. */
 export type SessionQuotaRange = {
+  cycleId: string;
   text: string;
   value: string;
   unit: "%" | "credits";
   magnitude: number;
   magnitudeValue: string;
+  startAt: number | null;
+  endAt: number | null;
 };
 
 export function quotaRemainingRangeItems(resource: SessionQuotaContext["resources"][number]): SessionQuotaRange[] {
-  const cycles = new Map<string, { start: number; end: number; startUnits: number | null; endUnits: number | null }>();
+  const runs: Array<{
+    cycleId: string;
+    start: number;
+    end: number;
+    startUnits: number | null;
+    endUnits: number | null;
+    startAt: number | null;
+    endAt: number | null;
+  }> = [];
   for (const episode of resource.episodes) {
-    const existing = cycles.get(episode.cycleId);
-    if (!existing) {
-      cycles.set(episode.cycleId, {
+    // An episode that moved nothing adds no range, and joining it would stretch a neighbour's
+    // span over time in which this session moved nothing. Skipping it keeps contiguity honest:
+    // idle movement on either side still leaves the ends mismatched.
+    if (episode.startUsedPercent === episode.endUsedPercent && episode.startUsedUnits === episode.endUsedUnits) continue;
+    const last = runs.at(-1);
+    const contiguous = last?.cycleId === episode.cycleId
+      && last.end === episode.startUsedPercent
+      && last.endUnits === episode.startUsedUnits;
+    if (last && contiguous) {
+      last.end = episode.endUsedPercent;
+      last.endUnits = episode.endUsedUnits;
+      last.endAt = episode.endAt ?? last.endAt;
+    } else {
+      runs.push({
+        cycleId: episode.cycleId,
         start: episode.startUsedPercent,
         end: episode.endUsedPercent,
         startUnits: episode.startUsedUnits,
         endUnits: episode.endUsedUnits,
+        startAt: episode.startAt ?? null,
+        endAt: episode.endAt ?? null,
       });
-    } else {
-      existing.end = episode.endUsedPercent;
-      existing.endUnits = episode.endUsedUnits;
     }
   }
-  return [...cycles.values()].map((cycle) => {
-    if (resource.kind === "pool" && cycle.startUnits !== null && cycle.endUnits !== null) {
+  return runs.map((run) => {
+    const shared = { cycleId: run.cycleId, startAt: run.startAt, endAt: run.endAt };
+    if (resource.kind === "pool" && run.startUnits !== null && run.endUnits !== null) {
       if (resource.limitUnits === null || resource.limitChanged) return null;
-      const magnitude = Math.max(0, cycle.endUnits - cycle.startUnits);
-      const value = `${formatWarpCredits(resource.limitUnits - cycle.startUnits)}→${formatWarpCredits(resource.limitUnits - cycle.endUnits)}`;
+      const magnitude = Math.max(0, run.endUnits - run.startUnits);
+      const value = `${formatWarpCredits(resource.limitUnits - run.startUnits)}→${formatWarpCredits(resource.limitUnits - run.endUnits)}`;
       return {
+        ...shared,
         text: `${value} credits`,
         value,
         unit: "credits" as const,
@@ -1211,9 +1237,10 @@ export function quotaRemainingRangeItems(resource: SessionQuotaContext["resource
         magnitudeValue: formatWarpCredits(magnitude),
       };
     }
-    const magnitude = Math.max(0, cycle.end - cycle.start);
-    const value = `${quotaNumber(Math.max(0, 100 - cycle.start))}→${quotaNumber(Math.max(0, 100 - cycle.end))}`;
+    const magnitude = Math.max(0, run.end - run.start);
+    const value = `${quotaNumber(Math.max(0, 100 - run.start))}→${quotaNumber(Math.max(0, 100 - run.end))}`;
     return {
+      ...shared,
       text: `${value}%`,
       value,
       unit: "%" as const,
@@ -1221,6 +1248,85 @@ export function quotaRemainingRangeItems(resource: SessionQuotaContext["resource
       magnitudeValue: quotaNumber(magnitude),
     };
   }).filter((range): range is SessionQuotaRange => range !== null);
+}
+
+const quotaModelKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** A model-specific window (`model:Fable`) belongs to a session only when the session ran that
+ * model; the account-wide windows always do. */
+export function quotaResourceApplies(id: string, modelsUsed: readonly string[]) {
+  if (!id.startsWith("model:")) return true;
+  const family = quotaModelKey(id.slice("model:".length));
+  return family.length > 0 && modelsUsed.some((model) => quotaModelKey(model).includes(family));
+}
+
+export type SessionQuotaCycleImpact = {
+  cycleId: string;
+  /** This session's own movement in the cycle: its ranges summed, idle-time movement excluded. */
+  magnitude: number;
+  magnitudeValue: string;
+  unit: SessionQuotaRange["unit"];
+  startAt: number | null;
+  ranges: SessionQuotaRange[];
+};
+
+export type SessionQuotaImpact = {
+  resource: SessionQuotaContext["resources"][number];
+  /** Ranges that moved, oldest first. */
+  ranges: SessionQuotaRange[];
+  /** The same ranges grouped by window cycle; more than one means the window reset mid-session. */
+  cycles: SessionQuotaCycleImpact[];
+};
+
+/** The quota movement worth stating for one session: windows that apply to it and moved by a
+ * displayable amount while it was active. Unmoved ranges and unmoved windows are left out. */
+export function sessionQuotaImpacts(
+  context: SessionQuotaContext | null | undefined,
+  modelsUsed: readonly string[],
+): SessionQuotaImpact[] {
+  if (!context) return [];
+  return context.resources.flatMap((resource) => {
+    if (!quotaResourceApplies(resource.id, modelsUsed)) return [];
+    if (resource.confidence === "insufficient") return [];
+    if (resource.deltaPercentagePoints === null && resource.deltaUnits === null) return [];
+    const ranges = quotaRemainingRangeItems(resource).filter((range) => range.magnitude > 0 && Number(range.magnitudeValue.replaceAll(",", "")) > 0);
+    if (!ranges.length) return [];
+    const cycles = new Map<string, SessionQuotaRange[]>();
+    for (const range of ranges) cycles.set(range.cycleId, [...(cycles.get(range.cycleId) ?? []), range]);
+    return [{
+      resource,
+      ranges,
+      cycles: [...cycles].map(([cycleId, members]) => {
+        const magnitude = members.reduce((sum, range) => sum + range.magnitude, 0);
+        const unit = members[0]!.unit;
+        return {
+          cycleId,
+          magnitude,
+          magnitudeValue: unit === "credits" ? formatWarpCredits(magnitude) : quotaNumber(magnitude),
+          unit,
+          startAt: members[0]!.startAt,
+          ranges: members,
+        };
+      }),
+    }];
+  });
+}
+
+/** `Nov 14 3:49p`. */
+export function quotaInstantLabel(at: number | null, timeZone?: string) {
+  return at === null ? null : formatCompactDate(new Date(at).toISOString(), { timeZone });
+}
+
+/** `Nov 14 3:49–5:15p`: the day once, and the am/pm marker once when both ends share it. */
+export function quotaRangeSpanLabel(range: Pick<SessionQuotaRange, "startAt" | "endAt">, timeZone?: string) {
+  const start = quotaInstantLabel(range.startAt, timeZone);
+  if (start === null || range.endAt === null || range.endAt - range.startAt! < 60_000) return start;
+  const end = quotaInstantLabel(range.endAt, timeZone)!;
+  const [startMonth, startDay, startTime] = start.split(" ");
+  const [endMonth, endDay, endTime] = end.split(" ");
+  if (startMonth !== endMonth || startDay !== endDay) return `${start}–${end}`;
+  const period = (time: string) => time.slice(-1);
+  return `${startMonth} ${startDay} ${period(startTime!) === period(endTime!) ? startTime!.slice(0, -1) : startTime}–${endTime}`;
 }
 
 export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][number]): string[] {

@@ -149,7 +149,7 @@
   white-space: nowrap;
 }
 .session-detail__quota-item b {
-  overflow: hidden;
+  flex: 0 0 auto;
   color: var(--color-text);
   font: var(--text-lg) var(--font-label);
   font-weight: var(--weight-semibold);
@@ -157,11 +157,18 @@
   text-overflow: ellipsis;
 }
 .session-detail__quota-item small {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-subtle);
   font: var(--text-2xs) var(--font-label);
   font-weight: var(--weight-regular);
   letter-spacing: .02em;
+  text-overflow: ellipsis;
+}
+.session-detail__quota-item small i {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
 }
 .diff-count strong {
   display: flex;
@@ -740,6 +747,12 @@
   align-items: flex-start;
   gap: var(--space-1);
 }
+.session-quota-context__span {
+  color: var(--color-text-subtle);
+  font: var(--text-2xs) var(--font-label);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+}
 .session-quota-context__readout,.session-quota-context__change {
   display: flex;
   align-items: baseline;
@@ -829,6 +842,11 @@
 .session-quota-context__empty {
   margin: var(--space-2-5) 0 0;
   color: var(--color-warn);
+  font: var(--text-2xs)/1.45 var(--font-label);
+}
+.session-quota-context__unchanged {
+  margin: var(--space-2-5) 0 0;
+  color: var(--color-text-muted);
   font: var(--text-2xs)/1.45 var(--font-label);
 }
 .session-quota-context__evidence {

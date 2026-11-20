@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { averageMetricSlices, currentFiveHourWindows, currentWindowSessions, effortAbsenceReason, metricRowCacheShare, observedTermini, pathFilteredRows, projectDayRows, projectModelSessionRows, projectSummaryInRange, projectTrendRowsInRange, sessionModelNames, sessionQuotaBalanceItems, sessionQuotaEvents, quotaRemainingRangeItems, quotaRemainingRanges, quotaResetBoundaries, recentSessionFloor, recentSessionRows, reportedTermini, sessionRangeLabel, shareStructure, withoutCacheMetricRow } from "./app/analytics";
+import { averageMetricSlices, currentFiveHourWindows, currentWindowSessions, effortAbsenceReason, metricRowCacheShare, observedTermini, pathFilteredRows, projectDayRows, projectModelSessionRows, projectSummaryInRange, projectTrendRowsInRange, sessionModelNames, sessionQuotaBalanceItems, sessionQuotaEvents, quotaRangeSpanLabel, quotaRemainingRangeItems, quotaRemainingRanges, quotaResetBoundaries, quotaResourceApplies, sessionQuotaImpacts, recentSessionFloor, recentSessionRows, reportedTermini, sessionRangeLabel, shareStructure, withoutCacheMetricRow } from "./app/analytics";
 import { SessionDetailPanel, SessionMixGroupBreakdown, sessionProviderMix, SessionQuotaBalanceCell } from "./components/session-detail";
 import { periodTickLabel } from "./app/format";
 import { normalizeTextScale, textScaleBounds } from "./app/preferences";
@@ -724,7 +724,8 @@ test("session quota context uses account-level, non-additive language", () => {
   // Movement reads as a remaining-quota range, not a summed attribution.
   expect(text).toContain("49.5→0.3 % remaining");
   expect(text).toContain("49.3% observed account change");
-  expect(text).toContain("49.5→0.3% 5h window");
+  // The header states the session's own change per cycle; the range moves to the tooltip.
+  expect(text).toContain("QUOTA IMPACT −49.3% 5h");
   expect(html).toContain("Closing reading: 0.3% (5h) remaining.");
   expect(html).toContain("Up to 2 other local Codex sessions overlapped");
   expect(html).toContain("account or seat-level observations");
@@ -862,7 +863,7 @@ test("a model window earns a balance row only while it diverges from the weekly 
   expect(sessionQuotaBalanceItems(context(24)).map((balance) => balance.id)).toEqual(["weekly"]);
 });
 
-test("quotaRemainingRanges splits at resets and collapses episodes inside one cycle", () => {
+test("quotaRemainingRanges splits at resets and where the counter moved while the session was idle", () => {
   const episode = (cycleId: string, startUsedPercent: number, endUsedPercent: number) => ({
     cycleId, startUsedPercent, endUsedPercent,
     deltaPercentagePoints: endUsedPercent - startUsedPercent,
@@ -870,12 +871,13 @@ test("quotaRemainingRanges splits at resets and collapses episodes inside one cy
   });
   const resource = {
     kind: "window", limitUnits: null, limitChanged: false,
-    episodes: [episode("reset:a", 75, 100), episode("reset:b", 0, 12), episode("reset:b", 14, 25)],
+    episodes: [episode("reset:a", 75, 100), episode("reset:b", 0, 12), episode("reset:b", 12, 14), episode("reset:b", 16, 25)],
   } as SessionQuotaContext["resources"][number];
 
   // A session that ran a window to exhaustion, crossed the reset, and kept going: nothing is
-  // summed across the two cycles.
-  expect(quotaRemainingRanges(resource)).toEqual(["25→0%", "100→75%"]);
+  // summed across the two cycles. Back-to-back episodes join; the 14→16 that moved while the
+  // session was idle splits the range and is not counted.
+  expect(quotaRemainingRanges(resource)).toEqual(["25→0%", "100→86%", "84→75%"]);
 });
 
 test("quotaRemainingRanges reports pool movement only when remaining units can be calculated", () => {
@@ -906,12 +908,74 @@ test("quotaRemainingRangeItems keeps the absolute movement beside each range", (
   } as SessionQuotaContext["resources"][number];
 
   expect(quotaRemainingRangeItems(resource)).toEqual([{
+    cycleId: "reset:five-hour",
     text: "67→59%",
     value: "67→59",
     unit: "%",
     magnitude: 8,
     magnitudeValue: "8",
+    startAt: null,
+    endAt: null,
   }]);
+});
+
+test("sessionQuotaImpacts drops unmoved cycles, unmoved windows, and model windows the session did not run", () => {
+  const episode = (cycleId: string, startUsedPercent: number, endUsedPercent: number, startAt: number, endAt: number) => ({
+    cycleId, startAt, endAt, startUsedPercent, endUsedPercent,
+    deltaPercentagePoints: endUsedPercent - startUsedPercent,
+    startUsedUnits: null, endUsedUnits: null, deltaUnits: null,
+  });
+  const resource = (id: string, episodes: ReturnType<typeof episode>[]) => ({
+    id, kind: "window", limitUnits: null, limitChanged: false, confidence: "high",
+    deltaPercentagePoints: episodes.reduce((sum, value) => sum + value.deltaPercentagePoints, 0), deltaUnits: null,
+    episodes,
+  });
+  const hour = 60 * 60_000;
+  const context = {
+    resources: [
+      resource("fiveHour", [
+        episode("reset:a", 3, 27, 0, hour),
+        episode("reset:a", 30, 30, 2 * hour, 3 * hour),
+        episode("reset:b", 0, 9, 6 * hour, 7 * hour),
+        episode("reset:b", 9, 16, 8 * hour, 9 * hour),
+        episode("reset:c", 4, 4, 12 * hour, 13 * hour),
+      ]),
+      resource("weekly", [episode("reset:w", 8, 14, 0, 9 * hour), episode("reset:w", 14, 14, 12 * hour, 13 * hour)]),
+      resource("model:Fable", [episode("idle:unstarted", 0, 0, 0, 13 * hour)]),
+      resource("model:Opus", [episode("reset:o", 10, 20, 0, 13 * hour)]),
+    ],
+  } as unknown as SessionQuotaContext;
+
+  const impacts = sessionQuotaImpacts(context, ["claude-sonnet-5-5"]);
+  // 27→30 moved while the session was idle, so the first cycle counts only its own 24.
+  expect(impacts.map((impact) => [impact.resource.id, impact.ranges.map((range) => range.text)])).toEqual([
+    ["fiveHour", ["97→73%", "100→84%"]],
+    ["weekly", ["92→86%"]],
+  ]);
+  expect(impacts[0]!.ranges.map((range) => [range.startAt, range.endAt])).toEqual([[0, hour], [6 * hour, 9 * hour]]);
+  expect(impacts[0]!.cycles.map((cycle) => [cycle.cycleId, cycle.magnitudeValue, cycle.startAt])).toEqual([
+    ["reset:a", "24", 0],
+    ["reset:b", "16", 6 * hour],
+  ]);
+  // An unmoved trailing episode neither adds a range nor stretches the span before it.
+  expect(impacts[1]!.ranges.map((range) => [range.startAt, range.endAt])).toEqual([[0, 9 * hour]]);
+  // A model window moves the session's story only when the session ran that model.
+  expect(sessionQuotaImpacts(context, ["claude-opus-5-5"]).map((impact) => impact.resource.id))
+    .toEqual(["fiveHour", "weekly", "model:Opus"]);
+  expect(quotaResourceApplies("model:Fable", ["claude-fable-5-1"])).toBe(true);
+  expect(quotaResourceApplies("model:Fable", [])).toBe(false);
+  expect(quotaResourceApplies("weekly", [])).toBe(true);
+});
+
+test("quotaRangeSpanLabel names the day and the am/pm marker once each", () => {
+  const at = (value: string) => Date.parse(value);
+  expect(quotaRangeSpanLabel({ startAt: at("2026-11-17T14:10:00Z"), endAt: at("2026-11-17T16:55:00Z") }, "UTC"))
+    .toBe("Nov 17 2:10–4:55p");
+  expect(quotaRangeSpanLabel({ startAt: at("2026-11-17T10:10:00Z"), endAt: at("2026-11-17T13:05:00Z") }, "UTC"))
+    .toBe("Nov 17 10:10a–1:05p");
+  expect(quotaRangeSpanLabel({ startAt: at("2026-11-17T23:40:00Z"), endAt: at("2026-11-18T01:05:00Z") }, "UTC"))
+    .toBe("Nov 17 11:40p–Nov 18 1:05a");
+  expect(quotaRangeSpanLabel({ startAt: null, endAt: null })).toBeNull();
 });
 
 test("quotaResetBoundaries reports the window that reset between two adjacent sessions", () => {

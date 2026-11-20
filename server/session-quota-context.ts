@@ -276,8 +276,13 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
         }
         const sameLimit = start.limitUnits === end.limitUnits && (start.limitUnits ?? 1) > 0;
         if (start.kind === "pool" && !sameLimit) limitChanged = true;
+        // The bracketing snapshots can sit outside the activity, so the span a cycle covers is
+        // clipped to the episode: it says when this session saw that window move.
+        const startAt = Math.max(episode.startAt, start.observedAt);
         segments.push({
           cycleId,
+          startAt,
+          endAt: Math.max(startAt, Math.min(episode.endAt, end.observedAt)),
           startUsedPercent: start.usedPercent,
           endUsedPercent: end.usedPercent,
           deltaPercentagePoints: start.kind === "pool" && !sameLimit ? null : percentDelta,

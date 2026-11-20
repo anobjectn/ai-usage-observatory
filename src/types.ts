@@ -481,6 +481,10 @@ export type SessionQuotaContext = {
     endGapMs: number | null;
     episodes: Array<{
       cycleId: string;
+      /** Activity span this segment covers, clipped to the session's episode. Absent on
+       * contexts computed before the field existed. */
+      startAt?: number;
+      endAt?: number;
       startUsedPercent: number;
       endUsedPercent: number;
       deltaPercentagePoints: number | null;
