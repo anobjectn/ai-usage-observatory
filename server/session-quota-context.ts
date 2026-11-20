@@ -276,13 +276,16 @@ export function calculateSessionQuotaContext(input: ContextPolicyInput): Session
         }
         const sameLimit = start.limitUnits === end.limitUnits && (start.limitUnits ?? 1) > 0;
         if (start.kind === "pool" && !sameLimit) limitChanged = true;
-        // The bracketing snapshots can sit outside the activity, so the span a cycle covers is
-        // clipped to the episode: it says when this session saw that window move.
+        // The bracketing snapshots can sit outside the activity, so the segment keeps both spans:
+        // the activity it covers, clipped to the episode, and the readings that measured it. The
+        // counter may have moved anywhere between those readings, idle time included.
         const startAt = Math.max(episode.startAt, start.observedAt);
         segments.push({
           cycleId,
           startAt,
           endAt: Math.max(startAt, Math.min(episode.endAt, end.observedAt)),
+          observedStartAt: start.observedAt,
+          observedEndAt: end.observedAt,
           startUsedPercent: start.usedPercent,
           endUsedPercent: end.usedPercent,
           deltaPercentagePoints: start.kind === "pool" && !sameLimit ? null : percentDelta,

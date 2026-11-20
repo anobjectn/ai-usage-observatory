@@ -485,6 +485,11 @@ export type SessionQuotaContext = {
        * contexts computed before the field existed. */
       startAt?: number;
       endAt?: number;
+      /** The snapshots that measured this segment. Bracketing readings can sit before and after
+       * the activity, so movement between them may include idle time. Absent on contexts
+       * computed before the field existed. */
+      observedStartAt?: number;
+      observedEndAt?: number;
       startUsedPercent: number;
       endUsedPercent: number;
       deltaPercentagePoints: number | null;

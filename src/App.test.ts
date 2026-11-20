@@ -880,7 +880,7 @@ test("quotaRemainingRanges splits at resets and where the counter moved while th
   expect(quotaRemainingRanges(resource)).toEqual(["25→0%", "100→86%", "84→75%"]);
 });
 
-test("quotaRemainingRanges reports pool movement only when remaining units can be calculated", () => {
+test("quotaRemainingRanges reads the used counter when remaining pool units cannot be calculated", () => {
   const resource = (limitChanged: boolean) => ({
     kind: "pool", limitUnits: 1_500, limitChanged,
     episodes: [{
@@ -890,7 +890,8 @@ test("quotaRemainingRanges reports pool movement only when remaining units can b
   }) as SessionQuotaContext["resources"][number];
 
   expect(quotaRemainingRanges(resource(false))).toEqual(["1,350→1,200 credits"]);
-  expect(quotaRemainingRanges(resource(true))).toEqual([]);
+  // A changed limit leaves no single remaining figure, but the movement itself is still known.
+  expect(quotaRemainingRanges(resource(true))).toEqual(["150→300 credits used"]);
 });
 
 test("quotaRemainingRangeItems keeps the absolute movement beside each range", () => {
@@ -912,10 +913,14 @@ test("quotaRemainingRangeItems keeps the absolute movement beside each range", (
     text: "67→59%",
     value: "67→59",
     unit: "%",
+    measure: "remaining",
     magnitude: 8,
     magnitudeValue: "8",
     startAt: null,
     endAt: null,
+    observedStartAt: null,
+    observedEndAt: null,
+    bracketed: false,
   }]);
 });
 

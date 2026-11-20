@@ -60,6 +60,11 @@ describe("session quota policy", () => {
       [10 * 60_000, 14 * 60_000],
       [16 * 60_000, 20 * 60_000],
     ]);
+    // The readings that measured each cycle are kept too: the bracket starts before the activity.
+    expect(result.resources[0]?.episodes.map(({ observedStartAt, observedEndAt }) => [observedStartAt, observedEndAt])).toEqual([
+      [9 * 60_000, 14 * 60_000],
+      [16 * 60_000, 21 * 60_000],
+    ]);
   });
 
   test("anchors a fresh cycle to the unstarted window that preceded it", () => {

@@ -36,7 +36,7 @@ import type {
 } from "../types";
 import { sessionHref } from "../app/preferences";
 import { formatPromptTimestamp, formatWarpCredits, formatCompact } from "../app/format";
-import { sessionQuotaBalanceItems, quotaInstantLabel, quotaNumber, quotaRangeSpanLabel, quotaRemainingRangeItems, quotaResourceApplies, sessionQuotaImpacts } from "../app/analytics";
+import { sessionQuotaBalanceItems, quotaInstantLabel, quotaNumber, quotaRangeReadingSpanLabel, quotaResourceApplies, sessionQuotaImpacts } from "../app/analytics";
 
 type SessionDetailColumnKey =
   | "prompt"
@@ -505,8 +505,8 @@ function quotaImpactSummary(context: SessionQuotaContext | null | undefined, mod
     const label = quotaResourceCompactLabel(resource.id);
     const when = cycles.length > 1 ? quotaInstantLabel(cycle.startAt) : null;
     const ranges = cycle.ranges.map((range) => {
-      const span = quotaRangeSpanLabel(range);
-      return `${range.text}${span ? ` ${span}` : ""}`;
+      const span = quotaRangeReadingSpanLabel(range);
+      return `${range.text}${range.measure === "remaining" ? " remaining" : ""}${span ? ` between readings at ${span}` : ""}`;
     });
     return {
       label,
@@ -514,9 +514,12 @@ function quotaImpactSummary(context: SessionQuotaContext | null | undefined, mod
       change: `−${cycle.magnitudeValue}${cycle.unit === "%" ? "%" : ""}`,
       title: [
         `${quotaResourceLabel(resource.id)}${cycles.length > 1 ? ", one cycle of several: the window reset in between" : ""}.`,
-        `Remaining while this session was active: ${ranges.join(", ")}.`,
-        "Movement while the session was idle is left out.",
-      ].join(" "),
+        `${ranges.join(", ")}.`,
+        "Movement between this session's separate activity spans is left out.",
+        cycle.bracketed
+          ? "Bracketed estimate: the readings extend past this session's activity, so part of this movement may have happened while it was idle."
+          : null,
+      ].filter(Boolean).join(" "),
     };
   }));
 }
@@ -549,15 +552,17 @@ export function SessionQuotaContextPanel({
   const impacts = sessionQuotaImpacts(context, modelsUsed);
   const impactsById = new Map(impacts.map((impact) => [impact.resource.id, impact]));
   // A model window the session never ran is not part of its story; a window that resolved
-  // without moving is named once rather than given a row of zeros.
+  // without moving is named once rather than given a row of zeros. A window with a caveat keeps
+  // its row, because a zero so far says nothing about the part still awaiting a reading.
   const applicable = context.resources.filter((resource) => quotaResourceApplies(resource.id, modelsUsed));
   const unchanged = applicable.filter((resource) => resource.confidence !== "insufficient"
     && (resource.deltaPercentagePoints !== null || resource.deltaUnits !== null)
+    && resource.reason === null
     && !impactsById.has(resource.id));
   const shown = applicable.filter((resource) => !unchanged.includes(resource));
   const observedChanges = impacts.flatMap(({ resource, ranges }) => ranges.map((range) => ({
     label: quotaResourceLabel(resource.id),
-    span: ranges.length > 1 ? quotaRangeSpanLabel(range) : null,
+    span: ranges.length > 1 ? quotaRangeReadingSpanLabel(range) : null,
     magnitudeValue: range.magnitudeValue,
     unit: range.unit,
   })));
@@ -574,31 +579,33 @@ export function SessionQuotaContextPanel({
         <div className="session-quota-context__resources">
           {shown.map((resource) => {
             const impact = impactsById.get(resource.id);
-            const ranges = impact?.ranges ?? quotaRemainingRangeItems(resource);
+            const ranges = impact?.ranges ?? [];
             const blanked = resource.deltaPercentagePoints === null && resource.deltaUnits === null;
             const movement = resource.confidence === "insufficient"
               ? "Unresolved"
-              : blanked || !ranges.length
+              : blanked
                 ? "Movement unavailable"
-                : "";
+                : !ranges.length
+                  ? "No measurable change in resolved readings"
+                  : "";
             return (
               <div key={resource.id} className={`is-${resource.confidence}`}>
                 <span>{quotaResourceLabel(resource.id)}</span>
-                <strong className="session-quota-context__movement" title={resource.confidence === "insufficient" || blanked ? undefined : "Remaining account quota while this session was active, oldest first. A jump back up is a window reset; a range also splits where the counter moved while this session was idle. Nothing is summed across resets."}>
+                <strong className="session-quota-context__movement" title={resource.confidence === "insufficient" || blanked || !ranges.length ? undefined : `Account quota across the readings that bracket this session's activity, oldest first. A jump back up is a window reset; a range also splits where the counter moved between this session's activity spans. Nothing is summed across resets.${ranges.some((range) => range.bracketed) ? " A bracketed estimate's readings extend past the activity, so part of its movement may have happened while the session was idle." : ""}`}>
                   {ranges.length > 0 && resource.confidence !== "insufficient" && !blanked ? ranges.map((range, index) => (
                     <span className="session-quota-context__range" key={`${resource.id}-${index}-${range.text}`}>
-                      {ranges.length > 1 && quotaRangeSpanLabel(range) && (
-                        <small className="session-quota-context__span">{quotaRangeSpanLabel(range)}</small>
+                      {ranges.length > 1 && quotaRangeReadingSpanLabel(range) && (
+                        <small className="session-quota-context__span">{quotaRangeReadingSpanLabel(range)}</small>
                       )}
                       <span className="session-quota-context__readout">
                         <b>{range.value}</b>
                         <i>{range.unit}</i>
-                        <em>remaining</em>
+                        <em>{range.measure}</em>
                       </span>
                       <span className="session-quota-context__change">
                         <b>{range.magnitudeValue}{range.unit === "%" ? "%" : ""}</b>
                         {range.unit !== "%" && <i>{range.unit}</i>}
-                        <small>observed account change</small>
+                        <small>{range.bracketed ? "bracketed estimate" : "observed account change"}</small>
                       </span>
                     </span>
                   )) : movement}
@@ -682,8 +689,10 @@ export function SessionQuotaContextPanel({
           activity is unknown; overlapping sessions observe the same shared counter, so values are never additive.
           Ranges show remaining quota, oldest cycle first: 25→0%, 100→75% means the account counter fell from 25% to 0%
           remaining, the window reset, then fell from 100% to 75% while this session was active. A range splits where
-          the counter moved while this session was idle, and that movement is left out. Several ranges for one window
-          are dated with the activity span each covers. Nothing is summed across resets. Windows that did not move,
+          the counter moved between this session's activity spans, and that movement is left out. A bracketed estimate
+          comes from readings taken before and after the activity, so part of its movement may have happened while the
+          session was idle. Several ranges for one window are dated with the readings that measured each. A pool whose
+          limit changed reads its used credits instead of remaining credits. Nothing is summed across resets. Windows that did not move,
           and model windows for models this session did not use, are left out. {context.basis === "embedded_account_observation"
             ? "The closing balance uses the last embedded account reading during this session's activity."
             : "The closing balance uses the first account snapshot after this session's last activity."}
