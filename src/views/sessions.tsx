@@ -34,10 +34,12 @@ import {
   sessionHref,
   userScrollCancelWindowMs,
   autoScrollDelayMs,
+  normalizeSessionPageSize,
   pageAfterResize,
   savedSessionPageSize,
   saveSessionPageSize,
   sessionPageSizeOptions,
+  type SessionPageSize,
 } from "../app/preferences";
 import { formatCompact, DateStamp, SessionDateStamp, formatWarpCredits, formatMoney } from "../app/format";
 import {
@@ -237,7 +239,7 @@ export function Sessions({
     if (pageQuotaKey) requestQuota(pageQuotaKey.split("\n"));
   }, [pageQuotaKey, requestQuota]);
   useEffect(() => setPage((current) => Math.min(current, pages)), [pages]);
-  const changePageSize = (next: number) => {
+  const changePageSize = (next: SessionPageSize) => {
     setPage(pageAfterResize(page, pageSize, next));
     setPageSize(next);
     saveSessionPageSize(next);
@@ -777,7 +779,7 @@ export function Sessions({
               <span>Rows</span>
               <select
                 value={pageSize}
-                onChange={(event) => changePageSize(Number(event.target.value))}
+                onChange={(event) => changePageSize(normalizeSessionPageSize(event.target.value))}
                 aria-label="Rows per page"
               >
                 {sessionPageSizeOptions.map((size) => (

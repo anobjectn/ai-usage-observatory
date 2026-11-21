@@ -1521,6 +1521,10 @@
   gap: var(--space-3);
 }
 
+.session-page-summary>span {
+  white-space: nowrap;
+}
+
 .session-page-size {
   height: var(--control-height-sm);
   padding-left: var(--space-2);
