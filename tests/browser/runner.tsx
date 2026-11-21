@@ -84,6 +84,46 @@ await test("a failed dashboard request keeps the view and recovers on retry", as
   click(".connection-banner button");
   await waitFor(() => !document.querySelector(".connection-banner"), "Retry did not recover");
 });
+// Two refreshes overlap: the first one's dashboard read is held, and the second finishes first.
+// The banner must follow the newer request whichever way the two turn out.
+async function overlappingRefreshes(first: "fail" | "pass", second: "fail" | "pass") {
+  const originalFetch = window.fetch;
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let reads = 0;
+  let finished = 0;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input !== "/api/dashboard") return originalFetch(input, init);
+    const read = ++reads;
+    // No ETag, so a passing read returns a body rather than a 304.
+    const response = await originalFetch(input, { ...init, headers: {} });
+    if (read === 1) await firstHeld;
+    finished += 1;
+    return (read === 1 ? first : second) === "fail" ? Response.json({ error: "Fixture read failed" }, { status: 503 }) : response;
+  }) as typeof window.fetch;
+  try {
+    click(".refresh-button");
+    await waitFor(() => reads === 1, "The first refresh did not read the dashboard");
+    click(".refresh-button");
+    await waitFor(() => finished === 1, "The second refresh did not finish");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    releaseFirst();
+    await waitFor(() => finished === 2, "The first refresh did not finish");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  } finally {
+    window.fetch = originalFetch;
+    releaseFirst();
+  }
+}
+await test("a slow older dashboard request does not decide the connection banner", async () => {
+  await waitFor(() => !document.querySelector(".connection-banner"), "The banner was up before the check");
+  await overlappingRefreshes("fail", "pass");
+  assert(!document.querySelector(".connection-banner"), "An older failed request raised the banner after a newer one succeeded");
+  await overlappingRefreshes("pass", "fail");
+  assert(document.querySelector(".connection-banner"), "An older successful request cleared the banner a newer failure raised");
+  click(".connection-banner button");
+  await waitFor(() => !document.querySelector(".connection-banner"), "Retry did not recover");
+});
 await test("annotations survive save, remount, and keyboard dismissal", async () => {
   click('aside nav button[aria-label="Sessions"]');
   await waitFor(() => Boolean(document.querySelector('[aria-label="Edit annotation"]')), "Fixture session did not appear");
