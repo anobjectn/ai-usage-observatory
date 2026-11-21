@@ -5,6 +5,44 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.0] - 2026-11-21
+
+### Added
+
+- Choose how many rows each Sessions page shows: 10, 15, 25, 50, or 100. The
+  choice is remembered, and changing it keeps the current first row in view.
+- Link to the FrontierCode benchmark from the top bar, the narrow-screen More
+  menu, and the benchmark viewer. It opens in a new tab because the site
+  refuses to be framed.
+- Read Cline usage from ccusage. Cline sessions appear under the Other agent
+  scope.
+
+### Changed
+
+- Upgrade ccusage to 20.0.51. The cost split now uses ccusage's reported
+  1-hour cache writes, and the footnote states that share instead of an
+  estimate.
+
+### Fixed
+
+- Show only the quota impact a session actually made. Model windows the
+  session never used, and windows that did not move, are left out. Each window
+  cycle gets one compact line, with exact ranges in the tooltip. Movement while
+  the session was idle no longer counts toward it.
+- Keep session quota readings honest. Ranges whose readings extend past the
+  activity are marked as estimates. A Warp pool's movement shows even when its
+  limit changed. Small amounts are no longer dropped in locales such as French.
+- Match model windows by family name, so `Opus 4.x` finds `claude-opus-4-5`,
+  and apply the same filtering in the Sessions table's quota cell.
+- Sessions search matches the full note and the full session ID, ignoring case
+  and extra spaces. Changing the search or effort filter returns to page one.
+- Rating a session no longer hides a note or tags saved after it.
+- Quota events between two Sessions pages show once, at the top of the later
+  page, in either sort direction.
+- A slow, outdated dashboard request can no longer overwrite newer data or
+  raise a false "request to the local server failed" banner. The Collecting
+  indicator stays up until the last refresh finishes.
+
 ## [1.38.0] - 2026-11-10
 
 ### Changed
@@ -403,6 +441,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.39.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.35.0...v1.36.0
