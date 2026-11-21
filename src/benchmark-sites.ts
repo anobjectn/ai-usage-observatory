@@ -19,6 +19,18 @@ export const BENCHMARK_SITES = [
 
 export type BenchmarkSiteId = (typeof BENCHMARK_SITES)[number]["id"];
 
+/** Benchmark pages that refuse framing, so the app only links to them in a new tab. Kept apart
+ * from `BENCHMARK_SITES`: they are never framed, probed, or allowed by the CSP. */
+export const BENCHMARK_LINKS = [
+  {
+    id: "frontiercode",
+    label: "FrontierCode",
+    url: "https://cognition.com/frontiercode",
+    favicon: "/benchmarks/frontiercode.svg",
+    description: "Cognition's coding benchmark: would a maintainer merge the PR? Score vs cost across reasoning efforts.",
+  },
+] as const;
+
 /** One site's last probe. `unreachable` only dims the site's icon: the site still opens, since a
  * probe can fail where a browser would not. */
 export type BenchmarkSiteStatus = {
