@@ -436,12 +436,14 @@ export function SessionQuotaBalanceCell({
   context,
   loading,
   provider,
+  modelsUsed,
 }: {
   context: SessionQuotaContext | null | undefined;
   loading: boolean;
   provider: ActivityProvider | null;
+  modelsUsed: readonly string[];
 }) {
-  const balances = sessionQuotaBalanceItems(context);
+  const balances = sessionQuotaBalanceItems(context).filter((balance) => quotaResourceApplies(balance.id, modelsUsed));
   const providerClass = provider ?? "unknown";
   if (loading) return <span className={`session-quota-balance ${providerClass} is-loading`} aria-label="Loading remaining quota">•••</span>;
   if (!balances.length) {
@@ -512,10 +514,12 @@ function quotaImpactSummary(context: SessionQuotaContext | null | undefined, mod
       label,
       when,
       change: `−${cycle.magnitudeValue}${cycle.unit === "%" ? "%" : ""}`,
+      // A percentage carries its sign; credits name their unit beside the window.
+      unit: cycle.unit === "%" ? null : cycle.unit,
       title: [
         `${quotaResourceLabel(resource.id)}${cycles.length > 1 ? ", one cycle of several: the window reset in between" : ""}.`,
         `${ranges.join(", ")}.`,
-        "Movement between this session's separate activity spans is left out.",
+        cycle.activitySpans > 1 ? "Movement between this session's separate activity spans is left out." : null,
         cycle.bracketed
           ? "Bracketed estimate: the readings extend past this session's activity, so part of this movement may have happened while it was idle."
           : null,
@@ -592,23 +596,24 @@ export function SessionQuotaContextPanel({
               <div key={resource.id} className={`is-${resource.confidence}`}>
                 <span>{quotaResourceLabel(resource.id)}</span>
                 <strong className="session-quota-context__movement" title={resource.confidence === "insufficient" || blanked || !ranges.length ? undefined : `Account quota across the readings that bracket this session's activity, oldest first. A jump back up is a window reset; a range also splits where the counter moved between this session's activity spans. Nothing is summed across resets.${ranges.some((range) => range.bracketed) ? " A bracketed estimate's readings extend past the activity, so part of its movement may have happened while the session was idle." : ""}`}>
-                  {ranges.length > 0 && resource.confidence !== "insufficient" && !blanked ? ranges.map((range, index) => (
-                    <span className="session-quota-context__range" key={`${resource.id}-${index}-${range.text}`}>
-                      {ranges.length > 1 && quotaRangeReadingSpanLabel(range) && (
-                        <small className="session-quota-context__span">{quotaRangeReadingSpanLabel(range)}</small>
-                      )}
-                      <span className="session-quota-context__readout">
-                        <b>{range.value}</b>
-                        <i>{range.unit}</i>
-                        <em>{range.measure}</em>
+                  {ranges.length > 0 && resource.confidence !== "insufficient" && !blanked ? ranges.map((range, index) => {
+                    const span = ranges.length > 1 ? quotaRangeReadingSpanLabel(range) : null;
+                    return (
+                      <span className="session-quota-context__range" key={`${resource.id}-${index}-${range.text}`}>
+                        {span && <small className="session-quota-context__span">{span}</small>}
+                        <span className="session-quota-context__readout">
+                          <b>{range.value}</b>
+                          <i>{range.unit}</i>
+                          <em>{range.measure}</em>
+                        </span>
+                        <span className="session-quota-context__change">
+                          <b>{range.magnitudeValue}{range.unit === "%" ? "%" : ""}</b>
+                          {range.unit !== "%" && <i>{range.unit}</i>}
+                          <small>{range.bracketed ? "bracketed estimate" : "observed account change"}</small>
+                        </span>
                       </span>
-                      <span className="session-quota-context__change">
-                        <b>{range.magnitudeValue}{range.unit === "%" ? "%" : ""}</b>
-                        {range.unit !== "%" && <i>{range.unit}</i>}
-                        <small>{range.bracketed ? "bracketed estimate" : "observed account change"}</small>
-                      </span>
-                    </span>
-                  )) : movement}
+                    );
+                  }) : movement}
                 </strong>
                 <small>
                   {resource.confidence === "insufficient"
@@ -947,7 +952,7 @@ export function SessionDetailPanel({
               {quotaSummary.map((item, index) => (
                 <span className="session-detail__quota-item" key={`${item.label}-${index}`} title={item.title}>
                   <b>{item.change}</b>
-                  <small>{item.label}{item.when ? <i> {item.when}</i> : null}</small>
+                  <small>{item.unit ? `${item.unit} ` : null}{item.label}{item.when ? <i> {item.when}</i> : null}</small>
                 </span>
               ))}
             </strong>

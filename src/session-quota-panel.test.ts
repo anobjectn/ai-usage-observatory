@@ -45,6 +45,20 @@ describe("session quota impact panel", () => {
     expect(render(result)).toContain("bracketed estimate");
   });
 
+  test("does not call readings within a minute of the activity a bracketed estimate", () => {
+    const second = 1_000;
+    const result = context({
+      episodes: [{ startAt: 10 * minute, endAt: 12 * minute }],
+      points: [
+        { ...windowPoint(0, 10), observedAt: 10 * minute - 5 * second },
+        { ...windowPoint(0, 20), observedAt: 12 * minute + 30 * second },
+      ],
+    });
+    const [range] = sessionQuotaImpacts(result, [])[0]!.ranges;
+    expect(range!.bracketed).toBe(false);
+    expect(render(result)).toContain("observed account change");
+  });
+
   test("keeps Warp credit movement visible when the pool limit changed", () => {
     const result = context({
       provider: "warp",

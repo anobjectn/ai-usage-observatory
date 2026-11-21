@@ -575,6 +575,7 @@ export function Sessions({
                           context={quotaContexts[session.sessionId]}
                           loading={!Object.hasOwn(quotaContexts, session.sessionId)}
                           provider={sessionProvider ?? quotaContexts[session.sessionId]?.provider ?? null}
+                          modelsUsed={session.modelsUsed}
                         />
                       )}
                     </td>

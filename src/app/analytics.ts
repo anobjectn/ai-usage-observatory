@@ -20,7 +20,7 @@ import type {
 } from "../types";
 import { aggregateModels } from "../model-aggregation";
 import { type Metric, type ProjectSummary } from "./preferences";
-import { providerKey, formatCompact, formatCompactDate, providerSeries, formatDuration, formatWarpCredits } from "./format";
+import { providerKey, compactDateParts, formatCompact, formatCompactDate, providerSeries, formatDuration, formatWarpCredits } from "./format";
 
 const fiveHoursMs = 5 * 60 * 60 * 1_000;
 
@@ -1201,6 +1201,9 @@ export function quotaDisplayedMagnitude(magnitude: number, unit: SessionQuotaRan
   return Math.round(magnitude * scale) / scale;
 }
 
+/** Readings within a minute of the activity they measure leave no idle time worth flagging. */
+const quotaBracketToleranceMs = 60_000;
+
 export function quotaRemainingRangeItems(resource: SessionQuotaContext["resources"][number]): SessionQuotaRange[] {
   const runs: Array<{
     cycleId: string;
@@ -1214,17 +1217,25 @@ export function quotaRemainingRangeItems(resource: SessionQuotaContext["resource
     observedEndAt: number | null;
     bracketed: boolean;
   }> = [];
+  // A pool's percent is units over the limit, so a limit change moves it while no credit moved;
+  // its units are the counter. A window has only its percent.
+  const counted = resource.kind === "pool"
+    && resource.episodes.every((episode) => episode.startUsedUnits !== null && episode.endUsedUnits !== null);
+  const counter = (episode: (typeof resource.episodes)[number], end: "start" | "end") => counted
+    ? (end === "start" ? episode.startUsedUnits! : episode.endUsedUnits!)
+    : (end === "start" ? episode.startUsedPercent : episode.endUsedPercent);
   for (const episode of resource.episodes) {
     // An episode that moved nothing adds no range, and joining it would stretch a neighbour's
     // span over time in which this session moved nothing. Skipping it keeps contiguity honest:
     // idle movement on either side still leaves the ends mismatched.
-    if (episode.startUsedPercent === episode.endUsedPercent && episode.startUsedUnits === episode.endUsedUnits) continue;
-    const bracketed = (episode.observedStartAt !== undefined && episode.startAt !== undefined && episode.observedStartAt < episode.startAt)
-      || (episode.observedEndAt !== undefined && episode.endAt !== undefined && episode.observedEndAt > episode.endAt);
+    if (counter(episode, "start") === counter(episode, "end")) continue;
+    const bracketed = (episode.observedStartAt !== undefined && episode.startAt !== undefined
+      && episode.startAt - episode.observedStartAt > quotaBracketToleranceMs)
+      || (episode.observedEndAt !== undefined && episode.endAt !== undefined
+        && episode.observedEndAt - episode.endAt > quotaBracketToleranceMs);
     const last = runs.at(-1);
     const contiguous = last?.cycleId === episode.cycleId
-      && last.end === episode.startUsedPercent
-      && last.endUnits === episode.startUsedUnits;
+      && (counted ? last.endUnits : last.end) === counter(episode, "start");
     if (last && contiguous) {
       last.end = episode.endUsedPercent;
       last.endUnits = episode.endUsedUnits;
@@ -1289,12 +1300,22 @@ export function quotaRemainingRangeItems(resource: SessionQuotaContext["resource
 
 const quotaModelKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+const quotaModelWords = (value: string) => value.toLowerCase().split(/[^a-z]+/).filter((word) => word.length >= 3);
+
 /** A model-specific window (`model:Fable`) belongs to a session only when the session ran that
- * model; the account-wide windows always do. */
+ * model; the account-wide windows always do. A window names the family loosely (`Opus 4.x`), so
+ * it matches by its whole name or by its words, versions aside. A session whose models are
+ * unknown keeps every window, since nothing shows it did not run one. */
 export function quotaResourceApplies(id: string, modelsUsed: readonly string[]) {
-  if (!id.startsWith("model:")) return true;
-  const family = quotaModelKey(id.slice("model:".length));
-  return family.length > 0 && modelsUsed.some((model) => quotaModelKey(model).includes(family));
+  if (!id.startsWith("model:") || !modelsUsed.length) return true;
+  const name = id.slice("model:".length);
+  const family = quotaModelKey(name);
+  const words = quotaModelWords(name);
+  return modelsUsed.some((model) => {
+    if (family.length > 0 && quotaModelKey(model).includes(family)) return true;
+    const modelWords = quotaModelWords(model);
+    return words.length > 0 && words.every((word) => modelWords.includes(word));
+  });
 }
 
 export type SessionQuotaCycleImpact = {
@@ -1306,6 +1327,8 @@ export type SessionQuotaCycleImpact = {
   startAt: number | null;
   /** Some readings in this cycle extend past the activity they measured. */
   bracketed: boolean;
+  /** The session's activity spans in this cycle; movement between them is left out. */
+  activitySpans: number;
   ranges: SessionQuotaRange[];
 };
 
@@ -1331,7 +1354,11 @@ export function sessionQuotaImpacts(
     const ranges = quotaRemainingRangeItems(resource).filter((range) => quotaDisplayedMagnitude(range.magnitude, range.unit) > 0);
     if (!ranges.length) return [];
     const cycles = new Map<string, SessionQuotaRange[]>();
-    for (const range of ranges) cycles.set(range.cycleId, [...(cycles.get(range.cycleId) ?? []), range]);
+    for (const range of ranges) {
+      const members = cycles.get(range.cycleId);
+      if (members) members.push(range);
+      else cycles.set(range.cycleId, [range]);
+    }
     return [{
       resource,
       ranges,
@@ -1345,6 +1372,7 @@ export function sessionQuotaImpacts(
           unit,
           startAt: members[0]!.startAt,
           bracketed: members.some((range) => range.bracketed),
+          activitySpans: resource.episodes.filter((episode) => episode.cycleId === cycleId).length,
           ranges: members,
         };
       }),
@@ -1359,14 +1387,15 @@ export function quotaInstantLabel(at: number | null, timeZone?: string) {
 
 /** `Nov 14 3:49–5:15p`: the day once, and the am/pm marker once when both ends share it. */
 export function quotaRangeSpanLabel(range: Pick<SessionQuotaRange, "startAt" | "endAt">, timeZone?: string) {
-  const start = quotaInstantLabel(range.startAt, timeZone);
-  if (start === null || range.endAt === null || range.endAt - range.startAt! < 60_000) return start;
-  const end = quotaInstantLabel(range.endAt, timeZone)!;
-  const [startMonth, startDay, startTime] = start.split(" ");
-  const [endMonth, endDay, endTime] = end.split(" ");
-  if (startMonth !== endMonth || startDay !== endDay) return `${start}–${end}`;
-  const period = (time: string) => time.slice(-1);
-  return `${startMonth} ${startDay} ${period(startTime!) === period(endTime!) ? startTime!.slice(0, -1) : startTime}–${endTime}`;
+  if (range.startAt === null) return null;
+  const start = compactDateParts(new Date(range.startAt).toISOString(), timeZone);
+  const startLabel = `${start.day} ${start.time}${start.period}`;
+  if (range.endAt === null) return startLabel;
+  const end = compactDateParts(new Date(range.endAt).toISOString(), timeZone);
+  const endLabel = `${end.day} ${end.time}${end.period}`;
+  if (startLabel === endLabel) return startLabel;
+  if (start.day !== end.day) return `${startLabel}–${endLabel}`;
+  return `${start.day} ${start.time}${start.period === end.period ? "" : start.period}–${end.time}${end.period}`;
 }
 
 /** The span of the readings that measured a range, which is what its movement is known to fall

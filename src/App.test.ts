@@ -839,11 +839,30 @@ test("session quota balance values carry the session provider class", () => {
       context,
       loading: false,
       provider: "codex",
+      modelsUsed: ["gpt-test"],
     }),
   );
 
   expect(html).toContain('class="session-quota-balance codex"');
   expect(html).toContain("<b>71%</b><i>5h</i>");
+});
+
+test("the session quota balance leaves out model windows the session did not run, as the detail panel does", () => {
+  const context = {
+    provider: "anthropic",
+    basis: "bracketed_account_delta",
+    coverage: { observationCadenceMs: 60_000 },
+    resources: [
+      { id: "weekly", kind: "window", endUsedPercent: 24, endUsedUnits: null, limitUnits: null, endGapMs: 0 },
+      { id: "model:Opus", kind: "window", endUsedPercent: 60, endUsedUnits: null, limitUnits: null, endGapMs: 0 },
+    ],
+  } as SessionQuotaContext;
+  const cell = (modelsUsed: string[]) => renderToStaticMarkup(
+    createElement(SessionQuotaBalanceCell, { context, loading: false, provider: "anthropic", modelsUsed }),
+  );
+
+  expect(cell(["claude-sonnet-5-5"])).not.toContain("Opus");
+  expect(cell(["claude-opus-5-5"])).toContain("<b>40%</b><i>Opus</i>");
 });
 
 test("a model window earns a balance row only while it diverges from the weekly reading", () => {
@@ -968,8 +987,33 @@ test("sessionQuotaImpacts drops unmoved cycles, unmoved windows, and model windo
   expect(sessionQuotaImpacts(context, ["claude-opus-5-5"]).map((impact) => impact.resource.id))
     .toEqual(["fiveHour", "weekly", "model:Opus"]);
   expect(quotaResourceApplies("model:Fable", ["claude-fable-5-1"])).toBe(true);
-  expect(quotaResourceApplies("model:Fable", [])).toBe(false);
+  expect(quotaResourceApplies("model:Fable", ["claude-opus-5-5"])).toBe(false);
+  // A loosely named window still finds its family, versions aside.
+  expect(quotaResourceApplies("model:Opus 4.x", ["claude-opus-4-5"])).toBe(true);
+  expect(quotaResourceApplies("model:gpt-5.5", ["gpt-5.5-codex"])).toBe(true);
+  // Unknown models rule nothing out.
+  expect(quotaResourceApplies("model:Fable", [])).toBe(true);
   expect(quotaResourceApplies("weekly", [])).toBe(true);
+});
+
+test("quotaRemainingRangeItems follows a pool's credits, not its percent, across a limit change", () => {
+  const episode = (startUsedUnits: number, endUsedUnits: number, limit: number, startAt: number, endAt: number) => ({
+    cycleId: "reset:monthly", startAt, endAt,
+    startUsedPercent: startUsedUnits / limit * 100, endUsedPercent: endUsedUnits / limit * 100,
+    deltaPercentagePoints: null, startUsedUnits, endUsedUnits, deltaUnits: endUsedUnits - startUsedUnits,
+  });
+  const resource = {
+    kind: "pool", limitUnits: 2_000, limitChanged: true,
+    episodes: [
+      episode(100, 120, 1_500, 0, 10),
+      // No credit moved here, though the percent did when the limit rose.
+      episode(120, 120, 2_000, 20, 30),
+      episode(120, 140, 2_000, 40, 50),
+    ],
+  } as unknown as SessionQuotaContext["resources"][number];
+
+  expect(quotaRemainingRangeItems(resource).map((range) => [range.text, range.startAt, range.endAt]))
+    .toEqual([["100→140 credits used", 0, 50]]);
 });
 
 test("quotaRangeSpanLabel names the day and the am/pm marker once each", () => {
@@ -980,6 +1024,11 @@ test("quotaRangeSpanLabel names the day and the am/pm marker once each", () => {
     .toBe("Nov 17 10:10a–1:05p");
   expect(quotaRangeSpanLabel({ startAt: at("2026-11-17T23:40:00Z"), endAt: at("2026-11-18T01:05:00Z") }, "UTC"))
     .toBe("Nov 17 11:40p–Nov 18 1:05a");
+  // Ends in different minutes keep both, however close; one minute is named once.
+  expect(quotaRangeSpanLabel({ startAt: at("2026-11-17T14:10:59Z"), endAt: at("2026-11-17T14:11:30Z") }, "UTC"))
+    .toBe("Nov 17 2:10–2:11p");
+  expect(quotaRangeSpanLabel({ startAt: at("2026-11-17T14:10:05Z"), endAt: at("2026-11-17T14:10:50Z") }, "UTC"))
+    .toBe("Nov 17 2:10p");
   expect(quotaRangeSpanLabel({ startAt: null, endAt: null })).toBeNull();
 });
 

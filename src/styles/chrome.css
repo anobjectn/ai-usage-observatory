@@ -1967,6 +1967,12 @@ main {
   margin-top: var(--space-4-5);
 }
 
+/* Only the embedded sites are tabs; the outbound links sit beside the tab list, not in it. */
+.benchmark-tabs__list {
+  display: flex;
+  gap: var(--space-2);
+}
+
 .benchmark-tabs :is(button,a) {
   display: flex;
   align-items: center;

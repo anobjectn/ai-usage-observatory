@@ -830,6 +830,7 @@ export function Overview({
                           )
                         }
                         provider={providerFromAgent(session.agent)}
+                        modelsUsed={session.modelsUsed}
                       />
                     </span>
                     <span className="recent-session__activity">

@@ -1095,24 +1095,26 @@ export function BenchmarkModal({
         </button>
         <span className="overline">EXTERNAL BENCHMARKS</span>
         <h2 id="benchmark-title">Compare cost and efficiency</h2>
-        <div className="benchmark-tabs" role="tablist">
-          {BENCHMARK_SITES.map((entry) => {
-            const unreachable = siteStatus[entry.id]?.state === "unreachable";
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                role="tab"
-                aria-selected={entry.id === siteId}
-                className={entry.id === siteId ? "active" : ""}
-                onClick={() => chooseSite(entry.id)}
-                title={unreachable ? benchmarkSiteTitle(entry.label, siteStatus[entry.id]) : undefined}
-              >
-                <img className={benchmarkFaviconClass(entry.id, unreachable)} src={entry.favicon} alt="" loading="lazy" />
-                {entry.label}
-              </button>
-            );
-          })}
+        <div className="benchmark-tabs">
+          <div className="benchmark-tabs__list" role="tablist" aria-label="Embedded benchmarks">
+            {BENCHMARK_SITES.map((entry) => {
+              const unreachable = siteStatus[entry.id]?.state === "unreachable";
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={entry.id === siteId}
+                  className={entry.id === siteId ? "active" : ""}
+                  onClick={() => chooseSite(entry.id)}
+                  title={unreachable ? benchmarkSiteTitle(entry.label, siteStatus[entry.id]) : undefined}
+                >
+                  <img className={benchmarkFaviconClass(entry.id, unreachable)} src={entry.favicon} alt="" loading="lazy" />
+                  {entry.label}
+                </button>
+              );
+            })}
+          </div>
           {BENCHMARK_LINKS.map((entry) => (
             <a
               key={entry.id}

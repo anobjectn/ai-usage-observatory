@@ -34,11 +34,8 @@ export function DateStamp({ value, timeZone }: { value: string; timeZone?: strin
   return <time dateTime={value}>{formatDate(value, timeZone)}</time>;
 }
 
-/** Compact `Aug 31 10:35a` stamp; `separator` sits between the day and the time. */
-export const formatCompactDate = (
-  value: string,
-  { timeZone, separator = " " }: { timeZone?: string; separator?: string } = {},
-) => {
+/** The pieces of a compact stamp, for callers that join or elide them: `Aug 31`, `10:35`, `a`. */
+export const compactDateParts = (value: string, timeZone?: string) => {
   const parts = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -48,7 +45,20 @@ export const formatCompactDate = (
   }).formatToParts(new Date(value));
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((valuePart) => valuePart.type === type)?.value ?? "";
-  return `${part("month")} ${part("day")}${separator}${part("hour")}:${part("minute")}${part("dayPeriod").slice(0, 1).toLowerCase()}`;
+  return {
+    day: `${part("month")} ${part("day")}`,
+    time: `${part("hour")}:${part("minute")}`,
+    period: part("dayPeriod").slice(0, 1).toLowerCase(),
+  };
+};
+
+/** Compact `Aug 31 10:35a` stamp; `separator` sits between the day and the time. */
+export const formatCompactDate = (
+  value: string,
+  { timeZone, separator = " " }: { timeZone?: string; separator?: string } = {},
+) => {
+  const { day, time, period } = compactDateParts(value, timeZone);
+  return `${day}${separator}${time}${period}`;
 };
 
 export const formatSessionDate = (value: string) => formatCompactDate(value);
