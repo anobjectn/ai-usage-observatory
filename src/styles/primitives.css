@@ -2660,7 +2660,7 @@ td>small {
   .page-title p { margin-top: var(--space-2); font-size: var(--text-sm); line-height: 1.4; }
 }
 @media (pointer:coarse), (max-width:900px) {
-  .session-pager > button, .session-pager .page-jump__input,
+  .session-pager > button, .session-pager .page-jump__input, .session-page-size,
   .pagination > div > button, .provider-legend button, .provider-legend__headroom {
     min-height: var(--control-height-touch);
   }

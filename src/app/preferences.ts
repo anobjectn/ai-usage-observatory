@@ -280,6 +280,43 @@ export function savedQuickOverviewMode(): QuickOverviewMode {
   }
 }
 
+export const sessionPageSizeStorageKey = "usage-observatory:session-page-size";
+
+/** The Sessions table's rows-per-page choices. 15 was the table's fixed size before it had a
+ * choice, so it stays the default. */
+export const sessionPageSizeOptions = [10, 15, 25, 50, 100] as const;
+
+export type SessionPageSize = (typeof sessionPageSizeOptions)[number];
+
+export const defaultSessionPageSize: SessionPageSize = 15;
+
+/** Returns one of the offered sizes, or the default for anything else (a stale or hand-edited
+ * value must never page the table by 7 or by 0). */
+export function normalizeSessionPageSize(raw: unknown): SessionPageSize {
+  const value = typeof raw === "string" ? Number(raw) : raw;
+  return sessionPageSizeOptions.find((size) => size === value) ?? defaultSessionPageSize;
+}
+
+export function savedSessionPageSize() {
+  try {
+    return normalizeSessionPageSize(localStorage.getItem(sessionPageSizeStorageKey));
+  } catch {
+    return defaultSessionPageSize;
+  }
+}
+
+export function saveSessionPageSize(size: SessionPageSize) {
+  try {
+    localStorage.setItem(sessionPageSizeStorageKey, String(size));
+  } catch {}
+}
+
+/** The page that holds the current page's first row, so a new page size keeps the reader near
+ * the rows they were reading instead of sending them back to page 1. */
+export function pageAfterResize(page: number, previousSize: number, nextSize: number) {
+  return Math.floor(((page - 1) * previousSize) / nextSize) + 1;
+}
+
 export function initialView(): View {
   const value = new URLSearchParams(window.location.search).get("view");
   if (value === "limits") return "sources";

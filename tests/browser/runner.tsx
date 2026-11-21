@@ -316,6 +316,62 @@ await test("compact session sorting returns to page one for field and direction 
   } finally { fixtureRoot.unmount(); }
 });
 
+await test("rows per page lands on the page holding the current first row, is saved, and is restored", async () => {
+  const data = dashboardFixture();
+  // Newest first, so row N is the session costing $N.00.
+  const sessions = Array.from({ length: 60 }, (_, index) => ({
+    ...data.sessions[0],
+    sessionId: `page-size-fixture-${index}`,
+    totalCost: index + 1,
+    metadata: { lastActivity: new Date(Date.now() - index * 60_000).toISOString() },
+  }));
+  const mount = () => {
+    const fixtureRoot = createRoot(rootElement);
+    fixtureRoot.render(<Sessions
+      sessions={sessions}
+      rateCard={data.rateCard}
+      unpricedModels={[]}
+      showCache={true}
+      onEdit={() => {}}
+      collectedAt={data.collectedAt}
+    />);
+    return fixtureRoot;
+  };
+  const page = () => document.querySelector<HTMLInputElement>(".session-pager .page-jump__input")?.value;
+  const sizeSelect = () => document.querySelector<HTMLSelectElement>(".session-page-size select");
+  const rows = () => [...document.querySelectorAll(".session-row")];
+  const firstCost = () => document.querySelector(".session-row .session-col--cost b")?.textContent;
+  localStorage.removeItem("usage-observatory:session-page-size");
+  let fixtureRoot = mount();
+  try {
+    await waitFor(() => page() === "1" && rows().length === 15, "Sessions did not render 15 rows by default");
+    // The select sits beside the footer pager, so it matches that pager's arrow buttons.
+    const sizeHeight = document.querySelector(".session-page-size")!.getBoundingClientRect().height;
+    const arrowHeight = document.querySelector(".session-footer-pagination div > button")!.getBoundingClientRect().height;
+    assert(sizeHeight === arrowHeight, `Rows per page is ${sizeHeight}px tall beside ${arrowHeight}px pager buttons`);
+    const jump = ".session-pager .page-jump__input";
+    enter(jump, "3");
+    document.querySelector(jump)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await waitFor(() => page() === "3" && firstCost() === "$31.00", "Page 3 did not start at row 31");
+    const select = sizeSelect();
+    assert(select, "Rows per page select missing");
+    select.value = "25";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    // Row 31 sits on page 2 at 25 rows (rows 26–50).
+    await waitFor(() => page() === "2" && rows().length === 25 && firstCost() === "$26.00",
+      `25 rows per page did not land on rows 26–50 (page ${page()}, ${rows().length} rows, first ${firstCost()})`);
+    assert(localStorage.getItem("usage-observatory:session-page-size") === "25", "The chosen page size was not saved");
+    fixtureRoot.unmount();
+    fixtureRoot = mount();
+    await waitFor(() => sizeSelect()?.value === "25" && page() === "1" && rows().length === 25,
+      "The chosen page size was not restored on the next mount");
+  } finally {
+    fixtureRoot.unmount();
+    // Later checks count rows on the default page size.
+    localStorage.removeItem("usage-observatory:session-page-size");
+  }
+});
+
 await test("jumping to a later session page loads its border reading and shows quota dividers", async () => {
   const data = dashboardFixture();
   const firstAt = Date.parse(data.collectedAt);
