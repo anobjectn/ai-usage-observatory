@@ -1,6 +1,7 @@
 import { dateKeyInTimeZone, systemTimeZone } from "../reporting-time";
 import { providerFromAgent, type ActivityProvider } from "../provider";
 import { type ModelRowInput } from "../token-types";
+import { addOneHourWrites } from "../types";
 import { quotaProviderNotice, type QuotaNotice } from "../quota-notice";
 import { quotaPlanLabel } from "../quota-reaches";
 import type {
@@ -623,12 +624,14 @@ function combineMetricRows(
           outputTokens: 0,
           cacheReadTokens: 0,
           cacheCreationTokens: 0,
+          cacheCreation1hTokens: 0,
           cost: 0,
         };
         current.inputTokens += model.inputTokens;
         current.outputTokens += model.outputTokens;
         current.cacheReadTokens += model.cacheReadTokens;
         current.cacheCreationTokens += model.cacheCreationTokens;
+        addOneHourWrites(current, model);
         current.cost += model.cost;
         models.set(model.modelName, current);
       });

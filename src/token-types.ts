@@ -37,9 +37,12 @@ export type ModelDecomposition = {
   costs: Record<TokenType, number> | null;
   reconciled: boolean;
   reason: WithheldReason | null;
-  /** Share of cache-write tokens priced at the 1-hour rate, implied by the residual. Null when
-   * the model has no 1-hour tier or wrote nothing. */
+  /** Share of cache-write tokens priced at the 1-hour rate: reported by ccusage when the row
+   * carries the split, otherwise implied by the residual. Null when the model has no 1-hour tier
+   * or wrote nothing. */
   impliedOneHourShare: number | null;
+  /** True when `impliedOneHourShare` comes from ccusage's reported 1-hour writes. */
+  oneHourShareMeasured: boolean;
 };
 
 export type TokenTypeSummary = {
@@ -53,6 +56,8 @@ export type TokenTypeSummary = {
   warpTokensExcluded: number;
   /** Token-weighted across Anthropic rows with cache writes; null when none. */
   impliedOneHourShare: number | null;
+  /** True when every row behind `impliedOneHourShare` reported its 1-hour writes. */
+  oneHourShareMeasured: boolean;
   providers: ActivityProvider[];
   models: ModelDecomposition[];
 };
@@ -73,23 +78,24 @@ const tokensOf = (breakdown: ModelBreakdown): Record<TokenType, number> => ({
 const sumTokens = (tokens: Record<TokenType, number>) => tokenTypeOrder.reduce((sum, type) => sum + tokens[type], 0);
 
 /** Splits one ccusage model row's cost into the four types. Input, output, and cache-read cost
- * come from the rate card; cache-write cost is whatever ccusage's cost leaves over, which is the
- * only way to honour the 5-minute / 1-hour write mix ccusage priced without re-deriving it. The
- * residual must land where the rate card says a cache write can cost, or the row is withheld. */
+ * come from the rate card; cache-write cost is whatever ccusage's cost leaves over, so the split
+ * always sums to ccusage's figure. When the row reports its 1-hour writes (ccusage 20.0.49+), the
+ * residual must match that exact 5-minute / 1-hour mix; otherwise it must land between the
+ * all-5-minute and all-1-hour bounds. A residual outside either check withholds the row. */
 export function decomposeModelRow(breakdown: ModelBreakdown, rate: ModelRate | null, unpriced: boolean, agent = ""): ModelDecomposition {
   const tokens = tokensOf(breakdown);
   const totalTokens = sumTokens(tokens);
-  const base: Omit<ModelDecomposition, "costs" | "reconciled" | "reason" | "impliedOneHourShare"> = {
+  const base: Omit<ModelDecomposition, "costs" | "reconciled" | "reason" | "impliedOneHourShare" | "oneHourShareMeasured"> = {
     model: breakdown.modelName,
     provider: providerFromAgent(agent),
     tokens,
     totalTokens,
     cost: breakdown.cost,
   };
-  const withheld = (reason: WithheldReason): ModelDecomposition => ({ ...base, costs: null, reconciled: false, reason, impliedOneHourShare: null });
+  const withheld = (reason: WithheldReason): ModelDecomposition => ({ ...base, costs: null, reconciled: false, reason, impliedOneHourShare: null, oneHourShareMeasured: false });
   if (totalTokens === 0) {
     const zero = { cacheRead: 0, cacheWrite: 0, output: 0, input: 0 };
-    return { ...base, costs: zero, reconciled: true, reason: null, impliedOneHourShare: null };
+    return { ...base, costs: zero, reconciled: true, reason: null, impliedOneHourShare: null, oneHourShareMeasured: false };
   }
   if (unpriced || breakdown.cost <= 0) return withheld("unpriced");
   if (!rate) return withheld("no-rate");
@@ -104,15 +110,22 @@ export function decomposeModelRow(breakdown: ModelBreakdown, rate: ModelRate | n
   const tolerance = Math.max(breakdown.cost * relativeTolerance, absoluteTolerance);
   const low = tokens.cacheWrite * rate.cacheWrite5m;
   const high = tokens.cacheWrite * (rate.cacheWrite1h ?? rate.cacheWrite5m);
-  if (residual < low - tolerance || residual > high + tolerance) return withheld("mismatch");
+  const reported = breakdown.cacheCreation1hTokens;
+  const measured = reported !== undefined && reported >= 0 && reported <= tokens.cacheWrite;
+  if (measured) {
+    const expected = (tokens.cacheWrite - reported) * rate.cacheWrite5m + reported * (rate.cacheWrite1h ?? rate.cacheWrite5m);
+    if (Math.abs(residual - expected) > tolerance) return withheld("mismatch");
+  } else if (residual < low - tolerance || residual > high + tolerance) {
+    return withheld("mismatch");
+  }
   // With no write tokens the residual is floating-point dust, not a cost.
   costs.cacheWrite = tokens.cacheWrite === 0 ? 0 : Math.max(0, residual);
 
   let impliedOneHourShare: number | null = null;
   if (tokens.cacheWrite > 0 && rate.cacheWrite1h !== null && rate.cacheWrite1h !== rate.cacheWrite5m) {
-    impliedOneHourShare = Math.min(1, Math.max(0, (residual - low) / (high - low)));
+    impliedOneHourShare = measured ? reported / tokens.cacheWrite : Math.min(1, Math.max(0, (residual - low) / (high - low)));
   }
-  return { ...base, costs, reconciled: true, reason: null, impliedOneHourShare };
+  return { ...base, costs, reconciled: true, reason: null, impliedOneHourShare, oneHourShareMeasured: measured && impliedOneHourShare !== null };
 }
 
 const emptyRows = (): TokenTypeRow[] =>
@@ -142,6 +155,7 @@ export function summarizeTokenTypes(inputs: ModelRowInput[], rateCard: Pick<Rate
   const withheldByModel = new Map<string, WithheldReason>();
   let weightedShare = 0;
   let shareWeight = 0;
+  let allMeasured = true;
   for (const model of models) {
     for (const type of tokenTypeOrder) tokens[type] += model.tokens[type];
     if (model.totalTokens === 0) continue;
@@ -153,6 +167,7 @@ export function summarizeTokenTypes(inputs: ModelRowInput[], rateCard: Pick<Rate
     if (model.impliedOneHourShare !== null) {
       weightedShare += model.impliedOneHourShare * model.tokens.cacheWrite;
       shareWeight += model.tokens.cacheWrite;
+      allMeasured &&= model.oneHourShareMeasured;
     }
   }
   const totalTokens = sumTokens(tokens);
@@ -176,6 +191,7 @@ export function summarizeTokenTypes(inputs: ModelRowInput[], rateCard: Pick<Rate
     withheld: [...withheldByModel].map(([model, reason]) => ({ model, reason })),
     warpTokensExcluded,
     impliedOneHourShare: shareWeight > 0 ? weightedShare / shareWeight : null,
+    oneHourShareMeasured: shareWeight > 0 && allMeasured,
     providers: [...providers],
     models,
   };
@@ -207,7 +223,9 @@ export function footnotesFor(summary: TokenTypeSummary, context: FootnoteContext
     lines.push(
       summary.impliedOneHourShare === null
         ? "Cache-write cost is the ccusage residual after input, output, and cache-read rates."
-        : `Cache-write cost is the ccusage residual after input, output, and cache-read rates; about ${percent(summary.impliedOneHourShare)} of write tokens were priced at the 1-hour rate.`,
+        : summary.oneHourShareMeasured
+          ? `Cache-write cost is the ccusage residual after input, output, and cache-read rates; ccusage reports ${percent(summary.impliedOneHourShare)} of write tokens as 1-hour writes.`
+          : `Cache-write cost is the ccusage residual after input, output, and cache-read rates; about ${percent(summary.impliedOneHourShare)} of write tokens were priced at the 1-hour rate.`,
     );
   }
   if (summary.providers.includes("codex")) lines.push("Codex reports cache writes as zero.");

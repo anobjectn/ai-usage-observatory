@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { providerFromAgent } from "../src/provider";
-import type { MetricRow, ModelBreakdown, WarpDailyUsage } from "../src/types";
+import { addOneHourWrites, type MetricRow, type ModelBreakdown, type WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
 import { serverPort } from "./server-port";
 import { ensureUpstream, upstreamHealth } from "./ccusage-upstream";
@@ -30,7 +30,7 @@ function withAnnotationVersion<T extends object>(value: T, version: number) {
   return value;
 }
 
-type ModelUsage = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
+type ModelUsage = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cacheCreation1hTokens?: number; cost: number };
 
 function modelTokens(model: ModelUsage) {
   return model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
@@ -54,11 +54,11 @@ type ProjectActivitySession = {
   cwd: string | null;
   metadata?: {lastActivity?:unknown};
   totalCost: number;
-  modelBreakdowns: Array<{modelName:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number}>;
+  modelBreakdowns: ModelUsage[];
   warp?: { credits: number };
 };
 
-type ProjectModelTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cost:number};
+type ProjectModelTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;cacheCreation1hTokens?:number;cost:number};
 type ProjectDay = {date:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number;warpCredits:number;models:Map<string,ProjectModelTotals>};
 type ProjectBucket = {name:string;tokens:number;cost:number;sessions:number;warpCredits:number;models:Map<string,number>;days:Map<string,ProjectDay>};
 
@@ -84,11 +84,12 @@ export function aggregateProjects(sessions: ProjectActivitySession[], timeZone =
       day.outputTokens += model.outputTokens;
       day.cacheReadTokens += model.cacheReadTokens;
       day.cacheCreationTokens += model.cacheCreationTokens;
-      accumulateModel(day.models, model, () => ({inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,cost:0}), (current, entry) => {
+      accumulateModel(day.models, model, () => ({inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,cacheCreation1hTokens:0,cost:0}), (current, entry) => {
         current.inputTokens += entry.inputTokens;
         current.outputTokens += entry.outputTokens;
         current.cacheReadTokens += entry.cacheReadTokens;
         current.cacheCreationTokens += entry.cacheCreationTokens;
+        addOneHourWrites(current, entry);
         current.cost += entry.cost;
       });
     }
@@ -188,11 +189,12 @@ function warpRows(sessions: ProjectActivitySession[], timeZone: string, bucket: 
 function mergeRows(left: MetricRow, right: MetricRow): MetricRow {
   const modelMap = new Map<string, ModelBreakdown>();
   for (const model of [...left.modelBreakdowns, ...right.modelBreakdowns]) {
-    const current = modelMap.get(model.modelName) ?? { modelName: model.modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
+    const current = modelMap.get(model.modelName) ?? { modelName: model.modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, cost: 0 };
     current.inputTokens += model.inputTokens;
     current.outputTokens += model.outputTokens;
     current.cacheReadTokens += model.cacheReadTokens;
     current.cacheCreationTokens += model.cacheCreationTokens;
+    addOneHourWrites(current, model);
     current.cost += model.cost;
     modelMap.set(model.modelName, current);
   }

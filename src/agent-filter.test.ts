@@ -232,6 +232,8 @@ describe("selection to query parameters", () => {
   });  test("sends an agent with no recognized provider as other, never as an empty list", () => {
     // An empty provider list asks the server for every provider.
     expect(agentSelectionParams([agentEntry("copilot")])).toEqual({ providers: ["other"], modelFamilies: [] });
+    // Cline (ccusage 20.0.49+) runs models from many vendors; it scopes as other, like Copilot.
+    expect(agentSelectionParams([agentEntry("cline")])).toEqual({ providers: ["other"], modelFamilies: [] });
     expect(agentSelectionParams([agentEntry("copilot"), agentEntry("grok"), agentEntry("codex")]).providers).toEqual(["other", "codex"]);
   });
 });

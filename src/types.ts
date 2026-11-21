@@ -12,7 +12,16 @@ export type MetricRow = {
   modelBreakdowns: ModelBreakdown[];
   metadata?: { lastActivity?: string; [key: string]: unknown };
 };
-export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cost: number };
+/** `cacheCreation1hTokens` is the 1-hour-TTL part of `cacheCreationTokens`, reported by ccusage
+ * 20.0.49 and later. Absent when any contributor to the row did not report it. */
+export type ModelBreakdown = { modelName: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cacheCreation1hTokens?: number; cost: number };
+
+/** Adds `entry`'s 1-hour cache writes into `current`. A row whose contributors did not all
+ * report the split loses it, so a partial sum is never read as the whole. Start `current` at 0. */
+export function addOneHourWrites(current: { cacheCreation1hTokens?: number }, entry: { cacheCreation1hTokens?: number }) {
+  if (current.cacheCreation1hTokens === undefined || entry.cacheCreation1hTokens === undefined) delete current.cacheCreation1hTokens;
+  else current.cacheCreation1hTokens += entry.cacheCreation1hTokens;
+}
 /** USD per token. `cacheWrite1h` is null for providers without a 1-hour cache tier. */
 export type ModelRate = { input: number; output: number; cacheRead: number; cacheWrite5m: number; cacheWrite1h: number | null };
 export type RateCardStatus = "live" | "cached" | "fallback";

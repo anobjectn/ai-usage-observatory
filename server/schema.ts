@@ -6,6 +6,8 @@ const modelBreakdownSchema = z.object({
   outputTokens: z.number(),
   cacheReadTokens: z.number(),
   cacheCreationTokens: z.number(),
+  /** ccusage 20.0.49 and later: the part of `cacheCreationTokens` written at the 1-hour TTL. */
+  cacheCreation1hTokens: z.number().optional(),
   cost: z.number(),
   /** ccusage 20.0.21 and later set this when it had to price the entry and found no rate.
    * Priced entries omit the key. */

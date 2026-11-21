@@ -53,6 +53,24 @@ describe("decomposeModelRow", () => {
     }
   });
 
+  test("a reported 1-hour split must match exactly and becomes the measured share", () => {
+    const tokens = { input: 500, output: 30_000, cacheRead: 4_000_000, cacheWrite: 300_000 };
+    const reported = { ...breakdown("claude-opus-5", tokens, price(opus, tokens, 0.4)), cacheCreation1hTokens: 120_000 };
+    const row = decomposeModelRow(reported, opus, false, "claude");
+    expect(row.reconciled).toBe(true);
+    expect(row.oneHourShareMeasured).toBe(true);
+    expect(row.impliedOneHourShare).toBeCloseTo(0.4, 9);
+    // A cost inside the bounds but off the reported mix no longer reconciles.
+    const offMix = decomposeModelRow({ ...reported, cost: price(opus, tokens, 0.9) }, opus, false, "claude");
+    expect(offMix.reason).toBe("mismatch");
+  });
+
+  test("without a reported split the share stays implied", () => {
+    const tokens = { input: 500, output: 30_000, cacheRead: 4_000_000, cacheWrite: 300_000 };
+    const row = decomposeModelRow(breakdown("claude-opus-5", tokens, price(opus, tokens, 0.4)), opus, false, "claude");
+    expect(row.oneHourShareMeasured).toBe(false);
+  });
+
   test("a Claude row outside the bounds is withheld", () => {
     const tokens = { input: 500, output: 30_000, cacheRead: 4_000_000, cacheWrite: 300_000 };
     const tooHigh = decomposeModelRow(breakdown("claude-opus-5", tokens, price(opus, tokens, 1) * 1.02), opus, false, "claude");
@@ -169,6 +187,12 @@ describe("footnotesFor", () => {
     expect(lines.some((line) => line.includes("4,000 reasoning tokens"))).toBe(true);
     expect(lines).toContain("Cache reads count repeated reads, not unique text.");
     expect(lines).toContain("Rates: LiteLLM, fetched 2026-09-03.");
+  });
+
+  test("says the 1-hour share is reported when every row carried the split", () => {
+    const measured = { ...claude, breakdown: { ...claude.breakdown, cacheCreation1hTokens: 150_000 } };
+    const lines = footnotesFor(summarizeTokenTypes([measured, codex], card));
+    expect(lines.some((line) => line.includes("ccusage reports 50% of write tokens as 1-hour writes"))).toBe(true);
   });
 
   test("names withheld models and excluded Warp tokens, and drops cost lines when cost is withheld", () => {
