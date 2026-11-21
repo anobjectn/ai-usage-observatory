@@ -34,6 +34,10 @@ import {
   sessionHref,
   userScrollCancelWindowMs,
   autoScrollDelayMs,
+  pageAfterResize,
+  savedSessionPageSize,
+  saveSessionPageSize,
+  sessionPageSizeOptions,
 } from "../app/preferences";
 import { formatCompact, DateStamp, SessionDateStamp, formatWarpCredits, formatMoney } from "../app/format";
 import {
@@ -91,7 +95,7 @@ export function Sessions({
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>(
     { key: "activity", direction: "desc" },
   );
-  const pageSize = 15;
+  const [pageSize, setPageSize] = useState(savedSessionPageSize);
   const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
   const lastUserScrollAt = useUserScrollIntent();
   // The digest is requested unscoped: it describes every dashboard session, and this view already
@@ -233,6 +237,11 @@ export function Sessions({
     if (pageQuotaKey) requestQuota(pageQuotaKey.split("\n"));
   }, [pageQuotaKey, requestQuota]);
   useEffect(() => setPage((current) => Math.min(current, pages)), [pages]);
+  const changePageSize = (next: number) => {
+    setPage(pageAfterResize(page, pageSize, next));
+    setPageSize(next);
+    saveSessionPageSize(next);
+  };
   const search = (value: string) => {
     setQuery(value);
     setPage(1);
@@ -761,8 +770,22 @@ export function Sessions({
             }
           />
         )}
-        <div className="pagination">
-          <span>{filtered.length} sessions</span>
+        <div className="pagination session-footer-pagination">
+          <span className="session-page-summary">
+            <span>{filtered.length} sessions</span>
+            <label className="project-sort session-page-size">
+              <span>Rows</span>
+              <select
+                value={pageSize}
+                onChange={(event) => changePageSize(Number(event.target.value))}
+                aria-label="Rows per page"
+              >
+                {sessionPageSizeOptions.map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+          </span>
           <div>
             <button
               type="button"

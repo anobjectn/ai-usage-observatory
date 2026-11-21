@@ -1513,6 +1513,20 @@
   width: 12px;
 }
 
+/* Rows per page sits beside the footer's session count. It borrows the sort control's look but
+   matches the footer pager's 28px buttons rather than the 36px toolbar height. */
+.session-page-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.session-page-size {
+  height: var(--control-height-sm);
+  padding-left: var(--space-2);
+  gap: var(--space-1);
+}
+
 .session-header-pagination .page-jump__menu {
   top: calc(100% + 6px);
   bottom: auto;
@@ -1841,5 +1855,12 @@
   .session-pager>button {
     width: var(--control-height-touch);
     height: var(--control-height-touch);
+  }
+  .session-page-size {
+    height: var(--control-height-touch);
+  }
+  .session-footer-pagination {
+    flex-wrap: wrap;
+    gap: var(--space-2);
   }
 }
