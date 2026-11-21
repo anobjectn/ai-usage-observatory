@@ -26,7 +26,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import type { SessionAnnotation, Session, SessionDetail, QuotaHistory } from "../types";
+import type { SessionAnnotation, SessionVerdict, Session, SessionDetail, QuotaHistory } from "../types";
 import { Empty, PageTitle } from "./chrome";
 import { quotaContextVersion, useSessionQuotaContexts } from "../hooks/use-session-quota-contexts";
 import {
@@ -37,8 +37,9 @@ import {
 } from "../app/preferences";
 import { formatCompact, DateStamp, SessionDateStamp, formatWarpCredits, formatMoney } from "../app/format";
 import {
-  quotaResetBoundaries,
-  sessionQuotaEvents,
+  matchesSessionSearch,
+  sessionQuotaDividers,
+  sessionQuotaPageIds,
   type SessionQuotaEvent,
   sessionModelNames,
 } from "../app/analytics";
@@ -101,16 +102,19 @@ export function Sessions({
   const effortStatus = statusRequest.data;
   useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [digestRequest.load]);
   const effortBySession = useMemo(() => decodeEffortDigest(digest), [digest]);
-  // A verdict write returns the stored annotation. Patching it in here makes the change visible
-  // at once; the next dashboard fetch independently returns the same value, so the two agree.
-  const [annotationPatches, setAnnotationPatches] = useState<Record<string, SessionAnnotation>>({});
+  // A verdict write returns the stored annotation. Patching its verdict in here makes the change
+  // visible at once, and the patched verdict wins over dashboard reads until the view remounts.
+  // Only the verdict is patched, so a note or tags saved afterwards still show.
+  const [verdictPatches, setVerdictPatches] = useState<Record<string, SessionVerdict | null>>({});
   const annotationOf = useCallback(
-    (session: Session) => annotationPatches[session.sessionId] ?? session.annotation,
-    [annotationPatches],
+    (session: Session): SessionAnnotation => Object.hasOwn(verdictPatches, session.sessionId)
+      ? { ...session.annotation, verdict: verdictPatches[session.sessionId] ?? null }
+      : session.annotation,
+    [verdictPatches],
   );
   const patchAnnotation = useCallback(
     (sessionId: string, annotation: SessionAnnotation) =>
-      setAnnotationPatches((current) => ({ ...current, [sessionId]: annotation })),
+      setVerdictPatches((current) => ({ ...current, [sessionId]: annotation.verdict })),
     [],
   );
   const observedEffortValues = useMemo(
@@ -134,16 +138,12 @@ export function Sessions({
       matchesSessionEffortFilter(effortBySession.get(session.sessionId), effortFilter),
     [effortBySession, effortFilter],
   );
-  const filtered = useMemo(() => {
-    const normalizedQuery = query.toLowerCase();
-    return sessions.filter(
-      (s) =>
-        matchesEffortFilter(s) &&
-        `${s.agent} ${s.modelsUsed.join(" ")} ${s.cwd ?? ""} ${s.pathTags.join(" ")} ${s.annotation.tags.join(" ")} ${effortText(s)}`
-          .toLowerCase()
-          .includes(normalizedQuery),
-    );
-  }, [query, sessions, effortText, matchesEffortFilter]);
+  const filtered = useMemo(
+    () => sessions.filter(
+      (s) => matchesEffortFilter(s) && matchesSessionSearch(s, effortText(s), query),
+    ),
+    [query, sessions, effortText, matchesEffortFilter],
+  );
   const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const value = (session: Session): string | number => {
       if (sort.key === "activity")
@@ -164,7 +164,8 @@ export function Sessions({
     return sort.direction === "asc" ? comparison : -comparison;
   }), [filtered, sort, effortBySession]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const pageStart = (page - 1) * pageSize;
+  const pageRows = sorted.slice(pageStart, pageStart + pageSize);
   // Context carry: cache-read tokens dragged along per output token. The
   // baseline is the median of the sessions in view, so "heavy" always means
   // "heavy among what you are looking at". Token-based only — a session whose
@@ -212,7 +213,9 @@ export function Sessions({
   // when rows are in end-time order: any other sort turns it into a column of random numbers.
   const showQuotaBalance = sort.key === "activity";
   const columnCount = 9;
-  const pageQuotaKey = pageRows.map((session) => session.sessionId).join("\n");
+  const pageQuotaKey = (showQuotaBalance
+    ? sessionQuotaPageIds(sorted, pageStart, pageStart + pageSize)
+    : pageRows.map((session) => session.sessionId)).join("\n");
   const quotaVersionOf = useMemo(() => {
     const byId = new Map(sessions.map((session) => [session.sessionId, session]));
     return (sessionId: string) => {
@@ -224,8 +227,11 @@ export function Sessions({
   useEffect(() => {
     if (pageQuotaKey) requestQuota(pageQuotaKey.split("\n"));
   }, [pageQuotaKey, requestQuota]);
-  useEffect(() => setPage(1), [query, effortFilter]);
   useEffect(() => setPage((current) => Math.min(current, pages)), [pages]);
+  const search = (value: string) => {
+    setQuery(value);
+    setPage(1);
+  };
   const sortBy = (key: SortKey) => {
     setSort((current) =>
       current.key === key
@@ -354,14 +360,14 @@ export function Sessions({
               <Search />
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => search(e.target.value)}
                 placeholder="Search sessions…"
               />
               {query && (
                 <button
                   type="button"
                   className="search-clear"
-                  onClick={() => setQuery("")}
+                  onClick={() => search("")}
                   aria-label="Clear session search"
                 >
                   Clear
@@ -373,7 +379,10 @@ export function Sessions({
               <ComboFacetSelect
                 id="session-effort-filter"
                 value={effortFilter}
-                onChange={setEffortFilter}
+                onChange={(value) => {
+                  setEffortFilter(value);
+                  setPage(1);
+                }}
                 effortLevels={observedEffortValues}
                 combos={observedCombos}
                 disabled={!effortStatus?.enabled}
@@ -486,23 +495,11 @@ export function Sessions({
             </thead>
             <tbody>
               {pageRows.map((session, index) => {
-                const boundaries = showQuotaBalance && index > 0
-                  ? quotaResetBoundaries(quotaContexts[pageRows[index - 1]!.sessionId], quotaContexts[session.sessionId])
-                  : [];
-                // Quota-exhausted and banked-reset instants sit between the two sessions' last
-                // activity. The newest row on the first page also owns everything after it, so
-                // a limit hit since the last session still shows up at the top of the list.
-                const activityAt = Date.parse(String(session.metadata?.lastActivity ?? ""));
-                const neighbourAt = index > 0
-                  ? Date.parse(String(pageRows[index - 1]!.metadata?.lastActivity ?? ""))
-                  : page === 1 && sort.direction === "desc" ? Number.POSITIVE_INFINITY : Number.NaN;
-                const events = showQuotaBalance && Number.isFinite(activityAt) && !Number.isNaN(neighbourAt)
-                  ? sessionQuotaEvents(quotaHistory, neighbourAt, activityAt)
-                  : [];
-                const trailingEvents = showQuotaBalance && Number.isFinite(activityAt)
-                  && sort.direction === "asc" && page === pages && index === pageRows.length - 1
-                  ? sessionQuotaEvents(quotaHistory, activityAt, Number.POSITIVE_INFINITY)
-                  : [];
+                // Reset boundaries, quota-exhausted and banked-reset instants sit between this row
+                // and the one before it in the whole sorted list, which may be on the previous page.
+                const { boundaries, events, trailingEvents } = showQuotaBalance
+                  ? sessionQuotaDividers(sorted, pageStart + index, sort.direction, quotaHistory, quotaContexts)
+                  : { boundaries: [], events: [], trailingEvents: [] };
                 const eventDivider = (items: SessionQuotaEvent[], keyPrefix: string) =>
                   items.length > 0 && (
                     <tr className={`session-reset-divider session-reset-divider--event${items.some((event) => event.kind !== "reset") ? " is-exhausted" : ""}`}>
@@ -604,7 +601,7 @@ export function Sessions({
                             <i className="session-range-exception">Outside active range</i>
                           )}
                         </span>
-                        <small title={session.period}>{annotationOf(session).note.trim().split("\n")[0].slice(0, 72) || `Session · ${session.sessionId.slice(-12)}`}</small>
+                        <small title={session.period}>{session.annotation.note.trim().split("\n")[0].slice(0, 72) || `Session · ${session.sessionId.slice(-12)}`}</small>
                         <span className="session-row__model-effort">
                           <SessionEffortCell
                             decoded={effortBySession.get(session.sessionId)}
@@ -621,7 +618,7 @@ export function Sessions({
                         <span dir="ltr">{session.cwd ?? "Path unavailable"}</span>
                       </span>
                       <span className="mini-tags">
-                        {[...session.pathTags, ...annotationOf(session).tags]
+                        {[...session.pathTags, ...session.annotation.tags]
                           .slice(0, 3)
                           .map((tag) => (
                             <i key={tag}>{tag}</i>
