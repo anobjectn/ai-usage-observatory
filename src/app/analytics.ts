@@ -1054,19 +1054,26 @@ export function sessionModelNames(session: Session) {
   ].filter(Boolean);
 }
 
-/** Whether a session matches the Sessions search box: a case-insensitive substring of its agent,
- * models, path, tags, note, session ID or effort text. */
-export function matchesSessionSearch(
-  session: Session,
-  effortText: string,
-  query: string,
-) {
-  // Whitespace runs read as one space on both sides, so a phrase matches across a note's line
-  // breaks and a query copied with doubled spaces still finds it. Lowercasing turns a word-final
-  // Σ into ς but a lone Σ into σ, so both fold to σ.
-  const normalize = (text: string) => text.replace(/\s+/g, " ").toLowerCase().replace(/ς/g, "σ");
-  return normalize(`${session.agent} ${session.modelsUsed.join(" ")} ${session.cwd ?? ""} ${session.pathTags.join(" ")} ${session.annotation.tags.join(" ")} ${effortText} ${session.annotation.note} ${session.sessionId}`)
-    .includes(normalize(query));
+// Whitespace runs read as one space on both sides, so a phrase matches across a note's line
+// breaks and a query copied with doubled spaces still finds it. Lowercasing turns a word-final
+// Σ into ς but a lone Σ into σ, so both fold to σ.
+const normalizeSessionSearch = (text: string) =>
+  text.replace(/\s+/g, " ").toLowerCase().replace(/ς/g, "σ");
+
+/** A test for the Sessions search box: a case-insensitive substring of a session's agent, models,
+ * path, tags, note, session ID or effort text. The query is normalized once, and a blank query
+ * matches every session without reading any of them. */
+export function sessionSearchMatcher(query: string): (session: Session, effortText: string) => boolean {
+  const needle = normalizeSessionSearch(query);
+  if (!needle.trim()) return () => true;
+  return (session, effortText) =>
+    normalizeSessionSearch(`${session.agent} ${session.modelsUsed.join(" ")} ${session.cwd ?? ""} ${session.pathTags.join(" ")} ${session.annotation.tags.join(" ")} ${effortText} ${session.annotation.note} ${session.sessionId}`)
+      .includes(needle);
+}
+
+/** Whether a session matches the Sessions search box; see `sessionSearchMatcher`. */
+export function matchesSessionSearch(session: Session, effortText: string, query: string) {
+  return sessionSearchMatcher(query)(session, effortText);
 }
 
 export function quotaNumber(value: number) {

@@ -124,6 +124,51 @@ await test("a slow older dashboard request does not decide the connection banner
   click(".connection-banner button");
   await waitFor(() => !document.querySelector(".connection-banner"), "Retry did not recover");
 });
+// The first refresh's collection POST is held while a second refresh runs to the end, then
+// released with `firstCollection`.
+async function heldCollection(firstCollection: "fail" | "pass", secondRead: "fail" | "pass") {
+  const originalFetch = window.fetch;
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let collections = 0;
+  let reads = 0;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input === "/api/refresh") {
+      const collection = ++collections;
+      if (collection > 1) return originalFetch(input, init);
+      await firstHeld;
+      return firstCollection === "fail" ? Response.json({ error: "Fixture collection failed" }, { status: 500 }) : originalFetch(input, init);
+    }
+    if (input !== "/api/dashboard") return originalFetch(input, init);
+    const read = ++reads;
+    const response = await originalFetch(input, { ...init, headers: {} });
+    return read === 1 && secondRead === "fail" ? Response.json({ error: "Fixture read failed" }, { status: 503 }) : response;
+  }) as typeof window.fetch;
+  const label = () => document.querySelector(".refresh-button span")?.textContent;
+  try {
+    click(".refresh-button");
+    await waitFor(() => collections === 1, "The first refresh did not start collecting");
+    click(".refresh-button");
+    await waitFor(() => reads === 1, "The second refresh did not read the dashboard");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert(label() === "Collecting", "The second refresh finishing cleared Collecting while the first was still running");
+    releaseFirst();
+    await waitFor(() => label() === "Refresh", "Collecting did not clear after both refreshes ended");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  } finally {
+    window.fetch = originalFetch;
+    releaseFirst();
+  }
+}
+await test("a refresh that was collecting is newer than a read sent meanwhile", async () => {
+  await waitFor(() => !document.querySelector(".connection-banner"), "The banner was up before the check");
+  await heldCollection("pass", "fail");
+  assert(!document.querySelector(".connection-banner"), "A read sent during collection kept the banner up over the refresh's fresh data");
+  await heldCollection("fail", "pass");
+  assert(document.querySelector(".connection-banner"), "A failed collection was hidden by a read that finished while it ran");
+  click(".connection-banner button");
+  await waitFor(() => !document.querySelector(".connection-banner"), "Retry did not recover");
+});
 await test("annotations survive save, remount, and keyboard dismissal", async () => {
   click('aside nav button[aria-label="Sessions"]');
   await waitFor(() => Boolean(document.querySelector('[aria-label="Edit annotation"]')), "Fixture session did not appear");

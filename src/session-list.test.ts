@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { matchesSessionSearch, sessionQuotaDividers, sessionQuotaPageIds } from "./app/analytics";
+import { matchesSessionSearch, sessionQuotaDividers, sessionQuotaPageIds, sessionSearchMatcher } from "./app/analytics";
 import type { QuotaHistory, Session, SessionQuotaContext } from "./types";
 
 const hour = 60 * 60 * 1_000;
@@ -47,6 +47,8 @@ test("session search matches the whole note and session ID, ignoring case", () =
   const greek = { ...row, annotation: { ...row.annotation, note: "ΛΟΓΟΣ" } };
   expect(matchesSessionSearch(greek, "", "Σ")).toBe(true);
   expect(matchesSessionSearch(greek, "", "λόγος".normalize("NFD").replace(/\p{M}/gu, ""))).toBe(true);
+  // A blank query matches without reading the session.
+  expect(sessionSearchMatcher(" \n")({} as never, "")).toBe(true);
   // Fields searched before keep matching.
   for (const query of ["codex", "gpt-test", "work/observ", "ship", "xhigh", "ship xhigh"]) {
     expect(matches(query)).toBe(true);

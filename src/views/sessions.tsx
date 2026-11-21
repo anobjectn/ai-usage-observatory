@@ -37,7 +37,7 @@ import {
 } from "../app/preferences";
 import { formatCompact, DateStamp, SessionDateStamp, formatWarpCredits, formatMoney } from "../app/format";
 import {
-  matchesSessionSearch,
+  sessionSearchMatcher,
   sessionQuotaDividers,
   sessionQuotaPageIds,
   type SessionQuotaEvent,
@@ -103,12 +103,21 @@ export function Sessions({
   useEffortRefreshOnIndexChange(statusRequest.data?.indexVersion, [digestRequest.load]);
   const effortBySession = useMemo(() => decodeEffortDigest(digest), [digest]);
   // A verdict write returns the stored annotation. Patching its verdict in here makes the change
-  // visible at once, and the patched verdict wins over dashboard reads until the view remounts.
-  // Only the verdict is patched, so a note or tags saved afterwards still show.
+  // visible at once; the patch wins over dashboard reads only until one of them carries the same
+  // verdict, so a verdict changed later in another tab still shows. Only the verdict is patched,
+  // so a note or tags saved afterwards still show.
   const [verdictPatches, setVerdictPatches] = useState<Record<string, SessionVerdict | null>>({});
+  useEffect(() => setVerdictPatches((current) => {
+    const settled = sessions.filter((session) =>
+      Object.hasOwn(current, session.sessionId) && current[session.sessionId] === session.annotation.verdict);
+    if (!settled.length) return current;
+    const next = { ...current };
+    for (const session of settled) delete next[session.sessionId];
+    return next;
+  }), [sessions]);
   const annotationOf = useCallback(
     (session: Session): SessionAnnotation => Object.hasOwn(verdictPatches, session.sessionId)
-      ? { ...session.annotation, verdict: verdictPatches[session.sessionId] ?? null }
+      ? { ...session.annotation, verdict: verdictPatches[session.sessionId] }
       : session.annotation,
     [verdictPatches],
   );
@@ -138,12 +147,10 @@ export function Sessions({
       matchesSessionEffortFilter(effortBySession.get(session.sessionId), effortFilter),
     [effortBySession, effortFilter],
   );
-  const filtered = useMemo(
-    () => sessions.filter(
-      (s) => matchesEffortFilter(s) && matchesSessionSearch(s, effortText(s), query),
-    ),
-    [query, sessions, effortText, matchesEffortFilter],
-  );
+  const filtered = useMemo(() => {
+    const matchesSearch = sessionSearchMatcher(query);
+    return sessions.filter((s) => matchesEffortFilter(s) && matchesSearch(s, effortText(s)));
+  }, [query, sessions, effortText, matchesEffortFilter]);
   const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const value = (session: Session): string | number => {
       if (sort.key === "activity")
@@ -213,9 +220,7 @@ export function Sessions({
   // when rows are in end-time order: any other sort turns it into a column of random numbers.
   const showQuotaBalance = sort.key === "activity";
   const columnCount = 9;
-  const pageQuotaKey = (showQuotaBalance
-    ? sessionQuotaPageIds(sorted, pageStart, pageStart + pageSize)
-    : pageRows.map((session) => session.sessionId)).join("\n");
+  const pageQuotaKey = sessionQuotaPageIds(sorted, pageStart, pageStart + pageSize).join("\n");
   const quotaVersionOf = useMemo(() => {
     const byId = new Map(sessions.map((session) => [session.sessionId, session]));
     return (sessionId: string) => {
