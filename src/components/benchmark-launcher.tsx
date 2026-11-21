@@ -1,7 +1,8 @@
-import { BENCHMARK_SITES, type BenchmarkSiteId } from "../benchmark-sites";
+import { ExternalLink } from "lucide-react";
+import { BENCHMARK_LINKS, BENCHMARK_SITES, type BenchmarkSiteId } from "../benchmark-sites";
 import { benchmarkSiteTitle, useBenchmarkStatus } from "../hooks/use-benchmark-status";
 
-export { BENCHMARK_SITES, type BenchmarkSiteId } from "../benchmark-sites";
+export { BENCHMARK_LINKS, BENCHMARK_SITES, type BenchmarkSiteId } from "../benchmark-sites";
 
 /** `is-unreachable` dims a site whose page answered with an error or not at all. It stays
  * clickable: the probe runs from the server, and the browser may still load what it could not. */
@@ -49,6 +50,18 @@ export function BenchmarkSplitLauncher({ onOpen }: { onOpen: (siteId: BenchmarkS
           </button>
         );
       })}
+      {BENCHMARK_LINKS.map((entry) => (
+        <a
+          key={entry.id}
+          href={entry.url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open ${entry.label} benchmark in a new tab`}
+          title={`${entry.label} (opens in a new tab)`}
+        >
+          <img className={`benchmark-favicon benchmark-favicon--${entry.id}`} src={entry.favicon} alt="" loading="lazy" />
+        </a>
+      ))}
     </div>
     <details className="benchmark-shortcuts">
       <summary>More</summary>
@@ -59,6 +72,11 @@ export function BenchmarkSplitLauncher({ onOpen }: { onOpen: (siteId: BenchmarkS
             event.currentTarget.closest("details")?.removeAttribute("open");
             onOpen(entry.id);
           }}>{entry.label}</button>
+        ))}
+        {BENCHMARK_LINKS.map((entry) => (
+          <a key={entry.id} href={entry.url} target="_blank" rel="noreferrer" onClick={(event) => {
+            event.currentTarget.closest("details")?.removeAttribute("open");
+          }}>{entry.label} <ExternalLink aria-hidden="true" /></a>
         ))}
       </div>
     </details>

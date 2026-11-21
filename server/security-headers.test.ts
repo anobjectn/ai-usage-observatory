@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createRequestHandler } from "./app";
 import { createMaintenanceHandler } from "./update/maintenance";
 import { securityHeaders } from "./security-headers";
-import { BENCHMARK_SITES } from "../src/components/benchmark-launcher";
+import { BENCHMARK_LINKS, BENCHMARK_SITES } from "../src/components/benchmark-launcher";
 
 test("app responses, including errors and updater routes, prevent framing and restrict resources", async () => {
   const handle = createRequestHandler();
@@ -38,8 +38,13 @@ test("development allows React refresh and local HMR without permitting remote c
   expect(policy).toContain("connect-src 'self' ws://localhost:5173 ws://127.0.0.1:5173;");
 });
 
+test("link-only benchmarks are never allowed as frames", () => {
+  const policy = securityHeaders()["Content-Security-Policy"];
+  for (const link of BENCHMARK_LINKS) expect(policy).not.toContain(new URL(link.url).origin);
+});
+
 test("all benchmark icons are vendored local assets", async () => {
-  for (const site of BENCHMARK_SITES) {
+  for (const site of [...BENCHMARK_SITES, ...BENCHMARK_LINKS]) {
     expect(site.favicon).toStartWith("/benchmarks/");
     expect(await Bun.file(`public${site.favicon}`).exists()).toBe(true);
   }

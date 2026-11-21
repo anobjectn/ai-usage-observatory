@@ -1883,7 +1883,7 @@ main {
   background: var(--color-surface);
   overflow: hidden;
 }
-.benchmark-split-pill button {
+.benchmark-split-pill :is(button,a) {
   width: 29px;
   border: 0;
   background: transparent;
@@ -1892,14 +1892,14 @@ main {
   place-items: center;
   cursor: pointer;
 }
-.benchmark-split-pill button+button {
+.benchmark-split-pill > * + * {
   border-left: 1px solid var(--color-border);
 }
-.benchmark-split-pill button:hover,.benchmark-split-pill button:focus-visible {
+.benchmark-split-pill :is(button,a):hover,.benchmark-split-pill :is(button,a):focus-visible {
   background: color-mix(in srgb,var(--color-accent) var(--tint-soft),var(--color-surface));
   outline: 0;
 }
-.benchmark-split-pill button:focus-visible {
+.benchmark-split-pill :is(button,a):focus-visible {
   box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 .benchmark-split-pill img {
@@ -1967,7 +1967,13 @@ main {
   margin-top: var(--space-4-5);
 }
 
-.benchmark-tabs button {
+/* Only the embedded sites are tabs; the outbound links sit beside the tab list, not in it. */
+.benchmark-tabs__list {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.benchmark-tabs :is(button,a) {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -1980,7 +1986,7 @@ main {
   cursor: pointer;
 }
 
-.benchmark-tabs button img {
+.benchmark-tabs :is(button,a) img {
   width: 16px;
   height: 16px;
   border-radius: var(--radius-chip);
@@ -1992,9 +1998,24 @@ main {
   background: var(--color-logo-aicharts);
 }
 
-.benchmark-tabs button:hover {
+.benchmark-tabs :is(button,a):hover {
   border-color: var(--color-border-strong);
   color: var(--color-text);
+}
+
+/* A site that refuses framing: it leaves the app instead of switching the frame. */
+.benchmark-tabs__link {
+  text-decoration: none;
+}
+
+.benchmark-tabs__link svg {
+  width: 12px;
+  height: 12px;
+}
+
+.benchmark-tabs :is(button,a):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .benchmark-tabs button.active {
@@ -3166,7 +3187,7 @@ aside > * {
   .benchmark-split-pill {
     height: var(--control-height-touch);
   }
-  .benchmark-split-pill button {
+  .benchmark-split-pill :is(button,a) {
     width: 40px;
   }
   .time-range-segmented {
@@ -3191,8 +3212,9 @@ aside > * {
   .benchmark-shortcuts summary::-webkit-details-marker { display: none; }
   .benchmark-shortcuts > div { position: absolute; top: calc(100% + var(--space-2)); left: 0; z-index: 30; min-width: 180px; padding: var(--space-3); display: grid; gap: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-card); background: var(--color-surface-raised); box-shadow: var(--shadow-panel); }
   .benchmark-shortcuts span { color: var(--color-text-muted); font: var(--text-xs) var(--font-body); }
-  .benchmark-shortcuts button { min-height: var(--control-height-touch); text-align: left; padding: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-control); color: var(--color-text); background: var(--color-surface); cursor: pointer; }
-  .benchmark-shortcuts :is(summary,button):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .benchmark-shortcuts :is(button,a) { display: flex; align-items: center; gap: var(--space-1-5); text-decoration: none; min-height: var(--control-height-touch); text-align: left; padding: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-control); color: var(--color-text); background: var(--color-surface); cursor: pointer; }
+  .benchmark-shortcuts a svg { width: 12px; height: 12px; color: var(--color-text-muted); }
+  .benchmark-shortcuts :is(summary,button,a):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 }
 
 @media (min-width:901px) and (max-width:1500px) {

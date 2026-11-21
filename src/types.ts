@@ -481,6 +481,15 @@ export type SessionQuotaContext = {
     endGapMs: number | null;
     episodes: Array<{
       cycleId: string;
+      /** Activity span this segment covers, clipped to the session's episode. Absent on
+       * contexts computed before the field existed. */
+      startAt?: number;
+      endAt?: number;
+      /** The snapshots that measured this segment. Bracketing readings can sit before and after
+       * the activity, so movement between them may include idle time. Absent on contexts
+       * computed before the field existed. */
+      observedStartAt?: number;
+      observedEndAt?: number;
       startUsedPercent: number;
       endUsedPercent: number;
       deltaPercentagePoints: number | null;

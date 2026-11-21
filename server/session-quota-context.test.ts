@@ -54,6 +54,17 @@ describe("session quota policy", () => {
     }));
     expect(result.resources[0]).toMatchObject({ deltaPercentagePoints: 14, cycleCount: 2 });
     expect(result.resources[0]?.episodes).toHaveLength(2);
+    // Each cycle carries the activity span it covers, clipped to the episode, so the two
+    // readings of one window can be dated apart.
+    expect(result.resources[0]?.episodes.map(({ startAt, endAt }) => [startAt, endAt])).toEqual([
+      [10 * 60_000, 14 * 60_000],
+      [16 * 60_000, 20 * 60_000],
+    ]);
+    // The readings that measured each cycle are kept too: the bracket starts before the activity.
+    expect(result.resources[0]?.episodes.map(({ observedStartAt, observedEndAt }) => [observedStartAt, observedEndAt])).toEqual([
+      [9 * 60_000, 14 * 60_000],
+      [16 * 60_000, 21 * 60_000],
+    ]);
   });
 
   test("anchors a fresh cycle to the unstarted window that preceded it", () => {
