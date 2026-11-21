@@ -84,26 +84,201 @@ await test("a failed dashboard request keeps the view and recovers on retry", as
   click(".connection-banner button");
   await waitFor(() => !document.querySelector(".connection-banner"), "Retry did not recover");
 });
+// Two refreshes overlap: the first one's dashboard read is held, and the second finishes first.
+// The banner must follow the newer request whichever way the two turn out.
+async function overlappingRefreshes(first: "fail" | "pass", second: "fail" | "pass") {
+  const originalFetch = window.fetch;
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let reads = 0;
+  let finished = 0;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input !== "/api/dashboard") return originalFetch(input, init);
+    const read = ++reads;
+    // No ETag, so a passing read returns a body rather than a 304.
+    const response = await originalFetch(input, { ...init, headers: {} });
+    if (read === 1) await firstHeld;
+    finished += 1;
+    return (read === 1 ? first : second) === "fail" ? Response.json({ error: "Fixture read failed" }, { status: 503 }) : response;
+  }) as typeof window.fetch;
+  try {
+    click(".refresh-button");
+    await waitFor(() => reads === 1, "The first refresh did not read the dashboard");
+    click(".refresh-button");
+    await waitFor(() => finished === 1, "The second refresh did not finish");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    releaseFirst();
+    await waitFor(() => finished === 2, "The first refresh did not finish");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  } finally {
+    window.fetch = originalFetch;
+    releaseFirst();
+  }
+}
+await test("a slow older dashboard request does not decide the connection banner", async () => {
+  await waitFor(() => !document.querySelector(".connection-banner"), "The banner was up before the check");
+  await overlappingRefreshes("fail", "pass");
+  assert(!document.querySelector(".connection-banner"), "An older failed request raised the banner after a newer one succeeded");
+  await overlappingRefreshes("pass", "fail");
+  assert(document.querySelector(".connection-banner"), "An older successful request cleared the banner a newer failure raised");
+  click(".connection-banner button");
+  await waitFor(() => !document.querySelector(".connection-banner"), "Retry did not recover");
+});
+// The first refresh's collection POST is held while a second refresh runs to the end, then
+// released with `firstCollection`.
+async function heldCollection(firstCollection: "fail" | "pass", secondRead: "fail" | "pass") {
+  const originalFetch = window.fetch;
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let collections = 0;
+  let reads = 0;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input === "/api/refresh") {
+      const collection = ++collections;
+      if (collection > 1) return originalFetch(input, init);
+      await firstHeld;
+      return firstCollection === "fail" ? Response.json({ error: "Fixture collection failed" }, { status: 500 }) : originalFetch(input, init);
+    }
+    if (input !== "/api/dashboard") return originalFetch(input, init);
+    const read = ++reads;
+    const response = await originalFetch(input, { ...init, headers: {} });
+    return read === 1 && secondRead === "fail" ? Response.json({ error: "Fixture read failed" }, { status: 503 }) : response;
+  }) as typeof window.fetch;
+  const label = () => document.querySelector(".refresh-button span")?.textContent;
+  try {
+    click(".refresh-button");
+    await waitFor(() => collections === 1, "The first refresh did not start collecting");
+    click(".refresh-button");
+    await waitFor(() => reads === 1, "The second refresh did not read the dashboard");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert(label() === "Collecting", "The second refresh finishing cleared Collecting while the first was still running");
+    releaseFirst();
+    await waitFor(() => label() === "Refresh", "Collecting did not clear after both refreshes ended");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  } finally {
+    window.fetch = originalFetch;
+    releaseFirst();
+  }
+}
+await test("a refresh that was collecting is newer than a read sent meanwhile", async () => {
+  await waitFor(() => !document.querySelector(".connection-banner"), "The banner was up before the check");
+  await heldCollection("pass", "fail");
+  assert(!document.querySelector(".connection-banner"), "A read sent during collection kept the banner up over the refresh's fresh data");
+  await heldCollection("fail", "pass");
+  assert(document.querySelector(".connection-banner"), "A failed collection was hidden by a read that finished while it ran");
+  click(".connection-banner button");
+  await waitFor(() => !document.querySelector(".connection-banner"), "Retry did not recover");
+});
 await test("annotations survive save, remount, and keyboard dismissal", async () => {
   click('aside nav button[aria-label="Sessions"]');
   await waitFor(() => Boolean(document.querySelector('[aria-label="Edit annotation"]')), "Fixture session did not appear");
-  click('[aria-label="Edit annotation"]');
-  await waitFor(() => Boolean(document.querySelector('[aria-labelledby="annotation-modal-title"]')), "Annotation dialog did not load");
-  enter('[aria-labelledby="annotation-modal-title"] input', "browser-fixture");
-  enter('[aria-labelledby="annotation-modal-title"] textarea', "Saved browser fixture note");
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  click('[aria-labelledby="annotation-modal-title"] .primary-button');
-  await waitFor(() => !document.querySelector('[aria-labelledby="annotation-modal-title"]'), "Annotation did not save");
+  const originalFetch = window.fetch;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input === "/api/sessions/fixture-session/detail") {
+      return Response.json({ available: true, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 });
+    }
+    return originalFetch(input, init);
+  }) as typeof window.fetch;
+  try {
+    // Rating first, then saving a note: the row must show the note, not the annotation the
+    // rating returned.
+    click('[aria-label="Open session details"]');
+    await waitFor(() => Boolean(document.querySelector('[title="Rate this session good"]')), "Verdict controls did not appear");
+    click('[title="Rate this session good"]');
+    await waitFor(() => Boolean(document.querySelector(".session-verdict-badge.is-good")), "Verdict did not save");
+    click('[aria-label="Edit annotation"]');
+    await waitFor(() => Boolean(document.querySelector('[aria-labelledby="annotation-modal-title"]')), "Annotation dialog did not load");
+    enter('[aria-labelledby="annotation-modal-title"] input', "browser-fixture");
+    enter('[aria-labelledby="annotation-modal-title"] textarea', "Saved browser fixture note\nSecond line of the note");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    click('[aria-labelledby="annotation-modal-title"] .primary-button');
+    await waitFor(() => !document.querySelector('[aria-labelledby="annotation-modal-title"]'), "Annotation did not save");
+    const label = () => document.querySelector(".session-row .session-col--model small")?.textContent;
+    await waitFor(() => label() === "Saved browser fixture note", "The row did not show the note saved after the verdict");
+    assert(document.querySelector(".session-verdict-badge.is-good"), "Saving the note cleared the verdict");
+    const search = 'input[placeholder="Search sessions…"]';
+    for (const query of ["no such session", "line OF THE note", "no such session", "browser-fixture", "no such session", "FIXTURE-SESSION"]) {
+      enter(search, query);
+      await waitFor(
+        () => Boolean(document.querySelector(".session-row")) === (query !== "no such session"),
+        `Unexpected search result for "${query}"`,
+      );
+    }
+    enter(search, "");
+  } finally {
+    window.fetch = originalFetch;
+  }
   root.unmount();
   root = createRoot(rootElement);
   root.render(<App />);
   await waitFor(() => Boolean(document.querySelector('[aria-label="Edit annotation"]')), "Sessions did not reload");
   click('[aria-label="Edit annotation"]');
   await waitFor(() => Boolean(document.querySelector('[aria-labelledby="annotation-modal-title"] textarea')), "Saved annotation did not reopen");
-  assert(document.querySelector<HTMLTextAreaElement>('[aria-labelledby="annotation-modal-title"] textarea')?.value === "Saved browser fixture note", "Note was not retained");
+  assert(document.querySelector<HTMLTextAreaElement>('[aria-labelledby="annotation-modal-title"] textarea')?.value === "Saved browser fixture note\nSecond line of the note", "Note was not retained");
   assert(document.querySelector<HTMLInputElement>('[aria-labelledby="annotation-modal-title"] input')?.value === "browser-fixture", "Tags were not retained");
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   await waitFor(() => !document.querySelector('[aria-labelledby="annotation-modal-title"]'), "Escape did not dismiss the saved dialog");
+});
+// Starts from a freshly mounted app, so the check does not depend on the state an earlier one
+// leaves behind.
+async function freshSessions() {
+  root.unmount();
+  root = createRoot(rootElement);
+  root.render(<App />);
+  await waitFor(() => Boolean(document.querySelector('aside nav button[aria-label="Sessions"]')), "App did not reload");
+  click('aside nav button[aria-label="Sessions"]');
+  await waitFor(() => Boolean(document.querySelector('[aria-label="Edit annotation"]')), "Fixture session did not appear");
+}
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+await test("a late save acknowledgment does not replace a newer note", async () => {
+  await freshSessions();
+  const originalFetch = window.fetch;
+  const originalConfirm = window.confirm;
+  window.confirm = () => true;
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let saves = 0;
+  // The first save is stored at once, but its response reaches the browser only after the second.
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input !== "/api/sessions/fixture-session/annotations" || init?.method !== "PUT") return originalFetch(input, init);
+    saves += 1;
+    const response = await originalFetch(input, init);
+    if (saves === 1) await firstHeld;
+    return response;
+  }) as typeof window.fetch;
+  const modal = '[aria-labelledby="annotation-modal-title"]';
+  const label = () => document.querySelector(".session-row .session-col--model small")?.textContent;
+  const saveNote = async (note: string) => {
+    click('[aria-label="Edit annotation"]');
+    await waitFor(() => Boolean(document.querySelector(`${modal} textarea`)), "Annotation dialog did not open");
+    enter(`${modal} textarea`, note);
+    await settle(0);
+    click(`${modal} .primary-button`);
+  };
+  try {
+    await saveNote("First late note");
+    await waitFor(() => saves === 1, "The first save was not sent");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await waitFor(() => !document.querySelector(modal), "The dialog did not close during the first save");
+    await saveNote("Second newer note");
+    await waitFor(() => !document.querySelector(modal), "The second save did not finish");
+    await waitFor(() => label() === "Second newer note", "The row did not show the second note");
+    await settle(500);
+    releaseFirst();
+    await settle(1_000);
+    assert(label() === "Second newer note", `The late first acknowledgment replaced the newer note (row shows "${label()}")`);
+    // A refresh must not bring the older note back either.
+    click(".refresh-button");
+    await settle(1_000);
+    assert(label() === "Second newer note", `A refresh brought back the older note (row shows "${label()}")`);
+    enter('input[placeholder="Search sessions…"]', "second newer");
+    await waitFor(() => Boolean(document.querySelector(".session-row")), "Search did not find the newer note");
+    enter('input[placeholder="Search sessions…"]', "");
+  } finally {
+    window.fetch = originalFetch;
+    window.confirm = originalConfirm;
+    releaseFirst();
+  }
 });
 root.unmount();
 
@@ -139,6 +314,64 @@ await test("compact session sorting returns to page one for field and direction 
         "Sorting did not show the first session in the new order");
     }
   } finally { fixtureRoot.unmount(); }
+});
+
+await test("jumping to a later session page loads its border reading and shows quota dividers", async () => {
+  const data = dashboardFixture();
+  const firstAt = Date.parse(data.collectedAt);
+  const sessions = Array.from({ length: 31 }, (_, index) => ({
+    ...data.sessions[0],
+    sessionId: `quota-fixture-${index}`,
+    metadata: { lastActivity: new Date(firstAt - index * 60_000).toISOString() },
+  }));
+  const reachedAt = firstAt - 29.5 * 60_000;
+  const history = data.quotas.history!;
+  history.available = true;
+  history.windows.push({ provider: "codex", window: "fiveHour", reachedCount: 1, lastReachedAt: reachedAt, reachedAt: [reachedAt] });
+  const requests: string[][] = [];
+  const originalFetch = window.fetch;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input !== "/api/session-quota-contexts") return originalFetch(input, init);
+    const { sessionIds } = JSON.parse(String(init?.body)) as { sessionIds: string[] };
+    requests.push(sessionIds);
+    const items = Object.fromEntries(sessionIds.filter((id) => id === "quota-fixture-29" || id === "quota-fixture-30").map((id) => [
+      id, {
+        provider: "codex",
+        coverage: { observationCadenceMs: null },
+        resources: [{ id: "fiveHour", kind: "window", endUsedPercent: 10, endCycleId: `reset:${id.endsWith("29") ? firstAt : reachedAt}` }],
+      },
+    ]));
+    return Response.json({ items });
+  }) as typeof window.fetch;
+  const fixtureRoot = createRoot(rootElement);
+  try {
+    fixtureRoot.render(<Sessions
+      sessions={sessions}
+      rateCard={data.rateCard}
+      unpricedModels={[]}
+      showCache={true}
+      onEdit={() => {}}
+      quotaHistory={history}
+      collectedAt={data.collectedAt}
+    />);
+    await waitFor(() => requests.length > 0, "The first page did not request its quota readings");
+    assert(requests[0].length === 15, "The first page requested extra quota readings");
+    const jump = ".session-pager .page-jump__input";
+    enter(jump, "3");
+    document.querySelector(jump)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await waitFor(() => requests.length === 2, "The last page did not request its quota readings");
+    assert(requests[1].join(",") === "quota-fixture-29,quota-fixture-30", "The last page did not ask for its unloaded neighbour and its only row");
+    const boundary = () => document.querySelector(".session-reset-divider:not(.session-reset-divider--event)");
+    await waitFor(() => Boolean(boundary()), "The reset boundary did not appear after the neighbour loaded");
+    assert(boundary()?.previousElementSibling?.textContent?.includes("5-hour quota exhausted"), "The cross-page exhaustion event did not appear above the first row");
+    click('[aria-label="Previous session page"]');
+    await waitFor(() => requests.length === 3, "The middle page did not request its quota readings");
+    assert(!requests[2].includes("quota-fixture-29") && !requests[2].includes("quota-fixture-14"), "The middle page refetched cached readings");
+    assert(!document.querySelector(".session-reset-divider"), "The last page's dividers also appeared on the middle page");
+  } finally {
+    fixtureRoot.unmount();
+    window.fetch = originalFetch;
+  }
 });
 
 // Exercise the real hook with controlled network failures and retry timers. Other browser timers

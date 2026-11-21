@@ -1054,6 +1054,28 @@ export function sessionModelNames(session: Session) {
   ].filter(Boolean);
 }
 
+// Whitespace runs read as one space on both sides, so a phrase matches across a note's line
+// breaks and a query copied with doubled spaces still finds it. Lowercasing turns a word-final
+// Σ into ς but a lone Σ into σ, so both fold to σ.
+const normalizeSessionSearch = (text: string) =>
+  text.replace(/\s+/g, " ").toLowerCase().replace(/ς/g, "σ");
+
+/** A test for the Sessions search box: a case-insensitive substring of a session's agent, models,
+ * path, tags, note, session ID or effort text. The query is normalized once, and a blank query
+ * matches every session without reading any of them. */
+export function sessionSearchMatcher(query: string): (session: Session, effortText: string) => boolean {
+  const needle = normalizeSessionSearch(query);
+  if (!needle.trim()) return () => true;
+  return (session, effortText) =>
+    normalizeSessionSearch(`${session.agent} ${session.modelsUsed.join(" ")} ${session.cwd ?? ""} ${session.pathTags.join(" ")} ${session.annotation.tags.join(" ")} ${effortText} ${session.annotation.note} ${session.sessionId}`)
+      .includes(needle);
+}
+
+/** Whether a session matches the Sessions search box; see `sessionSearchMatcher`. */
+export function matchesSessionSearch(session: Session, effortText: string, query: string) {
+  return sessionSearchMatcher(query)(session, effortText);
+}
+
 export function quotaNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
@@ -1169,6 +1191,51 @@ export function sessionQuotaEvents(
       at: reset.usedAt,
     }));
   return [...reached, ...resets].sort((left, right) => right.at - left.at);
+}
+
+
+export type SessionQuotaDividers = {
+  boundaries: ReturnType<typeof quotaResetBoundaries>;
+  events: SessionQuotaEvent[];
+  trailingEvents: SessionQuotaEvent[];
+};
+
+/** The quota dividers drawn around the row at `index` of the activity-sorted session list. Each row
+ * is measured against the session before it in the whole list rather than on its page, so an event
+ * between two pages is drawn once, at the top of the later page. With newest first, the first row
+ * also owns everything after it, so a limit hit since the last session still shows at the top;
+ * with oldest first, the last row owns everything after it, drawn below it. */
+export function sessionQuotaDividers(
+  sorted: readonly Session[],
+  index: number,
+  direction: "asc" | "desc",
+  history: QuotaHistory | null | undefined,
+  contexts: Readonly<Record<string, SessionQuotaContext | null>>,
+): SessionQuotaDividers {
+  const session = sorted[index];
+  if (!session) return { boundaries: [], events: [], trailingEvents: [] };
+  const previous = sorted[index - 1];
+  const boundaries = previous
+    ? quotaResetBoundaries(contexts[previous.sessionId], contexts[session.sessionId])
+    : [];
+  const activityAt = Date.parse(String(session.metadata?.lastActivity ?? ""));
+  const neighbourAt = previous
+    ? Date.parse(String(previous.metadata?.lastActivity ?? ""))
+    : direction === "desc" ? Number.POSITIVE_INFINITY : Number.NaN;
+  const events = Number.isFinite(activityAt) && !Number.isNaN(neighbourAt)
+    ? sessionQuotaEvents(history, neighbourAt, activityAt)
+    : [];
+  const trailingEvents = Number.isFinite(activityAt) && direction === "asc" && index === sorted.length - 1
+    ? sessionQuotaEvents(history, activityAt, Number.POSITIVE_INFINITY)
+    : [];
+  return { boundaries, events, trailingEvents };
+}
+
+/** Sessions whose closing readings a page of the list needs: its own rows, plus the row just
+ * before the page, which its first row's reset boundary is measured against. */
+export function sessionQuotaPageIds(sorted: readonly Session[], start: number, end: number) {
+  if (start >= sorted.length || start >= end) return [];
+  return sorted.slice(Math.max(0, start - 1), end).map((session) => session.sessionId);
 }
 
 
