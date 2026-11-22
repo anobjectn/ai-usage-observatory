@@ -1,14 +1,14 @@
 import { basename } from "node:path";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { providerFromAgent, type ActivityProvider } from "../src/provider";
-import { addOneHourWrites, type AntigravityData, type MetricRow, type ModelBreakdown, type WarpDailyUsage } from "../src/types";
+import { addOneHourWrites, type AntigravityData, type AntigravityReconciliation, type MetricRow, type ModelBreakdown, type WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
 import { serverPort } from "./server-port";
 import { ensureUpstream, upstreamHealth } from "./ccusage-upstream";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths, pathTagsForCwd, type PathIndexResult } from "./path-indexer";
 import { collectWarp } from "./warp";
-import { collectAntigravity, type AntigravityCollection } from "./antigravity";
+import { antigravitySessionId, collectAntigravity, type AntigravityCollection, type AntigravityConversation } from "./antigravity";
 import { syncAntigravityEffort } from "./antigravity-effort";
 import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
 import { emptyAnnotation, getAnnotations, getAnnotationVersion, getSettings, listRules } from "./store";
@@ -232,44 +232,12 @@ export function monthKey(date: string) {
   return date.slice(0, 7);
 }
 
-/** Folds one source's daily rows into the buckets of a coarser calendar (weeks, months). */
-function bucketLocalRows(rows: MetricRow[], bucket: (date: string) => string) {
-  const byPeriod = new Map<string, MetricRow>();
-  for (const row of rows) {
-    const period = bucket(row.period);
-    const current = byPeriod.get(period);
-    if (!current) {
-      byPeriod.set(period, { ...row, period, modelBreakdowns: row.modelBreakdowns.map((model) => ({ ...model })) });
-      continue;
-    }
-    current.inputTokens += row.inputTokens;
-    current.outputTokens += row.outputTokens;
-    current.cacheReadTokens += row.cacheReadTokens;
-    current.cacheCreationTokens += row.cacheCreationTokens;
-    current.totalTokens += row.totalTokens;
-    current.totalCost += row.totalCost;
-    for (const model of row.modelBreakdowns) {
-      const existing = current.modelBreakdowns.find((entry) => entry.modelName === model.modelName);
-      if (!existing) current.modelBreakdowns.push({ ...model });
-      else {
-        existing.inputTokens += model.inputTokens;
-        existing.outputTokens += model.outputTokens;
-        existing.cacheReadTokens += model.cacheReadTokens;
-        existing.cacheCreationTokens += model.cacheCreationTokens;
-        existing.cost += model.cost;
-      }
-    }
-    current.modelsUsed = current.modelBreakdowns.map((model) => model.modelName);
-  }
-  return [...byPeriod.values()];
-}
-
-/** Adds the local, non-ccusage sources to ccusage's own calendar rows. Warp is bucketed by each
- * session's last activity, as it records one ledger per conversation; `localRows` (Antigravity)
- * arrive already split by the day each model call happened. */
-export function mergeLocalRows(base: MetricRow[], sessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date, localRows: MetricRow[] = []) {
+/** Adds the local, non-ccusage source (Warp) to ccusage's own calendar rows. Warp is bucketed by
+ * each session's last activity, as it records one ledger per conversation. Antigravity is not
+ * merged here: ccusage reports its rows itself. */
+export function mergeLocalRows(base: MetricRow[], sessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date) {
   const rows = new Map(base.map((row) => [row.period, row]));
-  for (const local of [...warpRows(sessions, timeZone, bucket), ...bucketLocalRows(localRows, bucket)]) {
+  for (const local of warpRows(sessions, timeZone, bucket)) {
     const current = rows.get(local.period);
     rows.set(local.period, current ? mergeRows(current, local) : { ...local, agents: [local] });
   }
@@ -280,36 +248,79 @@ export function mergeLocalRows(base: MetricRow[], sessions: ProjectActivitySessi
 export const mergeWarp = mergeLocalRows;
 
 type TokenTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number};
-type TokenBuckets = Omit<TokenTotals, "totalCost">;
 
-/** Local sources add tokens only. Their cost is credits (Warp) or unpriced (Antigravity), never
- * dollars, so `totalCost` stays ccusage's own. */
-export function totalsWithLocal(base: TokenTotals, warp: {tokens:number}, antigravity: TokenBuckets[] = []) {
-  const sum = (pick: (row: TokenBuckets) => number) => antigravity.reduce((total, row) => total + pick(row), 0);
+/** Warp adds tokens only. Its cost is credits, never dollars, so `totalCost` stays ccusage's own. */
+export function totalsWithLocal(base: TokenTotals, warp: {tokens:number}) {
   return {
     ...base,
-    inputTokens: base.inputTokens + warp.tokens + sum((row) => row.inputTokens),
-    outputTokens: base.outputTokens + sum((row) => row.outputTokens),
-    cacheReadTokens: base.cacheReadTokens + sum((row) => row.cacheReadTokens),
-    cacheCreationTokens: base.cacheCreationTokens + sum((row) => row.cacheCreationTokens),
-    totalTokens: base.totalTokens + warp.tokens + sum((row) => row.totalTokens),
+    inputTokens: base.inputTokens + warp.tokens,
+    totalTokens: base.totalTokens + warp.tokens,
   };
 }
 
-/** The Antigravity source-health line. Cost is withheld rather than estimated: ccusage prices no
- * Gemini model, and the app never prices anything on its own. */
+type AntigravityRow = { agent: string; period: string; totalTokens: number; totalCost: number };
+
+/** ccusage's Antigravity sessions against the metadata reader's conversations. The two read the
+ * same databases independently, so their token totals should match; a difference means one of
+ * them skipped or double-counted a call, or a conversation was written between the two reads. */
+export function antigravityReconciliation(ccusageSessions: AntigravityRow[], conversations: Pick<AntigravityConversation, "conversationId" | "tokens">[]): AntigravityReconciliation {
+  const ccusage = ccusageSessions.filter((row) => providerFromAgent(row.agent) === "antigravity");
+  const reported = new Set(ccusage.map((row) => row.period));
+  const read = new Set(conversations.map((conversation) => conversation.conversationId));
+  return {
+    ccusageSessions: ccusage.length,
+    ccusageTokens: ccusage.reduce((sum, row) => sum + row.totalTokens, 0),
+    ccusageCost: ccusage.reduce((sum, row) => sum + row.totalCost, 0),
+    metadataSessions: conversations.length,
+    metadataTokens: conversations.reduce((sum, conversation) => sum + conversation.tokens, 0),
+    joined: ccusage.filter((row) => read.has(row.period)).length,
+    ccusageOnly: ccusage.filter((row) => !read.has(row.period)).length,
+    metadataOnly: conversations.filter((conversation) => !reported.has(conversation.conversationId)).length,
+  };
+}
+
+/** Puts the metadata reader's facts onto ccusage's Antigravity sessions, by conversation id
+ * (ccusage's session `period`). ccusage keeps the tokens, cost, models, and last activity; the
+ * reader adds the working directory, the content-free stats, and the step-time intervals. The id
+ * is `antigravity-<conversation id>` whichever reader saw the session first. */
+export function joinAntigravitySessions<T extends { agent: string; period: string; sessionId: string; cwd: string | null; pathTags: string[] }>(sessions: T[], conversations: AntigravityConversation[], tags: (cwd: string | null) => string[] = pathTagsForCwd) {
+  const byId = new Map(conversations.map((conversation) => [conversation.conversationId, conversation]));
+  return sessions.map((session) => {
+    if (providerFromAgent(session.agent) !== "antigravity") return session;
+    const conversation = byId.get(session.period);
+    const cwd = conversation?.cwd ?? session.cwd;
+    return {
+      ...session,
+      sessionId: antigravitySessionId(session.period),
+      source: "antigravity" as const,
+      cwd,
+      pathTags: cwd === session.cwd ? session.pathTags : tags(cwd),
+      ...(conversation ? { antigravity: conversation.stats, activityIntervals: conversation.activityIntervals } : {}),
+    };
+  });
+}
+
+/** The Antigravity source-health line: the metadata reader, and how its totals compare with the
+ * ccusage sessions it is joined to. Tokens and cost are ccusage's. */
 export function antigravityHealth(data: AntigravityData) {
   if (!data.available) {
     return { name: "Antigravity local conversations", status: "unavailable" as const, detail: data.error ?? "No Antigravity data directory was found on this machine.", kind: "local metadata" };
   }
+  const reconciliation = data.reconciliation;
+  const matched = !reconciliation || (reconciliation.ccusageTokens === reconciliation.metadataTokens && reconciliation.ccusageOnly === 0 && reconciliation.metadataOnly === 0);
+  const tokens = (value: number) => value.toLocaleString("en-US");
   const parts = [
     `${data.sessionCount} ${data.sessionCount === 1 ? "conversation" : "conversations"}`,
     `${data.generationCount} ${data.generationCount === 1 ? "model call" : "model calls"}`,
     `${data.roots.length} ${data.roots.length === 1 ? "data directory" : "data directories"} read`,
-    "cost withheld: no ccusage price",
+    ...(reconciliation ? [
+      matched
+        ? `ccusage reconciles: ${reconciliation.ccusageSessions} ${reconciliation.ccusageSessions === 1 ? "session" : "sessions"}, ${tokens(reconciliation.ccusageTokens)} tokens`
+        : `ccusage reports ${reconciliation.ccusageSessions} ${reconciliation.ccusageSessions === 1 ? "session" : "sessions"} and ${tokens(reconciliation.ccusageTokens)} tokens; the metadata reader found ${reconciliation.metadataSessions} and ${tokens(reconciliation.metadataTokens)} (${reconciliation.joined} joined, ${reconciliation.ccusageOnly} ccusage only, ${reconciliation.metadataOnly} metadata only). A conversation written during collection can differ until the next one`,
+    ] : []),
     ...data.notes,
   ];
-  return { name: "Antigravity local conversations", status: data.notes.length ? "degraded" as const : "healthy" as const, detail: parts.join(" · "), kind: "local metadata" };
+  return { name: "Antigravity local conversations", status: data.notes.length || !matched ? "degraded" as const : "healthy" as const, detail: parts.join(" · "), kind: "local metadata" };
 }
 
 /** The collection behind the newest snapshot, so enabling the effort index can write Antigravity's
@@ -384,26 +395,21 @@ async function buildSnapshot() {
   // whereas the other order could leave a stale annotation looking current.
   const annotationVersion = getAnnotationVersion();
   const annotations = getAnnotations();
-  const transcriptSessions = ccusage.unified.session.map((row) => {
+  const transcriptSessions = joinAntigravitySessions(ccusage.unified.session.map((row) => {
     const path = pathIndex[`${row.agent}:${row.period}`];
     const sessionId = path?.sessionId ?? `${row.agent}-${row.period}`;
-    return { ...row, sessionId, cwd: path?.cwd ?? null, pathTags: path?.tags ?? [], annotation: annotations[sessionId] ?? emptyAnnotation() };
-  });
+    return { ...row, sessionId, cwd: path?.cwd ?? null, pathTags: path?.tags ?? [] };
+  }), antigravityCollection.conversations).map((row) => ({ ...row, annotation: annotations[row.sessionId] ?? emptyAnnotation() }));
   const warpSessions = warpCollection.sessions.map((session) => ({
     ...session,
     pathTags: pathTagsForCwd(session.cwd),
     annotation: annotations[session.sessionId] ?? emptyAnnotation(),
   }));
-  const antigravitySessions = antigravityCollection.sessions.map((session) => ({
-    ...session,
-    pathTags: pathTagsForCwd(session.cwd),
-    annotation: annotations[session.sessionId] ?? emptyAnnotation(),
-  }));
-  const sessions = [...transcriptSessions, ...warpSessions, ...antigravitySessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
-  const antigravityRows = antigravityCollection.dailyRows;
-  const daily = mergeLocalRows(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone, undefined, antigravityRows);
+  const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
+  const daily = mergeLocalRows(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
   const { sessions: _warpSessions, ...warp } = warpCollection;
-  const { sessions: _antigravitySessions, dailyRows: _antigravityRows, effortSources: _antigravityEffort, complete: _antigravityComplete, ...antigravity } = antigravityCollection;
+  const { conversations: _antigravityConversations, effortSources: _antigravityEffort, complete: _antigravityComplete, ...antigravityData } = antigravityCollection;
+  const antigravity: AntigravityData = { ...antigravityData, reconciliation: antigravityReconciliation(ccusage.unified.session, antigravityCollection.conversations) };
   latestAntigravity = antigravityCollection;
   const models = aggregateModels(daily, ccusage.unpricedModels);
   const rateCardHealthEntry = rateCardHealth(rateCardState);
@@ -418,9 +424,9 @@ async function buildSnapshot() {
     costMethodology: "ccusage",
     blockScope: "Claude Code",
     daily,
-    weekly: mergeLocalRows(ccusage.unified.weekly as unknown as MetricRow[], sessions, timeZone, weekKey, antigravityRows),
-    monthly: mergeLocalRows(ccusage.unified.monthly as unknown as MetricRow[], sessions, timeZone, monthKey, antigravityRows),
-    totals: totalsWithLocal(ccusage.unified.totals, warp.totals, antigravitySessions),
+    weekly: mergeLocalRows(ccusage.unified.weekly as unknown as MetricRow[], sessions, timeZone, weekKey),
+    monthly: mergeLocalRows(ccusage.unified.monthly as unknown as MetricRow[], sessions, timeZone, monthKey),
+    totals: totalsWithLocal(ccusage.unified.totals, warp.totals),
     sessions,
     projectActivity: aggregateProjectActivity(sessions, timeZone),
     blocks: ccusage.blocks.blocks,

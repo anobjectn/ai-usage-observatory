@@ -431,7 +431,7 @@ await test("jumping to a later session page loads its border reading and shows q
   }
 });
 
-await test("an Antigravity session is filterable, unpriced, and opens a metadata-only detail", async () => {
+await test("an Antigravity session is filterable, priced by ccusage, and opens a metadata-only detail", async () => {
   const appRoot = createRoot(rootElement);
   try {
     appRoot.render(<App />);
@@ -440,11 +440,23 @@ await test("an Antigravity session is filterable, unpriced, and opens a metadata
     const row = () => [...document.querySelectorAll<HTMLElement>(".session-row")].find((item) => item.textContent?.includes("gemini-4-neon"));
     await waitFor(() => Boolean(row()), "The Antigravity session did not appear");
     const cost = row()!.querySelector(".session-col--cost")?.textContent ?? "";
-    assert(cost.includes("—") && cost.includes("no price") && !cost.includes("$"), `The unpriced session showed a cost: "${cost}"`);
+    assert(cost.includes("$0.03") && !cost.includes("no price"), `The Antigravity session did not show its ccusage cost: "${cost}"`);
     click(".agent-filter__button");
     await waitFor(() => Boolean(document.querySelector(".agent-filter__menu")), "The Agent filter did not open");
-    const labels = [...document.querySelectorAll(".agent-filter__menu label span")].map((node) => node.textContent);
-    assert(labels.includes("antigravity") && labels.includes("gemini-4-neon"), `The Agent filter did not list Antigravity: ${labels.join(", ")}`);
+    const groups = [...document.querySelectorAll<HTMLElement>(".agent-filter__group")];
+    const groupLabels = (group: HTMLElement | undefined) => [...(group?.querySelectorAll("label span") ?? [])].map((node) => node.textContent);
+    const antigravityGroup = groups.find((group) => group.querySelector(".agent-filter__parent")?.textContent?.includes("antigravity"));
+    const googleGroup = groups.find((group) => group.querySelector(".overline")?.textContent === "Google");
+    assert(groupLabels(antigravityGroup).includes("gemini-4-neon"), `The Agent filter did not list Neon under Antigravity: ${groupLabels(antigravityGroup).join(", ")}`);
+    // Warp's Gemini is Google's, never Antigravity's.
+    assert(!groupLabels(antigravityGroup).includes("gemini-3-flash"), "Warp's Gemini was listed under Antigravity");
+    assert(groupLabels(googleGroup).includes("gemini-3-flash"), `Warp's Gemini was not listed under Google: ${groups.map((group) => group.textContent).join(" | ")}`);
+    googleGroup!.querySelector<HTMLInputElement>("input")!.click();
+    await waitFor(() => [...document.querySelectorAll(".session-row")].length === 1, "Selecting Google's Gemini did not narrow to the Warp session");
+    assert(!row(), "Selecting Google's Gemini kept the Antigravity session");
+    assert(Boolean(document.querySelector(".agent-filter__provider-marks i[style*='--color-provider-google']")), "The filter summary did not use the Google colour");
+    click(".agent-filter__menu-head button");
+    await waitFor(() => Boolean(row()), "Clearing the filter did not bring the Antigravity session back");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     row()!.querySelector<HTMLElement>('[aria-label="Open session details"]')!.click();
     const detail = () => document.querySelector(".session-detail--antigravity");

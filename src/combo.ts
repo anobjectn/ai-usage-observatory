@@ -1,6 +1,6 @@
 import { compareEffort, effortRank, normalizeEffort } from "./effort-model";
 import { familyOf } from "./model-family";
-import { providerFromModel, type ActivityProvider } from "./provider";
+import { modelGroup, type ModelGroup } from "./provider";
 import type { EffortComboDayRow } from "./types";
 
 /** Model family × provider-recorded effort. `High` alone is not a decision unit: `Opus 5 · High`
@@ -111,18 +111,22 @@ export function familyColor(family: string) {
   return fixedFamilyColors[family.toLowerCase()] ?? stablePaletteColor(`family:${family.toLowerCase()}`);
 }
 
-const providerColors: Record<ActivityProvider, string> = {
+const providerColors: Record<ModelGroup, string> = {
   anthropic: "var(--color-provider-anthropic)",
   codex: "var(--color-provider-openai)",
   warp: warpColor,
   antigravity: "var(--color-provider-antigravity)",
+  google: "var(--color-provider-google)",
 };
 
 /** The provider hue a combo pill is drawn in. Families answer "which chart series"; the pill
- * answers "whose model, at what effort", so it follows the user's provider colours instead. */
-export function providerColor(family: string) {
+ * answers "whose model, at what effort", so it follows the user's provider colours instead.
+ *
+ * A combo carries no agent. Effort rows are written for Claude, Codex, and Antigravity sessions
+ * only, so a Gemini combo is Antigravity's unless the caller names another agent. */
+export function providerColor(family: string, agent = "antigravity") {
   if (!family || family === UNKNOWN_COMBO_KEY) return neutral;
-  const provider = providerFromModel(family);
+  const provider = modelGroup(family, agent);
   return provider ? providerColors[provider] : neutral;
 }
 

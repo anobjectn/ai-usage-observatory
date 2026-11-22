@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { compareEffort } from "../effort-model";
 import { ComboFacetSelect } from "../components/effort";
-import { agentIsUnpriced, providerFromAgent } from "../provider";
+import { providerFromAgent } from "../provider";
 import { CompactSort } from "../components/compact-sort";
 import { PageJump } from "../components/page-jump";
 import { ChartTooltipContext } from "../components/chart-pins";
@@ -676,11 +676,6 @@ export function Sessions({
                         <>
                           <b>{formatWarpCredits(session.warp?.credits ?? 0)}</b>
                           <small>Warp credits</small>
-                        </>
-                      ) : agentIsUnpriced(session.agent) ? (
-                        <>
-                          <b>—</b>
-                          <small>no price</small>
                         </>
                       ) : (
                         <>

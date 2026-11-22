@@ -1,6 +1,6 @@
 import type { MetricRow, ModelBreakdown, Session } from "./types";
 import { familyOf } from "./model-family";
-import { OTHER_PROVIDER, providerFromAgent, providerFromModel } from "./provider";
+import { isGeminiModel, OTHER_PROVIDER, providerFromAgent, providerFromModel } from "./provider";
 
 /** One checked entry in the Agent filter. `agent:` covers a whole coarse agent ("claude"),
  * `model:` covers one release-stripped model family ("claude-opus-5"). The two live in one list
@@ -25,22 +25,53 @@ export function splitSelection(selection: AgentSelection) {
 
 /** One coarse agent and the model families that belong to it. */
 export type AgentBranch = { agent: string; models: string[] };
-export type AgentTree = { branches: AgentBranch[]; unparented: string[] };
+/** `google` lists the Gemini families some agent other than Antigravity ran (Warp, for one). It is
+ * a vendor heading, not an agent: it has no `agent:` entry of its own, and its families stay
+ * ordinary `model:` entries. */
+export type AgentTree = { branches: AgentBranch[]; google: string[]; unparented: string[] };
 
 /** Groups model families under the agent that produced them. A family whose vendor cannot be read
- * from its name gets no parent rather than an assumed one — it stays independently checkable. */
-export function buildAgentTree(agents: string[], families: string[]): AgentTree {
+ * from its name gets no parent rather than an assumed one — it stays independently checkable.
+ *
+ * Gemini is the one family that depends on the agent: it sits under Antigravity when Antigravity
+ * ran it and under Google when another agent did. A family both ran is listed in both places.
+ * It is still one `model:` entry, which matches the family under every agent, as a Claude family
+ * under the Claude branch also matches Warp's Claude sessions. `agentsByFamily` says which agents
+ * ran each family; a Gemini family missing from it is listed under Google. */
+export function buildAgentTree(agents: string[], families: string[], agentsByFamily: ReadonlyMap<string, readonly string[]> = new Map()): AgentTree {
   const branches = agents.map((agent) => ({ agent, models: [] as string[] }));
+  const google: string[] = [];
   const unparented: string[] = [];
+  const branchFor = (provider: string | null) => provider
+    ? branches.find((candidate) => providerFromAgent(candidate.agent) === provider)
+    : undefined;
   for (const family of families) {
-    const provider = providerFromModel(family);
-    const branch = provider
-      ? branches.find((candidate) => providerFromAgent(candidate.agent) === provider)
-      : undefined;
+    if (isGeminiModel(family)) {
+      const ranBy = agentsByFamily.get(family) ?? [];
+      const antigravity = ranBy.some((agent) => providerFromAgent(agent) === "antigravity") ? branchFor("antigravity") : undefined;
+      if (antigravity) antigravity.models.push(family);
+      if (!antigravity || ranBy.some((agent) => providerFromAgent(agent) !== "antigravity")) google.push(family);
+      continue;
+    }
+    const branch = branchFor(providerFromModel(family));
     if (branch) branch.models.push(family);
     else unparented.push(family);
   }
-  return { branches, unparented };
+  return { branches, google, unparented };
+}
+
+/** Which agents ran each model family, for `buildAgentTree`. */
+export function agentsByFamily(sessions: Array<Pick<Session, "agent" | "modelBreakdowns">>) {
+  const byFamily = new Map<string, string[]>();
+  for (const session of sessions) {
+    for (const model of session.modelBreakdowns) {
+      const family = familyOf(model.modelName);
+      const agents = byFamily.get(family) ?? [];
+      if (!agents.includes(session.agent)) agents.push(session.agent);
+      byFamily.set(family, agents);
+    }
+  }
+  return byFamily;
 }
 
 export type BranchState = "checked" | "indeterminate" | "unchecked";
@@ -76,8 +107,10 @@ export function normalizeSelection(selection: AgentSelection, tree: AgentTree): 
     if (complete) next.push(agentEntry(branch.agent));
     else next.push(...chosen.map(modelEntry));
   }
-  next.push(...tree.unparented.filter((family) => models.has(family)).map(modelEntry));
-  return next;
+  // A family under Google keeps its own entry even when a branch that also lists it collapsed:
+  // the `agent:` entry covers only that agent's sessions, and the family entry the others.
+  next.push(...[...tree.google, ...tree.unparented].filter((family) => models.has(family)).map(modelEntry));
+  return [...new Set(next)];
 }
 
 /** Checking an agent means every model under it; unchecking clears the whole branch, including
@@ -102,6 +135,14 @@ export function toggleModel(selection: AgentSelection, family: string, tree: Age
     ? expanded.filter((candidate) => candidate !== entry)
     : [...expanded, entry];
   return normalizeSelection(next, tree);
+}
+
+/** A family under a heading with no agent (Google, Other models) toggles its own entry only. It
+ * must not expand a branch that also lists it: that would read the branch's `agent:` entry as
+ * this family being checked. */
+export function toggleFamilyEntry(selection: AgentSelection, family: string, tree: AgentTree): AgentSelection {
+  const entry = modelEntry(family);
+  return normalizeSelection(selection.includes(entry) ? selection.filter((candidate) => candidate !== entry) : [...selection, entry], tree);
 }
 
 /** Entries are unioned, never intersected: checking "claude" and "gpt-5.6-sol" asks for Claude

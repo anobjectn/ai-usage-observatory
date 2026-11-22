@@ -9,7 +9,6 @@ import {
   sharePercent,
 } from "../components/effort";
 import { comboKey, comboOf } from "../combo";
-import { agentIsUnpriced } from "../provider";
 import { PageJump } from "../components/page-jump";
 import {
   TokenTypeTable,
@@ -437,8 +436,6 @@ export function Models({
                                 </b>
                                 <small>Warp credits</small>
                               </>
-                            ) : model.agents.length > 0 && model.agents.every(agentIsUnpriced) ? (
-                              <em title="Antigravity usage has no ccusage price, so its cost is withheld rather than estimated.">No price</em>
                             ) : (
                               <em title={warpOnly ? "Warp reports credits, not tokens priced in dollars." : "ccusage has no rate card for this model."}>{warpOnly ? "Not priced" : "No rate card"}</em>
                             )}
@@ -564,7 +561,7 @@ export function Models({
                                           </span>
                                           <span className="model-session-usage">
                                             <b>{formatCompact(session.totalTokens)}</b>
-                                            <small>{session.source === "warp" ? `${formatWarpCredits(session.warp?.credits ?? 0)} credits` : agentIsUnpriced(session.agent) ? "no price" : formatMoney(session.totalCost)}</small>
+                                            <small>{session.source === "warp" ? `${formatWarpCredits(session.warp?.credits ?? 0)} credits` : formatMoney(session.totalCost)}</small>
                                           </span>
                                           <SessionEffortCell
                                             decoded={effortBySession.get(session.sessionId)}

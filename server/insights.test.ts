@@ -167,18 +167,26 @@ describe("quota percent series", () => {
 });
 
 describe("Antigravity in the token panels", () => {
-  const neon = (id: string) => ({
+  const neon = (id: string, cost = 0.3) => ({
     ...session(id, "antigravity", "gemini-4-neon", { cacheCreationTokens: 0 }),
-    totalCost: 0,
-    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 10_000, cacheReadTokens: 500_000, cacheCreationTokens: 0, cost: 0 }],
+    totalCost: cost,
+    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 10_000, cacheReadTokens: 500_000, cacheCreationTokens: 0, cost }],
   });
 
-  test("enters volume and cache composition unpriced, and never an allowance card", () => {
+  test("enters volume, cache composition, and its ccusage rate, and never an allowance card", () => {
     const insights = buildInsights(dashboard([session("c", "claude", "claude-opus-5", {}), neon("g")]), resolveScope(new URLSearchParams("")));
     expect(insights.volume.providers.map((row) => row.provider)).toEqual(["anthropic", "antigravity"]);
     expect(insights.cacheComposition.providers.find((row) => row.provider === "antigravity")).toMatchObject({ cacheRead: 500_000, cacheWritesReported: false });
-    expect(insights.volume.models.find((row) => row.model === "gemini-4-neon")).toMatchObject({ provider: "antigravity", priced: false, ratePerMillion: null });
+    const model = insights.volume.models.find((row) => row.model === "gemini-4-neon")!;
+    expect(model).toMatchObject({ provider: "antigravity", priced: true });
+    expect(model.ratePerMillion).toBeCloseTo(0.3 / 511_000 * 1e6, 6);
     expect(insights.profiles.map((profile) => profile.id)).toEqual(["allowance-capture-anthropic"]);
+  });
+
+  test("offline, ccusage's unpriced model has no rate", () => {
+    const data = { ...dashboard([session("c", "claude", "claude-opus-5", {}), neon("g", 0)]), unpricedModels: ["gemini-4-neon"] };
+    const model = buildInsights(data, resolveScope(new URLSearchParams(""))).volume.models.find((row) => row.model === "gemini-4-neon");
+    expect(model).toMatchObject({ priced: false, ratePerMillion: null });
   });
 
   test("the Agent filter can scope the analysis to Antigravity", () => {

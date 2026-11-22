@@ -1,16 +1,35 @@
 import type { DashboardData, Session } from "../../src/types";
 
-/** One Gemini 4 Neon (High) conversation, as the Antigravity collector reports it: usage metadata
- * only, unpriced. */
+/** One Gemini 4 Neon (High) conversation as the collector builds it: ccusage's session (tokens,
+ * cost, the conversation id as `period`) joined with the metadata reader's cwd and stats. Output
+ * already holds the 640 thinking tokens ccusage reports only in its total. */
 export function antigravitySessionFixture(lastActivity = new Date(Date.now() - 2 * 3_600_000).toISOString()): Session {
   return {
-    sessionId: "antigravity-fixture-conversation", agent: "antigravity", source: "antigravity", period: lastActivity,
+    sessionId: "antigravity-fixture-conversation", agent: "antigravity", source: "antigravity", period: "fixture-conversation",
     cwd: "/fixture/gemini-project", pathTags: [], annotation: { tags: [], note: "", verdict: null },
     inputTokens: 4_000, outputTokens: 900, cacheReadTokens: 60_000, cacheCreationTokens: 0,
-    totalTokens: 64_900, totalCost: 0, modelsUsed: ["gemini-4-neon"],
-    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 4_000, outputTokens: 900, cacheReadTokens: 60_000, cacheCreationTokens: 0, cost: 0 }],
+    totalTokens: 64_900, totalCost: 0.0345, modelsUsed: ["gemini-4-neon"],
+    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 4_000, outputTokens: 900, cacheReadTokens: 60_000, cacheCreationTokens: 0, cost: 0.0345 }],
     metadata: { lastActivity },
     antigravity: { conversationId: "fixture-conversation", generations: 12, reasoningOutputTokens: 640, parentConversationId: null, root: "t3" },
+    activityIntervals: [],
+  };
+}
+
+/** A Warp conversation that ran Gemini: Warp's session, with its Gemini listed under Google. */
+export function warpGeminiSessionFixture(lastActivity = new Date(Date.now() - 3 * 3_600_000).toISOString()): Session {
+  return {
+    sessionId: "warp-fixture-gemini", agent: "warp", source: "warp", period: lastActivity,
+    cwd: "/fixture/warp-project", pathTags: [], annotation: { tags: [], note: "", verdict: null },
+    inputTokens: 2_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    totalTokens: 2_000, totalCost: 0, modelsUsed: ["gemini-3-flash"],
+    modelBreakdowns: [{ modelName: "gemini-3-flash", inputTokens: 2_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 }],
+    metadata: { lastActivity },
+    warp: {
+      conversationId: "fixture-gemini", credits: 1.5, lastTurnCredits: null, contextWindowUsage: null, wasSummarized: false,
+      status: "done", turns: 1, tasks: 1, blockCount: 0, failedCommands: 0, filesChanged: 0, linesAdded: 0, linesRemoved: 0,
+      commandsExecuted: 0, toolUsage: {}, tokensBySource: { total: 2_000, warp: 2_000, byok: 0, customEndpoint: 0 }, tokensByCategory: {},
+    },
     activityIntervals: [],
   };
 }
@@ -62,7 +81,7 @@ export function dashboardFixture(): DashboardData {
   return {
     collectedAt: now, timeZone: "UTC", ccusageVersion: "fixture", apiPort: 0,
     costMethodology: "ccusage", blockScope: "Claude Code",
-    daily: [daily], weekly: [daily], monthly: [daily], totals: daily, sessions: [session, antigravitySessionFixture()],
+    daily: [daily], weekly: [daily], monthly: [daily], totals: daily, sessions: [session, antigravitySessionFixture(), warpGeminiSessionFixture()],
     projectActivity: [], projects: [], models: [], blocks: [], unpricedModels: [],
     rateCard: { status: "fallback", fetchedAt: null, models: {} },
     quotas: { available: false, collectedAt: now, sourceState: "disabled", history: {

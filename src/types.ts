@@ -75,10 +75,12 @@ export type AntigravitySessionStats = {
   conversationId: string;
   /** Usage-bearing model calls: generations plus compaction and other non-turn calls. */
   generations: number;
-  /** Thinking tokens inside `outputTokens`, as the usage record splits them. */
+  /** Thinking tokens inside `outputTokens`, as the usage record splits them. ccusage leaves them
+   * out of output; the collector folds them back in, so this is a subset of the session's output. */
   reasoningOutputTokens: number;
   parentConversationId: string | null;
-  /** Which install wrote the conversation: T3 Code's Antigravity driver, or the IDE. */
+  /** Which install wrote the conversation: T3 Code's Antigravity driver, or the Antigravity app
+   * (IDE or CLI, in ccusage's default directories). */
   root: "t3" | "ide";
 };
 export type Session = MetricRow & {
@@ -86,6 +88,8 @@ export type Session = MetricRow & {
   cwd: string | null;
   pathTags: string[];
   annotation: SessionAnnotation;
+  /** Where the session's detail comes from. An Antigravity session's tokens and cost are ccusage's,
+   * but its detail is the metadata reader's: content is never imported. */
   source?: "ccusage" | "warp" | "antigravity";
   warp?: WarpSessionStats;
   antigravity?: AntigravitySessionStats;
@@ -592,7 +596,21 @@ export type AntigravityData = {
   /** Degraded-read notes: unreadable databases, schema drift, unknown effort labels. */
   notes: string[];
   subagentConversations: number;
+  /** ccusage's Antigravity sessions against this reader's conversations. */
+  reconciliation?: AntigravityReconciliation;
   error?: string;
+};
+/** ccusage supplies Antigravity's sessions, tokens, and cost; the metadata reader reads the same
+ * databases for cwd, effort, and reasoning. Both token totals include thinking. */
+export type AntigravityReconciliation = {
+  ccusageSessions: number;
+  ccusageTokens: number;
+  ccusageCost: number;
+  metadataSessions: number;
+  metadataTokens: number;
+  joined: number;
+  ccusageOnly: number;
+  metadataOnly: number;
 };
 export type DashboardData = {
   collectedAt: string;

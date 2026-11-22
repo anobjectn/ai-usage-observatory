@@ -875,11 +875,19 @@ describe("Antigravity and unrecognized agents", () => {
     expect([scoped.eligibleTokens, scoped.attributedTokens]).toEqual([2_000, 2_000]);
   });
 
-  test("an unpriced session leads a combo without entering its cost median", () => {
+  test("a session whose model ccusage could not price leads a combo without entering its cost median", () => {
     const sessions = Array.from({ length: 6 }, (_, index) => neon(`g${index}`));
-    const snapshot = snapshotOf(sessions);
+    const snapshot = { ...snapshotOf(sessions), unpricedModels: ["gemini-4-neon"] };
     for (const item of sessions) seed(item.sessionId, "antigravity", "/fixture/alpha", [{ day: today, model: "gemini-4-neon", effort: "high", observations: 1, tokens: 2_000 }]);
     const row = api.buildEffortComboBoard(snapshot, api.resolveEffortScope(params(""))).rows.find((entry) => entry.family === "gemini-4-neon")!;
     expect(row).toMatchObject({ sessionsLed: 6, medianTokensPerLedSession: 2_000, medianCostPerLedSession: null });
+  });
+
+  test("a priced Antigravity session enters the cost median like any ccusage session", () => {
+    const sessions = Array.from({ length: 6 }, (_, index) => neon(`g${index}`, 1 + index));
+    const snapshot = { ...snapshotOf(sessions), unpricedModels: [] };
+    for (const item of sessions) seed(item.sessionId, "antigravity", "/fixture/alpha", [{ day: today, model: "gemini-4-neon", effort: "high", observations: 1, tokens: 2_000 }]);
+    const row = api.buildEffortComboBoard(snapshot, api.resolveEffortScope(params(""))).rows.find((entry) => entry.family === "gemini-4-neon")!;
+    expect(row).toMatchObject({ sessionsLed: 6, medianCostPerLedSession: 3.5 });
   });
 });

@@ -3,8 +3,8 @@
    2. Semantic roles: what every stylesheet and component consumes. A theme overrides roles
       (or the palette) and the interface follows.
    3. Scales: type, space, radius, elevation, and motion.
-   Runtime-written properties: --color-accent and --color-provider-* (App.tsx, from the
-   Appearance settings), --type-scale-ui, --data-text-scale, and --topbar-height. */
+   Runtime-written properties: --color-accent and --color-provider-* except -google (App.tsx,
+   from the Appearance settings), --type-scale-ui, --data-text-scale, and --topbar-height. */
 
 :root {
   color-scheme: dark;
@@ -31,6 +31,7 @@
   --palette-lavender: #b39ddb;
   --palette-sand: #e6b86a;
   --palette-periwinkle: #8fa9d9;
+  --palette-cobalt: #5f86f0;
   --palette-mauve: #cf8fb1;
   --palette-fern: #86c58a;
   /* Effort levels: teal, leaf and lime brighten as they climb; rose and magenta mark the top two. */
@@ -91,6 +92,9 @@
   --color-provider-openai: var(--palette-silver);
   --color-provider-warp: var(--palette-violet);
   --color-provider-antigravity: var(--palette-aqua);
+  /* Gemini run by an agent other than Antigravity: a vendor label, not a provider. Fixed, not
+     written at runtime, and kept apart from Antigravity's aqua. */
+  --color-provider-google: var(--palette-cobalt);
   /* Effort levels: an ordered run of distinct hues that brightens as it climbs and skips every hue with another
      job: amber (warnings), blue (accent), violet (Warp, credits), clay (Anthropic), red (danger). */
   --color-effort-low: var(--palette-teal);

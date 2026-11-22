@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
   ANTIGRAVITY_SQL,
+  antigravityCcusageDataDir,
   antigravityCwd,
+  antigravityDatabaseFiles,
+  antigravityRoots,
   antigravityReadStats,
   antigravityTime,
   collectAntigravity,
@@ -24,6 +27,8 @@ import {
   writeSummaries,
   type FixtureConversation,
 } from "./antigravity-fixture";
+import { ccusageEnvironment } from "./ccusage";
+import { indexSessionPaths } from "./path-indexer";
 import { getSessionEpisodes } from "./session-evidence";
 import { db } from "./store";
 import { testAntigravityDirectory } from "./test-setup";
@@ -97,23 +102,23 @@ describe("token ledger", () => {
     writeConversation(base, "conv-a", mixedConversation());
     useRoots(base);
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions).toHaveLength(1);
-    const session = collected.sessions[0]!;
-    expect(session.sessionId).toBe("antigravity-conv-a");
-    expect(session.agent).toBe("antigravity");
-    expect(session.cwd).toBe("/Users/someone/Work/my project");
-    // m1 + m2 + c1; the repeated m2 is the same call.
-    expect(session.inputTokens).toBe(1000 + 50 + 70);
-    expect(session.outputTokens).toBe(300 + 400 + 80);
-    expect(session.cacheReadTokens).toBe(9000 + 5000);
-    expect(session.cacheCreationTokens).toBe(7);
-    expect(session.totalTokens).toBe(1120 + 780 + 14000 + 7);
-    expect(session.totalCost).toBe(0);
-    expect(session.antigravity).toMatchObject({ conversationId: "conv-a", generations: 3, reasoningOutputTokens: 550, root: "t3" });
-    expect(session.modelBreakdowns).toEqual([{ modelName: "gemini-4-neon", inputTokens: 1120, outputTokens: 780, cacheReadTokens: 14000, cacheCreationTokens: 7, cost: 0 }]);
-    expect(session.metadata?.lastActivity).toBe(new Date(t0 + 130 * second).toISOString());
+    expect(collected.conversations).toHaveLength(1);
+    const conversation = collected.conversations[0]!;
+    expect(conversation.sessionId).toBe("antigravity-conv-a");
+    expect(conversation.cwd).toBe("/Users/someone/Work/my project");
+    // m1 + m2 + c1; the repeated m2 is the same call. Output holds the thinking, as ccusage's
+    // total does, so the two readers' totals compare directly.
+    expect(conversation.tokens).toBe(1120 + 780 + 14000 + 7);
+    expect(conversation.stats).toMatchObject({ conversationId: "conv-a", generations: 3, reasoningOutputTokens: 550, root: "t3" });
+    expect(conversation.models).toEqual(["gemini-4-neon"]);
+    expect(conversation.lastActivity).toBe(new Date(t0 + 130 * second).toISOString());
     expect(collected.auxiliaryCalls).toBe(1);
+    // The metadata reader emits no session, row, or cost of its own: ccusage owns those.
+    expect(collected).not.toHaveProperty("sessions");
+    expect(collected).not.toHaveProperty("dailyRows");
     const effort = collected.effortSources[0]!;
+    const sum = (pick: (row: (typeof effort.rows)[number]) => number) => effort.rows.reduce((total, row) => total + pick(row), 0);
+    expect([sum((row) => row.inputTokens), sum((row) => row.outputTokens), sum((row) => row.cacheReadTokens), sum((row) => row.cacheCreationTokens)]).toEqual([1120, 780, 14000, 7]);
     const byEffort = Object.fromEntries(effort.rows.map((row) => [row.effort, row.observations]));
     // The compaction call ran under an enum that carried two labels, so its effort is unknown.
     expect(byEffort).toEqual({ high: 1, low: 1, "": 1 });
@@ -134,8 +139,7 @@ describe("token ledger", () => {
     const base = root();
     writeConversation(base, "conv-c", { steps: [{ idx: 0, at: t0, usage: { modelEnum: 9, input: 5, output: 1, messageId: "x" } }] });
     useRoots(base);
-    const session = collectAntigravity("UTC").sessions[0]!;
-    expect(session.modelsUsed).toEqual(["Unknown model"]);
+    expect(collectAntigravity("UTC").conversations[0]!.models).toEqual(["Unknown model"]);
   });
 
   test("reasoning above output is not counted, and a usage record without a model enum is no call", () => {
@@ -149,7 +153,7 @@ describe("token ledger", () => {
     });
     useRoots(base);
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions[0]!.antigravity?.reasoningOutputTokens).toBe(0);
+    expect(collected.conversations[0]!.stats.reasoningOutputTokens).toBe(0);
     expect(collected.effortSources[0]!.rows[0]!.reasoningReportedEvents).toBe(0);
   });
 
@@ -159,7 +163,7 @@ describe("token ledger", () => {
     writeConversation(base, "empty", { steps: [{ idx: 0, stepType: 14, at: t0 }] });
     useRoots(base);
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions).toEqual([]);
+    expect(collected.conversations).toEqual([]);
     expect(collected.available).toBe(true);
   });
 });
@@ -197,10 +201,10 @@ describe("source fields", () => {
     writeSummaries(base, [{ conversationId: "conv-e", lastModified: "2026-11-30 10:00:00+00:00" }]);
     writeConversation(base, "conv-e", mixedConversation());
     useRoots(base);
-    const session = collectAntigravity("UTC").sessions[0]!;
-    expect(session.metadata?.lastActivity).toBe(new Date(t0 + 130 * second).toISOString());
-    expect(session.activityIntervals).toEqual([{ startAt: t0, endAt: t0 + 130 * second }]);
-    expect(getSessionEpisodes("antigravity-conv-e")).toEqual(session.activityIntervals!);
+    const conversation = collectAntigravity("UTC").conversations[0]!;
+    expect(conversation.lastActivity).toBe(new Date(t0 + 130 * second).toISOString());
+    expect(conversation.activityIntervals).toEqual([{ startAt: t0, endAt: t0 + 130 * second }]);
+    expect(getSessionEpisodes("antigravity-conv-e")).toEqual(conversation.activityIntervals);
   });
 
   test("a conversation that crosses midnight is split by generation day", () => {
@@ -218,10 +222,9 @@ describe("source fields", () => {
     });
     useRoots(base);
     const collected = collectAntigravity("UTC");
-    expect(collected.dailyRows.map((row) => [row.period, row.totalTokens])).toEqual([["2026-11-21", 110], ["2026-11-22", 225]]);
     expect(collected.daily).toEqual([{ date: "2026-11-21", generations: 1, tokens: 110 }, { date: "2026-11-22", generations: 1, tokens: 225 }]);
     expect(collected.effortSources[0]!.rows.map((row) => row.occurredOn)).toEqual(["2026-11-21", "2026-11-22"]);
-    expect(collected.sessions[0]!.totalTokens).toBe(335);
+    expect(collected.conversations[0]!.tokens).toBe(335);
   });
 
   test("a subagent conversation is its own session and is noted", () => {
@@ -230,7 +233,7 @@ describe("source fields", () => {
     writeConversation(base, "child", highConversation());
     useRoots(base);
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions[0]!.antigravity?.parentConversationId).toBe("parent");
+    expect(collected.conversations[0]!.stats.parentConversationId).toBe("parent");
     expect(collected.subagentConversations).toBe(1);
     expect(collected.notes).toContain("1 subagent conversation counted as separate sessions");
   });
@@ -310,7 +313,7 @@ describe("opening provider databases", () => {
     const two = writeConversation(base, "two", highConversation(t0, "t"));
     writeFileSync(`${two}-wal`, "");
     useRoots(base);
-    expect(collectAntigravity("UTC").sessions).toHaveLength(2);
+    expect(collectAntigravity("UTC").conversations).toHaveLength(2);
     expect([sidecarsOf(summaries), sidecarsOf(one), sidecarsOf(two)]).toEqual([
       { wal: false, shm: false }, { wal: false, shm: false }, { wal: true, shm: false },
     ]);
@@ -320,13 +323,13 @@ describe("opening provider databases", () => {
     const base = root();
     const path = writeConversation(base, "kept", highConversation());
     useRoots(base);
-    expect(collectAntigravity("UTC").sessions[0]!.totalTokens).toBe(120 + 42);
+    expect(collectAntigravity("UTC").conversations[0]!.tokens).toBe(120 + 42);
     // A copied log with no index appears beside the file: it cannot be read without creating one.
     removeSidecars(path);
     rmSync(path);
     writeOrphanWal(base, "kept", highConversation(), { steps: [{ idx: 9, at: t0 + 60 * second, usage: { input: 1, output: 1, messageId: "late" } }] });
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions[0]!.totalTokens).toBe(162);
+    expect(collected.conversations[0]!.tokens).toBe(162);
     expect(collected.complete).toBe(false);
     expect(collected.notes).toContain("1 database could not be read safely; the last good read is kept");
   });
@@ -336,7 +339,7 @@ describe("opening provider databases", () => {
     writeOrphanWal(base, "never", highConversation(), { steps: [{ idx: 9, at: t0, usage: { input: 1, output: 1, messageId: "late" } }] });
     useRoots(base);
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions).toEqual([]);
+    expect(collected.conversations).toEqual([]);
     expect(collected.notes).toHaveLength(1);
   });
 });
@@ -345,7 +348,7 @@ describe("degraded sources", () => {
   test("missing roots are silent, and no root at all is unavailable", () => {
     useRoots(join(directory, "missing"));
     const collected = collectAntigravity("UTC");
-    expect(collected).toMatchObject({ available: false, sessions: [], notes: [] });
+    expect(collected).toMatchObject({ available: false, conversations: [], notes: [] });
     expect(collected.error).toContain("No Antigravity data directory");
   });
 
@@ -357,8 +360,8 @@ describe("degraded sources", () => {
     writeFileSync(conversationPath(base, "garbage"), "not a database");
     useRoots(base);
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions.map((session) => session.sessionId)).toEqual(["antigravity-no-gen"]);
-    expect(collected.sessions[0]!.modelsUsed).toEqual(["Unknown model"]);
+    expect(collected.conversations.map((conversation) => conversation.sessionId)).toEqual(["antigravity-no-gen"]);
+    expect(collected.conversations[0]!.models).toEqual(["Unknown model"]);
     expect(collected.notes).toContain("2 databases did not match the expected schema");
     expect(collected.notes).toContain("1 database could not be read safely; the last good read is kept");
   });
@@ -387,10 +390,66 @@ describe("degraded sources", () => {
     writeConversation(ide, "shared", mixedConversation());
     useRoots(t3, ide);
     const collected = collectAntigravity("UTC");
-    expect(collected.sessions).toHaveLength(1);
-    expect(collected.sessions[0]!.antigravity?.root).toBe("ide");
-    expect(collected.sessions[0]!.antigravity?.generations).toBe(3);
+    expect(collected.conversations).toHaveLength(1);
+    expect(collected.conversations[0]!.stats.root).toBe("ide");
+    expect(collected.conversations[0]!.stats.generations).toBe(3);
     expect(collected.roots).toHaveLength(2);
+  });
+});
+
+describe("roots shared with ccusage", () => {
+  test("the defaults are T3's driver directories plus every directory ccusage searches", () => {
+    const home = join(directory, "home");
+    mkdirSync(join(home, ".t3/userdata/providers/antigravity/abc123/antigravity-acp"), { recursive: true });
+    const saved = process.env.ANTIGRAVITY_DATA_DIRS;
+    delete process.env.ANTIGRAVITY_DATA_DIRS;
+    try {
+      expect(antigravityRoots(home).map((entry) => [entry.path.slice(home.length + 1), entry.kind])).toEqual([
+        [".t3/userdata/providers/antigravity/abc123/antigravity-acp", "t3"],
+        [".gemini/antigravity", "ide"],
+        [".gemini/antigravity-cli", "ide"],
+        [".gemini/antigravity-ide", "ide"],
+        [".gemini/antigravity-backup", "ide"],
+        [".gemini/antigravity-acp", "ide"],
+        [".config/antigravity", "ide"],
+      ]);
+      // ccusage gets only the directories that exist, comma-separated.
+      mkdirSync(join(home, ".gemini/antigravity"), { recursive: true });
+      expect(antigravityCcusageDataDir(home)).toBe([
+        join(home, ".t3/userdata/providers/antigravity/abc123/antigravity-acp"),
+        join(home, ".gemini/antigravity"),
+      ].join(","));
+      expect(antigravityCcusageDataDir(join(directory, "nobody"))).toBeUndefined();
+    } finally {
+      process.env.ANTIGRAVITY_DATA_DIRS = saved;
+    }
+  });
+
+  test("an override reaches ccusage as given, so a missing directory never falls back to real data", () => {
+    useRoots(join(directory, "a"), join(directory, "missing"));
+    expect(antigravityCcusageDataDir()).toBe(`${join(directory, "a")},${join(directory, "missing")}`);
+    expect(ccusageEnvironment({ PATH: "/bin" })).toEqual({ PATH: "/bin", ANTIGRAVITY_DATA_DIR: `${join(directory, "a")},${join(directory, "missing")}` });
+    useRoots();
+    expect(antigravityCcusageDataDir()).toContain("no-antigravity-data");
+  });
+
+  test("conversation databases and their logs feed the ccusage fingerprint", async () => {
+    const base = root();
+    const path = writeConversation(base, "printed", highConversation());
+    writeSummaries(base, [{ conversationId: "printed" }]);
+    useRoots(base);
+    const before = antigravityDatabaseFiles();
+    expect(before.map((file) => file.sourceFile)).toEqual([path]);
+    const writer = openLiveWriter(path, { steps: [{ idx: 9, at: t0 + 60 * second, usage: { input: 1, output: 1, messageId: "late" } }] });
+    try {
+      const after = antigravityDatabaseFiles();
+      expect(after.map((file) => file.sourceFile)).toEqual([path, `${path}-wal`]);
+      mkdirSync(join(directory, "empty-home"));
+      const indexed = await indexSessionPaths(join(directory, "empty-home"));
+      expect(indexed.attributionOnly?.map((file) => file.sourceFile)).toEqual([path, `${path}-wal`]);
+    } finally {
+      writer.close();
+    }
   });
 });
 
@@ -410,7 +469,7 @@ describe("caching", () => {
     });
     const collected = collectAntigravity("UTC");
     expect(antigravityReadStats().conversationReads).toBe(2);
-    expect(collected.sessions[0]!.antigravity?.generations).toBe(3);
+    expect(collected.conversations[0]!.stats.generations).toBe(3);
     // Only the appended generation row is decoded; the earlier one comes from the index.
     expect(antigravityReadStats().generationRows).toBe(first.generationRows + 1);
     expect(collected.effortSources[0]!.rows.map((row) => [row.effort, row.observations])).toEqual([["high", 1], ["", 1], ["low", 1]]);
@@ -441,7 +500,7 @@ test("privacy canary: no content column reaches the collection, the database, or
   writeConversation(base, "secret", conversation);
   useRoots(base);
   const collected = collectAntigravity("UTC");
-  expect(collected.sessions).toHaveLength(1);
+  expect(collected.conversations).toHaveLength(1);
   expect(JSON.stringify(collected)).not.toContain(canary);
   const tables = (db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name);
   for (const table of tables) {

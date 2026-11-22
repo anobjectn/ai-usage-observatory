@@ -50,6 +50,10 @@ describe("combo pill colour", () => {
     expect(providerColor("claude-sonnet-5-5")).toBe(providerColor("claude-opus-5-5"));
     expect(providerColor("gpt-6.1-terra")).toBe("var(--color-provider-openai)");
     expect(providerColor("unknown")).toBe(providerColor("mystery-model"));
+    // Effort combos come from the effort store, where only Antigravity writes Gemini rows.
+    expect(providerColor("gemini-4-neon")).toBe("var(--color-provider-antigravity)");
+    // A Gemini combo another agent ran is Google's, never Antigravity's aqua.
+    expect(providerColor("gemini-3-flash", "warp")).toBe("var(--color-provider-google)");
   });
 
   test("places only canonical efforts on the five-step scale", () => {

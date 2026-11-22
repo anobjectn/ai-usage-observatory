@@ -1,5 +1,5 @@
 import type { DashboardData, Session } from "../src/types";
-import { agentIsUnpriced, providerFromAgent } from "../src/provider";
+import { providerFromAgent } from "../src/provider";
 import { familyOf } from "../src/model-family";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { shiftDateKey, validDateKey } from "../src/time-range";
@@ -37,8 +37,8 @@ export type AnalysisScope = {
    * scoring direction of the utilization-shaped components changes. */
   policy: "capture" | "headroom";
 };
-/** Antigravity enters the token panels; it has no ccusage price, so it never enters a cost rate,
- * and it has no allowance card, which stays a Claude and Codex measurement. */
+/** Antigravity enters the token panels and, through ccusage's price, the cost rates. It has no
+ * allowance card, which stays a Claude and Codex measurement. */
 type Provider = "anthropic" | "codex" | "antigravity";
 type AllowanceProvider = "anthropic" | "codex";
 const insightProviders: Provider[] = ["anthropic", "codex", "antigravity"];
@@ -509,7 +509,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
         dominantIn: dominantIn.length,
         ...sums,
         ratePerMillion: rates.get(model)?.rate ?? null,
-        priced: !data.unpricedModels.includes(model) && !appearsIn.every((row) => agentIsUnpriced(row.agent)),
+        priced: !data.unpricedModels.includes(model),
         outputShare: ratio(sums.output, sums.processed),
         contextCarry: ratio(sums.cacheRead, sums.output),
         cacheHitRate: ratio(sums.cacheRead, sums.cacheRead + sums.input),

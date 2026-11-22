@@ -210,15 +210,23 @@ describe("footnotesFor", () => {
 });
 
 describe("Antigravity rows", () => {
-  test("keep their tokens and withhold cost because ccusage does not price the source", () => {
-    const gemini = breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0);
+  // ccusage prices gemini-4-neon from models.dev, but the LiteLLM rate card has no gemini-4 entry,
+  // so the split by token type has nothing to split with.
+  test("a priced row with no rate card keeps its tokens and withholds only the split", () => {
+    const gemini = breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0.0083);
     const summary = summarizeTokenTypes([{ agent: "antigravity", breakdown: gemini }], card);
     expect(summary.totalTokens).toBe(10_300);
     expect(summary.costAvailable).toBe(false);
-    expect(summary.withheld).toEqual([{ model: "gemini-4-neon", reason: "unpriced-source" }]);
+    expect(summary.withheld).toEqual([{ model: "gemini-4-neon", reason: "no-rate" }]);
     expect(summary.providers).toEqual(["antigravity"]);
     const lines = footnotesFor(summary, { reasoning: { outputTokens: 300, reasoningOutputTokens: 200, reportedEvents: 1 } });
     expect(lines).toContain("Generated output includes reasoning tokens; Antigravity reported 200 reasoning tokens inside output.");
-    expect(lines).toContain("Cost withheld: gemini-4-neon comes from Antigravity, which ccusage does not price.");
+    expect(lines.some((line) => line.includes("gemini-4-neon has no LiteLLM rate to split with"))).toBe(true);
+  });
+
+  test("offline, ccusage's unpriced model withholds the split as unpriced", () => {
+    const gemini = breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0);
+    const summary = summarizeTokenTypes([{ agent: "antigravity", breakdown: gemini }], card, ["gemini-4-neon"]);
+    expect(summary.withheld).toEqual([{ model: "gemini-4-neon", reason: "unpriced" }]);
   });
 });

@@ -82,18 +82,42 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
 3. The metadata-only path indexer incrementally reads session file heads when mtimes change. It
    indexes Claude and Codex transcripts, and the `events.jsonl` of each Copilot session for its
    working directory only. Copilot files never enter the effort catalog, but they are part of
-   the fingerprint that decides whether ccusage runs again. An agent that `providerFromAgent`
+   the fingerprint that decides whether ccusage runs again. So is every Antigravity conversation
+   database and its `-wal` (stat only, never opened by the indexer), so a new call, even one that
+   lands only in the log, triggers a re-collection. An agent that `providerFromAgent`
    does not recognize has no quota, effort index, or chart series; the Agent filter still lists
    it, and both analysis endpoints scope it through the `other` provider value.
 4. Native report sessions are joined to indexed paths without copying transcript content.
-   Two local sources sit beside `ccusage`. Warp (`server/warp.ts`) reads Warp's SQLite ledger.
-   Antigravity (`server/antigravity.ts`) reads Google Antigravity's per-conversation SQLite
-   databases from T3 Code's driver (`~/.t3/userdata/providers/antigravity/*/antigravity-acp/`)
-   and the IDE (`~/.gemini/antigravity/`), or from `ANTIGRAVITY_DATA_DIRS`:
+   Warp (`server/warp.ts`) sits beside `ccusage` and reads Warp's SQLite ledger.
+   Google Antigravity is a `ccusage` agent with a metadata reader beside it:
+   - **ccusage.** ccusage reads Antigravity's per-conversation SQLite databases itself, but finds
+     only its default directories (`~/.gemini/antigravity`, `-cli`, `-ide`, `-backup`, `-acp`,
+     `~/.config/antigravity`), never T3 Code's driver directory
+     (`~/.t3/userdata/providers/antigravity/*/antigravity-acp/`). `server/ccusage.ts` passes
+     every existing root, comma-separated, in `ANTIGRAVITY_DATA_DIR`, which replaces ccusage's
+     search; `ANTIGRAVITY_DATA_DIRS` replaces the list for both readers. ccusage supplies the
+     sessions (`period` is the conversation ID), daily, weekly, and monthly rows, totals, and the
+     API-equivalent cost, priced from models.dev and LiteLLM, with thinking billed as output.
+     ccusage opens these databases with normal SQLite reads and can leave `-wal`/`-shm` files.
+   - **Thinking tokens.** ccusage counts Antigravity's thinking in `totalTokens` but not in
+     `outputTokens`, so its buckets fall short of the total by exactly the thinking. Every other
+     agent's buckets add up. `foldAntigravityThinking` folds the gap into output on every
+     Antigravity row, agent sub-row, session, model breakdown, and the totals. That matches
+     Codex, whose output already holds its reasoning, and matches the price, so totals,
+     token-type shares, and per-model sums agree. Model breakdowns carry no total of their own,
+     so a row with several models splits its gap by each model's output tokens; that per-model
+     split is an estimate, the row totals are exact. The thinking count itself comes from the
+     metadata reader (`reasoningOutputTokens`), a subset of output, as Codex's is.
+   - **Metadata reader.** `server/antigravity.ts` reads the same roots for what ccusage lacks:
+     the working directory (`workspace_uris`), effort labels, the thinking split, step times and
+     activity evidence, the effort-store rows, and source health. It emits no session, row,
+     total, or cost. The collector joins it onto ccusage's sessions by conversation ID; the
+     session ID is `antigravity-<conversation_id>` either way. Source health compares ccusage's
+     Antigravity session count and token total with the reader's.
    - **Ledger.** Each usage-bearing step's `steps.metadata` field 9 is one model call: uncached
-     input, output, cache write, cache read, and the thinking share of output, de-duplicated by
-     message ID. Compaction calls count; they carry their own message IDs. Field 1 is the call's
-     UTC time. `step_payload` is never selected.
+     input, output (thinking included), cache write, cache read, and the thinking share of
+     output, de-duplicated by message ID. Compaction calls count; they carry their own message
+     IDs. Field 1 is the call's UTC time. `step_payload` is never selected.
    - **Model and effort.** `gen_metadata` maps each message ID to its model ID and display label,
      so a mid-conversation effort switch is attributed per call. Rows are scanned incrementally
      by `idx`; only three fields are decoded, and rows over 16 MiB are skipped in SQL.
@@ -103,11 +127,17 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
      WAL file with no sidecars) on the first query, which falls back to `immutable=1`; that read is
      kept only if the main file and `-wal` are unchanged after it. An unsafe read keeps the last
      good parse and is noted in source health.
-   - **Rows.** Daily rows are split by the day each call ran, then folded into ccusage's Monday
-     weeks and months. Projects and project activity keep the last-activity rule. Totals add each
-     token bucket and never a cost: no `ccusage` price exists for Gemini, so cost is withheld.
    - **Evidence.** Step times become activity evidence through `saveLocalEvidence`; a summary's
      modified time orders a session but never stands in for activity.
+   - **Cost.** Antigravity cost is ccusage's, like Claude's and Codex's. Offline, ccusage has no
+     Gemini 4 price and names the model in `unpricedModels`; sessions that ran an unpriced model
+     stay out of cost medians and rates. LiteLLM has no Gemini 4 rate, so the token-type cost
+     split is withheld for it with the `no-rate` reason.
+   - **Vendor grouping.** "Antigravity" means the Gemini subscription. A Gemini model run by
+     another agent (Warp) stays that agent's session, scope, and quota. `providerFromModel` does
+     not map Gemini to any provider; `modelGroup(model, agent)` places it under Antigravity only
+     when Antigravity ran it, and under the Google vendor label otherwise. The Agent filter lists
+     a Gemini family under each group whose agent ran it, as one `model:` entry.
 5. Project activity groups joined session totals by provider, working directory, and local last-activity day. A session spanning multiple days is attributed to its latest activity day.
 6. Path rules are evaluated on demand, so edits apply retroactively.
 7. A successful in-memory snapshot replaces the prior one. A failure preserves the last success and marks it stale.
@@ -165,7 +195,7 @@ while the index is enabled, one replacement of that session's effort state and r
 database signature changes, in one transaction. A pass that began before derived data was deleted
 writes nothing. After a collection that read every source, rows for conversations that are gone
 are pruned, and the foreign-key cascade removes their effort rows. These sources never enter the
-transcript catalog, the `ccusage` fingerprint, or `PARSER_VERSION`.
+transcript catalog or `PARSER_VERSION`; their databases enter the `ccusage` fingerprint only.
 
 The database never stores prompt or response content, reasoning text, commands, tool payloads,
 file contents, or transcript fragments. Disabling retains derived rows but excludes them from

@@ -170,8 +170,9 @@ export function buildAllowanceComparisonReport(
       confidence,
       coveragePercent: values.reduce((sum, value) => sum + value.sample.context.coverage.activeDurationCoveredPercent, 0) / values.length,
       metrics: {
-        // Antigravity has no ccusage price, so its zero cost is no API-equivalent figure.
-        apiEquivalentUsdPer100PercentagePoints: provider === "warp" || provider === "antigravity" || totalPp <= 0 ? null : totalCost / totalPp * 100,
+        // A zero total with movement is a missing price (ccusage offline, or a model newer than its
+        // pricing data), never a free allowance.
+        apiEquivalentUsdPer100PercentagePoints: provider === "warp" || totalPp <= 0 || totalCost <= 0 ? null : totalCost / totalPp * 100,
         outputTokensPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalOutput / totalPp * 100,
         activeMinutesPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalActive / totalPp * 100,
         warpManagedTokensPer100Credits: provider !== "warp" || totalCredits <= 0 ? null : warpTokens / totalCredits * 100,

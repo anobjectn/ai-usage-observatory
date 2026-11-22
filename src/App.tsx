@@ -26,12 +26,14 @@ import type { MetricRow, Session } from "./types";
 import { AgentFilter, InformationSources, TimeRangeControl, type AgentFilterGroup } from "./views/chrome";
 import {
   branchState,
+  agentsByFamily,
   buildAgentTree,
   matchesEntry,
   matchesAgentSelection,
   modelEntry,
   selectAgentRow,
   toggleBranch,
+  toggleFamilyEntry,
   toggleModel,
   type AgentSelection,
 } from "./agent-filter";
@@ -368,7 +370,7 @@ export function App() {
           ),
         ].sort((left, right) => left.localeCompare(right))
       : [];
-    return buildAgentTree(agents, families);
+    return buildAgentTree(agents, families, agentsByFamily(data?.sessions ?? []));
   }, [agents, data]);
   const agentFilterGroups = useMemo<AgentFilterGroup[]>(() => {
     const groups: AgentFilterGroup[] = agentTree.branches
@@ -396,6 +398,19 @@ export function App() {
           onToggle: () => setAgent(toggleModel(agent, family, agentTree)),
         })),
       }));
+    if (agentTree.google.length > 0) {
+      groups.push({
+        label: "Google",
+        note: "Gemini run by agents other than Antigravity. Those sessions stay with the agent that ran them.",
+        summaryColor: "var(--color-provider-google)",
+        options: agentTree.google.map((family) => ({
+          value: modelEntry(family),
+          label: family,
+          checked: agent.includes(modelEntry(family)),
+          onToggle: () => setAgent(toggleFamilyEntry(agent, family, agentTree)),
+        })),
+      });
+    }
     if (agentTree.unparented.length > 0) {
       groups.push({
         label: `Other models (${agentTree.unparented.length})`,

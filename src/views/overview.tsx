@@ -9,7 +9,7 @@ import {
   sharePercent,
 } from "../components/effort";
 import { comboKey } from "../combo";
-import { agentIsUnpriced, providerFromAgent } from "../provider";
+import { providerFromAgent } from "../provider";
 import {
   decodeEffortDigest,
   useEffortAggregate,
@@ -879,7 +879,7 @@ export function Overview({
                     </span>
                     <span className="session-metric">
                       <b>{formatCompact(session.totalTokens)}</b>
-                      <small>{agentIsUnpriced(session.agent) ? "no price" : formatMoney(session.totalCost)}</small>
+                      <small>{formatMoney(session.totalCost)}</small>
                     </span>
                     <ChevronRight aria-hidden="true" />
                   </a>

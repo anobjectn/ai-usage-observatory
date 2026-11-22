@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { aggregateModels } from "./model-aggregation";
+import { aggregateModels, hasUnpricedModel } from "./model-aggregation";
 
 test("model aggregation uses only the supplied daily rows", () => {
   const row = {
@@ -49,8 +49,21 @@ test("priced tokens exclude Warp sightings of a model that ccusage also prices",
   expect(model.cost / (model.pricedTokens / 1_000_000)).toBe(10);
 });
 
-test("Antigravity models are unpriced and stay out of the $/Mtok denominator", () => {
-  const gemini = { modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 100, cacheReadTokens: 9_000, cacheCreationTokens: 0, cost: 0 };
+test("Antigravity models are priced by ccusage like any other agent's", () => {
+  const gemini = { modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 100, cacheReadTokens: 9_000, cacheCreationTokens: 0, cost: 0.006 };
   const [model] = aggregateModels([{ agent: "all", modelBreakdowns: [], agents: [{ agent: "antigravity", modelBreakdowns: [gemini] }] }]);
-  expect(model).toMatchObject({ model: "gemini-4-neon", tokens: 10_100, pricedTokens: 0, cost: 0, priced: false, agents: ["antigravity"] });
+  expect(model).toMatchObject({ model: "gemini-4-neon", tokens: 10_100, pricedTokens: 10_100, cost: 0.006, priced: true, agents: ["antigravity"] });
+});
+
+test("offline, ccusage's unpriced Antigravity model stays out of the $/Mtok denominator", () => {
+  const gemini = { modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 100, cacheReadTokens: 9_000, cacheCreationTokens: 0, cost: 0 };
+  const [model] = aggregateModels([{ agent: "all", modelBreakdowns: [], agents: [{ agent: "antigravity", modelBreakdowns: [gemini] }] }], ["gemini-4-neon"]);
+  expect(model).toMatchObject({ model: "gemini-4-neon", tokens: 10_100, pricedTokens: 0, cost: 0, priced: false });
+});
+
+test("a session that ran an unpriced model is flagged so its cost stays out of medians", () => {
+  const session = { modelBreakdowns: [{ modelName: "claude-opus-5" }, { modelName: "gemini-4-neon" }] };
+  expect(hasUnpricedModel(session, ["gemini-4-neon"])).toBe(true);
+  expect(hasUnpricedModel(session, [])).toBe(false);
+  expect(hasUnpricedModel(session, ["gpt-5.6-sol"])).toBe(false);
 });

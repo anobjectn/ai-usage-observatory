@@ -594,6 +594,29 @@ test("each provider keeps its own total and its own combos", () => {
   expect(tokens).toBe(1_000);
 });
 
+test("Gemini a Warp session ran groups as Google, and Antigravity's own Gemini stays Antigravity", () => {
+  const warp = sessionProviderMix(
+    [
+      { modelName: "claude-opus-5", tokens: 600 },
+      { modelName: "gemini-3-flash", tokens: 400 },
+    ],
+    [],
+    "warp",
+  );
+  expect(warp.groups.map((group) => [group.provider, group.label, group.color, group.tokens])).toEqual([
+    ["anthropic", "Anthropic", "var(--color-provider-anthropic)", 600],
+    ["google", "Google", "var(--color-provider-google)", 400],
+  ]);
+  const antigravity = sessionProviderMix(
+    [{ modelName: "gemini-4-neon", tokens: 1_000 }],
+    [{ model: "gemini-4-neon", family: "gemini-4-neon", effort: "high", observations: 3, tokens: 1_000 }],
+    "antigravity",
+  );
+  expect(antigravity.groups.map((group) => [group.provider, group.label, group.color, group.tokens, group.unattributed])).toEqual([
+    ["antigravity", "Antigravity", "var(--color-provider-antigravity)", 1_000, 0],
+  ]);
+});
+
 test("a provider with no recorded token total reports none rather than a partial sum", () => {
   const { groups, tokens } = sessionProviderMix(
     [{ modelName: "claude-opus-5", tokens: null }],

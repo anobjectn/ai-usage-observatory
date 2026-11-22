@@ -10,7 +10,7 @@ import {
 } from "./effort";
 import { comboKey, comboLabel, comboProviderColor, compareComboKeys, type Combo, parseComboFacet } from "../combo";
 import { PieGlyph } from "./pie-glyph";
-import { providerFromAgent, providerFromModel, type ActivityProvider } from "../provider";
+import { modelGroup, providerFromAgent, type ActivityProvider, type ModelGroup } from "../provider";
 import { TokenTypeTable, TokenTypesNotice, cacheHiddenNotice, warpOnlyNotice } from "./token-types";
 import { summarizeTokenTypes } from "../token-types";
 import type { RateCardSummary } from "../types";
@@ -832,7 +832,10 @@ export function SessionDetailPanel({
   const warp = session.source === "warp" ? (session.warp ?? null) : null;
   // Antigravity sessions are usage metadata only: the panel keeps its columns, and the ones that
   // would hold conversation content say that it is not imported.
-  const antigravity = session.source === "antigravity" ? (session.antigravity ?? null) : null;
+  const antigravity = session.source === "antigravity";
+  // The metadata reader's stats, joined onto ccusage's session. A session ccusage reported that
+  // the reader did not see has none, and shows a dash rather than a zero.
+  const antigravityStats = antigravity ? (session.antigravity ?? null) : null;
   const notImported = "Antigravity conversation content is not imported.";
   if (loading)
     return (
@@ -931,19 +934,19 @@ export function SessionDetailPanel({
           <>
             <div title="Model calls with a usage record: each turn, plus context compaction.">
               <span>MODEL CALLS</span>
-              <strong>{antigravity.generations}</strong>
+              <strong>{antigravityStats?.generations ?? "—"}</strong>
             </div>
             <div title="Thinking tokens, inside generated output.">
               <span>REASONING TOKENS</span>
-              <strong>{formatCompact(antigravity.reasoningOutputTokens)}</strong>
+              <strong>{antigravityStats ? formatCompact(antigravityStats.reasoningOutputTokens) : "—"}</strong>
             </div>
             <div title={session.cwd ?? undefined}>
               <span>WORKSPACE</span>
               <strong>{session.cwd?.split("/").filter(Boolean).at(-1) ?? "—"}</strong>
             </div>
-            <div title={antigravity.parentConversationId ? `Subagent of ${antigravity.parentConversationId}` : undefined}>
+            <div title={antigravityStats?.parentConversationId ? `Subagent of ${antigravityStats.parentConversationId}` : undefined}>
               <span>RECORDED BY</span>
-              <strong>{antigravity.root === "t3" ? "T3 Code" : "Antigravity IDE"}</strong>
+              <strong>{!antigravityStats ? "—" : antigravityStats.root === "t3" ? "T3 Code" : "Antigravity app"}</strong>
             </div>
           </>
         ) : (
@@ -1302,10 +1305,9 @@ export function SessionDetailPanel({
       </div>
       {antigravity && (
         <p className="scope-note">
-          <Database /> Read from Antigravity's local conversation databases on this computer:
-          token counts, model, effort label, and step times only. Prompts, replies, reasoning,
-          and tool payloads are never imported. No ccusage price exists for these models, so
-          cost is withheld rather than estimated.
+          <Database /> Tokens and API-equivalent cost come from ccusage. Workspace, effort label,
+          and step times come from Antigravity's local conversation databases on this computer.
+          Prompts, replies, reasoning, and tool payloads are never imported.
         </p>
       )}
       {warp && (
@@ -1347,10 +1349,14 @@ export const sessionProviderColors: Record<ActivityProvider, string> = {
   antigravity: "var(--color-provider-antigravity)",
 };
 
+/** Mix groups add Google: Gemini a session's own agent ran when that agent is not Antigravity. */
+const sessionMixLabels: Record<ModelGroup, string> = { ...sessionProviderLabels, google: "Google" };
+const sessionMixColors: Record<ModelGroup, string> = { ...sessionProviderColors, google: "var(--color-provider-google)" };
+
 export type SessionMixCombo = Combo & { tokens: number; observations: number };
 
 export type SessionMixGroup = {
-  provider: ActivityProvider | "unknown";
+  provider: ModelGroup | "unknown";
   label: string;
   color: string;
   /** Null when the usage records carried no token total for one of this provider's models. */
@@ -1377,13 +1383,15 @@ export function sessionProviderMix(
 ) {
   const groups = new Map<string, SessionMixGroup>();
   const groupFor = (model: string) => {
-    const provider = providerFromModel(model) ?? fallbackProvider ?? "unknown";
+    // The session's own provider stands in for its agent, so Gemini that Antigravity ran stays
+    // Antigravity's and Gemini another agent ran groups as Google.
+    const provider = modelGroup(model, fallbackProvider) ?? fallbackProvider ?? "unknown";
     const existing = groups.get(provider);
     if (existing) return existing;
     const created: SessionMixGroup = {
       provider,
-      label: provider === "unknown" ? "Unknown provider" : sessionProviderLabels[provider],
-      color: provider === "unknown" ? "var(--color-border-strong)" : sessionProviderColors[provider],
+      label: provider === "unknown" ? "Unknown provider" : sessionMixLabels[provider],
+      color: provider === "unknown" ? "var(--color-border-strong)" : sessionMixColors[provider],
       tokens: null,
       combos: [],
       attributed: 0,
@@ -1404,7 +1412,7 @@ export function sessionProviderMix(
   for (const combo of combos) {
     // The raw name is tried first; a family carries the vendor only when the transcript recorded
     // a name this app cannot read a provider from.
-    const group = groupFor(providerFromModel(combo.model) ? combo.model : combo.family);
+    const group = groupFor(modelGroup(combo.model, fallbackProvider) ? combo.model : combo.family);
     const key = comboKey(combo);
     const existing = group.combos.find((entry) => comboKey(entry) === key);
     if (existing) {

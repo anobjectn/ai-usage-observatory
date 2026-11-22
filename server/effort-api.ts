@@ -20,7 +20,8 @@ import { LED_SESSION_FLOOR, RATED_SESSION_FLOOR } from "../src/types";
 import { comboKey, comboKind, comboOf, parseComboFacet, parseComboKey, type Combo } from "../src/combo";
 import { compareEffort, foldEffort, sortEffortBuckets } from "../src/effort-model";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
-import { agentIsUnpriced, OTHER_PROVIDER, providerFromAgent, type ActivityProvider } from "../src/provider";
+import { OTHER_PROVIDER, providerFromAgent, type ActivityProvider } from "../src/provider";
+import { hasUnpricedModel } from "../src/model-aggregation";
 import { PARSER_VERSION } from "./effort-parse";
 import { effortProgress, isEffortIndexing } from "./effort-index";
 import { familyOf } from "../src/model-family";
@@ -569,8 +570,9 @@ type BoardAccumulator = ComboAccumulator & {
  * the floor the row still reports its volume — it just declines to compare. */
 const comparable = (row: BoardAccumulator) => row.kind === "interactive" && row.ledTokens.length >= LED_SESSION_FLOOR;
 
-/** `sessions` counts every led session; `costs` holds only the priced ones, because an unpriced
- * session's zero is an absent cost and would drag a median toward free. */
+/** `sessions` counts every led session; `costs` holds only the priced ones, because a session
+ * that ran a model ccusage could not price has an absent cost, and its zero would drag a median
+ * toward free. */
 type ProjectCohort = {
   sessions: number;
   costs: number[];
@@ -694,7 +696,8 @@ export function buildEffortComboBoard(snapshot: DashboardData, scope: EffortScop
       if (tied) entry.tiesExcluded += 1;
       if (project && bucket.effort !== "") entry.projects.set(project, (entry.projects.get(project) ?? 0) + bucket.tokens);
       if (key === leader) {
-        const priced = !agentIsUnpriced(session.agent);
+        // A session that ran a model ccusage could not price has a 0 or understated cost.
+        const priced = !hasUnpricedModel(session, snapshot.unpricedModels ?? []);
         entry.ledTokens.push(session.totalTokens);
         if (priced) entry.ledCosts.push(session.totalCost);
         if (flagged.has(session.sessionId)) entry.ledFlagged += 1;

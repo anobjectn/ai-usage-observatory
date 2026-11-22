@@ -3,6 +3,7 @@ import { basename, dirname, relative } from "node:path";
 import { stat } from "node:fs/promises";
 import { db, listRules } from "./store";
 import { archivedSessionId, recoverArchivedAnnotation, resolveSessionAlias, stableSessionId } from "./session-identity";
+import { antigravityDatabaseFiles } from "./antigravity";
 import { isCompressedTranscript, plainTranscriptPath, readTranscriptHead, transcriptStem } from "./transcript-file";
 export { stableSessionId } from "./session-identity";
 
@@ -86,7 +87,9 @@ export type PathIndexResult = {
   changed: SessionSource[];
   removedSessionIds: string[];
   /** Files indexed for attribution only. They never enter the effort catalog, but ccusage reads
-   * them, so they belong in the fingerprint that decides whether ccusage has to run again. */
+   * them, so they belong in the fingerprint that decides whether ccusage has to run again.
+   * Antigravity's conversation databases and their `-wal` logs are listed here too: stat only,
+   * never opened by the indexer. */
   attributionOnly?: Array<Pick<SessionSource, "sourceFile" | "mtimeMs" | "size">>;
   /** Codex rollouts present both plain and compressed. Codex keeps both only for the moment it
    * takes to resume a compressed session, so a lasting pair was usually copied back from a
@@ -201,7 +204,8 @@ export async function indexSessionPaths(root = homedir()): Promise<PathIndexResu
     pairs: codex.duplicates.pairs + codexArchived.duplicates.pairs,
     stalePlain: [...codex.duplicates.stalePlain, ...codexArchived.duplicates.stalePlain].sort(),
   };
-  return { catalog, changed, removedSessionIds, attributionOnly: copilot.catalog, duplicateTranscripts, indexed: changed.length + copilot.changed.length };
+  const attributionOnly = [...copilot.catalog, ...antigravityDatabaseFiles(root)];
+  return { catalog, changed, removedSessionIds, attributionOnly, duplicateTranscripts, indexed: changed.length + copilot.changed.length };
 }
 
 function globRegex(pattern: string) {

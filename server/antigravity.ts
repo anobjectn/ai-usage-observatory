@@ -5,7 +5,7 @@ import { delimiter, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalModelName } from "../src/model-name";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
-import type { AntigravityData, AntigravitySessionStats, MetricRow, ModelBreakdown, Session } from "../src/types";
+import type { AntigravityData, AntigravitySessionStats } from "../src/types";
 import type { EffortUsageRow } from "./effort-parse";
 import { getSessionProvider, mergeActivityEpisodes, saveLocalEvidence } from "./session-evidence";
 import { bytesOf, fieldOf, messageOf, textOf, type WireField } from "./warp-protobuf";
@@ -42,21 +42,65 @@ const BUSY_TIMEOUT_MS = 250;
 export type AntigravityRootKind = AntigravitySessionStats["root"];
 export type AntigravityRoot = { path: string; kind: AntigravityRootKind };
 
-/** T3 Code's driver keeps one data directory per install hash; the IDE keeps one. A path in
- * `ANTIGRAVITY_DATA_DIRS` (path-delimited) replaces both, which is how tests stay off real data. */
+/** Where ccusage looks for Antigravity data on its own. The Observatory reads the same places, so
+ * the metadata it joins to ccusage's sessions covers every conversation ccusage can report. */
+const defaultRoots = [".gemini/antigravity", ".gemini/antigravity-cli", ".gemini/antigravity-ide", ".gemini/antigravity-backup", ".gemini/antigravity-acp", ".config/antigravity"];
+
+/** T3 Code names its driver directory `antigravity-acp`; ccusage's `~/.gemini/antigravity-acp`
+ * default is not T3's. */
+function isT3Root(path: string) {
+  return path.includes("antigravity-acp") && !/[\\/]\.gemini[\\/]antigravity-acp/.test(path);
+}
+
+/** T3 Code's driver keeps one data directory per install hash, which ccusage never finds by
+ * itself; the IDE and CLI keep ccusage's default directories. A path in `ANTIGRAVITY_DATA_DIRS`
+ * (path-delimited) replaces all of them, for this reader and for ccusage, which is how tests stay
+ * off real data. */
 export function antigravityRoots(home = homedir()): AntigravityRoot[] {
   const override = process.env.ANTIGRAVITY_DATA_DIRS;
   if (override !== undefined) {
     return override.split(delimiter).map((path) => path.trim()).filter(Boolean)
-      .map((path) => ({ path, kind: path.includes("antigravity-acp") ? "t3" as const : "ide" as const }));
+      .map((path) => ({ path, kind: isT3Root(path) ? "t3" as const : "ide" as const }));
   }
   const roots: AntigravityRoot[] = [];
   const t3 = join(home, ".t3/userdata/providers/antigravity");
   try {
     for (const install of readdirSync(t3).sort()) roots.push({ path: join(t3, install, "antigravity-acp"), kind: "t3" });
   } catch { /* No T3 Antigravity install on this machine. */ }
-  roots.push({ path: join(home, ".gemini/antigravity"), kind: "ide" });
+  for (const root of defaultRoots) roots.push({ path: join(home, root), kind: "ide" });
   return roots;
+}
+
+/** The value for ccusage's `ANTIGRAVITY_DATA_DIR`: every root, comma-separated. Setting it
+ * replaces ccusage's own search, so every root is passed explicitly. An override is passed as
+ * given, missing directories included, so ccusage never falls back to the real defaults. A path
+ * holding a comma cannot be expressed in ccusage's list and is left out. Undefined when there is
+ * nothing to read, which leaves ccusage's own (equally empty) search in place. */
+export function antigravityCcusageDataDir(home = homedir()) {
+  const override = process.env.ANTIGRAVITY_DATA_DIRS !== undefined;
+  const roots = antigravityRoots(home).map((root) => root.path)
+    .filter((path) => !path.includes(","))
+    .filter((path) => override || existsSync(path));
+  // An override naming nothing must still keep ccusage off the defaults: a path that does not
+  // exist reads as no data.
+  if (override) return roots.length ? roots.join(",") : join(home, ".usage-observatory-no-antigravity-data");
+  return roots.length ? roots.join(",") : undefined;
+}
+
+/** Each conversation database and its `-wal`, with the stats that decide whether ccusage has to
+ * run again. A write that lands only in the log still changes the `-wal` entry. Stats only: no
+ * database is opened here. */
+export function antigravityDatabaseFiles(home = homedir()) {
+  const files: Array<{ sourceFile: string; mtimeMs: number; size: number }> = [];
+  for (const root of antigravityRoots(home)) {
+    for (const { path } of listConversations(root.path)) {
+      for (const file of [path, `${path}-wal`]) {
+        const stats = statOrNull(file);
+        if (stats) files.push({ sourceFile: file, mtimeMs: stats.mtimeMs, size: stats.size });
+      }
+    }
+  }
+  return files;
 }
 
 type FileState = { mtimeMs: number; size: number };
@@ -447,13 +491,35 @@ export type AntigravityEffortSource = {
   attributedTokens: number;
 };
 
+/** The facts ccusage does not report about one conversation. ccusage owns the session's tokens,
+ * cost, and calendar rows; the collector joins these onto its session by conversation id. */
+export type AntigravityConversation = {
+  conversationId: string;
+  sessionId: string;
+  cwd: string | null;
+  lastActivity: string;
+  models: string[];
+  stats: AntigravitySessionStats;
+  activityIntervals: Array<{ startAt: number; endAt: number }>;
+  /** Input + output + cache read + cache write from the usage records. Output already holds the
+   * thinking tokens here, so this is comparable with ccusage's `totalTokens`. Used only to
+   * reconcile the two readers, never added to a total. */
+  tokens: number;
+};
+
 export type AntigravityCollection = AntigravityData & {
-  sessions: Session[];
-  dailyRows: MetricRow[];
+  conversations: AntigravityConversation[];
   effortSources: AntigravityEffortSource[];
   /** True when every root and conversation was read, so absent sessions are really gone. */
   complete: boolean;
 };
+
+/** The one session id for a conversation, root-independent like Warp's `warp-<id>`. ccusage
+ * reports the conversation id as the session's `period`, so both readers produce the same id, and
+ * the session-detail and quota-context prefix checks keep working. */
+export function antigravitySessionId(conversationId: string) {
+  return `antigravity-${conversationId}`;
+}
 
 type Candidate = {
   conversationId: string;
@@ -484,77 +550,42 @@ function prefer(left: Candidate, right: Candidate) {
   return right.parse.calls.length > left.parse.calls.length ? right : left;
 }
 
-function breakdownTokens(model: ModelBreakdown) {
-  return model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
-}
-
-function emptyBreakdown(modelName: string): ModelBreakdown {
-  return { modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
-}
-
-function addCall(target: ModelBreakdown, call: UsageCall) {
-  target.inputTokens += call.inputTokens;
-  target.outputTokens += call.outputTokens;
-  target.cacheReadTokens += call.cacheReadTokens;
-  target.cacheCreationTokens += call.cacheWriteTokens;
-}
-
-function sessionOf(candidate: Candidate): Session {
+function conversationOf(candidate: Candidate): AntigravityConversation {
   const { conversationId, parse, summary } = candidate;
-  const models = new Map<string, ModelBreakdown>();
+  const models = new Map<string, number>();
   let reasoning = 0;
+  let tokens = 0;
   for (const call of parse.calls) {
     const model = modelOf(call);
-    const breakdown = models.get(model) ?? emptyBreakdown(model);
-    addCall(breakdown, call);
-    models.set(model, breakdown);
+    models.set(model, (models.get(model) ?? 0) + tokensOf(call));
     reasoning += call.reasoningOutputTokens;
+    tokens += tokensOf(call);
   }
-  const modelBreakdowns = [...models.values()].sort((left, right) => breakdownTokens(right) - breakdownTokens(left));
-  const sum = (pick: (model: ModelBreakdown) => number) => modelBreakdowns.reduce((total, model) => total + pick(model), 0);
-  const inputTokens = sum((model) => model.inputTokens);
-  const outputTokens = sum((model) => model.outputTokens);
-  const cacheReadTokens = sum((model) => model.cacheReadTokens);
-  const cacheCreationTokens = sum((model) => model.cacheCreationTokens);
   const latest = parse.activity.length ? new Date(Math.max(...parse.activity)).toISOString() : null;
-  const lastActivity = latest ?? summary?.lastModified ?? new Date(candidate.mtimeMs).toISOString();
-  const stats: AntigravitySessionStats = {
-    conversationId,
-    generations: parse.calls.length,
-    reasoningOutputTokens: reasoning,
-    parentConversationId: summary?.parentConversationId ?? null,
-    root: candidate.root.kind,
-  };
   return {
-    agent: "antigravity",
-    source: "antigravity",
-    sessionId: `antigravity-${conversationId}`,
-    period: lastActivity,
+    conversationId,
+    sessionId: antigravitySessionId(conversationId),
     cwd: summary?.cwd ?? null,
-    pathTags: [],
-    annotation: { tags: [], note: "", verdict: null },
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheCreationTokens,
-    totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens,
-    // No ccusage price exists for these models. Zero here is an absent cost, never a free one:
-    // every cost view withholds it rather than reading it as $0.
-    totalCost: 0,
-    modelsUsed: modelBreakdowns.map((model) => model.modelName),
-    modelBreakdowns,
-    metadata: { lastActivity },
-    antigravity: stats,
+    lastActivity: latest ?? summary?.lastModified ?? new Date(candidate.mtimeMs).toISOString(),
+    models: [...models.entries()].sort((left, right) => right[1] - left[1]).map(([model]) => model),
+    stats: {
+      conversationId,
+      generations: parse.calls.length,
+      reasoningOutputTokens: reasoning,
+      parentConversationId: summary?.parentConversationId ?? null,
+      root: candidate.root.kind,
+    },
     activityIntervals: mergeActivityEpisodes(parse.activity),
+    tokens,
   };
 }
 
-function effortSourceOf(candidate: Candidate, session: Session, timeZone: string): AntigravityEffortSource {
+function effortSourceOf(candidate: Candidate, conversation: AntigravityConversation, timeZone: string): AntigravityEffortSource {
   const rows = new Map<string, EffortUsageRow>();
   let unknownObservations = 0;
   let attributedTokens = 0;
   for (const call of candidate.parse.calls) {
-    const occurredOn = dateKeyInTimeZone(call.at === null ? session.metadata?.lastActivity : new Date(call.at), timeZone) ?? "";
+    const occurredOn = dateKeyInTimeZone(call.at === null ? conversation.lastActivity : new Date(call.at), timeZone) ?? "";
     const model = modelOf(call);
     const effort = effortFromLabel(call.label);
     const key = `${occurredOn}\0${model}\0${effort}`;
@@ -575,10 +606,10 @@ function effortSourceOf(candidate: Candidate, session: Session, timeZone: string
     else unknownObservations += 1;
   }
   return {
-    sessionId: session.sessionId,
+    sessionId: conversation.sessionId,
     conversationId: candidate.conversationId,
     sourceFile: candidate.path,
-    cwd: session.cwd,
+    cwd: conversation.cwd,
     signature: candidate.signature,
     identity: candidate.identity,
     mtimeMs: candidate.mtimeMs,
@@ -587,48 +618,9 @@ function effortSourceOf(candidate: Candidate, session: Session, timeZone: string
     activityTimestamps: [...new Set(candidate.parse.activity)].sort((a, b) => a - b),
     observations: candidate.parse.calls.length,
     unknownObservations,
-    tokens: session.totalTokens,
+    tokens: conversation.tokens,
     attributedTokens,
   };
-}
-
-/** One metric row per (generation day, model). A conversation that runs past midnight is split
- * by the day each call happened, which is also the day its effort rows carry. */
-function dailyRowsOf(candidates: Candidate[], sessions: Map<string, Session>, timeZone: string): MetricRow[] {
-  const days = new Map<string, Map<string, ModelBreakdown>>();
-  for (const candidate of candidates) {
-    const session = sessions.get(candidate.conversationId)!;
-    for (const call of candidate.parse.calls) {
-      const date = dateKeyInTimeZone(call.at === null ? session.metadata?.lastActivity : new Date(call.at), timeZone);
-      if (!date) continue;
-      const models = days.get(date) ?? new Map<string, ModelBreakdown>();
-      const model = modelOf(call);
-      const breakdown = models.get(model) ?? emptyBreakdown(model);
-      addCall(breakdown, call);
-      models.set(model, breakdown);
-      days.set(date, models);
-    }
-  }
-  return [...days.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([period, models]): MetricRow => {
-    const modelBreakdowns = [...models.values()];
-    const sum = (pick: (model: ModelBreakdown) => number) => modelBreakdowns.reduce((total, model) => total + pick(model), 0);
-    const inputTokens = sum((model) => model.inputTokens);
-    const outputTokens = sum((model) => model.outputTokens);
-    const cacheReadTokens = sum((model) => model.cacheReadTokens);
-    const cacheCreationTokens = sum((model) => model.cacheCreationTokens);
-    return {
-      agent: "antigravity",
-      period,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheCreationTokens,
-      totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens,
-      totalCost: 0,
-      modelsUsed: modelBreakdowns.map((model) => model.modelName),
-      modelBreakdowns,
-    };
-  });
 }
 
 function displayPath(path: string) {
@@ -658,6 +650,11 @@ export function antigravitySessionModels(sessionId: string) {
   return sessionModels.get(sessionId) ?? null;
 }
 
+/**
+ * Reads the conversation metadata ccusage does not report: working directory, effort labels, the
+ * thinking split, step times, and source health. Tokens and cost are ccusage's; this reader's
+ * token sum is kept only to reconcile against ccusage's, and it emits no session, row, or total.
+ */
 export function collectAntigravity(timeZone = systemTimeZone()): AntigravityCollection {
   const observedAt = new Date().toISOString();
   const roots = antigravityRoots().filter((root) => existsSync(root.path));
@@ -740,12 +737,12 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   }
 
   const chosen = [...candidates.values()];
-  const sessionsById = new Map<string, Session>();
-  for (const candidate of chosen) sessionsById.set(candidate.conversationId, sessionOf(candidate));
-  const sessions = [...sessionsById.values()];
+  const conversationsById = new Map<string, AntigravityConversation>();
+  for (const candidate of chosen) conversationsById.set(candidate.conversationId, conversationOf(candidate));
+  const conversations = [...conversationsById.values()];
   sessionModels.clear();
-  for (const session of sessions) sessionModels.set(session.sessionId, session.modelsUsed);
-  const effortSources = chosen.map((candidate) => effortSourceOf(candidate, sessionsById.get(candidate.conversationId)!, timeZone));
+  for (const conversation of conversations) sessionModels.set(conversation.sessionId, conversation.models);
+  const effortSources = chosen.map((candidate) => effortSourceOf(candidate, conversationsById.get(candidate.conversationId)!, timeZone));
 
   for (const source of effortSources) {
     // Step times are the only activity evidence. A summary's modified time can order sessions but
@@ -777,9 +774,9 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
 
   const days = new Map<string, { generations: number; tokens: number }>();
   for (const candidate of chosen) {
-    const session = sessionsById.get(candidate.conversationId)!;
+    const conversation = conversationsById.get(candidate.conversationId)!;
     for (const call of candidate.parse.calls) {
-      const date = dateKeyInTimeZone(call.at === null ? session.metadata?.lastActivity : new Date(call.at), timeZone);
+      const date = dateKeyInTimeZone(call.at === null ? conversation.lastActivity : new Date(call.at), timeZone);
       if (!date) continue;
       const day = days.get(date) ?? { generations: 0, tokens: 0 };
       day.generations += 1;
@@ -791,21 +788,20 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
     available: roots.length > 0,
     roots: roots.map((root) => displayPath(root.path)),
     observedAt,
-    sessionCount: sessions.length,
+    sessionCount: conversations.length,
     generationCount: calls.length,
     auxiliaryCalls,
     totals: {
-      sessions: sessions.length,
+      sessions: conversations.length,
       generations: calls.length,
-      tokens: sessions.reduce((sum, session) => sum + session.totalTokens, 0),
-      reasoningOutputTokens: sessions.reduce((sum, session) => sum + (session.antigravity?.reasoningOutputTokens ?? 0), 0),
+      tokens: conversations.reduce((sum, conversation) => sum + conversation.tokens, 0),
+      reasoningOutputTokens: conversations.reduce((sum, conversation) => sum + conversation.stats.reasoningOutputTokens, 0),
     },
     daily: [...days.entries()].map(([date, values]) => ({ date, ...values })).sort((left, right) => left.date.localeCompare(right.date)),
     notes: [...notes],
     subagentConversations,
     ...(roots.length ? {} : { error: "No Antigravity data directory was found on this machine." }),
-    sessions,
-    dailyRows: dailyRowsOf(chosen, sessionsById, timeZone),
+    conversations,
     effortSources,
     complete,
   };

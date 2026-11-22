@@ -1,5 +1,5 @@
 import { formatReadingAge } from "../quota-notice";
-import { providerFromAgent, providerFromModel } from "../provider";
+import { providerFromAgent } from "../provider";
 
 export const formatCompact = (value: number) =>
   Intl.NumberFormat("en", {
@@ -16,15 +16,6 @@ export const formatTokensShort = (value: number) =>
 
 export const formatMoney = (value: number) =>
   `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/** A cost that may be absent rather than zero: Antigravity usage has no ccusage price, and its
- * zero must never read as free. */
-export const formatCostOrUnpriced = (value: number, unpriced: boolean) =>
-  unpriced ? "—" : formatMoney(value);
-
-/** True when every model named is one only Antigravity reports, so a zero cost is a missing one. */
-export const modelsUnpriced = (models: string[]) =>
-  models.length > 0 && models.every((model) => providerFromModel(model) === "antigravity");
 
 export const formatWarpCredits = (value: number) =>
   value.toLocaleString(undefined, { maximumFractionDigits: 2 });

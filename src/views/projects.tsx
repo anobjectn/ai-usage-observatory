@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { agentIsUnpriced } from "../provider";
 import { systemTimeZone } from "../reporting-time";
 import { EffortBadge, EffortStack, EffortState } from "../components/effort";
 import { PageJump } from "../components/page-jump";
@@ -48,9 +47,7 @@ import {
 } from "../app/preferences";
 import {
   formatCompact,
-  formatCostOrUnpriced,
   formatMoney,
-  modelsUnpriced,
   providerSeries,
   friendlyProject,
   ActivityAxisTick,
@@ -163,7 +160,7 @@ function ProjectDayTooltip({
               />
               <strong>{provider.label}</strong>
               <b>{formatCompact(providerActivity.tokens)}</b>
-              <b>{formatCostOrUnpriced(providerActivity.cost, providerActivity.provider === "antigravity")}</b>
+              <b>{formatMoney(providerActivity.cost)}</b>
             </div>
             {visibleModels.length > 0 && (
               <ul className="tooltip-provider-models">
@@ -171,7 +168,7 @@ function ProjectDayTooltip({
                   <li key={model.model}>
                     <span>{model.model}</span>
                     <b>{formatCompact(model.tokens)}</b>
-                    <b>{formatCostOrUnpriced(model.cost, providerActivity.provider === "antigravity")}</b>
+                    <b>{formatMoney(model.cost)}</b>
                   </li>
                 ))}
               </ul>
@@ -357,7 +354,7 @@ function ProjectModelSessions({
                   </div>
                   <div className="model-sessions-card__stats">
                     <b>{formatCompact(tokens)}</b>
-                    <em>{agentIsUnpriced(session.agent) ? "no price" : formatMoney(cost)}</em>
+                    <em>{formatMoney(cost)}</em>
                   </div>
                   <a
                     href={sessionHref(session.sessionId)}
@@ -876,7 +873,7 @@ function ProjectDetails({
             </b>
             <b>
               <small>API eq.</small>
-              {formatCostOrUnpriced(project.cost, modelsUnpriced(project.models))}
+              {formatMoney(project.cost)}
             </b>
             {project.warpCredits ? (
               <b className="project-model-credit">
@@ -906,7 +903,7 @@ function ProjectDetails({
                     {model.name}
                   </span>
                   <b>{formatCompact(model.tokens)}</b>
-                  <b>{formatCostOrUnpriced(model.cost, modelsUnpriced([model.name]))}</b>
+                  <b>{formatMoney(model.cost)}</b>
                 </div>
                 <div className="project-model-meter">
                   <i
@@ -1280,7 +1277,7 @@ export function Projects({
                 </div>
                 <div className="rank-stat">
                   <span>Cost</span>
-                  <b>{formatCostOrUnpriced(project.cost, modelsUnpriced(project.models))}</b>
+                  <b>{formatMoney(project.cost)}</b>
                   {project.warpCredits ? <small className="rank-stat__credit">+ {formatWarpCredits(project.warpCredits)} Warp credits</small> : null}
                 </div>
                 <div className="rank-stat">
