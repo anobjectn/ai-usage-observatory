@@ -125,3 +125,27 @@ test("tooltip lookup takes only the markers standing at one chart point", () => 
   // Hourly buckets key on numeric hours, which Recharts hands back as numbers.
   expect(quotaMarkersAt(hourlyQuotaMarkers(history, "2026-07-18", null, timeZone), 10)).toHaveLength(1);
 });
+
+test("Antigravity reaches draw as their own markers, after Claude and Codex at a shared point", () => {
+  const withAntigravity: QuotaHistory = {
+    ...history,
+    windows: [
+      { provider: "antigravity", window: "weekly", reachedCount: 1, lastReachedAt: weeklyAt, reachedAt: [weeklyAt] },
+      ...history.windows,
+      { provider: "anthropic", window: "fiveHour", reachedCount: 1, lastReachedAt: quotaAt, reachedAt: [quotaAt] },
+    ],
+  };
+  const markers = dailyQuotaMarkers(withAntigravity, ["2026-07-18"], null, timeZone);
+  expect(quotaMarkersAt(markers, "2026-07-18").map((marker) => marker.provider)).toEqual(["anthropic", "codex", "antigravity"]);
+  expect(shown(dailyQuotaMarkers(withAntigravity, ["2026-07-18"], "antigravity", timeZone))).toEqual([
+    {
+      x: "2026-07-18",
+      kind: "weekly",
+      provider: "antigravity",
+      label: "Antigravity weekly quota reached",
+      entries: [{ kind: "weekly", label: "weekly quota reached", count: 1, timestamps: [weeklyAt] }],
+    },
+  ]);
+  // Banked resets stay Codex's: the Antigravity filter carries none.
+  expect(hourlyQuotaMarkers(withAntigravity, "2026-07-18", "antigravity", timeZone).map((marker) => marker.x)).toEqual(["14"]);
+});

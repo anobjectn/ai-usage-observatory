@@ -244,6 +244,10 @@ export function App() {
       "--color-provider-antigravity",
       providerColors.antigravity,
     );
+    document.documentElement.style.setProperty(
+      "--color-provider-google",
+      providerColors.google,
+    );
     try {
       localStorage.setItem(
         providerColorsStorageKey,

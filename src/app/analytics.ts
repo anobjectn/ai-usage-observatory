@@ -26,8 +26,14 @@ import { providerKey, compactDateParts, formatCompact, formatCompactDate, provid
 
 const fiveHoursMs = 5 * 60 * 60 * 1_000;
 
+/** Providers with independently timed five-hour and weekly windows. Warp's monthly pool has none. */
+export type WindowProvider = "anthropic" | "codex" | "antigravity";
+const windowProviders: readonly WindowProvider[] = ["anthropic", "codex", "antigravity"];
+const isWindowProvider = (provider: string): provider is WindowProvider =>
+  (windowProviders as readonly string[]).includes(provider);
+
 type CurrentFiveHourWindow = {
-  provider: "anthropic" | "codex";
+  provider: WindowProvider;
   startAt: number;
   endAt: number;
 };
@@ -39,8 +45,7 @@ export function currentFiveHourWindows(
   now = Date.now(),
 ): CurrentFiveHourWindow[] {
   return (quotas.usage?.providers ?? []).flatMap((provider) => {
-    if (provider.provider !== "anthropic" && provider.provider !== "codex")
-      return [];
+    if (!isWindowProvider(provider.provider)) return [];
     const resetAt =
       provider.snapshot?.kind === "window"
         ? provider.snapshot.fiveHour?.resetsAt
@@ -55,15 +60,15 @@ const weekMs = 7 * 24 * 60 * 60 * 1_000;
 
 
 /** Each provider's weekly window, ending at the reset it reports and running the seven days
- * before it. Both providers count a fixed seven-day week, so the opening follows from the reset.
+ * before it. Every window provider counts a fixed seven-day week, so the opening follows from
+ * the reset.
  */
 export function currentWeeklyWindows(
   quotas: DashboardData["quotas"],
   now = Date.now(),
-): Array<{ provider: "anthropic" | "codex"; startAt: number; endAt: number }> {
+): Array<{ provider: WindowProvider; startAt: number; endAt: number }> {
   return (quotas.usage?.providers ?? []).flatMap((provider) => {
-    if (provider.provider !== "anthropic" && provider.provider !== "codex")
-      return [];
+    if (!isWindowProvider(provider.provider)) return [];
     const resetAt =
       provider.snapshot?.kind === "window"
         ? provider.snapshot.weekly?.resetsAt
@@ -78,10 +83,12 @@ export type RecentSessionFloor = {
   at: number;
   /** `weekly` is an open cycle a provider is reporting; `sessions` is the fallback below. */
   basis: "weekly" | "sessions";
+  /** The providers the floor was taken across, in display order, so the heading can name them. */
+  providers: WindowProvider[];
 };
 
 
-/** How many sessions each main provider is guaranteed when neither reports a weekly reset. */
+/** How many sessions each main provider is guaranteed when none reports a weekly reset. */
 const recentSessionFallback = 10;
 
 const sessionActivityAt = (session: Session) =>
@@ -90,33 +97,41 @@ const sessionActivityAt = (session: Session) =>
 
 /** How far back the recent list runs.
  *
- * Normally the earlier of the two providers' weekly openings: each provider is then always shown
- * its whole current week, and whichever resets later is shown the few extra days that carries.
+ * Normally the earliest of the window providers' weekly openings (Claude, Codex, Antigravity):
+ * each is then always shown its whole current week, and those that reset later are shown the few
+ * extra days that carries.
  *
  * With no weekly reset reported there is no cycle to cut at, so the floor instead reaches back far
- * enough to hold the last ten sessions of each main provider — again the earlier of the two, so
- * neither is cut short by the other being busier. Null only when neither has a session to measure,
- * and then nothing is cut.
+ * enough to hold the last ten sessions of each window provider — again the earliest, so none is
+ * cut short by another being busier. Null only when none has a session to measure, and then
+ * nothing is cut.
  */
 export function recentSessionFloor(
   quotas: DashboardData["quotas"],
   sessions: Session[],
   now = Date.now(),
 ): RecentSessionFloor | null {
-  const openings = currentWeeklyWindows(quotas, now).map((window) => window.startAt);
-  if (openings.length) return { at: Math.min(...openings), basis: "weekly" };
-  const nth = (["anthropic", "codex"] as const).flatMap((provider) => {
+  const weekly = currentWeeklyWindows(quotas, now);
+  if (weekly.length) {
+    return {
+      at: Math.min(...weekly.map((window) => window.startAt)),
+      basis: "weekly",
+      providers: windowProviders.filter((provider) => weekly.some((window) => window.provider === provider)),
+    };
+  }
+  const providers: WindowProvider[] = [];
+  const nth = windowProviders.flatMap((provider) => {
     const times = sessions
       .filter((session) => providerKey(session.agent) === provider)
       .map(sessionActivityAt)
       .filter((at) => Number.isFinite(at))
       .sort((left, right) => right - left);
     // A provider with fewer than ten sessions contributes its oldest, which is all it has.
-    return times.length
-      ? [times[Math.min(recentSessionFallback, times.length) - 1]!]
-      : [];
+    if (!times.length) return [];
+    providers.push(provider);
+    return [times[Math.min(recentSessionFallback, times.length) - 1]!];
   });
-  return nth.length ? { at: Math.min(...nth), basis: "sessions" } : null;
+  return nth.length ? { at: Math.min(...nth), basis: "sessions", providers } : null;
 }
 
 
@@ -145,7 +160,7 @@ export function currentWindowSessions(
 }
 
 export type RecentTerminus = {
-  provider: "anthropic" | "codex";
+  provider: WindowProvider;
   key: string;
   window: "fiveHour" | "weekly";
   /** `observed` is a boundary the account's own readings recorded, rather than one the provider
@@ -209,7 +224,7 @@ export function observedTermini(
     if (!seen) continue;
     for (const boundary of quotaResetBoundaries(seen.context, context)) {
       if (boundary.id !== "fiveHour" && boundary.id !== "weekly") continue;
-      if (boundary.provider !== "anthropic" && boundary.provider !== "codex") continue;
+      if (!isWindowProvider(boundary.provider)) continue;
       // A cycle id can change without a reset having happened: Codex re-anchors its weekly
       // reset instant as the week runs. Only an instant that falls in the gap between these two
       // sessions is a boundary they observed; anything else is the provider moving the goalposts.
@@ -1584,9 +1599,26 @@ export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][
 
 /** The agent names the recent list spells out, where "Anthropic" and "OpenAI" would name the
  * vendor rather than the tool the session ran in. */
-export const agentTerminusLabels = { anthropic: "Claude", codex: "Codex" } as const;
+export const agentTerminusLabels = { anthropic: "Claude", codex: "Codex", antigravity: "Antigravity" } as const;
 
 export const terminusWindowLabels = { fiveHour: "5-hour", weekly: "weekly" } as const;
+
+/** "Claude", "Claude and Codex", "Claude, Codex, and Antigravity". */
+function listNames(names: string[]) {
+  return names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+}
+
+/** The recent list's heading clause: what its floor was taken across. */
+export function recentFloorLabel(floor: RecentSessionFloor) {
+  const names = floor.providers.map((provider) => agentTerminusLabels[provider]);
+  if (floor.basis === "sessions") {
+    return names.length === 1 ? `the last ten from ${names[0]}` : `the last ten each from ${listNames(names)}`;
+  }
+  const owners = names.map((name) => `${name}'s`);
+  return owners.length === 1
+    ? `${owners[0]} open weekly cycle`
+    : `the ${owners.length === 2 ? "earlier" : "earliest"} of ${listNames(owners)} open weekly cycles`;
+}
 
 export function projectDayRows(
   trend: ProjectTrendRow[],

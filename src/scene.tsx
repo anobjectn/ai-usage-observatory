@@ -11,7 +11,8 @@ function TelescopeIcon() {
 }
 
 export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; tesseract: boolean; speed: number; starDensity: number };
-export type ProviderColors = { anthropic: string; openai: string; warp: string; antigravity: string };
+/** `google` colours Gemini run by agents other than Antigravity; it has no orrery ring. */
+export type ProviderColors = { anthropic: string; openai: string; warp: string; antigravity: string; google: string };
 
 const STAR_DENSITY_MULTIPLIERS = [0, 0.2, 0.42, 0.68, 1, 1.65, 4.95];
 const MAX_STAR_DENSITY = STAR_DENSITY_MULTIPLIERS.length - 1;

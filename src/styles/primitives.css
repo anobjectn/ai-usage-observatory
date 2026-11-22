@@ -1117,6 +1117,10 @@ td>small {
   background: var(--color-provider-openai);
   box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-openai) var(--tint-vivid),transparent);
 }
+.quota-marker-legend i.antigravity {
+  background: var(--color-provider-antigravity);
+  box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-antigravity) var(--tint-vivid),transparent);
+}
 
 .usage-trajectory-panel .panel-heading p {
   margin: var(--space-1) 0 0;

@@ -308,7 +308,7 @@ For Projects captures, open `ai-usage-observatory` and scroll it into view so
 **With the optional [`quota-service`](https://github.com/anobjectn/quota-service)** ([setup](#provider-allowance-data)):
 
 - Live headroom, resets, and credits for Claude, Codex, Warp, and Antigravity.
-- Locally observed quota history for trend and reach analysis, with account-tier attribution.
+- Locally observed quota history for trend and reach analysis, with account-tier attribution. Claude, Codex, and Antigravity each get weekly and five-hour headroom lines on the activity chart, quota-reach markers, and an allowance-capture card in Data, from their own five-hour and weekly windows. Antigravity's model windows (Gemini 4 Argon, the partner-model pool) appear on its quota card only.
 - Per-session quota movement and closing balances, resolved to the quota cycle.
 
 History and per-session views need quota-service v1.3.0 or newer; tier assignments need v1.4.0 or newer; Antigravity quota needs v1.6.0 or newer with its `antigravity` provider enabled. Older services and other collectors can supply the same data through the SQLite path in [BYOQS](#byoqs).
@@ -450,7 +450,8 @@ command.
   like Claude's and Codex's. The price is `ccusage`'s, from models.dev and
   LiteLLM, and needs the network: offline, `ccusage` has no Gemini 4 price, the
   model is named as unpriced, and its zero cost stays out of rates, medians,
-  and allowance cost comparisons. `ccusage` counts thinking tokens in a row's
+  and allowance cost comparisons. Online, its sessions enter the observed
+  `$/100pp` allowance cohorts like Claude's and Codex's. `ccusage` counts thinking tokens in a row's
   total but not in its output; the Observatory folds them into output, as Codex
   reports reasoning, so every bucket sum matches its total. Effort comes from
   the label each generation recorded ("Gemini 4 Neon (High)"), never from the
@@ -459,7 +460,8 @@ command.
 - Gemini run by an agent other than Antigravity (Warp records
   `gemini-3-flash`, for one) is not Antigravity usage. It stays that agent's
   session, quota, and scope, and groups as Google wherever models group by
-  vendor.
+  vendor. Antigravity defaults to Google Blue and the Google label to Google
+  Green; both are adjustable in Appearance, like the other provider colours.
 - Effort labels are shown as recorded after trimming and lowercasing. They are
   not inferred from model names or reasoning-token counts, and they are not a
   quality score or recommendation. One observation represents one Claude

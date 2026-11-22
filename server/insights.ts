@@ -37,11 +37,11 @@ export type AnalysisScope = {
    * scoring direction of the utilization-shaped components changes. */
   policy: "capture" | "headroom";
 };
-/** Antigravity enters the token panels and, through ccusage's price, the cost rates. It has no
- * allowance card, which stays a Claude and Codex measurement. */
+/** Antigravity is a peer of Claude and Codex: the token panels, ccusage's cost rates, and an
+ * allowance card graded from its own five-hour and weekly quota history. */
 type Provider = "anthropic" | "codex" | "antigravity";
-type AllowanceProvider = "anthropic" | "codex";
 const insightProviders: Provider[] = ["anthropic", "codex", "antigravity"];
+const allowanceLabels: Record<Provider, string> = { anthropic: "Claude", codex: "Codex", antigravity: "Antigravity" };
 type InsightSession = Session & {
   provider: Provider;
   /** Session total under the current cache scope — what the volume panel reports. */
@@ -180,7 +180,7 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
   };
 }
 
-function allowance(data: DashboardData, providerId: AllowanceProvider, sessionCount: number, policy: AnalysisScope["policy"]): Profile {
+function allowance(data: DashboardData, providerId: Provider, sessionCount: number, policy: AnalysisScope["policy"]): Profile {
   const series = (data.quotas.history?.series ?? []).filter((point) => point.provider === providerId);
   const weekly = series.filter((point) => point.window === "weekly");
   const fiveHour = series.filter((point) => point.window === "fiveHour");
@@ -209,7 +209,7 @@ function allowance(data: DashboardData, providerId: AllowanceProvider, sessionCo
   const available = components.filter((component) => component.normalized !== null);
   const score = confidence === "insufficient" ? null : Math.round(available.reduce((sum, component) => sum + component.weight * (component.normalized ?? 0), 0) / available.reduce((sum, component) => sum + component.weight, 0));
   const policyLabel = policy === "capture" ? "maximize capture" : "preserve headroom";
-  return { id:`allowance-capture-${providerId}`, rubricVersion:`allowance-capture@2:${policy}`, policy, score, band: score === null ? null : score >= 80 ? "on-target" : score >= 60 ? "drifting" : "off-target", confidence, components, previousPeriod:{score:null,delta:null}, withoutOutliers:{score,delta:0}, explanation: score === null ? "Allowance Capture needs locally observed quota percentage history before it can be graded." : `${providerId === "anthropic" ? "Claude" : "Codex"} is scored separately from its own locally observed quota history, under the "${policyLabel}" target policy.`, links:[{label:"Quota provenance",href:"?view=sources"}] };
+  return { id:`allowance-capture-${providerId}`, rubricVersion:`allowance-capture@2:${policy}`, policy, score, band: score === null ? null : score >= 80 ? "on-target" : score >= 60 ? "drifting" : "off-target", confidence, components, previousPeriod:{score:null,delta:null}, withoutOutliers:{score,delta:0}, explanation: score === null ? "Allowance Capture needs locally observed quota percentage history before it can be graded." : `${allowanceLabels[providerId]} is scored separately from its own locally observed quota history, under the "${policyLabel}" target policy.`, links:[{label:"Quota provenance",href:"?view=sources"}] };
 }
 
 /** Per-session context estimates. Claude writes one cache block per turn, so for a thread whose
@@ -452,11 +452,11 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   }
   const overviewProviderIds = new Set<Provider>(overviewSessionCounts.keys());
   for (const quotaProvider of data.quotas.usage?.providers ?? []) {
-    if (quotaProvider.provider === "anthropic" || quotaProvider.provider === "codex") overviewProviderIds.add(quotaProvider.provider);
+    if (insightProviders.includes(quotaProvider.provider as Provider)) overviewProviderIds.add(quotaProvider.provider as Provider);
   }
   for (const point of data.quotas.history?.series ?? []) overviewProviderIds.add(point.provider);
   for (const window of data.quotas.history?.windows ?? []) overviewProviderIds.add(window.provider);
-  const overviewProviders = (["anthropic", "codex"] as AllowanceProvider[]).filter((id) => overviewProviderIds.has(id));
+  const overviewProviders = insightProviders.filter((id) => overviewProviderIds.has(id));
 
   const timeZone = data.timeZone || systemTimeZone();
   const today = dateKeyInTimeZone(new Date(), timeZone);

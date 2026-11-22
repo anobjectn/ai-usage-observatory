@@ -12,10 +12,11 @@ import {
   effortLabel,
   sharePercent,
 } from "../../components/effort";
-import { type AllowancePolicy, type ProfileCard, providerColor } from "./insights";
+import { type AllowancePolicy, type ProfileCard, type Provider, providerColor, providerLabel } from "./insights";
 
-const providerOf = (id: string) => (id.includes("anthropic") ? "anthropic" : "codex");
-type Provider = ReturnType<typeof providerOf>;
+/** Profile ids end in their provider: `allowance-capture-antigravity`. */
+const providerOf = (id: string): Provider =>
+  id.endsWith("antigravity") ? "antigravity" : id.endsWith("anthropic") ? "anthropic" : "codex";
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 
 function providerSummary(rows: EffortGroupRow[]): EffortSummary | null {
@@ -73,11 +74,11 @@ function ProviderEffortPie({
     .sort((left, right) => right.tokens - left.tokens || left.family.localeCompare(right.family))
     .slice(0, 4);
   const providerTotal = summary?.attributedTokens ?? 0;
-  const providerLabel = provider === "anthropic" ? "Claude" : "Codex";
+  const label = providerLabel(provider);
 
   return (
     <section className="provider-effort">
-      <span className="overline">EFFORTS ACROSS ALL {providerLabel.toUpperCase()}</span>
+      <span className="overline">EFFORTS ACROSS ALL {label.toUpperCase()}</span>
       <p>Unfiltered corpus distribution; the session filters and rule chips below do not change it.</p>
       <EffortState status={aggregate?.status ?? null} summary={summary}>
         {summary && (
@@ -85,7 +86,7 @@ function ProviderEffortPie({
             <div
               className="provider-effort-pie"
               role="img"
-              aria-label={`${providerLabel} recorded effort distribution: ${pie.map((slice) => `${slice.label} ${sharePercent(slice.value, providerTotal)}`).join(", ")}`}
+              aria-label={`${label} recorded effort distribution: ${pie.map((slice) => `${slice.label} ${sharePercent(slice.value, providerTotal)}`).join(", ")}`}
             >
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -203,7 +204,7 @@ export function AllowanceProfiles({
               <div className="profile-card__score-column">
                 <div className="profile-card__top">
                   <span className="profile-provider">
-                    <ShieldCheck /> {provider === "anthropic" ? "Claude" : "Codex"}
+                    <ShieldCheck /> {providerLabel(provider)}
                   </span>
                   <span className={`profile-band ${profile.band ?? "na"}`}>{profile.band ? profile.band.replace("-", " ") : "not graded"}</span>
                 </div>

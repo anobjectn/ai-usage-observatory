@@ -18,6 +18,7 @@ describe("design tokens", () => {
     expect(resolve("color-provider-openai")).toBe(defaultProviderColors.openai);
     expect(resolve("color-provider-warp")).toBe(defaultProviderColors.warp);
     expect(resolve("color-provider-antigravity")).toBe(defaultProviderColors.antigravity);
+    expect(resolve("color-provider-google")).toBe(defaultProviderColors.google);
   });
 
   test("palette values are read only by tokens.css", async () => {

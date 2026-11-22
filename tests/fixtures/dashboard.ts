@@ -1,4 +1,4 @@
-import type { DashboardData, Session } from "../../src/types";
+import type { DashboardData, MetricRow, Session } from "../../src/types";
 
 /** One Gemini 4 Neon (High) conversation as the collector builds it: ccusage's session (tokens,
  * cost, the conversation id as `period`) joined with the metadata reader's cwd and stats. Output
@@ -62,8 +62,53 @@ export function antigravityQuotaFixture(includeAntigravity = true): DashboardDat
         },
       },
     }] : [] },
-    history: { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } },
+    history: includeAntigravity ? antigravityQuotaHistory(now) : { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } },
   };
+}
+
+/** The UTC calendar days ending today, oldest first: the periods the activity chart fixture draws. */
+export function fixtureDays(count: number, now = Date.now()) {
+  return Array.from({ length: count }, (_, index) => new Date(now - (count - 1 - index) * 86_400_000).toISOString().slice(0, 10));
+}
+
+/** Locally observed Antigravity quota history, shaped as the dashboard serves it: per UTC day the
+ * weekly close and the five-hour peak, plus one five-hour reach yesterday. Only the primary
+ * windows ever appear here; model windows stay on the quota card. */
+export function antigravityQuotaHistory(now = Date.now()): NonNullable<DashboardData["quotas"]["history"]> {
+  const days = fixtureDays(4, now);
+  const noon = (day: string) => Date.parse(`${day}T12:00:00Z`);
+  const weeklyUsed = [12, 21.5, 30.2, 39.6];
+  const fiveHourUsed = [35, 62.5, 100, 28.5];
+  const reachedAt = noon(days[2]!) + 3_600_000;
+  return {
+    available: true,
+    trackingSince: noon(days[0]!) - 86_400_000,
+    windows: [
+      { provider: "antigravity", window: "fiveHour", reachedCount: 1, lastReachedAt: reachedAt, reachedAt: [reachedAt] },
+      { provider: "antigravity", window: "weekly", reachedCount: 0, lastReachedAt: null, reachedAt: [] },
+    ],
+    series: days.flatMap((day, index) => [
+      { provider: "antigravity" as const, window: "fiveHour" as const, capturedAt: noon(day), usedPercent: fiveHourUsed[index]!, resetsAt: noon(day) + 3 * 3_600_000, cycleId: `f${index}` },
+      { provider: "antigravity" as const, window: "weekly" as const, capturedAt: noon(day) + 6 * 3_600_000, usedPercent: weeklyUsed[index]!, resetsAt: now + 5 * 86_400_000, cycleId: "w" },
+    ]),
+    codexBankedResets: { usedCount: 0, used: [] },
+  };
+}
+
+/** Daily activity rows for the activity chart: Neon on each fixture day. */
+export function antigravityDailyRows(now = Date.now()): MetricRow[] {
+  const session = antigravitySessionFixture(new Date(now).toISOString());
+  return fixtureDays(4, now).map((day, index) => {
+    const scale = index + 1;
+    const breakdown = { ...session.modelBreakdowns[0]!, inputTokens: 4_000 * scale, cacheReadTokens: 60_000 * scale, outputTokens: 900 * scale, cost: 0.0345 * scale };
+    const row = {
+      agent: "antigravity", period: day, inputTokens: breakdown.inputTokens, outputTokens: breakdown.outputTokens,
+      cacheReadTokens: breakdown.cacheReadTokens, cacheCreationTokens: 0,
+      totalTokens: breakdown.inputTokens + breakdown.outputTokens + breakdown.cacheReadTokens, totalCost: breakdown.cost,
+      modelsUsed: ["gemini-4-neon"], modelBreakdowns: [breakdown],
+    };
+    return { ...row, agents: [row] };
+  });
 }
 
 export function dashboardFixture(): DashboardData {

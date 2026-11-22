@@ -17,7 +17,9 @@ type SnapshotHistoryRow = {
 type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
 type ResetCreditHistory = { id?: string; title?: string | null; status?: string | null; expiresAt?: string | null };
 type PlanAssignment = { rowId: number; provider: string; id: string; label: string; effectiveFrom: number };
-export type QuotaSeriesPoint = { provider: "anthropic" | "codex"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
+/** One primary-window reading. Only the declared five-hour and weekly windows enter the series;
+ * model-specific windows (Antigravity's partner and Argon pools) never do. */
+export type QuotaSeriesPoint = { provider: "anthropic" | "codex" | "antigravity"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
 
 const unknownPlan = (): QuotaPlan => ({ id: null, label: null, source: "unknown", effectiveFrom: null });
 
@@ -121,8 +123,7 @@ function foldSnapshotRows(state: HistoryFoldState, snapshotRows: SnapshotHistory
         const cycleId = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
         const bucketKey = `${provider}:${window}`;
         const bucket = Math.floor(row.capturedAt / 300_000);
-        // The headroom overlay draws Claude and Codex only; Antigravity contributes its reaches.
-        if (provider !== "antigravity" && state.lastBucket.get(bucketKey) !== bucket) {
+        if (state.lastBucket.get(bucketKey) !== bucket) {
           state.lastBucket.set(bucketKey, bucket);
           state.series.push({ provider, window, capturedAt: row.capturedAt, usedPercent: Number(value.usedPercent), resetsAt: value.resetsAt ?? null, cycleId });
         }

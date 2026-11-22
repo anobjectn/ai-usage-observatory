@@ -63,6 +63,7 @@ import {
   metricAverageCardItems,
   percentagePointChange,
   agentTerminusLabels,
+  recentFloorLabel,
   terminusWindowLabels,
 } from "../app/analytics";
 import {
@@ -728,9 +729,9 @@ export function Overview({
                   : "LATEST ACTIVITY"}
               </span>
               <h2>Latest sessions</h2>
-              {/* One span for every provider. It runs to the earlier of the two weekly openings,
-               * so each of Claude and Codex is always shown its whole current week and one of
-               * them a few days more. */}
+              {/* One span for every provider. It runs to the earliest reported weekly opening,
+               * so each of Claude, Codex and Antigravity is always shown its whole current week
+               * and the others a few days more. */}
               <p>
                 {recentFloor === null ? (
                   "Claude, Codex, Warp, and Antigravity sessions"
@@ -739,9 +740,7 @@ export function Overview({
                     All sessions since{" "}
                     <SessionDateStamp value={new Date(recentFloor.at).toISOString()} />
                     {" · "}
-                    {recentFloor.basis === "weekly"
-                      ? "the earlier of Claude's and Codex's open weekly cycles"
-                      : "the last ten each from Claude and Codex"}
+                    {recentFloorLabel(recentFloor)}
                   </>
                 )}
               </p>
@@ -774,7 +773,9 @@ export function Overview({
                         background:
                           row.terminus.provider === "anthropic"
                             ? providerColors.anthropic
-                            : providerColors.openai,
+                            : row.terminus.provider === "antigravity"
+                              ? providerColors.antigravity
+                              : providerColors.openai,
                       }}
                       aria-hidden="true"
                     />

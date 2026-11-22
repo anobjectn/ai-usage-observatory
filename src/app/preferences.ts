@@ -33,7 +33,8 @@ export const defaultProviderColors: ProviderColors = {
   anthropic: "#d97757",
   openai: "#eaeaea",
   warp: "#d7b3ff",
-  antigravity: "#58d9cf",
+  antigravity: "#4285f4",
+  google: "#34a853",
 };
 
 export const defaultFavoriteAccents = [
@@ -115,19 +116,33 @@ export function saveModalSize(key: string, size: ModalSize | null) {
 export type HeadroomLineKey =
   | "headroomAnthropic"
   | "headroomCodex"
+  | "headroomAntigravity"
   | "fiveHourHeadroomAnthropic"
-  | "fiveHourHeadroomCodex";
+  | "fiveHourHeadroomCodex"
+  | "fiveHourHeadroomAntigravity";
 
-const headroomLineKeys: HeadroomLineKey[] = [
+export const headroomLineKeys: HeadroomLineKey[] = [
+  "headroomAnthropic",
+  "headroomCodex",
+  "headroomAntigravity",
+  "fiveHourHeadroomAnthropic",
+  "fiveHourHeadroomCodex",
+  "fiveHourHeadroomAntigravity",
+];
+
+/** Weekly headroom is on by default. Five-hour headroom is off by default because its
+ * daily low point crowds the chart at long ranges. */
+export const defaultHeadroomLines: HeadroomLineKey[] = ["headroomAnthropic", "headroomCodex", "headroomAntigravity"];
+
+/** The lines a saved choice from before Antigravity's lines existed could have named. A key
+ * missing from such a choice was never offered, so it takes its default instead of reading as
+ * switched off. */
+const legacyHeadroomLineKeys: HeadroomLineKey[] = [
   "headroomAnthropic",
   "headroomCodex",
   "fiveHourHeadroomAnthropic",
   "fiveHourHeadroomCodex",
 ];
-
-/** Weekly headroom is on by default. Five-hour headroom is off by default because its
- * daily low point crowds the chart at long ranges. */
-export const defaultHeadroomLines: HeadroomLineKey[] = ["headroomAnthropic", "headroomCodex"];
 
 export const defaultDataTextScale = 125;
 
@@ -158,12 +173,19 @@ export function faviconHref(accent: string) {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
+/** Stored as `{ shown, known }`: `known` lists every line the chart offered when the choice was
+ * saved, so a line added later starts at its default. A bare array is the older format. */
 export function savedHeadroomLines(): HeadroomLineKey[] {
   try {
     const value = JSON.parse(localStorage.getItem(headroomLinesStorageKey) ?? "null");
-    return Array.isArray(value)
-      ? headroomLineKeys.filter((key) => value.includes(key))
-      : defaultHeadroomLines;
+    const stored = Array.isArray(value)
+      ? { shown: value, known: legacyHeadroomLineKeys as unknown[] }
+      : value && typeof value === "object" && Array.isArray(value.shown) && Array.isArray(value.known)
+        ? { shown: value.shown as unknown[], known: value.known as unknown[] }
+        : null;
+    if (!stored) return defaultHeadroomLines;
+    return headroomLineKeys.filter((key) =>
+      stored.known.includes(key) ? stored.shown.includes(key) : defaultHeadroomLines.includes(key));
   } catch {
     return defaultHeadroomLines;
   }
@@ -171,7 +193,7 @@ export function savedHeadroomLines(): HeadroomLineKey[] {
 
 export function saveHeadroomLines(lines: HeadroomLineKey[]) {
   try {
-    localStorage.setItem(headroomLinesStorageKey, JSON.stringify(lines));
+    localStorage.setItem(headroomLinesStorageKey, JSON.stringify({ shown: lines, known: headroomLineKeys }));
   } catch {
     // Storage can be unavailable; the choice still applies until reload.
   }
@@ -223,9 +245,14 @@ export function savedProviderColors(): ProviderColors {
           ? value.warp
           : defaultProviderColors.warp,
       antigravity:
-        typeof value.antigravity === "string" && /^#[0-9a-f]{6}$/i.test(value.antigravity)
+        typeof value.antigravity === "string" &&
+        /^#[0-9a-f]{6}$/i.test(value.antigravity)
           ? value.antigravity
           : defaultProviderColors.antigravity,
+      google:
+        typeof value.google === "string" && /^#[0-9a-f]{6}$/i.test(value.google)
+          ? value.google
+          : defaultProviderColors.google,
     };
   } catch {
     return defaultProviderColors;

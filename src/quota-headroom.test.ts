@@ -86,7 +86,7 @@ describe("dailyHeadroomSeries", () => {
       ["2026-08-28", "2026-08-29"],
       TZ,
     );
-    expect(map.get("2026-08-28")).toEqual({ anthropic: 66, codex: 19 });
+    expect(map.get("2026-08-28")).toEqual({ anthropic: 66, codex: 19, antigravity: null });
     // No observation on the 29th: the day stays absent instead of inventing one.
     expect(map.has("2026-08-29")).toBe(false);
   });
@@ -100,7 +100,7 @@ describe("dailyHeadroomSeries", () => {
       ["2026-08-28"],
       TZ,
     );
-    expect(map.get("2026-08-28")).toEqual({ anthropic: null, codex: 50 });
+    expect(map.get("2026-08-28")).toEqual({ anthropic: null, codex: 50, antigravity: null });
   });
 
   test("keeps each day's lowest five-hour observation per provider as headroom", () => {
@@ -117,7 +117,21 @@ describe("dailyHeadroomSeries", () => {
       TZ,
       "fiveHour",
     );
-    expect(map.get("2026-08-28")).toEqual({ anthropic: 8, codex: 0 });
+    expect(map.get("2026-08-28")).toEqual({ anthropic: 8, codex: 0, antigravity: null });
+  });
+
+  test("gives Antigravity its own weekly and five-hour headroom beside Claude and Codex", () => {
+    const series = history([
+      { provider: "antigravity", window: "weekly", capturedAt: at("2026-08-28T09:00:00-04:00"), usedPercent: 30.5, resetsAt: null, cycleId: "w" },
+      { provider: "antigravity", window: "weekly", capturedAt: at("2026-08-28T21:00:00-04:00"), usedPercent: 39.6, resetsAt: null, cycleId: "w" },
+      { provider: "antigravity", window: "fiveHour", capturedAt: at("2026-08-28T11:00:00-04:00"), usedPercent: 72.4, resetsAt: null, cycleId: "f" },
+      { provider: "antigravity", window: "fiveHour", capturedAt: at("2026-08-28T18:00:00-04:00"), usedPercent: 12, resetsAt: null, cycleId: "g" },
+      { provider: "anthropic", window: "weekly", capturedAt: at("2026-08-28T20:00:00-04:00"), usedPercent: 50, resetsAt: null, cycleId: "a" },
+    ]);
+    expect(dailyHeadroomSeries(series, ["2026-08-28"], TZ).get("2026-08-28"))
+      .toEqual({ anthropic: 50, codex: null, antigravity: 60.4 });
+    expect(dailyHeadroomSeries(series, ["2026-08-28"], TZ, "fiveHour").get("2026-08-28")?.antigravity)
+      .toBeCloseTo(27.6, 5);
   });
 
   test("returns an empty map without a series", () => {

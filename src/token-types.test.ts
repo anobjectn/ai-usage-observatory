@@ -222,6 +222,16 @@ describe("Antigravity rows", () => {
     const lines = footnotesFor(summary, { reasoning: { outputTokens: 300, reasoningOutputTokens: 200, reportedEvents: 1 } });
     expect(lines).toContain("Generated output includes reasoning tokens; Antigravity reported 200 reasoning tokens inside output.");
     expect(lines.some((line) => line.includes("gemini-4-neon has no LiteLLM rate to split with"))).toBe(true);
+    expect(lines).toContain("Antigravity reports cache writes as zero.");
+  });
+
+  test("Codex and Antigravity share the zero cache-write note, which drops once Antigravity writes", () => {
+    const codexTokens = { input: 40_000, output: 12_000, cacheRead: 900_000 };
+    const codex = { agent: "codex", breakdown: breakdown("gpt-5.6-sol", codexTokens, 0.5) };
+    const gemini = { agent: "antigravity", breakdown: breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0.0083) };
+    expect(footnotesFor(summarizeTokenTypes([codex, gemini], card))).toContain("Codex and Antigravity report cache writes as zero.");
+    const writing = { agent: "antigravity", breakdown: breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000, cacheWrite: 50 }, 0.0084) };
+    expect(footnotesFor(summarizeTokenTypes([codex, writing], card))).toContain("Codex reports cache writes as zero.");
   });
 
   test("offline, ccusage's unpriced model withholds the split as unpriced", () => {

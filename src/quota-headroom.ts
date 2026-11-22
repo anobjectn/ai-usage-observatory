@@ -23,7 +23,10 @@ function constrainedHeadroom(provider: QuotaProvider | undefined) {
   return Math.max(0, Math.min(100, 100 - highestUsage));
 }
 
-export type DailyHeadroom = { anthropic: number | null; codex: number | null };
+/** Antigravity's lines read its declared five-hour and weekly windows only; its model windows
+ * limit other models and never enter the series. */
+export type DailyHeadroom = { anthropic: number | null; codex: number | null; antigravity: number | null };
+export type HeadroomProvider = keyof DailyHeadroom;
 
 /** Window headroom (100 − used%) per calendar day in the reporting timezone.
  * Weekly headroom is the day's last observation. Five-hour headroom is the
@@ -56,8 +59,8 @@ export function dailyHeadroomSeries(
     }
   }
   for (const [key, point] of chosen) {
-    const [provider, day] = key.split("\0") as ["anthropic" | "codex", string];
-    const entry = result.get(day) ?? { anthropic: null, codex: null };
+    const [provider, day] = key.split("\0") as [HeadroomProvider, string];
+    const entry = result.get(day) ?? { anthropic: null, codex: null, antigravity: null };
     entry[provider] = Math.max(0, Math.min(100, 100 - point.usedPercent));
     result.set(day, entry);
   }

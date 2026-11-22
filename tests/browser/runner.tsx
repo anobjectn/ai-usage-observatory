@@ -6,7 +6,9 @@ import { useUpdate } from "../../src/hooks/use-update";
 import { UpdateControl } from "../../src/components/update-control";
 import { Sessions } from "../../src/views/sessions";
 import { QuotaDials } from "../../src/components/quota-cards";
-import { antigravityQuotaFixture, dashboardFixture } from "../fixtures/dashboard";
+import { antigravityDailyRows, antigravityQuotaFixture, antigravityQuotaHistory, dashboardFixture } from "../fixtures/dashboard";
+import { ProviderTimeline } from "../../src/components/activity-charts";
+import { ChartPinProvider } from "../../src/components/chart-pins";
 import type { UpdateCheck, UpdateJob, UpdateStatus } from "../../src/types";
 import "../../src/styles/index.css";
 
@@ -515,6 +517,98 @@ await test("the Antigravity quota card reads at desktop and narrow widths, and i
     fixtureRoot.unmount();
     remove();
     localStorage.removeItem("usage-observatory:quota-details-open");
+  }
+});
+
+await test("Antigravity draws weekly and five-hour headroom lines and reach markers on the activity chart", async () => {
+  localStorage.removeItem("usage-observatory:headroom-lines");
+  const { doc, root: fixtureRoot, remove } = frameRoot(1280);
+  try {
+    fixtureRoot.render(
+      <ChartPinProvider>
+        <div className="panel">
+          <ProviderTimeline
+            rows={antigravityDailyRows()}
+            projectActivity={[]}
+            activeProvider={null}
+            quotaHistory={antigravityQuotaHistory()}
+            timeZone="UTC"
+            emptyText="No activity"
+            headroomOverlay
+          />
+        </div>
+      </ChartPinProvider>,
+    );
+    const toggles = () => [...doc.querySelectorAll<HTMLLabelElement>(".provider-legend__headroom")];
+    const toggle = (text: string) => toggles().find((label) => label.textContent === text)?.querySelector("input");
+    await waitFor(() => toggles().length > 0, "The headroom toggles did not render");
+    const names = toggles().map((label) => label.textContent).join(", ");
+    assert(names === "Antigravity weekly, Antigravity 5-hour low", `Unexpected headroom toggles: ${names}`);
+    assert(toggle("Antigravity weekly")?.checked === true, "Antigravity's weekly headroom line was not on by default");
+    assert(toggle("Antigravity 5-hour low")?.checked === false, "Antigravity's five-hour headroom line was on by default");
+    const line = (dash: string) => [...doc.querySelectorAll("path.recharts-curve")].find((path) =>
+      path.getAttribute("stroke") === "var(--color-provider-antigravity)" && path.getAttribute("stroke-dasharray") === dash);
+    await waitFor(() => Boolean(line("1 3 7 3")), "The dash-dot Antigravity weekly headroom line was not drawn");
+    assert(!line("0 7"), "The dotted five-hour line was drawn while switched off");
+    toggle("Antigravity 5-hour low")!.click();
+    await waitFor(() => Boolean(line("0 7")), "Switching on the five-hour line did not draw a dotted Antigravity line");
+    const saved = JSON.parse(localStorage.getItem("usage-observatory:headroom-lines") ?? "null");
+    assert(saved?.shown?.includes("fiveHourHeadroomAntigravity") && saved?.known?.includes("headroomAntigravity"), "The headroom choice was not saved with its known lines");
+    // The weekly line's right axis is the 0-100% headroom scale.
+    assert([...doc.querySelectorAll(".provider-chart svg text")].some((tick) => tick.textContent === "100%"), "The headroom axis did not render");
+    // Hovering the last day opens its card, which names Antigravity's headroom beside the tokens.
+    const surface = doc.querySelector<HTMLElement>(".provider-chart .recharts-wrapper")!;
+    const box = surface.getBoundingClientRect();
+    const hover = { bubbles: true, clientX: box.right - 50, clientY: box.top + box.height / 2 };
+    surface.dispatchEvent(new MouseEvent("mouseover", hover));
+    surface.dispatchEvent(new MouseEvent("mousemove", hover));
+    await waitFor(() => [...doc.querySelectorAll(".tooltip-headroom")].length === 2, "Hovering the chart did not show the headroom rows");
+    const rows = [...doc.querySelectorAll(".tooltip-headroom")].map((node) => node.textContent);
+    assert(rows[0] === "Weekly headroom at day's end · Antigravity 60%" && rows[1] === "Lowest 5-hour headroom · Antigravity 72%", `Unexpected tooltip headroom: ${rows.join(" | ")}`);
+    surface.dispatchEvent(new MouseEvent("mouseleave", hover));
+    const legend = doc.querySelector(".quota-marker-legend");
+    assert(legend?.textContent?.includes("Antigravity events"), `The marker legend did not name Antigravity: ${legend?.textContent}`);
+    const swatch = legend!.querySelector<HTMLElement>("i.antigravity")!;
+    assert(getComputedStyle(swatch).backgroundColor === "rgb(66, 133, 244)", `The Antigravity marker swatch was not Google Blue: ${getComputedStyle(swatch).backgroundColor}`);
+    await waitFor(
+      () => [...doc.querySelectorAll(".recharts-reference-line line")].some((node) => node.getAttribute("stroke") === "var(--color-provider-antigravity)"),
+      "The Antigravity quota-reach marker was not drawn",
+    );
+    assert([...doc.querySelectorAll(".recharts-reference-line text")].some((node) => node.textContent?.startsWith("Antigravity 5h quota")), "The reach marker label did not name Antigravity");
+  } finally {
+    fixtureRoot.unmount();
+    remove();
+    localStorage.removeItem("usage-observatory:headroom-lines");
+  }
+});
+
+await test("Appearance shows Antigravity in Google Blue and the Google label in Google Green, both adjustable", async () => {
+  localStorage.removeItem("usage-observatory:provider-colors");
+  const appRoot = createRoot(rootElement);
+  const property = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim().toLowerCase();
+  try {
+    appRoot.render(<App />);
+    await waitFor(() => Boolean(document.querySelector(".appearance-button")), "App did not load");
+    click(".appearance-button");
+    const input = (label: string) => document.querySelector<HTMLInputElement>(`.appearance-modal input[aria-label="${label} color"]`);
+    await waitFor(() => Boolean(input("Antigravity")) && Boolean(input("Google")), "The Antigravity and Google colour controls did not render");
+    assert(input("Antigravity")!.value === "#4285f4", `Antigravity did not default to Google Blue: ${input("Antigravity")!.value}`);
+    assert(input("Google")!.value === "#34a853", `Google did not default to Google Green: ${input("Google")!.value}`);
+    assert(property("--color-provider-antigravity") === "#4285f4" && property("--color-provider-google") === "#34a853", "The runtime provider colours did not match their defaults");
+    enter('.appearance-modal input[aria-label="Google color"]', "#fbbc05");
+    enter('.appearance-modal input[aria-label="Antigravity color"]', "#1a73e8");
+    await waitFor(() => property("--color-provider-google") === "#fbbc05", "Changing the Google colour did not reach the page");
+    await waitFor(() => property("--color-provider-antigravity") === "#1a73e8", "Changing the Antigravity colour did not reach the page");
+    const saved = JSON.parse(localStorage.getItem("usage-observatory:provider-colors") ?? "{}");
+    assert(saved.google === "#fbbc05" && saved.antigravity === "#1a73e8", "The adjusted Google colours were not saved");
+    enter('.appearance-modal input[aria-label="Google color"]', "#34a853");
+    enter('.appearance-modal input[aria-label="Antigravity color"]', "#4285f4");
+    await waitFor(() => property("--color-provider-google") === "#34a853", "The Google colour did not return to its default");
+  } finally {
+    appRoot.unmount();
+    localStorage.removeItem("usage-observatory:provider-colors");
+    document.documentElement.style.removeProperty("--color-provider-google");
+    document.documentElement.style.removeProperty("--color-provider-antigravity");
   }
 });
 

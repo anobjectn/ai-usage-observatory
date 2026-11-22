@@ -338,8 +338,26 @@ describe("Antigravity quota", () => {
     const fiveHour = reached.windows.find((window) => window.provider === "antigravity" && window.window === "fiveHour");
     expect(fiveHour).toMatchObject({ reachedCount: 1, reachedAt: [1_000] });
     expect(fiveHour?.reaches?.[0]?.plan).toMatchObject({ id: "pro", source: "provider" });
-    // The headroom overlay stays a Claude and Codex series.
-    expect(reached.series).toEqual([]);
+    // The headroom overlay carries Antigravity's primary windows, once per five-minute bucket;
+    // its model windows limit other models and never enter the series.
+    expect(reached.series).toEqual([
+      { provider: "antigravity", window: "fiveHour", capturedAt: 1_000, usedPercent: 100, resetsAt: 9_000, cycleId: "0" },
+      { provider: "antigravity", window: "weekly", capturedAt: 1_000, usedPercent: 40, resetsAt: 90_000, cycleId: "2" },
+    ]);
+  });
+
+  test("the slim browser series keeps Antigravity's daily weekly close and five-hour peak", () => {
+    const day = Date.UTC(2026, 10, 20, 12);
+    const reading = (capturedAt: number, fiveHour: number, weekly: number) => ({
+      provider: "antigravity", capturedAt,
+      snapshotJson: JSON.stringify({ ...antigravityReading(fiveHour).snapshot, weekly: { usedPercent: weekly, resetsAt: day + 86_400_000 } }),
+    });
+    const { series } = summarizeQuotaHistory([
+      reading(day, 20, 30), reading(day + 3_600_000, 75.5, 31.2), reading(day + 7_200_000, 5, 32.4),
+    ], []);
+    const slim = dailyHeadroomQuotaSeries(series, "UTC");
+    expect(slim.filter((point) => point.provider === "antigravity").map((point) => [point.window, point.usedPercent]))
+      .toEqual([["fiveHour", 75.5], ["weekly", 32.4]]);
   });
 
   async function withLocalHistory(run: () => Promise<void>) {

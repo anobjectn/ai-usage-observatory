@@ -267,7 +267,9 @@ model ID limits only that model, the partner pool limits no Gemini model, an ima
 text model, and a window with no record limits every Gemini model. A session's quota context keeps
 only the windows that limit its models, and its movement tolerance is one reporting unit (0.1
 point) plus slop. Local model-window rows are merged into `/history` only for (`observedAt`,
-window) pairs `/history` lacks, so no window is counted twice. Capacity rows and headroom read the
-primary windows only, and the headroom overlay stays a Claude and Codex series. A provider that a
+window) pairs `/history` lacks, so no window is counted twice. Capacity rows, the orrery, the
+headroom overlay series, quota-reach markers, recent-list window boundaries, and the allowance
+capture profile read the primary five-hour and weekly windows only, exactly as for Claude and
+Codex; model windows never enter them. A provider that a
 successful `/usage` no longer reports is dropped from the last-good cache, so a disabled provider
 does not return during a later outage.

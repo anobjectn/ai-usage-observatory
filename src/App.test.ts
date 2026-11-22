@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { averageMetricSlices, currentFiveHourWindows, currentWindowSessions, effortAbsenceReason, metricRowCacheShare, observedTermini, pathFilteredRows, projectDayRows, projectModelSessionRows, projectSummaryInRange, projectTrendRowsInRange, sessionModelNames, sessionQuotaBalanceItems, sessionQuotaEvents, quotaRangeSpanLabel, quotaRemainingRangeItems, quotaRemainingRanges, quotaResetBoundaries, quotaResourceApplies, sessionQuotaImpacts, recentSessionFloor, recentSessionRows, reportedTermini, sessionRangeLabel, shareStructure, withoutCacheMetricRow } from "./app/analytics";
+import { averageMetricSlices, currentFiveHourWindows, currentWindowSessions, effortAbsenceReason, metricRowCacheShare, observedTermini, pathFilteredRows, projectDayRows, projectModelSessionRows, projectSummaryInRange, projectTrendRowsInRange, sessionModelNames, sessionQuotaBalanceItems, sessionQuotaEvents, quotaRangeSpanLabel, quotaRemainingRangeItems, quotaRemainingRanges, quotaResetBoundaries, quotaResourceApplies, sessionQuotaImpacts, recentFloorLabel, recentSessionFloor, recentSessionRows, reportedTermini, sessionRangeLabel, shareStructure, withoutCacheMetricRow } from "./app/analytics";
 import { SessionDetailPanel, SessionMixGroupBreakdown, sessionProviderMix, SessionQuotaBalanceCell } from "./components/session-detail";
 import { periodTickLabel } from "./app/format";
 import { normalizeTextScale, textScaleBounds } from "./app/preferences";
@@ -104,6 +104,7 @@ test("with no weekly reset the list reaches back to ten sessions of each provide
   expect(recentSessionFloor(quotas, sessions, now)).toEqual({
     at: now - 18 * hour,
     basis: "sessions",
+    providers: ["anthropic", "codex"],
   });
 
   const kept = currentWindowSessions(sessions, quotas, now).map(
@@ -114,6 +115,47 @@ test("with no weekly reset the list reaches back to ten sessions of each provide
   // Warp is held to the same span as everyone else rather than to its own window rule.
   expect(kept).toContain("warp-inside");
   expect(kept).not.toContain("warp-outside");
+});
+
+test("Antigravity's windows bound the recent list like Claude's and Codex's", () => {
+  const hour = 60 * 60 * 1_000;
+  const day = 24 * hour;
+  const now = 30 * day;
+  const windowProvider = (provider: "anthropic" | "antigravity", resetsAt: number, weeklyResetsAt: number) => ({
+    provider,
+    status: "ok" as const,
+    source: "test",
+    snapshot: {
+      kind: "window" as const,
+      fiveHour: { usedPercent: 10, resetsAt },
+      weekly: { usedPercent: 20, resetsAt: weeklyResetsAt },
+      // Model windows limit other models; they never open or close the list.
+      modelWindows: { "Gemini 4 Argon Weekly Limit": { usedPercent: 0, resetsAt: now + 7 * day - hour } },
+    },
+  });
+  const quotas: DashboardData["quotas"] = {
+    available: true,
+    collectedAt: new Date(now).toISOString(),
+    usage: {
+      generatedAt: now,
+      providers: [
+        windowProvider("anthropic", now + 3 * hour, now + 5 * day),
+        windowProvider("antigravity", now + 4 * hour, now + day),
+      ],
+    },
+  };
+  const floor = recentSessionFloor(quotas, [], now);
+  // Antigravity's week opened six days ago, before Claude's.
+  expect(floor).toEqual({ at: now - 6 * day, basis: "weekly", providers: ["anthropic", "antigravity"] });
+  expect(recentFloorLabel(floor!)).toBe("the earlier of Claude's and Antigravity's open weekly cycles");
+  expect(reportedTermini(quotas, now).filter((terminus) => terminus.provider === "antigravity").map((terminus) => terminus.key)).toEqual([
+    "antigravity-fiveHour-current",
+    "antigravity-fiveHour-previous",
+    "antigravity-weekly-current",
+  ]);
+  expect(recentFloorLabel({ at: 0, basis: "weekly", providers: ["anthropic", "codex", "antigravity"] }))
+    .toBe("the earliest of Claude's, Codex's, and Antigravity's open weekly cycles");
+  expect(recentFloorLabel({ at: 0, basis: "sessions", providers: ["antigravity"] })).toBe("the last ten from Antigravity");
 });
 
 test("reported termini bound the recent list per provider", () => {
@@ -150,6 +192,7 @@ test("reported termini bound the recent list per provider", () => {
   expect(recentSessionFloor(quotas, [], now)).toEqual({
     at: now - 5 * day,
     basis: "weekly",
+    providers: ["anthropic", "codex"],
   });
   expect(reportedTermini(quotas, now)).toEqual([
     { provider: "codex", key: "codex-fiveHour-current", window: "fiveHour", scope: "current", at: now - hour },

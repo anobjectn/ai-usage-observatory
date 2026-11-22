@@ -173,14 +173,39 @@ describe("Antigravity in the token panels", () => {
     modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 10_000, cacheReadTokens: 500_000, cacheCreationTokens: 0, cost }],
   });
 
-  test("enters volume, cache composition, and its ccusage rate, and never an allowance card", () => {
+  test("enters volume, cache composition, its ccusage rate, and the allowance cards", () => {
     const insights = buildInsights(dashboard([session("c", "claude", "claude-opus-5", {}), neon("g")]), resolveScope(new URLSearchParams("")));
     expect(insights.volume.providers.map((row) => row.provider)).toEqual(["anthropic", "antigravity"]);
     expect(insights.cacheComposition.providers.find((row) => row.provider === "antigravity")).toMatchObject({ cacheRead: 500_000, cacheWritesReported: false });
     const model = insights.volume.models.find((row) => row.model === "gemini-4-neon")!;
     expect(model).toMatchObject({ provider: "antigravity", priced: true });
     expect(model.ratePerMillion).toBeCloseTo(0.3 / 511_000 * 1e6, 6);
-    expect(insights.profiles.map((profile) => profile.id)).toEqual(["allowance-capture-anthropic"]);
+    expect(insights.profiles.map((profile) => profile.id)).toEqual(["allowance-capture-anthropic", "allowance-capture-antigravity"]);
+  });
+
+  test("its allowance card is graded from its own primary-window history", () => {
+    const day = Date.UTC(2026, 10, 18, 12);
+    const reading = (capturedAt: number, fiveHour: number, weekly: number) => ({
+      provider: "antigravity", capturedAt,
+      snapshotJson: JSON.stringify({
+        kind: "window",
+        fiveHour: { usedPercent: fiveHour, resetsAt: capturedAt + 3_600_000 },
+        weekly: { usedPercent: weekly, resetsAt: day + 5 * 86_400_000 },
+        // A model window at 100% limits other models; it must not read as a hard stop here.
+        modelWindows: { "Gemini 4 Argon Weekly Limit": { usedPercent: 100, resetsAt: day + 5 * 86_400_000 } },
+      }),
+    });
+    const history = summarizeQuotaHistory([
+      reading(day, 20, 60), reading(day + 86_400_000, 45, 75), reading(day + 2 * 86_400_000, 30, 88),
+    ], []);
+    const data = { ...dashboard([neon("g")]), quotas: { available: true, collectedAt: "", history } };
+    const profile = buildInsights(data, resolveScope(new URLSearchParams(""))).profiles.find((item) => item.id.endsWith("antigravity"));
+    expect(profile).toMatchObject({ id: "allowance-capture-antigravity", confidence: "medium" });
+    expect(profile!.explanation).toContain("Antigravity is scored separately");
+    expect(profile!.components.find((component) => component.id === "weekly-utilization")).toMatchObject({ value: 88, evidence: { points: 3 } });
+    expect(profile!.components.find((component) => component.id === "hard-stops")).toMatchObject({ value: 0 });
+    expect(profile!.components.find((component) => component.id === "pacing")?.value).toBe(45);
+    expect(profile!.score).not.toBeNull();
   });
 
   test("offline, ccusage's unpriced model has no rate", () => {

@@ -447,7 +447,7 @@ export type QuotaHistory = {
   available: boolean;
   trackingSince: number | null;
   windows: Array<{provider:"codex"|"anthropic"|"antigravity";window:"fiveHour"|"weekly";reachedCount:number;lastReachedAt:number|null;reachedAt:number[];reaches?:QuotaReach[]}>;
-  series?: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";capturedAt:number;usedPercent:number;resetsAt:number|null;cycleId:string}>;
+  series?: Array<{provider:"codex"|"anthropic"|"antigravity";window:"fiveHour"|"weekly";capturedAt:number;usedPercent:number;resetsAt:number|null;cycleId:string}>;
   codexBankedResets: {usedCount:number;used:Array<{id:string;title:string;usedAt:number}>};
 };
 export type QuotaObservation = {
