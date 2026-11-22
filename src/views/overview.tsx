@@ -9,7 +9,7 @@ import {
   sharePercent,
 } from "../components/effort";
 import { comboKey } from "../combo";
-import { providerFromAgent } from "../provider";
+import { agentIsUnpriced, providerFromAgent } from "../provider";
 import {
   decodeEffortDigest,
   useEffortAggregate,
@@ -220,7 +220,9 @@ export function Overview({
         ? providerColors.anthropic
         : row.provider === "codex"
           ? providerColors.openai
-          : providerColors.warp,
+          : row.provider === "antigravity"
+            ? providerColors.antigravity
+            : providerColors.warp,
   }));
   const providerMixTotal = providerMix.reduce(
     (sum, provider) => sum + provider.value,
@@ -731,7 +733,7 @@ export function Overview({
                * them a few days more. */}
               <p>
                 {recentFloor === null ? (
-                  "Claude, Codex, and Warp sessions"
+                  "Claude, Codex, Warp, and Antigravity sessions"
                 ) : (
                   <>
                     All sessions since{" "}
@@ -877,7 +879,7 @@ export function Overview({
                     </span>
                     <span className="session-metric">
                       <b>{formatCompact(session.totalTokens)}</b>
-                      <small>{formatMoney(session.totalCost)}</small>
+                      <small>{agentIsUnpriced(session.agent) ? "no price" : formatMoney(session.totalCost)}</small>
                     </span>
                     <ChevronRight aria-hidden="true" />
                   </a>
@@ -902,8 +904,8 @@ export function Overview({
             }) : <Empty
               text={
                 recentFloor === null
-                  ? "No Claude, Codex, or Warp sessions recorded."
-                  : "No Claude, Codex, or Warp sessions in this span."
+                  ? "No Claude, Codex, Warp, or Antigravity sessions recorded."
+                  : "No Claude, Codex, Warp, or Antigravity sessions in this span."
               }
             />}
           </div>

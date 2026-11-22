@@ -1,3 +1,4 @@
+import { agentIsUnpriced } from "./provider";
 import type { DashboardData, ModelBreakdown } from "./types";
 
 export type AggregatedModel = DashboardData["models"][number];
@@ -18,6 +19,8 @@ export function aggregateModels(rows: ModelAggregateRow[], unpricedModels: strin
   for (const row of rows) {
     for (const agent of row.agents ?? [row]) {
       const isWarp = agent.agent.toLowerCase().includes("warp");
+      // Antigravity reports tokens ccusage has no price for; like Warp's, they never enter a rate.
+      const unpricedSource = isWarp || agentIsUnpriced(agent.agent);
       for (const entry of agent.modelBreakdowns) {
         const current = models.get(entry.modelName) ?? {
           model: entry.modelName,
@@ -29,11 +32,11 @@ export function aggregateModels(rows: ModelAggregateRow[], unpricedModels: strin
           cacheReadTokens: 0,
           cacheCreationTokens: 0,
           agents: [],
-          priced: !isWarp && !unpriced.has(entry.modelName),
+          priced: !unpricedSource && !unpriced.has(entry.modelName),
         };
         // A model can appear in both Warp and ccusage. Only a ccusage-priced observation makes
         // the API-equivalent cost card meaningful; Warp's provider credits never become dollars.
-        const pricedObservation = !isWarp && !unpriced.has(entry.modelName);
+        const pricedObservation = !unpricedSource && !unpriced.has(entry.modelName);
         if (pricedObservation) current.priced = true;
         current.tokens += modelTokens(entry);
         // The $/Mtok denominator. Warp tokens carry no dollar cost, so counting them would

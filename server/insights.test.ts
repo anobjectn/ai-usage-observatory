@@ -165,3 +165,27 @@ describe("quota percent series", () => {
     expect(history.series[0]).toMatchObject({ provider:"anthropic", window:"fiveHour", usedPercent:31, cycleId:"0" });
   });
 });
+
+describe("Antigravity in the token panels", () => {
+  const neon = (id: string) => ({
+    ...session(id, "antigravity", "gemini-4-neon", { cacheCreationTokens: 0 }),
+    totalCost: 0,
+    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 10_000, cacheReadTokens: 500_000, cacheCreationTokens: 0, cost: 0 }],
+  });
+
+  test("enters volume and cache composition unpriced, and never an allowance card", () => {
+    const insights = buildInsights(dashboard([session("c", "claude", "claude-opus-5", {}), neon("g")]), resolveScope(new URLSearchParams("")));
+    expect(insights.volume.providers.map((row) => row.provider)).toEqual(["anthropic", "antigravity"]);
+    expect(insights.cacheComposition.providers.find((row) => row.provider === "antigravity")).toMatchObject({ cacheRead: 500_000, cacheWritesReported: false });
+    expect(insights.volume.models.find((row) => row.model === "gemini-4-neon")).toMatchObject({ provider: "antigravity", priced: false, ratePerMillion: null });
+    expect(insights.profiles.map((profile) => profile.id)).toEqual(["allowance-capture-anthropic"]);
+  });
+
+  test("the Agent filter can scope the analysis to Antigravity", () => {
+    const scope = resolveScope(new URLSearchParams("providers=antigravity"));
+    expect(scope.providers).toEqual(["antigravity"]);
+    const insights = buildInsights(dashboard([session("c", "claude", "claude-opus-5", {}), neon("g")]), scope);
+    expect(insights.facets.sessionsShown).toBe(1);
+    expect(insights.volume.providers.map((row) => row.provider)).toEqual(["antigravity"]);
+  });
+});

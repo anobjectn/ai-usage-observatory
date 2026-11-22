@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { getSnapshot, refresh } from "./collector";
+import { getSnapshot, refresh, syncLatestAntigravityEffort } from "./collector";
 import { buildInsights, resolveScope } from "./insights";
 import { dailyHeadroomQuotaSeries, importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
@@ -95,6 +95,8 @@ async function api(request: Request, url: URL, services: Services) {
     // never the transcript parsing it schedules.
     if (input.enabled) {
       await services.getSnapshot();
+      // Antigravity's rows come from the collection itself, not from the transcript backlog.
+      try { syncLatestAntigravityEffort(); } catch { /* the next collection retries */ }
       scheduleEffortIndexing();
     }
     return json(buildEffortStatus());

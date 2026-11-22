@@ -90,6 +90,7 @@
   --color-provider-anthropic: var(--palette-clay);
   --color-provider-openai: var(--palette-silver);
   --color-provider-warp: var(--palette-violet);
+  --color-provider-antigravity: var(--palette-aqua);
   /* Effort levels: an ordered run of distinct hues that brightens as it climbs and skips every hue with another
      job: amber (warnings), blue (accent), violet (Warp, credits), clay (Anthropic), red (danger). */
   --color-effort-low: var(--palette-teal);

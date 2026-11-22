@@ -32,23 +32,33 @@ export function mergeActivityEpisodes(
   return episodes;
 }
 
-export const saveWarpEvidence = db.transaction((input: {
+export type LocalEvidenceProvider = "warp" | "antigravity";
+
+/** Activity evidence for a source the effort index does not read: a provider that keeps its
+ * sessions in SQLite rather than in transcript files. Rows are only ever added; a conversation's
+ * past activity does not change. */
+export const saveLocalEvidence = db.transaction((input: {
   sessionId: string;
+  provider?: LocalEvidenceProvider;
   sourceIdentity: string;
   sourceMtime: number;
   activityTimestamps: number[];
 }) => {
+  const provider = input.provider ?? "warp";
   db.query(`INSERT INTO session_evidence_meta
     (session_id, provider, source_identity, source_mtime, updated_at)
-    VALUES (?, 'warp', ?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(session_id) DO UPDATE SET
-      provider = 'warp', source_identity = excluded.source_identity,
+      provider = excluded.provider, source_identity = excluded.source_identity,
       source_mtime = excluded.source_mtime, updated_at = CURRENT_TIMESTAMP`)
-    .run(input.sessionId, input.sourceIdentity, input.sourceMtime);
+    .run(input.sessionId, provider, input.sourceIdentity, input.sourceMtime);
   const insert = db.query(`INSERT OR IGNORE INTO session_activity_events
-    (session_id, provider, occurred_at) VALUES (?, 'warp', ?)`);
-  for (const occurredAt of new Set(input.activityTimestamps)) insert.run(input.sessionId, occurredAt);
+    (session_id, provider, occurred_at) VALUES (?, ?, ?)`);
+  for (const occurredAt of new Set(input.activityTimestamps)) insert.run(input.sessionId, provider, occurredAt);
 });
+
+/** The original Warp-only name, kept for existing callers. */
+export const saveWarpEvidence = saveLocalEvidence;
 
 export function getSessionEpisodes(sessionId: string): ActivityEpisode[] {
   const rows = db.query(
@@ -57,11 +67,15 @@ export function getSessionEpisodes(sessionId: string): ActivityEpisode[] {
   return mergeActivityEpisodes(rows.map((row) => Number(row.occurredAt)));
 }
 
-export function getSessionProvider(sessionId: string): "anthropic" | "codex" | "warp" | null {
+export type EvidenceProvider = "anthropic" | "codex" | "warp" | "antigravity";
+
+function evidenceProvider(value: unknown): value is EvidenceProvider {
+  return value === "anthropic" || value === "codex" || value === "warp" || value === "antigravity";
+}
+
+export function getSessionProvider(sessionId: string): EvidenceProvider | null {
   const row = db.query("SELECT provider FROM session_evidence_meta WHERE session_id = ?").get(sessionId) as { provider?: string } | null;
-  return row?.provider === "anthropic" || row?.provider === "codex" || row?.provider === "warp"
-    ? row.provider
-    : null;
+  return evidenceProvider(row?.provider) ? row.provider : null;
 }
 
 export function listEvidenceSessionIds() {
@@ -79,7 +93,7 @@ export function getEmbeddedQuotaObservations(sessionId: string): StoredQuotaObse
 
 export function getEpisodesOverlapping(from: number, to: number): Array<{
   sessionId: string;
-  provider: "anthropic" | "codex" | "warp";
+  provider: EvidenceProvider;
   episodes: ActivityEpisode[];
 }> {
   const rows = db.query(`SELECT session_id AS sessionId, provider, occurred_at AS occurredAt
@@ -87,10 +101,10 @@ export function getEpisodesOverlapping(from: number, to: number): Array<{
     WHERE occurred_at BETWEEN ? AND ?
     ORDER BY session_id, occurred_at`).all(from - SESSION_IDLE_GAP_MS, to + SESSION_IDLE_GAP_MS) as Array<{
       sessionId: string;
-      provider: "anthropic" | "codex" | "warp";
+      provider: EvidenceProvider;
       occurredAt: number;
     }>;
-  const grouped = new Map<string, { provider: "anthropic" | "codex" | "warp"; timestamps: number[] }>();
+  const grouped = new Map<string, { provider: EvidenceProvider; timestamps: number[] }>();
   for (const row of rows) {
     const current = grouped.get(row.sessionId) ?? { provider: row.provider, timestamps: [] };
     current.timestamps.push(Number(row.occurredAt));

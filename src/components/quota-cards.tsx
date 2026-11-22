@@ -416,10 +416,13 @@ function dialStateLabel(state: string): string {
   return state;
 }
 
-/* The glance names each window in a character or two; its info popover spells the window out. */
-function glanceWindowLabel(windowLabel: string): string {
-  if (windowLabel === "5-hour") return "5h";
-  return windowLabel.charAt(0).toLowerCase();
+/* The glance names each window in a character or two; its info popover spells the window out.
+   A window named in several words (Antigravity's model windows) carries a short form of its own,
+   since one letter would not tell "Claude and GPT models (5h)" from "Claude and GPT models (weekly)". */
+function glanceWindowLabel(bucket: Pick<QuotaBucket, "windowLabel" | "compactLabel">): string {
+  if (bucket.compactLabel) return bucket.compactLabel;
+  if (bucket.windowLabel === "5-hour") return "5h";
+  return bucket.windowLabel.charAt(0).toLowerCase();
 }
 
 /* Whole hours past the first hour: the glance answers "how long, roughly"; the popover is exact.
@@ -501,7 +504,7 @@ function GlanceBucket({
     <span
       className={`quota-glance__bucket ${bucket.state}${left !== null && left < 20 ? " is-low" : ""}`}
     >
-      <b>{glanceWindowLabel(bucket.windowLabel)}</b>
+      <b>{glanceWindowLabel(bucket)}</b>
       <PieGlyph share={(left ?? 0) / 100} label={summary} />
       {left === null ? (
         <small>{dialStateLabel(bucket.state)}</small>
@@ -528,6 +531,7 @@ function GlanceBucket({
                 ? ["Status", bucket.detail]
                 : ["Left", `${left.toFixed(0)}% · ${(100 - left).toFixed(0)}% used`],
               left !== null && bucket.detail !== `${left.toFixed(0)}% left` && ["Used", bucket.detail],
+              Boolean(bucket.scope) && ["Limits", bucket.scope!.replace(/^Limits: /, "")],
               bucket.state === "suspended"
                 ? ["Status", "Rate limit temporarily suspended"]
                 : [resetLabel, resetCopy(bucket.resetAt, bucket.resetVerb).replace(/^(resets|renews) /, "")],
@@ -741,6 +745,7 @@ export function QuotaDials({
                             ? "Rate limit temporarily suspended"
                             : resetCopy(bucket.resetAt, bucket.resetVerb)}
                         </small>
+                        {bucket.scope && <small className="quota-bucket__scope">{bucket.scope}</small>}
                         {bucket.historyWindow && (
                           <div className="quota-history">
                             <div className="quota-history__head">

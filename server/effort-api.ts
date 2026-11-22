@@ -20,7 +20,7 @@ import { LED_SESSION_FLOOR, RATED_SESSION_FLOOR } from "../src/types";
 import { comboKey, comboKind, comboOf, parseComboFacet, parseComboKey, type Combo } from "../src/combo";
 import { compareEffort, foldEffort, sortEffortBuckets } from "../src/effort-model";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
-import { OTHER_PROVIDER, providerFromAgent } from "../src/provider";
+import { agentIsUnpriced, OTHER_PROVIDER, providerFromAgent, type ActivityProvider } from "../src/provider";
 import { PARSER_VERSION } from "./effort-parse";
 import { effortProgress, isEffortIndexing } from "./effort-index";
 import { familyOf } from "../src/model-family";
@@ -65,11 +65,13 @@ export function resolveEffortGroup(value: string | null): EffortGroup {
 
 /** Comma-separated list parameter. Unknown provider names are dropped rather than rejected: a
  * stale bookmark should narrow to what still exists, not fail the request. */
-export type ScopeProvider = "anthropic" | "codex" | "warp" | typeof OTHER_PROVIDER;
+export type ScopeProvider = ActivityProvider | typeof OTHER_PROVIDER;
+
+const scopeProviders: ScopeProvider[] = ["anthropic", "codex", "warp", "antigravity", OTHER_PROVIDER];
 
 export function resolveProviders(value: string | null): ScopeProvider[] {
   const wanted = (value ?? "").split(",").map((part) => part.trim()).filter(Boolean);
-  return [...new Set(wanted.filter((part): part is ScopeProvider => part === "anthropic" || part === "codex" || part === "warp" || part === OTHER_PROVIDER))];
+  return [...new Set(wanted.filter((part): part is ScopeProvider => scopeProviders.includes(part as ScopeProvider)))];
 }
 
 export function resolveModelFamilies(value: string | null): string[] {
@@ -189,10 +191,10 @@ export function scopedSessions(snapshot: DashboardData, scope: EffortScope) {
 
 /** Derived-row prefilter. It can only narrow by provider, so a scope that also names model
  * families must not push it down — the session-id allowlist already carries the union. */
-function agentsFor(scope: EffortScope): Array<"claude" | "codex"> | null {
+function agentsFor(scope: EffortScope): Array<"claude" | "codex" | "antigravity"> | null {
   if (scope.modelFamilies.length > 0 || scope.providers.length === 0 || scope.providers.includes("warp")) return null;
   // `other` agents have no derived effort rows, so they add nothing to the prefilter.
-  return scope.providers.flatMap((provider) => (provider === "anthropic" ? ["claude" as const] : provider === "codex" ? ["codex" as const] : []));
+  return scope.providers.flatMap((provider) => (provider === "anthropic" ? ["claude" as const] : provider === "codex" ? ["codex" as const] : provider === "antigravity" ? ["antigravity" as const] : []));
 }
 
 function effortQuery(group: EffortGroup, scope: EffortScope, sessionIds: string[], timeZone: string): EffortQuery {
@@ -214,7 +216,7 @@ function modelTokens(model: Session["modelBreakdowns"][number]) {
 
 /** Authoritative tokens per day in scope. With `only`, the same allocation narrowed to one
  * provider, so a Warp share is read from exactly the rows the full denominator came from. */
-function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions: Session[], only: "anthropic" | "codex" | "warp" | null = null) {
+function dailyDenominators(snapshot: DashboardData, scope: EffortScope, sessions: Session[], only: ActivityProvider | null = null) {
   const timeZone = snapshotTimeZone(snapshot);
   const from = scopeStart(scope, timeZone);
   const to = scope.toDate;
@@ -271,14 +273,24 @@ function denominators(group: EffortGroup, snapshot: DashboardData, scope: Effort
   if (group === "day") return dailyDenominators(snapshot, scope, sessions);
   for (const session of sessions) {
     if (group === "project") add((session.cwd ?? "").replace(/\/+$/, ""), sessionTokens(session));
-    else if (group === "provider") add(session.agent === "codex" ? "codex" : session.agent === "warp" ? "warp" : "claude", sessionTokens(session));
+    else if (group === "provider") add(providerGroupKey(session.agent), sessionTokens(session));
     else for (const model of session.modelBreakdowns) add(model.modelName, modelTokens(model));
   }
   return totals;
 }
 
+/** The provider group's key is the agent its derived rows are stored under (`session_paths.agent`),
+ * so the denominator must use the same spelling. An agent with no provider keeps its own name
+ * rather than being counted as Claude. */
+function providerGroupKey(agent: string) {
+  const provider = providerFromAgent(agent);
+  return provider === "anthropic" ? "claude" : provider ?? agent;
+}
+
+const providerGroupLabels: Record<string, string> = { claude: "Claude Code", codex: "Codex", warp: "Warp", antigravity: "Antigravity" };
+
 function labelFor(group: EffortGroup, key: string) {
-  if (group === "provider") return key === "codex" ? "Codex" : key === "warp" ? "Warp" : "Claude Code";
+  if (group === "provider") return providerGroupLabels[key] ?? key;
   if (group === "project") return key === "" ? "Unassigned" : key;
   if (group === "model") return key === "" ? "Unknown model" : key;
   if (group === "day") return key === "" ? "Undated" : key;
@@ -557,10 +569,13 @@ type BoardAccumulator = ComboAccumulator & {
  * the floor the row still reports its volume — it just declines to compare. */
 const comparable = (row: BoardAccumulator) => row.kind === "interactive" && row.ledTokens.length >= LED_SESSION_FLOOR;
 
+/** `sessions` counts every led session; `costs` holds only the priced ones, because an unpriced
+ * session's zero is an absent cost and would drag a median toward free. */
 type ProjectCohort = {
+  sessions: number;
   costs: number[];
   flagged: number;
-  combos: Map<string, { costs: number[]; flagged: number }>;
+  combos: Map<string, { sessions: number; costs: number[]; flagged: number }>;
 };
 
 /** Observational deviations of a project × combo cohort from that project's own baseline.
@@ -571,18 +586,20 @@ type ProjectCohort = {
 function buildContrasts(byProject: Map<string, ProjectCohort>): EffortComboContrast[] {
   const contrasts: Array<EffortComboContrast & { strength: number }> = [];
   for (const [projectId, cohort] of byProject) {
-    if (cohort.costs.length < LED_SESSION_FLOOR) continue;
-    const baselineCost = median(cohort.costs)!;
-    const baselineFlagRate = cohort.flagged / cohort.costs.length;
+    if (cohort.sessions < LED_SESSION_FLOOR) continue;
+    const baselineCost = median(cohort.costs);
+    const baselineFlagRate = cohort.flagged / cohort.sessions;
     for (const [key, combo] of cohort.combos) {
-      if (combo.costs.length < LED_SESSION_FLOOR) continue;
+      if (combo.sessions < LED_SESSION_FLOOR) continue;
       const parsed = parseComboKey(key);
       if (!parsed) continue;
-      const shared = { projectId, ...parsed, cohortSessions: combo.costs.length, baselineSessions: cohort.costs.length };
-      const cohortCost = median(combo.costs)!;
-      if (cohortCost > 0 && baselineCost > 0) {
+      const shared = { projectId, ...parsed, cohortSessions: combo.sessions, baselineSessions: cohort.sessions };
+      const cohortCost = median(combo.costs);
+      if (cohortCost !== null && baselineCost !== null && combo.costs.length >= LED_SESSION_FLOOR && cohort.costs.length >= LED_SESSION_FLOOR && cohortCost > 0 && baselineCost > 0) {
         contrasts.push({
           ...shared,
+          cohortSessions: combo.costs.length,
+          baselineSessions: cohort.costs.length,
           metric: "cost",
           value: cohortCost / baselineCost,
           cohortValue: cohortCost,
@@ -590,7 +607,7 @@ function buildContrasts(byProject: Map<string, ProjectCohort>): EffortComboContr
           strength: Math.abs(Math.log(cohortCost / baselineCost)),
         });
       }
-      const cohortFlagRate = combo.flagged / combo.costs.length;
+      const cohortFlagRate = combo.flagged / combo.sessions;
       contrasts.push({
         ...shared,
         metric: "flagRate",
@@ -677,15 +694,18 @@ export function buildEffortComboBoard(snapshot: DashboardData, scope: EffortScop
       if (tied) entry.tiesExcluded += 1;
       if (project && bucket.effort !== "") entry.projects.set(project, (entry.projects.get(project) ?? 0) + bucket.tokens);
       if (key === leader) {
+        const priced = !agentIsUnpriced(session.agent);
         entry.ledTokens.push(session.totalTokens);
-        entry.ledCosts.push(session.totalCost);
+        if (priced) entry.ledCosts.push(session.totalCost);
         if (flagged.has(session.sessionId)) entry.ledFlagged += 1;
         if (project && bucket.kind === "interactive") {
-          const cohort: ProjectCohort = byProject.get(project) ?? { costs: [], flagged: 0, combos: new Map() };
-          cohort.costs.push(session.totalCost);
+          const cohort: ProjectCohort = byProject.get(project) ?? { sessions: 0, costs: [], flagged: 0, combos: new Map() };
+          cohort.sessions += 1;
+          if (priced) cohort.costs.push(session.totalCost);
           if (flagged.has(session.sessionId)) cohort.flagged += 1;
-          const combo = cohort.combos.get(key) ?? { costs: [], flagged: 0 };
-          combo.costs.push(session.totalCost);
+          const combo = cohort.combos.get(key) ?? { sessions: 0, costs: [], flagged: 0 };
+          combo.sessions += 1;
+          if (priced) combo.costs.push(session.totalCost);
           if (flagged.has(session.sessionId)) combo.flagged += 1;
           cohort.combos.set(key, combo);
           byProject.set(project, cohort);
@@ -711,7 +731,7 @@ export function buildEffortComboBoard(snapshot: DashboardData, scope: EffortScop
       tiesExcluded: entry.tiesExcluded,
       reasoningShare: reasoningShareOf(entry),
       medianTokensPerLedSession: comparable(entry) ? median(entry.ledTokens) : null,
-      medianCostPerLedSession: comparable(entry) ? median(entry.ledCosts) : null,
+      medianCostPerLedSession: comparable(entry) && entry.ledCosts.length >= LED_SESSION_FLOOR ? median(entry.ledCosts) : null,
       flagRate: comparable(entry) ? entry.ledFlagged / led : null,
       verdict: {
         ...entry.verdicts,

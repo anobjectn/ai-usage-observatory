@@ -5,7 +5,8 @@ import { quotaRetryDelaysMs, useSessionQuotaContexts } from "../../src/hooks/use
 import { useUpdate } from "../../src/hooks/use-update";
 import { UpdateControl } from "../../src/components/update-control";
 import { Sessions } from "../../src/views/sessions";
-import { dashboardFixture } from "../fixtures/dashboard";
+import { QuotaDials } from "../../src/components/quota-cards";
+import { antigravityQuotaFixture, dashboardFixture } from "../fixtures/dashboard";
 import type { UpdateCheck, UpdateJob, UpdateStatus } from "../../src/types";
 import "../../src/styles/index.css";
 
@@ -427,6 +428,81 @@ await test("jumping to a later session page loads its border reading and shows q
   } finally {
     fixtureRoot.unmount();
     window.fetch = originalFetch;
+  }
+});
+
+await test("an Antigravity session is filterable, unpriced, and opens a metadata-only detail", async () => {
+  const appRoot = createRoot(rootElement);
+  try {
+    appRoot.render(<App />);
+    await waitFor(() => Boolean(document.querySelector('aside nav button[aria-label="Sessions"]')), "App did not load");
+    click('aside nav button[aria-label="Sessions"]');
+    const row = () => [...document.querySelectorAll<HTMLElement>(".session-row")].find((item) => item.textContent?.includes("gemini-4-neon"));
+    await waitFor(() => Boolean(row()), "The Antigravity session did not appear");
+    const cost = row()!.querySelector(".session-col--cost")?.textContent ?? "";
+    assert(cost.includes("—") && cost.includes("no price") && !cost.includes("$"), `The unpriced session showed a cost: "${cost}"`);
+    click(".agent-filter__button");
+    await waitFor(() => Boolean(document.querySelector(".agent-filter__menu")), "The Agent filter did not open");
+    const labels = [...document.querySelectorAll(".agent-filter__menu label span")].map((node) => node.textContent);
+    assert(labels.includes("antigravity") && labels.includes("gemini-4-neon"), `The Agent filter did not list Antigravity: ${labels.join(", ")}`);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    row()!.querySelector<HTMLElement>('[aria-label="Open session details"]')!.click();
+    const detail = () => document.querySelector(".session-detail--antigravity");
+    await waitFor(() => detail()?.textContent?.includes("Antigravity conversation content is not imported") === true, "The detail panel did not say content is not imported");
+    assert(detail()!.textContent!.includes("MODEL CALLS"), "The detail panel did not show the model call count");
+    assert(!detail()!.querySelector('[aria-label="Open Prompt source actions"]'), "The detail panel offered to open a transcript");
+  } finally { appRoot.unmount(); }
+});
+
+/** A frame of its own width, so the stylesheet's media queries see a real narrow viewport. */
+function frameRoot(width: number) {
+  const frame = document.createElement("iframe");
+  frame.style.cssText = `width:${width}px;height:900px;border:0`;
+  document.body.append(frame);
+  const doc = frame.contentDocument!;
+  for (const node of document.querySelectorAll('style, link[rel="stylesheet"]')) doc.head.append(node.cloneNode(true));
+  const container = doc.createElement("div");
+  doc.body.append(container);
+  return { doc, root: createRoot(container), remove: () => frame.remove() };
+}
+
+await test("the Antigravity quota card reads at desktop and narrow widths, and is absent when not reported", async () => {
+  for (const width of [1280, 375]) {
+    localStorage.removeItem("usage-observatory:quota-details-open");
+    const { doc, root: fixtureRoot, remove } = frameRoot(width);
+    try {
+      fixtureRoot.render(<QuotaDials quotas={antigravityQuotaFixture()} timeZone="UTC" />);
+      const glance = () => doc.querySelector(".quota-glance__provider.antigravity");
+      await waitFor(() => Boolean(glance()), `The Antigravity glance did not render at ${width}px`);
+      const names = [...glance()!.querySelectorAll(".quota-glance__bucket > b")].map((node) => node.textContent);
+      assert(names.join(",") === "5h,w,Partner w,Partner 5h,Argon w", `Unexpected glance windows at ${width}px: ${names.join(",")}`);
+      const panel = doc.querySelector(".quota-panel")!.getBoundingClientRect();
+      for (const bucket of glance()!.querySelectorAll(".quota-glance__bucket")) {
+        assert(bucket.getBoundingClientRect().right <= panel.right + 1, `An Antigravity glance window overflows its panel at ${width}px`);
+      }
+      doc.querySelector<HTMLElement>(".quota-details-toggle")!.click();
+      const card = () => doc.querySelector<HTMLElement>(".quota-card.antigravity");
+      await waitFor(() => Boolean(doc.querySelector(".quota-grid:not(.is-collapsed)")) && Boolean(card()), `The Antigravity card did not open at ${width}px`);
+      const text = card()!.textContent ?? "";
+      assert(text.includes("Google AI Pro") && text.includes("Limits: Gemini 4 Argon") && text.includes("Limits: partner models"), `The Antigravity card is missing its plan or scopes at ${width}px`);
+      // The card clips its decorative glow, so overflow is measured on each window's text.
+      for (const copy of card()!.querySelectorAll<HTMLElement>(".quota-bucket__copy")) {
+        assert(copy.scrollWidth <= copy.clientWidth + 1, `A window's text overflows the Antigravity card at ${width}px: ${copy.querySelector("b")?.textContent}`);
+      }
+    } finally {
+      fixtureRoot.unmount();
+      remove();
+    }
+  }
+  const { doc, root: fixtureRoot, remove } = frameRoot(1280);
+  try {
+    fixtureRoot.render(<QuotaDials quotas={antigravityQuotaFixture(false)} timeZone="UTC" />);
+    await waitFor(() => Boolean(doc.querySelector(".quota-glance")), "The quota strip did not render");
+    assert(!doc.querySelector(".antigravity"), "An Antigravity card appeared without a report");
+  } finally {
+    fixtureRoot.unmount();
+    remove();
+    localStorage.removeItem("usage-observatory:quota-details-open");
   }
 });
 

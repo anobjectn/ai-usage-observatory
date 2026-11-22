@@ -115,3 +115,15 @@ test("an expired token still asks for action when the last reading is kept", () 
   expect(notice?.kind).toBe("act");
   expect(notice?.headline).toContain("expired");
 });
+
+test("Antigravity failures get their own guidance, and an unknown provider never reads as Warp", () => {
+  const antigravity = (error: string) => quotaProviderNotice(report({ provider: "antigravity", status: "unavailable", error }));
+  expect(antigravity("Antigravity OAuth access token expired — will self-heal on next Antigravity sign-in or use (no self-refresh by design)"))
+    .toMatchObject({ kind: "act", headline: "The Antigravity sign-in the quota service reads has expired." });
+  expect(antigravity("no running Antigravity language_server or agy process found; no Antigravity OAuth credentials found in env or local credential paths"))
+    .toMatchObject({ kind: "act", headline: "No usable Antigravity sign-in was found on this machine." });
+  expect(antigravity("RetrieveUserQuotaSummary: local probe budget exhausted")).toMatchObject({ kind: "wait" });
+  expect(antigravity("/v1internal:retrieveUserQuota HTTP 503")).toMatchObject({ kind: "wait" });
+  const unknown = quotaProviderNotice(report({ provider: "gemini" as QuotaProvider["provider"], status: "unavailable", error: "not updated" }));
+  expect(unknown?.headline).not.toContain("Warp");
+});

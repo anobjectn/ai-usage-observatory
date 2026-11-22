@@ -237,3 +237,20 @@ describe("selection to query parameters", () => {
     expect(agentSelectionParams([agentEntry("copilot"), agentEntry("grok"), agentEntry("codex")]).providers).toEqual(["other", "codex"]);
   });
 });
+
+describe("Antigravity in the Agent filter", () => {
+  test("Gemini families group under the Antigravity agent, and the agent maps to its provider", async () => {
+    const { providerFromAgent, providerFromModel } = await import("./provider");
+    expect(providerFromAgent("antigravity")).toBe("antigravity");
+    expect(providerFromModel("gemini-4-neon")).toBe("antigravity");
+    expect(providerFromModel("claude-opus-5-5")).toBe("anthropic");
+    const tree = buildAgentTree(["claude", "antigravity"], ["claude-opus-5", "gemini-4-neon", "gemini-4-argon"]);
+    expect(tree.branches).toEqual([
+      { agent: "claude", models: ["claude-opus-5"] },
+      { agent: "antigravity", models: ["gemini-4-neon", "gemini-4-argon"] },
+    ]);
+    expect(tree.unparented).toEqual([]);
+    expect(selectionProvider([modelEntry("gemini-4-neon")])).toBe("antigravity");
+    expect(agentSelectionParams([agentEntry("antigravity")])).toEqual({ providers: ["antigravity"], modelFamilies: [] });
+  });
+});

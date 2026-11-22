@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { calculateSessionQuotaContext, type ContextPolicyInput } from "./session-quota-context";
+import { calculateSessionQuotaContext, windowsForModels, type ContextPolicyInput } from "./session-quota-context";
+import type { QuotaObservation } from "../src/types";
 
 const episode = { startAt: 10 * 60_000, endAt: 20 * 60_000 };
 
@@ -290,5 +291,39 @@ describe("session quota policy", () => {
       { sessionId: "same", provider: "anthropic", overlapMs: 2 * 60_000 },
       { sessionId: "cross", provider: "codex", overlapMs: 2 * 60_000 },
     ]));
+  });
+});
+
+describe("Antigravity quota context", () => {
+  test("a one-decimal reading moves measurably only past one reporting unit", () => {
+    const moved = (delta: number) => calculateSessionQuotaContext(input({
+      provider: "antigravity",
+      points: [windowPoint(9 * 60_000, 30), windowPoint(21 * 60_000, Math.round((30 + delta) * 10) / 10)],
+    })).resources[0]?.measurable;
+    expect(moved(0.1)).toBe(false);
+    expect(moved(0.2)).toBe(true);
+  });
+
+  test("only the windows that limit the session's models are kept", () => {
+    const observation = (windows: string[]): QuotaObservation => ({
+      schemaVersion: 1, provider: "antigravity", capturedAt: 1, observedAt: 1, timeSource: "provider", status: "ok", source: "antigravity_local",
+      plan: { id: "pro", label: "pro", source: "provider", effectiveFrom: null },
+      quota: { kind: "windows", windows: windows.map((id) => ({ id, usedPercent: 10, resetsAt: null, cycleId: "reset:1" })) },
+    });
+    const identity = {
+      "Claude and GPT models (5h)": { model: null, family: null },
+      "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" },
+      "Image generation": { model: null, family: "image" },
+    };
+    const all = ["fiveHour", "weekly", "model:Claude and GPT models (5h)", "model:Gemini 4 Argon Weekly Limit", "model:Image generation", "model:Gemini Pro (5h)"];
+    const kept = (models: string[]) => windowsForModels([observation(all)], identity, models)
+      .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => window.id) : []);
+    // A window quota-service gave no identity for fails closed: it limits every Gemini model.
+    expect(kept(["gemini-4-neon"])).toEqual(["fiveHour", "weekly", "model:Gemini Pro (5h)"]);
+    expect(kept(["gemini-4-argon"])).toEqual(["fiveHour", "weekly", "model:Gemini 4 Argon Weekly Limit", "model:Gemini Pro (5h)"]);
+    expect(kept(["claude-opus-5-5"])).toEqual(["fiveHour", "weekly", "model:Claude and GPT models (5h)"]);
+    expect(windowsForModels([observation(all)], null, ["gemini-4-neon"])
+      .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => window.id) : []))
+      .toEqual(all);
   });
 });

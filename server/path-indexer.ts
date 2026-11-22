@@ -290,3 +290,46 @@ export function getNativeSessionKey(sessionId: string) {
   const row = db.query("SELECT native_session_key AS nativeKey FROM session_paths WHERE session_id = ?").get(sessionId) as { nativeKey: string } | null;
   return row?.nativeKey ?? null;
 }
+
+/** A session that lives in a provider database rather than a transcript file. It has a
+ * `session_paths` row so derived effort rows can reference it and be scoped by project like any
+ * other; the transcript indexer never reads, catalogs, or prunes it. */
+export type LocalSessionPath = {
+  sessionId: string;
+  agent: string;
+  nativeKey: string;
+  sourceFile: string;
+  cwd: string | null;
+  mtimeMs: number;
+  size: number;
+};
+
+const upsertLocalPath = db.query(`INSERT INTO session_paths
+  (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size, indexed_at)
+  VALUES ($sessionId, $agent, $nativeKey, $sourceFile, $cwd, $mtimeMs, $size, CURRENT_TIMESTAMP)
+  ON CONFLICT(session_id) DO UPDATE SET agent = excluded.agent, native_session_key = excluded.native_session_key,
+    source_file = excluded.source_file, cwd = excluded.cwd, source_mtime = excluded.source_mtime,
+    source_size = excluded.source_size, indexed_at = CURRENT_TIMESTAMP
+  WHERE session_paths.source_file IS NOT excluded.source_file OR session_paths.cwd IS NOT excluded.cwd
+    OR session_paths.source_mtime IS NOT excluded.source_mtime OR session_paths.source_size IS NOT excluded.source_size`);
+
+export function upsertLocalSessionPath(path: LocalSessionPath) {
+  upsertLocalPath.run({
+    $sessionId: path.sessionId, $agent: path.agent, $nativeKey: path.nativeKey, $sourceFile: path.sourceFile,
+    $cwd: path.cwd, $mtimeMs: path.mtimeMs, $size: path.size,
+  });
+}
+
+/** Removes one agent's rows whose sessions are gone. Call it only after a collection that read
+ * every source: a partial read must never look like a deletion. Derived effort rows go with the
+ * row, through the foreign-key cascade. */
+export function pruneLocalSessionPaths(agent: string, keepIds: Iterable<string>) {
+  const keep = new Set(keepIds);
+  const rows = db.query("SELECT session_id FROM session_paths WHERE agent = ?").all(agent) as Array<{ session_id: string }>;
+  const removed = rows.map((row) => row.session_id).filter((sessionId) => !keep.has(sessionId));
+  if (removed.length) {
+    const remove = db.query("DELETE FROM session_paths WHERE session_id = ?");
+    db.transaction(() => removed.forEach((sessionId) => remove.run(sessionId)))();
+  }
+  return removed;
+}

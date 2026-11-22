@@ -1,5 +1,5 @@
 import type { DashboardData, Session } from "../src/types";
-import { providerFromAgent } from "../src/provider";
+import { agentIsUnpriced, providerFromAgent } from "../src/provider";
 import { familyOf } from "../src/model-family";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { shiftDateKey, validDateKey } from "../src/time-range";
@@ -37,7 +37,11 @@ export type AnalysisScope = {
    * scoring direction of the utilization-shaped components changes. */
   policy: "capture" | "headroom";
 };
-type Provider = "anthropic" | "codex";
+/** Antigravity enters the token panels; it has no ccusage price, so it never enters a cost rate,
+ * and it has no allowance card, which stays a Claude and Codex measurement. */
+type Provider = "anthropic" | "codex" | "antigravity";
+type AllowanceProvider = "anthropic" | "codex";
+const insightProviders: Provider[] = ["anthropic", "codex", "antigravity"];
 type InsightSession = Session & {
   provider: Provider;
   /** Session total under the current cache scope — what the volume panel reports. */
@@ -156,7 +160,7 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
     (!requestedTo || validDateKey(requestedTo)) &&
     (!requestedFrom || !requestedTo || requestedFrom <= requestedTo);
   const requestedProviders = resolveProviders(input.get("providers"));
-  const providers = requestedProviders.filter((provider): provider is Provider => provider === "anthropic" || provider === "codex");
+  const providers = requestedProviders.filter((provider): provider is Provider => insightProviders.includes(provider as Provider));
   const requestedOutliers = input.get("outliers");
   const requestedFinding = input.get("finding");
   return {
@@ -176,7 +180,7 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
   };
 }
 
-function allowance(data: DashboardData, providerId: Provider, sessionCount: number, policy: AnalysisScope["policy"]): Profile {
+function allowance(data: DashboardData, providerId: AllowanceProvider, sessionCount: number, policy: AnalysisScope["policy"]): Profile {
   const series = (data.quotas.history?.series ?? []).filter((point) => point.provider === providerId);
   const weekly = series.filter((point) => point.window === "weekly");
   const fiveHour = series.filter((point) => point.window === "fiveHour");
@@ -452,7 +456,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   }
   for (const point of data.quotas.history?.series ?? []) overviewProviderIds.add(point.provider);
   for (const window of data.quotas.history?.windows ?? []) overviewProviderIds.add(window.provider);
-  const overviewProviders = (["anthropic", "codex"] as Provider[]).filter((id) => overviewProviderIds.has(id));
+  const overviewProviders = (["anthropic", "codex"] as AllowanceProvider[]).filter((id) => overviewProviderIds.has(id));
 
   const timeZone = data.timeZone || systemTimeZone();
   const today = dateKeyInTimeZone(new Date(), timeZone);
@@ -478,7 +482,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   // Provider rows follow what actually survived the Agent filter, so a model-only selection still
   // reports the provider that model belongs to rather than both.
   const present = new Set(sessions.map((row) => row.provider));
-  const providers = (["anthropic", "codex"] as Provider[]).filter((id) => present.has(id));
+  const providers = insightProviders.filter((id) => present.has(id));
   const rates = modelRates(sessions);
 
   const overall = summarizeGroup(sessions);
@@ -505,7 +509,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
         dominantIn: dominantIn.length,
         ...sums,
         ratePerMillion: rates.get(model)?.rate ?? null,
-        priced: !data.unpricedModels.includes(model),
+        priced: !data.unpricedModels.includes(model) && !appearsIn.every((row) => agentIsUnpriced(row.agent)),
         outputShare: ratio(sums.output, sums.processed),
         contextCarry: ratio(sums.cacheRead, sums.output),
         cacheHitRate: ratio(sums.cacheRead, sums.cacheRead + sums.input),

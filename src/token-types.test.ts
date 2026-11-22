@@ -208,3 +208,17 @@ describe("footnotesFor", () => {
     expect(lines.some((line) => line.includes("effort index is off"))).toBe(true);
   });
 });
+
+describe("Antigravity rows", () => {
+  test("keep their tokens and withhold cost because ccusage does not price the source", () => {
+    const gemini = breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0);
+    const summary = summarizeTokenTypes([{ agent: "antigravity", breakdown: gemini }], card);
+    expect(summary.totalTokens).toBe(10_300);
+    expect(summary.costAvailable).toBe(false);
+    expect(summary.withheld).toEqual([{ model: "gemini-4-neon", reason: "unpriced-source" }]);
+    expect(summary.providers).toEqual(["antigravity"]);
+    const lines = footnotesFor(summary, { reasoning: { outputTokens: 300, reasoningOutputTokens: 200, reportedEvents: 1 } });
+    expect(lines).toContain("Generated output includes reasoning tokens; Antigravity reported 200 reasoning tokens inside output.");
+    expect(lines).toContain("Cost withheld: gemini-4-neon comes from Antigravity, which ccusage does not price.");
+  });
+});

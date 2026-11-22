@@ -364,6 +364,12 @@ async function warpSessionDetail(sessionId: string): Promise<SessionDetail> {
   };
 }
 
+/** Antigravity conversations are read for usage metadata only. Their prompts, replies, and tool
+ * payloads are never imported, so the detail has nothing to read and opens no database: the panel
+ * draws from the session's own metadata. */
+const antigravitySessionPrefix = "antigravity-";
+const antigravityDetail: SessionDetail = { available: true, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 };
+
 async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   const source = getSessionSource(sessionId);
   if (!source || !await Bun.file(source.sourceFile).exists()) return detailUnavailable;
@@ -376,6 +382,7 @@ async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
 }
 
 export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
+  if (sessionId.startsWith(antigravitySessionPrefix)) return { ...antigravityDetail };
   const warpSession = sessionId.startsWith(warpSessionPrefix);
   const source = warpSession ? null : getSessionSource(sessionId);
   if (!warpSession && !source) return detailUnavailable;

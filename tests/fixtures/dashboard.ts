@@ -1,5 +1,52 @@
 import type { DashboardData, Session } from "../../src/types";
 
+/** One Gemini 4 Neon (High) conversation, as the Antigravity collector reports it: usage metadata
+ * only, unpriced. */
+export function antigravitySessionFixture(lastActivity = new Date(Date.now() - 2 * 3_600_000).toISOString()): Session {
+  return {
+    sessionId: "antigravity-fixture-conversation", agent: "antigravity", source: "antigravity", period: lastActivity,
+    cwd: "/fixture/gemini-project", pathTags: [], annotation: { tags: [], note: "", verdict: null },
+    inputTokens: 4_000, outputTokens: 900, cacheReadTokens: 60_000, cacheCreationTokens: 0,
+    totalTokens: 64_900, totalCost: 0, modelsUsed: ["gemini-4-neon"],
+    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 4_000, outputTokens: 900, cacheReadTokens: 60_000, cacheCreationTokens: 0, cost: 0 }],
+    metadata: { lastActivity },
+    antigravity: { conversationId: "fixture-conversation", generations: 12, reasoningOutputTokens: 640, parentConversationId: null, root: "t3" },
+    activityIntervals: [],
+  };
+}
+
+/** quota-service's Antigravity report: two primary windows and three model windows on Google AI Pro. */
+export function antigravityQuotaFixture(includeAntigravity = true): DashboardData["quotas"] {
+  const now = Date.now();
+  const reset = now + 3 * 3_600_000;
+  const weekly = now + 5 * 86_400_000;
+  return {
+    available: true, collectedAt: new Date(now).toISOString(), sourceState: "connected",
+    usage: { generatedAt: now, providers: includeAntigravity ? [{
+      provider: "antigravity", status: "ok", source: "antigravity_local", dataAgeMs: 4_000,
+      snapshot: {
+        kind: "window",
+        fiveHour: { usedPercent: 28.5, resetsAt: reset },
+        weekly: { usedPercent: 39.6, resetsAt: weekly },
+        modelWindows: {
+          "Claude and GPT models (weekly)": { usedPercent: 0, resetsAt: weekly },
+          "Claude and GPT models (5h)": { usedPercent: 0, resetsAt: reset },
+          "Gemini 4 Argon Weekly Limit": { usedPercent: 12, resetsAt: weekly },
+        },
+        extra: {
+          planType: "pro", rawPlanName: "Google AI Pro",
+          modelWindowIdentity: {
+            "Claude and GPT models (weekly)": { model: null, family: null },
+            "Claude and GPT models (5h)": { model: null, family: null },
+            "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" },
+          },
+        },
+      },
+    }] : [] },
+    history: { available: false, trackingSince: null, windows: [], series: [], codexBankedResets: { usedCount: 0, used: [] } },
+  };
+}
+
 export function dashboardFixture(): DashboardData {
   const now = new Date().toISOString();
   const day = now.slice(0, 10);
@@ -15,7 +62,7 @@ export function dashboardFixture(): DashboardData {
   return {
     collectedAt: now, timeZone: "UTC", ccusageVersion: "fixture", apiPort: 0,
     costMethodology: "ccusage", blockScope: "Claude Code",
-    daily: [daily], weekly: [daily], monthly: [daily], totals: daily, sessions: [session],
+    daily: [daily], weekly: [daily], monthly: [daily], totals: daily, sessions: [session, antigravitySessionFixture()],
     projectActivity: [], projects: [], models: [], blocks: [], unpricedModels: [],
     rateCard: { status: "fallback", fetchedAt: null, models: {} },
     quotas: { available: false, collectedAt: now, sourceState: "disabled", history: {

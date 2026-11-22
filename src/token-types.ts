@@ -1,4 +1,4 @@
-import { providerFromAgent, type ActivityProvider } from "./provider";
+import { agentIsUnpriced, providerFromAgent, type ActivityProvider } from "./provider";
 import type { ModelBreakdown, ModelRate, RateCardSummary } from "./types";
 
 /** The four API token types, in the order the table shows them. */
@@ -24,7 +24,9 @@ export type TokenTypeRow = {
 
 export type ModelRowInput = { agent: string; breakdown: ModelBreakdown };
 
-export type WithheldReason = "unpriced" | "no-rate" | "mismatch";
+/** `unpriced-source`: the row comes from a local source ccusage does not price (Antigravity), so
+ * there is no ccusage cost to split. */
+export type WithheldReason = "unpriced" | "no-rate" | "mismatch" | "unpriced-source";
 
 export type ModelDecomposition = {
   model: string;
@@ -97,6 +99,7 @@ export function decomposeModelRow(breakdown: ModelBreakdown, rate: ModelRate | n
     const zero = { cacheRead: 0, cacheWrite: 0, output: 0, input: 0 };
     return { ...base, costs: zero, reconciled: true, reason: null, impliedOneHourShare: null, oneHourShareMeasured: false };
   }
+  if (agentIsUnpriced(agent)) return withheld("unpriced-source");
   if (unpriced || breakdown.cost <= 0) return withheld("unpriced");
   if (!rate) return withheld("no-rate");
 
@@ -210,6 +213,7 @@ const withheldReasonText: Record<WithheldReason, string> = {
   unpriced: "has no rate card in ccusage",
   "no-rate": "has no LiteLLM rate to split with",
   mismatch: "did not reconcile with its ccusage cost",
+  "unpriced-source": "comes from Antigravity, which ccusage does not price",
 };
 
 const percent = (share: number) => `${Math.round(share * 100)}%`;
@@ -230,7 +234,11 @@ export function footnotesFor(summary: TokenTypeSummary, context: FootnoteContext
   }
   if (summary.providers.includes("codex")) lines.push("Codex reports cache writes as zero.");
   if (context.reasoning && context.reasoning.reportedEvents > 0) {
-    lines.push(`Generated output includes reasoning tokens; Codex reported ${context.reasoning.reasoningOutputTokens.toLocaleString()} reasoning tokens inside output.`);
+    const reporters = [
+      summary.providers.includes("codex") ? "Codex" : null,
+      summary.providers.includes("antigravity") ? "Antigravity" : null,
+    ].filter(Boolean).join(" and ") || "Codex";
+    lines.push(`Generated output includes reasoning tokens; ${reporters} reported ${context.reasoning.reasoningOutputTokens.toLocaleString()} reasoning tokens inside output.`);
   } else if (context.effortIndexEnabled === false) {
     lines.push("Generated output includes reasoning tokens; no separate reasoning count is available while the effort index is off.");
   } else {

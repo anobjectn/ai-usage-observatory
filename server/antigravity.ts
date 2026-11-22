@@ -1,0 +1,812 @@
+import { Database, constants } from "bun:sqlite";
+import { existsSync, readdirSync, statSync, type Stats } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { canonicalModelName } from "../src/model-name";
+import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
+import type { AntigravityData, AntigravitySessionStats, MetricRow, ModelBreakdown, Session } from "../src/types";
+import type { EffortUsageRow } from "./effort-parse";
+import { getSessionProvider, mergeActivityEpisodes, saveLocalEvidence } from "./session-evidence";
+import { bytesOf, fieldOf, messageOf, textOf, type WireField } from "./warp-protobuf";
+
+/**
+ * Google Antigravity keeps one SQLite database per conversation, written by T3 Code's Antigravity
+ * driver and by the Antigravity IDE. Every read here is metadata only: the step and generation
+ * tables also hold prompts, replies, and tool payloads, so only the columns and protobuf fields
+ * named below are ever selected or decoded, and no byte of anything else is kept.
+ *
+ * The field numbers come from bytes observed on the wire, not from a published schema, so every
+ * decode is defensive: a renumbered field yields nothing rather than a wrong number.
+ */
+
+/** Only these summary columns are read. The table also holds `title`, `preview`, and
+ * `raw_summary`, and full-text tables hold prompt text; none of them is ever selected. */
+const summaryColumns = ["conversation_id", "workspace_uris", "last_modified_time", "status", "parent_conversation_id", "nesting_depth", "step_count"] as const;
+export const ANTIGRAVITY_STEPS_SQL = "SELECT idx, step_type, metadata FROM steps ORDER BY idx";
+export const ANTIGRAVITY_GENERATION_MAX_SQL = "SELECT COALESCE(MAX(idx), -1) AS maxIdx FROM gen_metadata";
+/** The size cap is applied per row in SQL so an oversized row's bytes never leave SQLite. */
+export const ANTIGRAVITY_GENERATION_SQL = "SELECT idx, CASE WHEN length(data) <= ? THEN data END AS data FROM gen_metadata WHERE idx > ? ORDER BY idx";
+export function antigravitySummarySql(columns: readonly string[]) {
+  return `SELECT ${columns.join(", ")} FROM conversation_summaries`;
+}
+/** Every SQL text this module can send, for the privacy test. */
+export const ANTIGRAVITY_SQL = [ANTIGRAVITY_STEPS_SQL, ANTIGRAVITY_GENERATION_MAX_SQL, ANTIGRAVITY_GENERATION_SQL, antigravitySummarySql(summaryColumns)];
+
+const MAX_GENERATION_BYTES = 16 * 1024 * 1024;
+/** A step whose `step_type` is a model turn. Other usage-bearing steps (context compaction, 23)
+ * are real model calls with their own message ids, so they count too. */
+const TURN_STEP_TYPE = 15;
+const BUSY_TIMEOUT_MS = 250;
+
+export type AntigravityRootKind = AntigravitySessionStats["root"];
+export type AntigravityRoot = { path: string; kind: AntigravityRootKind };
+
+/** T3 Code's driver keeps one data directory per install hash; the IDE keeps one. A path in
+ * `ANTIGRAVITY_DATA_DIRS` (path-delimited) replaces both, which is how tests stay off real data. */
+export function antigravityRoots(home = homedir()): AntigravityRoot[] {
+  const override = process.env.ANTIGRAVITY_DATA_DIRS;
+  if (override !== undefined) {
+    return override.split(delimiter).map((path) => path.trim()).filter(Boolean)
+      .map((path) => ({ path, kind: path.includes("antigravity-acp") ? "t3" as const : "ide" as const }));
+  }
+  const roots: AntigravityRoot[] = [];
+  const t3 = join(home, ".t3/userdata/providers/antigravity");
+  try {
+    for (const install of readdirSync(t3).sort()) roots.push({ path: join(t3, install, "antigravity-acp"), kind: "t3" });
+  } catch { /* No T3 Antigravity install on this machine. */ }
+  roots.push({ path: join(home, ".gemini/antigravity"), kind: "ide" });
+  return roots;
+}
+
+type FileState = { mtimeMs: number; size: number };
+type Sidecars = { main: FileState; wal: FileState | null; shm: boolean; identity: string };
+
+function fileState(stats: Stats | undefined): FileState | null {
+  return stats ? { mtimeMs: stats.mtimeMs, size: stats.size } : null;
+}
+
+function statOrNull(path: string) {
+  try { return statSync(path); } catch { return undefined; }
+}
+
+function sidecars(path: string): Sidecars | null {
+  const main = statOrNull(path);
+  if (!main) return null;
+  return {
+    main: fileState(main)!,
+    wal: fileState(statOrNull(`${path}-wal`)),
+    shm: existsSync(`${path}-shm`),
+    identity: `${main.dev}:${main.ino}`,
+  };
+}
+
+/** Main file and `-wal` together: a write that lands only in the log still changes this. */
+export function databaseSignature(state: Pick<Sidecars, "main" | "wal">) {
+  return `${state.main.mtimeMs}:${state.main.size}:${state.wal?.mtimeMs ?? 0}:${state.wal?.size ?? 0}`;
+}
+
+export type ReadResult<T> =
+  | { ok: true; value: T; mode: "plain" | "immutable"; signature: string; identity: string; mtimeMs: number; size: number }
+  | { ok: false; reason: string };
+
+function sqliteCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
+}
+
+/**
+ * Opens a provider database strictly read-only and runs `read` against it. A provider file is
+ * never written, checkpointed, or copied, and no `-wal` or `-shm` is ever created beside it.
+ *
+ * - A read-only connection creates a missing `-shm` when a `-wal` exists, so a `-wal` without a
+ *   `-shm` is never opened plainly: an empty one is read with `immutable=1`, which has nothing to
+ *   miss, and a non-empty one cannot be read safely at all.
+ * - Otherwise the plain read-only open runs first. Bun defers `SQLITE_CANTOPEN` (a WAL-mode file
+ *   whose writer closed and removed its sidecars) to the first query, so the read itself decides.
+ * - `immutable=1` skips the log and every lock, so its result is kept only when the main file and
+ *   `-wal` look the same after the read as before it.
+ */
+export function readProviderDatabase<T>(path: string, read: (database: Database) => T): ReadResult<T> {
+  const before = sidecars(path);
+  if (!before) return { ok: false, reason: "missing" };
+  const success = (value: T, mode: "plain" | "immutable", state: Sidecars) => ({
+    ok: true as const, value, mode, signature: databaseSignature(state), identity: state.identity,
+    mtimeMs: state.main.mtimeMs, size: state.main.size,
+  });
+  const immutable = (): ReadResult<T> => {
+    let value: T;
+    try {
+      const database = new Database(`${pathToFileURL(path).href}?immutable=1`, constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI);
+      try { value = read(database); } finally { database.close(); }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+    const after = sidecars(path);
+    if (!after || databaseSignature(after) !== databaseSignature(before) || (after.wal?.size ?? 0) > 0) {
+      return { ok: false, reason: "the database changed while it was read" };
+    }
+    return success(value, "immutable", before);
+  };
+  if (before.wal && !before.shm) {
+    return before.wal.size === 0 ? immutable() : { ok: false, reason: "write-ahead log without shared memory" };
+  }
+  try {
+    const database = new Database(path, { readonly: true });
+    try {
+      database.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+      return success(read(database), "plain", before);
+    } finally {
+      database.close();
+    }
+  } catch (error) {
+    if (sqliteCode(error) === "SQLITE_CANTOPEN") {
+      const wal = fileState(statOrNull(`${path}-wal`));
+      if (!wal || wal.size === 0) return immutable();
+    }
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+type Summary = {
+  conversationId: string;
+  cwd: string | null;
+  lastModified: string | null;
+  parentConversationId: string | null;
+  nestingDepth: number;
+  stepCount: number;
+};
+
+/** Antigravity writes the Go zero time (`0001-01-01`) for a time it never set, and microseconds
+ * that `Date` would otherwise read inconsistently. */
+export function antigravityTime(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const normalized = value.trim().replace(" ", "T").replace(/(\.\d{3})\d+/, "$1");
+  const parsed = Date.parse(normalized);
+  if (!Number.isFinite(parsed) || new Date(parsed).getUTCFullYear() < 2000) return null;
+  return new Date(parsed).toISOString();
+}
+
+/** The first `file://` workspace, as a path. Anything else (a remote URI, malformed JSON) is no
+ * working directory rather than a guessed one. */
+export function antigravityCwd(value: unknown) {
+  if (typeof value !== "string") return null;
+  let uris: unknown;
+  try { uris = JSON.parse(value); } catch { return null; }
+  if (!Array.isArray(uris)) return null;
+  const uri = uris.find((entry): entry is string => typeof entry === "string" && entry.startsWith("file://"));
+  if (!uri) return null;
+  try { return fileURLToPath(uri).replace(/\/+$/, "") || "/"; } catch { return null; }
+}
+
+function stringOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readSummaries(database: Database) {
+  const tables = database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'conversation_summaries'").all();
+  if (!tables.length) return { summaries: new Map<string, Summary>(), drift: true };
+  const present = new Set((database.query("PRAGMA table_info(conversation_summaries)").all() as Array<{ name: string }>).map((column) => column.name));
+  const columns = summaryColumns.filter((column) => present.has(column));
+  if (!present.has("conversation_id")) return { summaries: new Map<string, Summary>(), drift: true };
+  const rows = database.query(antigravitySummarySql(columns)).all() as Array<Record<string, unknown>>;
+  const summaries = new Map<string, Summary>();
+  for (const row of rows) {
+    const conversationId = stringOrNull(row.conversation_id);
+    if (!conversationId) continue;
+    summaries.set(conversationId, {
+      conversationId,
+      cwd: antigravityCwd(row.workspace_uris),
+      lastModified: antigravityTime(row.last_modified_time),
+      parentConversationId: stringOrNull(row.parent_conversation_id),
+      nestingDepth: Number(row.nesting_depth) || 0,
+      stepCount: Number(row.step_count) || 0,
+    });
+  }
+  return { summaries, drift: columns.length < summaryColumns.length };
+}
+
+function varintOf(fields: WireField[], field: number) {
+  const found = fieldOf(fields, field);
+  if (found?.kind !== "varint") return null;
+  const value = Number(found.value);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** A `google.protobuf.Timestamp` (seconds in field 1, nanos in field 2) as epoch milliseconds.
+ * Antigravity's step times are true UTC, unlike Warp's. */
+function timestampMs(fields: WireField[], field: number) {
+  const bytes = bytesOf(fields, field);
+  const message = bytes ? messageOf(bytes) : null;
+  if (!message) return null;
+  const seconds = varintOf(message, 1);
+  if (seconds === null || seconds <= 0) return null;
+  const nanos = varintOf(message, 2) ?? 0;
+  const value = seconds * 1000 + Math.floor(nanos / 1_000_000);
+  return new Date(value).getUTCFullYear() >= 2000 ? value : null;
+}
+
+/** One usage record: `steps.metadata` field 9, repeated in `gen_metadata` at 1.4.
+ * f1 model enum, f2 uncached input, f3 output, f4 cache write (never observed; read defensively),
+ * f5 cache read, f7 message id. f9 + f10 = f3; f9 is inferred to be thinking, because it carries
+ * the large share on long reasoning turns, so it is counted as reasoning only while it fits
+ * inside output. */
+export type UsageRecord = {
+  modelEnum: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  reasoningOutputTokens: number;
+  reasoningReported: boolean;
+  messageId: string | null;
+};
+
+export function decodeUsage(bytes: Uint8Array | null): UsageRecord | null {
+  const fields = bytes ? messageOf(bytes) : null;
+  if (!fields) return null;
+  const modelEnum = varintOf(fields, 1);
+  const input = varintOf(fields, 2);
+  const output = varintOf(fields, 3);
+  const cacheRead = varintOf(fields, 5);
+  if (modelEnum === null || (input === null && output === null && cacheRead === null)) return null;
+  const outputTokens = output ?? 0;
+  const thinking = varintOf(fields, 9);
+  const reasoningReported = thinking !== null && thinking <= outputTokens;
+  return {
+    modelEnum,
+    inputTokens: input ?? 0,
+    outputTokens,
+    cacheWriteTokens: varintOf(fields, 4) ?? 0,
+    cacheReadTokens: cacheRead ?? 0,
+    reasoningOutputTokens: reasoningReported ? thinking : 0,
+    reasoningReported,
+    messageId: textOf(fields, 7),
+  };
+}
+
+const effortLabels = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/** The provider-recorded effort in a model label's trailing parentheses ("Gemini 4 Neon (High)").
+ * Only the known vocabulary counts; anything else is unknown, never a guess, and the model id is
+ * never read for an effort. */
+export function effortFromLabel(label: string | null | undefined) {
+  const match = typeof label === "string" ? label.match(/\(([^()]*)\)\s*$/) : null;
+  if (!match) return "";
+  const value = match[1]!.trim().toLowerCase().replace(/[\s_-]+/g, " ");
+  const normalized = value === "extra high" ? "xhigh" : value;
+  return effortLabels.has(normalized) ? normalized : "";
+}
+
+type ModelLabel = { modelId: string | null; label: string | null };
+/** `gen_metadata` scanned so far for one conversation file. Rows are appended, so only rows past
+ * `lastIdx` are read on the next pass. */
+type GenerationIndex = {
+  identity: string;
+  lastIdx: number;
+  byMessage: Map<string, ModelLabel>;
+  byEnum: Map<number, { modelId: string | null; labels: Set<string> }>;
+  oversized: number;
+};
+
+function emptyGenerationIndex(identity: string): GenerationIndex {
+  return { identity, lastIdx: -1, byMessage: new Map(), byEnum: new Map(), oversized: 0 };
+}
+
+function cloneGenerationIndex(index: GenerationIndex): GenerationIndex {
+  return {
+    ...index,
+    byMessage: new Map(index.byMessage),
+    byEnum: new Map([...index.byEnum].map(([key, value]) => [key, { modelId: value.modelId, labels: new Set(value.labels) }])),
+  };
+}
+
+/** Reads only 1.19 (model id), 1.21 (label), and the usage record at 1.4 from one generation.
+ * The same row also embeds prompt content in other fields; those bytes are skipped by length and
+ * never decoded. */
+function indexGeneration(index: GenerationIndex, data: Uint8Array) {
+  const top = messageOf(data);
+  const generation = top ? bytesOf(top, 1) : null;
+  const fields = generation ? messageOf(generation) : null;
+  if (!fields) return;
+  const usage = bytesOf(fields, 4);
+  const usageFields = usage ? messageOf(usage) : null;
+  const messageId = usageFields ? textOf(usageFields, 7) : null;
+  const modelEnum = (usageFields ? varintOf(usageFields, 1) : null) ?? varintOf(fields, 3);
+  const entry = { modelId: stringOrNull(textOf(fields, 19)), label: stringOrNull(textOf(fields, 21)) };
+  if (messageId) index.byMessage.set(messageId, entry);
+  if (modelEnum !== null) {
+    const known = index.byEnum.get(modelEnum) ?? { modelId: entry.modelId, labels: new Set<string>() };
+    known.modelId ??= entry.modelId;
+    if (entry.label) known.labels.add(entry.label);
+    index.byEnum.set(modelEnum, known);
+  }
+}
+
+const generationIndexes = new Map<string, GenerationIndex>();
+
+function readGenerations(database: Database, path: string, identity: string, tables: Set<string>) {
+  if (!tables.has("gen_metadata")) return emptyGenerationIndex(identity);
+  const maxIdx = Number((database.query(ANTIGRAVITY_GENERATION_MAX_SQL).get() as { maxIdx: number }).maxIdx);
+  const prior = generationIndexes.get(path);
+  // A replaced file, or one whose rows moved backwards, cannot be appended to.
+  const next = prior && prior.identity === identity && maxIdx >= prior.lastIdx ? cloneGenerationIndex(prior) : emptyGenerationIndex(identity);
+  if (maxIdx <= next.lastIdx) return next;
+  for (const row of database.query(ANTIGRAVITY_GENERATION_SQL).iterate(MAX_GENERATION_BYTES, next.lastIdx) as Iterable<{ idx: number; data: Uint8Array | null }>) {
+    next.lastIdx = Math.max(next.lastIdx, Number(row.idx));
+    readStats.generationRows++;
+    if (row.data === null) next.oversized++;
+    else indexGeneration(next, row.data);
+  }
+  return next;
+}
+
+export type UsageCall = UsageRecord & {
+  stepIdx: number;
+  stepType: number;
+  at: number | null;
+  modelId: string | null;
+  label: string | null;
+};
+
+export type ConversationParse = {
+  calls: UsageCall[];
+  activity: number[];
+  stepsNotUnderstood: number;
+  turnsWithoutUsage: number;
+  oversizedGenerations: number;
+  drift: boolean;
+};
+
+function readConversation(database: Database, path: string, identity: string): { parse: ConversationParse; generations: GenerationIndex } {
+  const tables = new Set((database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name));
+  const stepColumns = tables.has("steps")
+    ? new Set((database.query("PRAGMA table_info(steps)").all() as Array<{ name: string }>).map((column) => column.name))
+    : new Set<string>();
+  if (!["idx", "step_type", "metadata"].every((column) => stepColumns.has(column))) {
+    return { parse: { calls: [], activity: [], stepsNotUnderstood: 0, turnsWithoutUsage: 0, oversizedGenerations: 0, drift: true }, generations: emptyGenerationIndex(identity) };
+  }
+  const generations = readGenerations(database, path, identity, tables);
+  const calls: UsageCall[] = [];
+  const seen = new Set<string>();
+  const activity: number[] = [];
+  let stepsNotUnderstood = 0;
+  let turnsWithoutUsage = 0;
+  for (const row of database.query(ANTIGRAVITY_STEPS_SQL).iterate() as Iterable<{ idx: number; step_type: number | null; metadata: Uint8Array | null }>) {
+    if (!row.metadata) continue;
+    const fields = messageOf(row.metadata);
+    if (!fields) {
+      stepsNotUnderstood++;
+      continue;
+    }
+    const at = timestampMs(fields, 1);
+    if (at !== null) activity.push(at);
+    const finished = timestampMs(fields, 8);
+    if (finished !== null) activity.push(finished);
+    const usage = decodeUsage(bytesOf(fields, 9));
+    if (!usage) {
+      if (Number(row.step_type) === TURN_STEP_TYPE) turnsWithoutUsage++;
+      continue;
+    }
+    const key = usage.messageId ? `message:${usage.messageId}` : `step:${row.idx}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const byMessage = usage.messageId ? generations.byMessage.get(usage.messageId) : undefined;
+    const byEnum = generations.byEnum.get(usage.modelEnum);
+    // A step absent from `gen_metadata` (a compaction call) takes its model from the enum, and its
+    // label only when that enum ran under exactly one label in this conversation.
+    const model: ModelLabel = byMessage ?? {
+      modelId: byEnum?.modelId ?? null,
+      label: byEnum && byEnum.labels.size === 1 ? [...byEnum.labels][0]! : null,
+    };
+    calls.push({ ...usage, stepIdx: Number(row.idx), stepType: Number(row.step_type), at, modelId: model.modelId, label: model.label });
+  }
+  return { parse: { calls, activity, stepsNotUnderstood, turnsWithoutUsage, oversizedGenerations: generations.oversized, drift: false }, generations };
+}
+
+type CachedConversation = { signature: string; parse: ConversationParse; identity: string; mtimeMs: number; size: number };
+const conversationCache = new Map<string, CachedConversation>();
+type CachedSummaries = { signature: string; summaries: Map<string, Summary>; drift: boolean };
+const summaryCache = new Map<string, CachedSummaries>();
+/** Conversations whose activity evidence was saved for this signature, so evidence is rewritten
+ * only when the conversation changed or its rows were deleted. */
+const evidenceSaved = new Map<string, string>();
+
+const readStats = { conversationReads: 0, generationRows: 0 };
+
+/** Test hook: how much work the caches saved. */
+export function antigravityReadStats() {
+  return { ...readStats };
+}
+
+/** Test hook: forget every cached parse. */
+export function resetAntigravityCache() {
+  conversationCache.clear();
+  summaryCache.clear();
+  generationIndexes.clear();
+  evidenceSaved.clear();
+  sessionModels.clear();
+  readStats.conversationReads = 0;
+  readStats.generationRows = 0;
+}
+
+/** Everything the effort sync needs for one session, computed with the collection. */
+export type AntigravityEffortSource = {
+  sessionId: string;
+  conversationId: string;
+  sourceFile: string;
+  cwd: string | null;
+  signature: string;
+  identity: string;
+  mtimeMs: number;
+  size: number;
+  rows: EffortUsageRow[];
+  activityTimestamps: number[];
+  observations: number;
+  unknownObservations: number;
+  tokens: number;
+  attributedTokens: number;
+};
+
+export type AntigravityCollection = AntigravityData & {
+  sessions: Session[];
+  dailyRows: MetricRow[];
+  effortSources: AntigravityEffortSource[];
+  /** True when every root and conversation was read, so absent sessions are really gone. */
+  complete: boolean;
+};
+
+type Candidate = {
+  conversationId: string;
+  root: AntigravityRoot;
+  path: string;
+  summary: Summary | undefined;
+  parse: ConversationParse;
+  fresh: boolean;
+  identity: string;
+  signature: string;
+  mtimeMs: number;
+  size: number;
+};
+
+function tokensOf(call: Pick<UsageRecord, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens">) {
+  return call.inputTokens + call.outputTokens + call.cacheReadTokens + call.cacheWriteTokens;
+}
+
+function modelOf(call: UsageCall) {
+  return call.modelId ? canonicalModelName(call.modelId) || "Unknown model" : "Unknown model";
+}
+
+function prefer(left: Candidate, right: Candidate) {
+  if (left.fresh !== right.fresh) return left.fresh ? left : right;
+  const leftTime = left.summary?.lastModified ?? "";
+  const rightTime = right.summary?.lastModified ?? "";
+  if (leftTime !== rightTime) return leftTime > rightTime ? left : right;
+  return right.parse.calls.length > left.parse.calls.length ? right : left;
+}
+
+function breakdownTokens(model: ModelBreakdown) {
+  return model.inputTokens + model.outputTokens + model.cacheReadTokens + model.cacheCreationTokens;
+}
+
+function emptyBreakdown(modelName: string): ModelBreakdown {
+  return { modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 0 };
+}
+
+function addCall(target: ModelBreakdown, call: UsageCall) {
+  target.inputTokens += call.inputTokens;
+  target.outputTokens += call.outputTokens;
+  target.cacheReadTokens += call.cacheReadTokens;
+  target.cacheCreationTokens += call.cacheWriteTokens;
+}
+
+function sessionOf(candidate: Candidate): Session {
+  const { conversationId, parse, summary } = candidate;
+  const models = new Map<string, ModelBreakdown>();
+  let reasoning = 0;
+  for (const call of parse.calls) {
+    const model = modelOf(call);
+    const breakdown = models.get(model) ?? emptyBreakdown(model);
+    addCall(breakdown, call);
+    models.set(model, breakdown);
+    reasoning += call.reasoningOutputTokens;
+  }
+  const modelBreakdowns = [...models.values()].sort((left, right) => breakdownTokens(right) - breakdownTokens(left));
+  const sum = (pick: (model: ModelBreakdown) => number) => modelBreakdowns.reduce((total, model) => total + pick(model), 0);
+  const inputTokens = sum((model) => model.inputTokens);
+  const outputTokens = sum((model) => model.outputTokens);
+  const cacheReadTokens = sum((model) => model.cacheReadTokens);
+  const cacheCreationTokens = sum((model) => model.cacheCreationTokens);
+  const latest = parse.activity.length ? new Date(Math.max(...parse.activity)).toISOString() : null;
+  const lastActivity = latest ?? summary?.lastModified ?? new Date(candidate.mtimeMs).toISOString();
+  const stats: AntigravitySessionStats = {
+    conversationId,
+    generations: parse.calls.length,
+    reasoningOutputTokens: reasoning,
+    parentConversationId: summary?.parentConversationId ?? null,
+    root: candidate.root.kind,
+  };
+  return {
+    agent: "antigravity",
+    source: "antigravity",
+    sessionId: `antigravity-${conversationId}`,
+    period: lastActivity,
+    cwd: summary?.cwd ?? null,
+    pathTags: [],
+    annotation: { tags: [], note: "", verdict: null },
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens,
+    // No ccusage price exists for these models. Zero here is an absent cost, never a free one:
+    // every cost view withholds it rather than reading it as $0.
+    totalCost: 0,
+    modelsUsed: modelBreakdowns.map((model) => model.modelName),
+    modelBreakdowns,
+    metadata: { lastActivity },
+    antigravity: stats,
+    activityIntervals: mergeActivityEpisodes(parse.activity),
+  };
+}
+
+function effortSourceOf(candidate: Candidate, session: Session, timeZone: string): AntigravityEffortSource {
+  const rows = new Map<string, EffortUsageRow>();
+  let unknownObservations = 0;
+  let attributedTokens = 0;
+  for (const call of candidate.parse.calls) {
+    const occurredOn = dateKeyInTimeZone(call.at === null ? session.metadata?.lastActivity : new Date(call.at), timeZone) ?? "";
+    const model = modelOf(call);
+    const effort = effortFromLabel(call.label);
+    const key = `${occurredOn}\0${model}\0${effort}`;
+    const row = rows.get(key) ?? {
+      occurredOn, model, effort, observations: 0, inputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+      outputTokens: 0, reasoningOutputTokens: 0, reasoningReportedEvents: 0, totalTokens: 0,
+    };
+    row.observations += 1;
+    row.inputTokens += call.inputTokens;
+    row.cacheReadTokens += call.cacheReadTokens;
+    row.cacheCreationTokens += call.cacheWriteTokens;
+    row.outputTokens += call.outputTokens;
+    row.reasoningOutputTokens += call.reasoningOutputTokens;
+    if (call.reasoningReported) row.reasoningReportedEvents += 1;
+    row.totalTokens += tokensOf(call);
+    rows.set(key, row);
+    if (effort) attributedTokens += tokensOf(call);
+    else unknownObservations += 1;
+  }
+  return {
+    sessionId: session.sessionId,
+    conversationId: candidate.conversationId,
+    sourceFile: candidate.path,
+    cwd: session.cwd,
+    signature: candidate.signature,
+    identity: candidate.identity,
+    mtimeMs: candidate.mtimeMs,
+    size: candidate.size,
+    rows: [...rows.values()],
+    activityTimestamps: [...new Set(candidate.parse.activity)].sort((a, b) => a - b),
+    observations: candidate.parse.calls.length,
+    unknownObservations,
+    tokens: session.totalTokens,
+    attributedTokens,
+  };
+}
+
+/** One metric row per (generation day, model). A conversation that runs past midnight is split
+ * by the day each call happened, which is also the day its effort rows carry. */
+function dailyRowsOf(candidates: Candidate[], sessions: Map<string, Session>, timeZone: string): MetricRow[] {
+  const days = new Map<string, Map<string, ModelBreakdown>>();
+  for (const candidate of candidates) {
+    const session = sessions.get(candidate.conversationId)!;
+    for (const call of candidate.parse.calls) {
+      const date = dateKeyInTimeZone(call.at === null ? session.metadata?.lastActivity : new Date(call.at), timeZone);
+      if (!date) continue;
+      const models = days.get(date) ?? new Map<string, ModelBreakdown>();
+      const model = modelOf(call);
+      const breakdown = models.get(model) ?? emptyBreakdown(model);
+      addCall(breakdown, call);
+      models.set(model, breakdown);
+      days.set(date, models);
+    }
+  }
+  return [...days.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([period, models]): MetricRow => {
+    const modelBreakdowns = [...models.values()];
+    const sum = (pick: (model: ModelBreakdown) => number) => modelBreakdowns.reduce((total, model) => total + pick(model), 0);
+    const inputTokens = sum((model) => model.inputTokens);
+    const outputTokens = sum((model) => model.outputTokens);
+    const cacheReadTokens = sum((model) => model.cacheReadTokens);
+    const cacheCreationTokens = sum((model) => model.cacheCreationTokens);
+    return {
+      agent: "antigravity",
+      period,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens,
+      totalCost: 0,
+      modelsUsed: modelBreakdowns.map((model) => model.modelName),
+      modelBreakdowns,
+    };
+  });
+}
+
+function displayPath(path: string) {
+  return relative(homedir(), path) || path;
+}
+
+function listConversations(root: string) {
+  try {
+    return readdirSync(join(root, "conversations"))
+      .filter((name) => name.endsWith(".db"))
+      .map((name) => ({ conversationId: name.slice(0, -".db".length), path: join(root, "conversations", name) }))
+      .sort((left, right) => left.conversationId.localeCompare(right.conversationId));
+  } catch {
+    return [];
+  }
+}
+
+function plural(count: number, one: string, many = `${one}s`) {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** Models each session recorded, from the newest collection. Quota context reads it to tell which
+ * model windows can have moved for a session. */
+const sessionModels = new Map<string, string[]>();
+
+export function antigravitySessionModels(sessionId: string) {
+  return sessionModels.get(sessionId) ?? null;
+}
+
+export function collectAntigravity(timeZone = systemTimeZone()): AntigravityCollection {
+  const observedAt = new Date().toISOString();
+  const roots = antigravityRoots().filter((root) => existsSync(root.path));
+  const notes = new Set<string>();
+  let complete = true;
+  let unreadable = 0;
+  let drift = 0;
+  let stepsNotUnderstood = 0;
+  let oversizedGenerations = 0;
+  let turnsWithoutUsage = 0;
+  const candidates = new Map<string, Candidate>();
+  const present = new Set<string>();
+
+  for (const root of roots) {
+    const summaryPath = join(root.path, "conversation_summaries.db");
+    let summaries = new Map<string, Summary>();
+    if (existsSync(summaryPath)) {
+      const read = readProviderDatabase(summaryPath, readSummaries);
+      const cached = summaryCache.get(summaryPath);
+      if (read.ok) {
+        summaries = read.value.summaries;
+        if (read.value.drift) drift++;
+        summaryCache.set(summaryPath, { signature: read.signature, summaries, drift: read.value.drift });
+      } else {
+        unreadable++;
+        complete = false;
+        if (cached) summaries = cached.summaries;
+      }
+    }
+    for (const { conversationId, path } of listConversations(root.path)) {
+      present.add(path);
+      const state = sidecars(path);
+      if (!state) continue;
+      const cached = conversationCache.get(path);
+      let parse: ConversationParse;
+      let fresh = true;
+      let identity = state.identity;
+      let signature = databaseSignature(state);
+      let mtimeMs = state.main.mtimeMs;
+      let size = state.main.size;
+      if (cached && cached.signature === signature && cached.identity === identity) {
+        parse = cached.parse;
+      } else {
+        readStats.conversationReads++;
+        const read = readProviderDatabase(path, (database) => readConversation(database, path, state.identity));
+        if (read.ok) {
+          parse = read.value.parse;
+          generationIndexes.set(path, read.value.generations);
+          ({ identity, signature, mtimeMs, size } = read);
+          conversationCache.set(path, { signature, parse, identity, mtimeMs, size });
+        } else if (cached) {
+          // Keep the last good parse rather than dropping a session over one unsafe read.
+          unreadable++;
+          complete = false;
+          parse = cached.parse;
+          fresh = false;
+          ({ identity, signature, mtimeMs, size } = cached);
+        } else {
+          unreadable++;
+          complete = false;
+          continue;
+        }
+      }
+      if (parse.drift) drift++;
+      stepsNotUnderstood += parse.stepsNotUnderstood;
+      oversizedGenerations += parse.oversizedGenerations;
+      turnsWithoutUsage += parse.turnsWithoutUsage;
+      // Placeholder conversations (created, never prompted) carry no usage and are not sessions.
+      if (!parse.calls.length) continue;
+      const candidate: Candidate = { conversationId, root, path, summary: summaries.get(conversationId), parse, fresh, identity, signature, mtimeMs, size };
+      const existing = candidates.get(conversationId);
+      candidates.set(conversationId, existing ? prefer(existing, candidate) : candidate);
+    }
+  }
+  for (const path of conversationCache.keys()) {
+    if (!present.has(path)) {
+      conversationCache.delete(path);
+      generationIndexes.delete(path);
+    }
+  }
+
+  const chosen = [...candidates.values()];
+  const sessionsById = new Map<string, Session>();
+  for (const candidate of chosen) sessionsById.set(candidate.conversationId, sessionOf(candidate));
+  const sessions = [...sessionsById.values()];
+  sessionModels.clear();
+  for (const session of sessions) sessionModels.set(session.sessionId, session.modelsUsed);
+  const effortSources = chosen.map((candidate) => effortSourceOf(candidate, sessionsById.get(candidate.conversationId)!, timeZone));
+
+  for (const source of effortSources) {
+    // Step times are the only activity evidence. A summary's modified time can order sessions but
+    // never stands in for when work happened.
+    if (!source.activityTimestamps.length) continue;
+    if (evidenceSaved.get(source.sessionId) === source.signature && getSessionProvider(source.sessionId) === "antigravity") continue;
+    saveLocalEvidence({
+      sessionId: source.sessionId,
+      provider: "antigravity",
+      sourceIdentity: source.identity,
+      sourceMtime: source.mtimeMs,
+      activityTimestamps: source.activityTimestamps,
+    });
+    evidenceSaved.set(source.sessionId, source.signature);
+  }
+
+  const calls = chosen.flatMap((candidate) => candidate.parse.calls);
+  const auxiliaryCalls = calls.filter((call) => call.stepType !== TURN_STEP_TYPE).length;
+  const unknownEffort = effortSources.reduce((sum, source) => sum + source.unknownObservations, 0);
+  const subagentConversations = chosen.filter((candidate) => candidate.summary?.parentConversationId || (candidate.summary?.nestingDepth ?? 0) > 0).length;
+  if (unreadable) notes.add(`${plural(unreadable, "database")} could not be read safely; the last good read is kept`);
+  if (drift) notes.add(`${plural(drift, "database")} did not match the expected schema`);
+  if (stepsNotUnderstood) notes.add(`${plural(stepsNotUnderstood, "step")} could not be decoded`);
+  // A model turn always records its usage, so turns without one mean the field moved.
+  if (turnsWithoutUsage) notes.add(`${plural(turnsWithoutUsage, "model turn")} carried no readable usage record`);
+  if (oversizedGenerations) notes.add(`${plural(oversizedGenerations, "generation record")} over 16 MiB skipped`);
+  if (unknownEffort) notes.add(`${plural(unknownEffort, "model call")} without a recognized effort label`);
+  if (subagentConversations) notes.add(`${plural(subagentConversations, "subagent conversation")} counted as separate sessions`);
+
+  const days = new Map<string, { generations: number; tokens: number }>();
+  for (const candidate of chosen) {
+    const session = sessionsById.get(candidate.conversationId)!;
+    for (const call of candidate.parse.calls) {
+      const date = dateKeyInTimeZone(call.at === null ? session.metadata?.lastActivity : new Date(call.at), timeZone);
+      if (!date) continue;
+      const day = days.get(date) ?? { generations: 0, tokens: 0 };
+      day.generations += 1;
+      day.tokens += tokensOf(call);
+      days.set(date, day);
+    }
+  }
+  return {
+    available: roots.length > 0,
+    roots: roots.map((root) => displayPath(root.path)),
+    observedAt,
+    sessionCount: sessions.length,
+    generationCount: calls.length,
+    auxiliaryCalls,
+    totals: {
+      sessions: sessions.length,
+      generations: calls.length,
+      tokens: sessions.reduce((sum, session) => sum + session.totalTokens, 0),
+      reasoningOutputTokens: sessions.reduce((sum, session) => sum + (session.antigravity?.reasoningOutputTokens ?? 0), 0),
+    },
+    daily: [...days.entries()].map(([date, values]) => ({ date, ...values })).sort((left, right) => left.date.localeCompare(right.date)),
+    notes: [...notes],
+    subagentConversations,
+    ...(roots.length ? {} : { error: "No Antigravity data directory was found on this machine." }),
+    sessions,
+    dailyRows: dailyRowsOf(chosen, sessionsById, timeZone),
+    effortSources,
+    complete,
+  };
+}

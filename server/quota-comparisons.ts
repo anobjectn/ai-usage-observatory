@@ -16,7 +16,7 @@ export type AllowanceComparisonSample = {
 };
 
 export type AllowanceComparisonCohort = {
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   plan: { id: string; label: string; source: "provider" | "configured" };
   resource: string;
   poolLimit: number | null;
@@ -170,7 +170,8 @@ export function buildAllowanceComparisonReport(
       confidence,
       coveragePercent: values.reduce((sum, value) => sum + value.sample.context.coverage.activeDurationCoveredPercent, 0) / values.length,
       metrics: {
-        apiEquivalentUsdPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalCost / totalPp * 100,
+        // Antigravity has no ccusage price, so its zero cost is no API-equivalent figure.
+        apiEquivalentUsdPer100PercentagePoints: provider === "warp" || provider === "antigravity" || totalPp <= 0 ? null : totalCost / totalPp * 100,
         outputTokensPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalOutput / totalPp * 100,
         activeMinutesPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalActive / totalPp * 100,
         warpManagedTokensPer100Credits: provider !== "warp" || totalCredits <= 0 ? null : warpTokens / totalCredits * 100,

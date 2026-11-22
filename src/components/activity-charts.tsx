@@ -1535,12 +1535,13 @@ export function ProviderTimeline({
     projectsByDay.set(project.date, day);
   });
   const data = rows.map((row) => {
-    const values = { anthropic: 0, codex: 0, warp: 0 };
-    const costs = { anthropic: 0, codex: 0, warp: 0 };
+    const values = { anthropic: 0, codex: 0, warp: 0, antigravity: 0 };
+    const costs = { anthropic: 0, codex: 0, warp: 0, antigravity: 0 };
     const modelMaps = {
       anthropic: new Map<string, { tokens: number; cost: number }>(),
       codex: new Map<string, { tokens: number; cost: number }>(),
       warp: new Map<string, { tokens: number; cost: number }>(),
+      antigravity: new Map<string, { tokens: number; cost: number }>(),
     };
     if (row.agents?.length) {
       row.agents.forEach((item) => {
@@ -1702,7 +1703,7 @@ export function ProviderTimeline({
       <QuotaMarkerLegend markers={quotaMarkers} stacked={headroomLines.length > 0} />
       <div
         className="chart-wrap provider-chart"
-        aria-label="Token usage by day, split into Claude, Codex, and Warp sections"
+        aria-label="Token usage by day, split into Claude, Codex, Warp, and Antigravity sections"
         role="img"
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -1848,16 +1849,19 @@ export function HourlyProviderTimeline({
     anthropic: 0,
     codex: 0,
     warp: 0,
-    costs: { anthropic: 0, codex: 0, warp: 0 },
+    antigravity: 0,
+    costs: { anthropic: 0, codex: 0, warp: 0, antigravity: 0 },
     models: {
       anthropic: [] as Array<{ name: string; tokens: number; cost: number }>,
       codex: [] as Array<{ name: string; tokens: number; cost: number }>,
       warp: [] as Array<{ name: string; tokens: number; cost: number }>,
+      antigravity: [] as Array<{ name: string; tokens: number; cost: number }>,
     },
     modelMaps: {
       anthropic: new Map<string, { tokens: number; cost: number }>(),
       codex: new Map<string, { tokens: number; cost: number }>(),
       warp: new Map<string, { tokens: number; cost: number }>(),
+      antigravity: new Map<string, { tokens: number; cost: number }>(),
     },
     projectGroups: {} as Record<string, ProjectActivity[]>,
     projectMaps: {
@@ -1873,6 +1877,17 @@ export function HourlyProviderTimeline({
         }
       >(),
       codex: new Map<
+        string,
+        {
+          projectId: string;
+          projectName: string;
+          tokens: number;
+          cost: number;
+          sessions: number;
+          models: Map<string, { tokens: number; cost: number }>;
+        }
+      >(),
+      antigravity: new Map<
         string,
         {
           projectId: string;
@@ -1953,7 +1968,7 @@ export function HourlyProviderTimeline({
     }),
   );
   data.forEach((bucket) =>
-    (["anthropic", "codex"] as const).forEach((provider) => {
+    (["anthropic", "codex", "antigravity"] as const).forEach((provider) => {
       bucket.projectGroups[provider] = [
         ...bucket.projectMaps[provider].values(),
       ]
@@ -1991,7 +2006,7 @@ export function HourlyProviderTimeline({
       <QuotaMarkerLegend markers={quotaMarkers} />
       <div
         className="chart-wrap provider-chart"
-        aria-label="Session token usage by last activity hour, split into Claude, Codex, and Warp sections"
+        aria-label="Session token usage by last activity hour, split into Claude, Codex, Warp, and Antigravity sections"
         role="img"
       >
         <ResponsiveContainer width="100%" height="100%">

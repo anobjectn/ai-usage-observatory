@@ -1,4 +1,5 @@
 import { formatReadingAge } from "../quota-notice";
+import { providerFromAgent, providerFromModel } from "../provider";
 
 export const formatCompact = (value: number) =>
   Intl.NumberFormat("en", {
@@ -15,6 +16,15 @@ export const formatTokensShort = (value: number) =>
 
 export const formatMoney = (value: number) =>
   `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** A cost that may be absent rather than zero: Antigravity usage has no ccusage price, and its
+ * zero must never read as free. */
+export const formatCostOrUnpriced = (value: number, unpriced: boolean) =>
+  unpriced ? "—" : formatMoney(value);
+
+/** True when every model named is one only Antigravity reports, so a zero cost is a missing one. */
+export const modelsUnpriced = (models: string[]) =>
+  models.length > 0 && models.every((model) => providerFromModel(model) === "antigravity");
 
 export const formatWarpCredits = (value: number) =>
   value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -88,6 +98,7 @@ export const providerSeries = [
   { key: "anthropic", label: "Claude", color: "var(--color-provider-anthropic)" },
   { key: "codex", label: "Codex", color: "var(--color-provider-openai)" },
   { key: "warp", label: "Warp", color: "var(--color-provider-warp)" },
+  { key: "antigravity", label: "Antigravity", color: "var(--color-provider-antigravity)" },
 ] as const;
 
 const stackedProviderSeries = [...providerSeries].reverse();
@@ -136,13 +147,10 @@ export function ActivityAxisTick({ x = 0, y = 0, payload, tokens }: ActivityAxis
   );
 }
 
+/** The chart series an agent draws in. Delegates to the one provider mapper, so a session can
+ * never be one provider in a chart and another in a filter. */
 export function providerKey(agent: string) {
-  const normalized = agent.toLowerCase();
-  if (normalized.includes("claude") || normalized.includes("anthropic"))
-    return "anthropic";
-  if (normalized.includes("codex")) return "codex";
-  if (normalized.includes("warp")) return "warp";
-  return null;
+  return providerFromAgent(agent);
 }
 
 export function resetCopy(timestamp: number | null, verb = "resets") {

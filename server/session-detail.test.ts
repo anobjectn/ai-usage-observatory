@@ -284,3 +284,20 @@ describe("on-demand session detail reads", () => {
     }
   });
 });
+
+describe("Antigravity session detail", () => {
+  test("is metadata only and reads no source, even with a database row on record", async () => {
+    const { db } = await import("./store");
+    const missing = join(tmpdir(), `antigravity-${crypto.randomUUID()}.db`);
+    db.query(`INSERT OR REPLACE INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size)
+      VALUES ('antigravity-detail', 'antigravity', 'detail', ?, '/tmp', 1, 1)`).run(missing);
+    try {
+      expect(await getSessionDetail("antigravity-detail")).toEqual({
+        available: true, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0,
+      });
+      expect(pendingSessionDetailReads()).toBe(0);
+    } finally {
+      db.query("DELETE FROM session_paths WHERE session_id = 'antigravity-detail'").run();
+    }
+  });
+});

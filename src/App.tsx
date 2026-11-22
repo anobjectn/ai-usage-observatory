@@ -238,6 +238,10 @@ export function App() {
       "--color-provider-warp",
       providerColors.warp,
     );
+    document.documentElement.style.setProperty(
+      "--color-provider-antigravity",
+      providerColors.antigravity,
+    );
     try {
       localStorage.setItem(
         providerColorsStorageKey,

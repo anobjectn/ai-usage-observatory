@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { agentIsUnpriced } from "../provider";
 import { systemTimeZone } from "../reporting-time";
 import { EffortBadge, EffortStack, EffortState } from "../components/effort";
 import { PageJump } from "../components/page-jump";
@@ -47,7 +48,9 @@ import {
 } from "../app/preferences";
 import {
   formatCompact,
+  formatCostOrUnpriced,
   formatMoney,
+  modelsUnpriced,
   providerSeries,
   friendlyProject,
   ActivityAxisTick,
@@ -160,7 +163,7 @@ function ProjectDayTooltip({
               />
               <strong>{provider.label}</strong>
               <b>{formatCompact(providerActivity.tokens)}</b>
-              <b>{formatMoney(providerActivity.cost)}</b>
+              <b>{formatCostOrUnpriced(providerActivity.cost, providerActivity.provider === "antigravity")}</b>
             </div>
             {visibleModels.length > 0 && (
               <ul className="tooltip-provider-models">
@@ -168,7 +171,7 @@ function ProjectDayTooltip({
                   <li key={model.model}>
                     <span>{model.model}</span>
                     <b>{formatCompact(model.tokens)}</b>
-                    <b>{formatMoney(model.cost)}</b>
+                    <b>{formatCostOrUnpriced(model.cost, providerActivity.provider === "antigravity")}</b>
                   </li>
                 ))}
               </ul>
@@ -354,7 +357,7 @@ function ProjectModelSessions({
                   </div>
                   <div className="model-sessions-card__stats">
                     <b>{formatCompact(tokens)}</b>
-                    <em>{formatMoney(cost)}</em>
+                    <em>{agentIsUnpriced(session.agent) ? "no price" : formatMoney(cost)}</em>
                   </div>
                   <a
                     href={sessionHref(session.sessionId)}
@@ -469,6 +472,14 @@ function ProjectDetails({
         while (!cancelled) {
           const session = sessions[next++];
           if (!session) return;
+        if (session.source === "antigravity") {
+          // Antigravity conversations are imported as usage metadata only: no files to list.
+          details.push({
+            session,
+            detail: { available: false, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 },
+          });
+          continue;
+        }
         if (session.source === "warp" && session.warp) {
           details.push({
             session,
@@ -865,7 +876,7 @@ function ProjectDetails({
             </b>
             <b>
               <small>API eq.</small>
-              {formatMoney(project.cost)}
+              {formatCostOrUnpriced(project.cost, modelsUnpriced(project.models))}
             </b>
             {project.warpCredits ? (
               <b className="project-model-credit">
@@ -895,7 +906,7 @@ function ProjectDetails({
                     {model.name}
                   </span>
                   <b>{formatCompact(model.tokens)}</b>
-                  <b>{formatMoney(model.cost)}</b>
+                  <b>{formatCostOrUnpriced(model.cost, modelsUnpriced([model.name]))}</b>
                 </div>
                 <div className="project-model-meter">
                   <i
@@ -982,6 +993,8 @@ function ProjectDetails({
                   <span>
                     {session.source === "warp"
                       ? `${session.warp?.filesChanged ?? 0} observed ${session.warp?.filesChanged === 1 ? "file" : "files"}`
+                      : session.source === "antigravity"
+                      ? "Files not imported"
                       : detail.available
                       ? `${detail.files.length} ${detail.files.length === 1 ? "file" : "files"}`
                       : "Patch unavailable"}
@@ -1267,7 +1280,7 @@ export function Projects({
                 </div>
                 <div className="rank-stat">
                   <span>Cost</span>
-                  <b>{formatMoney(project.cost)}</b>
+                  <b>{formatCostOrUnpriced(project.cost, modelsUnpriced(project.models))}</b>
                   {project.warpCredits ? <small className="rank-stat__credit">+ {formatWarpCredits(project.warpCredits)} Warp credits</small> : null}
                 </div>
                 <div className="rank-stat">

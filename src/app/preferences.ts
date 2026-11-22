@@ -33,6 +33,7 @@ export const defaultProviderColors: ProviderColors = {
   anthropic: "#d97757",
   openai: "#eaeaea",
   warp: "#d7b3ff",
+  antigravity: "#58d9cf",
 };
 
 export const defaultFavoriteAccents = [
@@ -221,6 +222,10 @@ export function savedProviderColors(): ProviderColors {
         typeof value.warp === "string" && /^#[0-9a-f]{6}$/i.test(value.warp)
           ? value.warp
           : defaultProviderColors.warp,
+      antigravity:
+        typeof value.antigravity === "string" && /^#[0-9a-f]{6}$/i.test(value.antigravity)
+          ? value.antigravity
+          : defaultProviderColors.antigravity,
     };
   } catch {
     return defaultProviderColors;

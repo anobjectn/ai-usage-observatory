@@ -1,4 +1,4 @@
-export type ActivityProvider = "anthropic" | "codex" | "warp";
+export type ActivityProvider = "anthropic" | "codex" | "warp" | "antigravity";
 
 /** Scope value for every agent `providerFromAgent` does not recognize (Copilot, for one). It is
  * a filter value only, never an `ActivityProvider`: such agents have no quota, no effort index,
@@ -14,6 +14,7 @@ export function providerFromAgent(agent: string): ActivityProvider | null {
   if (normalized.includes("claude") || normalized.includes("anthropic")) return "anthropic";
   if (normalized.includes("codex") || normalized.includes("openai")) return "codex";
   if (normalized.includes("warp")) return "warp";
+  if (normalized.includes("antigravity")) return "antigravity";
   return null;
 }
 
@@ -26,5 +27,15 @@ export function providerFromModel(model: string): ActivityProvider | null {
   if (fromAgent) return fromAgent;
   const normalized = model.toLowerCase();
   if (/^(gpt|o\d|text-|davinci)/.test(normalized)) return "codex";
+  // Gemini is Google's, and Antigravity is the provider it is tracked under here. A Gemini model
+  // Warp ran groups here too, as a Claude model Warp ran groups under Anthropic.
+  if (/^gemini/.test(normalized)) return "antigravity";
   return null;
+}
+
+/** Agents whose sessions no ccusage price covers. Their `totalCost` of 0 is an absent cost, not a
+ * free one, so it stays out of every cost median, rate, and comparison. Warp is not listed: its
+ * credits have their own treatment. */
+export function agentIsUnpriced(agent: string) {
+  return providerFromAgent(agent) === "antigravity";
 }

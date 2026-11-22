@@ -1,13 +1,15 @@
 import { basename } from "node:path";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
-import { providerFromAgent } from "../src/provider";
-import { addOneHourWrites, type MetricRow, type ModelBreakdown, type WarpDailyUsage } from "../src/types";
+import { providerFromAgent, type ActivityProvider } from "../src/provider";
+import { addOneHourWrites, type AntigravityData, type MetricRow, type ModelBreakdown, type WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
 import { serverPort } from "./server-port";
 import { ensureUpstream, upstreamHealth } from "./ccusage-upstream";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths, pathTagsForCwd, type PathIndexResult } from "./path-indexer";
 import { collectWarp } from "./warp";
+import { collectAntigravity, type AntigravityCollection } from "./antigravity";
+import { syncAntigravityEffort } from "./antigravity-effort";
 import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
 import { emptyAnnotation, getAnnotations, getAnnotationVersion, getSettings, listRules } from "./store";
 import { buildInsights, resolveScope } from "./insights";
@@ -120,7 +122,7 @@ function activityProvider(agent: string) {
 }
 
 export function aggregateProjectActivity(sessions: ProjectActivitySession[], timeZone = systemTimeZone()) {
-  const activity = new Map<string, {date:string;provider:"anthropic"|"codex"|"warp";projectId:string;projectName:string;tokens:number;cost:number;sessions:number;warpCredits:number;models:Map<string,{tokens:number;cost:number}>}>();
+  const activity = new Map<string, {date:string;provider:ActivityProvider;projectId:string;projectName:string;tokens:number;cost:number;sessions:number;warpCredits:number;models:Map<string,{tokens:number;cost:number}>}>();
   for (const session of sessions) {
     const provider = activityProvider(session.agent);
     const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
@@ -230,17 +232,92 @@ export function monthKey(date: string) {
   return date.slice(0, 7);
 }
 
-export function mergeWarp(base: MetricRow[], warpSessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date) {
+/** Folds one source's daily rows into the buckets of a coarser calendar (weeks, months). */
+function bucketLocalRows(rows: MetricRow[], bucket: (date: string) => string) {
+  const byPeriod = new Map<string, MetricRow>();
+  for (const row of rows) {
+    const period = bucket(row.period);
+    const current = byPeriod.get(period);
+    if (!current) {
+      byPeriod.set(period, { ...row, period, modelBreakdowns: row.modelBreakdowns.map((model) => ({ ...model })) });
+      continue;
+    }
+    current.inputTokens += row.inputTokens;
+    current.outputTokens += row.outputTokens;
+    current.cacheReadTokens += row.cacheReadTokens;
+    current.cacheCreationTokens += row.cacheCreationTokens;
+    current.totalTokens += row.totalTokens;
+    current.totalCost += row.totalCost;
+    for (const model of row.modelBreakdowns) {
+      const existing = current.modelBreakdowns.find((entry) => entry.modelName === model.modelName);
+      if (!existing) current.modelBreakdowns.push({ ...model });
+      else {
+        existing.inputTokens += model.inputTokens;
+        existing.outputTokens += model.outputTokens;
+        existing.cacheReadTokens += model.cacheReadTokens;
+        existing.cacheCreationTokens += model.cacheCreationTokens;
+        existing.cost += model.cost;
+      }
+    }
+    current.modelsUsed = current.modelBreakdowns.map((model) => model.modelName);
+  }
+  return [...byPeriod.values()];
+}
+
+/** Adds the local, non-ccusage sources to ccusage's own calendar rows. Warp is bucketed by each
+ * session's last activity, as it records one ledger per conversation; `localRows` (Antigravity)
+ * arrive already split by the day each model call happened. */
+export function mergeLocalRows(base: MetricRow[], sessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date, localRows: MetricRow[] = []) {
   const rows = new Map(base.map((row) => [row.period, row]));
-  for (const warp of warpRows(warpSessions, timeZone, bucket)) {
-    const current = rows.get(warp.period);
-    rows.set(warp.period, current ? mergeRows(current, warp) : { ...warp, agents: [warp] });
+  for (const local of [...warpRows(sessions, timeZone, bucket), ...bucketLocalRows(localRows, bucket)]) {
+    const current = rows.get(local.period);
+    rows.set(local.period, current ? mergeRows(current, local) : { ...local, agents: [local] });
   }
   return [...rows.values()].sort((left, right) => left.period.localeCompare(right.period));
 }
 
-function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number}, warp: {tokens:number}) {
-  return { ...base, inputTokens: base.inputTokens + warp.tokens, totalTokens: base.totalTokens + warp.tokens };
+/** The original Warp-only name, kept for existing callers. */
+export const mergeWarp = mergeLocalRows;
+
+type TokenTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number};
+type TokenBuckets = Omit<TokenTotals, "totalCost">;
+
+/** Local sources add tokens only. Their cost is credits (Warp) or unpriced (Antigravity), never
+ * dollars, so `totalCost` stays ccusage's own. */
+export function totalsWithLocal(base: TokenTotals, warp: {tokens:number}, antigravity: TokenBuckets[] = []) {
+  const sum = (pick: (row: TokenBuckets) => number) => antigravity.reduce((total, row) => total + pick(row), 0);
+  return {
+    ...base,
+    inputTokens: base.inputTokens + warp.tokens + sum((row) => row.inputTokens),
+    outputTokens: base.outputTokens + sum((row) => row.outputTokens),
+    cacheReadTokens: base.cacheReadTokens + sum((row) => row.cacheReadTokens),
+    cacheCreationTokens: base.cacheCreationTokens + sum((row) => row.cacheCreationTokens),
+    totalTokens: base.totalTokens + warp.tokens + sum((row) => row.totalTokens),
+  };
+}
+
+/** The Antigravity source-health line. Cost is withheld rather than estimated: ccusage prices no
+ * Gemini model, and the app never prices anything on its own. */
+export function antigravityHealth(data: AntigravityData) {
+  if (!data.available) {
+    return { name: "Antigravity local conversations", status: "unavailable" as const, detail: data.error ?? "No Antigravity data directory was found on this machine.", kind: "local metadata" };
+  }
+  const parts = [
+    `${data.sessionCount} ${data.sessionCount === 1 ? "conversation" : "conversations"}`,
+    `${data.generationCount} ${data.generationCount === 1 ? "model call" : "model calls"}`,
+    `${data.roots.length} ${data.roots.length === 1 ? "data directory" : "data directories"} read`,
+    "cost withheld: no ccusage price",
+    ...data.notes,
+  ];
+  return { name: "Antigravity local conversations", status: data.notes.length ? "degraded" as const : "healthy" as const, detail: parts.join(" · "), kind: "local metadata" };
+}
+
+/** The collection behind the newest snapshot, so enabling the effort index can write Antigravity's
+ * rows without waiting for the next collection. */
+let latestAntigravity: AntigravityCollection | null = null;
+
+export function syncLatestAntigravityEffort() {
+  if (latestAntigravity) syncAntigravityEffort(latestAntigravity);
 }
 
 let ccusageCache: { fingerprint: string; expiresAt: number | null; result: Awaited<ReturnType<typeof collectCcusage>> } | null = null;
@@ -293,12 +370,13 @@ async function buildSnapshot() {
   const pathsPromise = indexSessionPaths();
   // The rate card resolves from cache or the bundled fallback; a stale table refreshes in the
   // background, so this never waits on the network.
-  const [paths, ccusage, quota, warpCollection, rateCardState] = await Promise.all([
+  const [paths, ccusage, quota, warpCollection, rateCardState, antigravityCollection] = await Promise.all([
     pathsPromise,
     pathsPromise.then((result) => collectCcusageCached(timeZone, result)),
     collectQuota(),
     collectWarp(timeZone),
     ensureRateCard(),
+    Promise.resolve().then(() => collectAntigravity(timeZone)),
   ]);
   setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
@@ -316,9 +394,17 @@ async function buildSnapshot() {
     pathTags: pathTagsForCwd(session.cwd),
     annotation: annotations[session.sessionId] ?? emptyAnnotation(),
   }));
-  const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
-  const daily = mergeWarp(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
+  const antigravitySessions = antigravityCollection.sessions.map((session) => ({
+    ...session,
+    pathTags: pathTagsForCwd(session.cwd),
+    annotation: annotations[session.sessionId] ?? emptyAnnotation(),
+  }));
+  const sessions = [...transcriptSessions, ...warpSessions, ...antigravitySessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
+  const antigravityRows = antigravityCollection.dailyRows;
+  const daily = mergeLocalRows(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone, undefined, antigravityRows);
   const { sessions: _warpSessions, ...warp } = warpCollection;
+  const { sessions: _antigravitySessions, dailyRows: _antigravityRows, effortSources: _antigravityEffort, complete: _antigravityComplete, ...antigravity } = antigravityCollection;
+  latestAntigravity = antigravityCollection;
   const models = aggregateModels(daily, ccusage.unpricedModels);
   const rateCardHealthEntry = rateCardHealth(rateCardState);
   // Like the rate card, the release list resolves from cache and refreshes in the background.
@@ -332,9 +418,9 @@ async function buildSnapshot() {
     costMethodology: "ccusage",
     blockScope: "Claude Code",
     daily,
-    weekly: mergeWarp(ccusage.unified.weekly as unknown as MetricRow[], sessions, timeZone, weekKey),
-    monthly: mergeWarp(ccusage.unified.monthly as unknown as MetricRow[], sessions, timeZone, monthKey),
-    totals: totalsWithWarp(ccusage.unified.totals, warp.totals),
+    weekly: mergeLocalRows(ccusage.unified.weekly as unknown as MetricRow[], sessions, timeZone, weekKey, antigravityRows),
+    monthly: mergeLocalRows(ccusage.unified.monthly as unknown as MetricRow[], sessions, timeZone, monthKey, antigravityRows),
+    totals: totalsWithLocal(ccusage.unified.totals, warp.totals, antigravitySessions),
     sessions,
     projectActivity: aggregateProjectActivity(sessions, timeZone),
     blocks: ccusage.blocks.blocks,
@@ -345,6 +431,7 @@ async function buildSnapshot() {
     rateCard: summarizeRateCard(rateCardState, models.map((model) => model.model)),
     quotas: quota,
     warp,
+    antigravity,
     rules: listRules(),
     settings: getSettings(),
     sources: [
@@ -366,6 +453,7 @@ async function buildSnapshot() {
           : warp.error ?? "Warp's local session database is unavailable",
         kind: "local metadata",
       },
+      antigravityHealth(antigravity),
       {
         name: "quota-service",
         status: quota.sourceState === "connected" ? "healthy"
@@ -387,6 +475,7 @@ export async function refresh() {
   refreshPromise = buildSnapshot().then((next) => { snapshot = next; lastError = null;
     // Transcript indexing is scheduled only after the snapshot and path catalog succeeded, and
     // is never awaited by a request handler.
+    queueMicrotask(() => { try { syncLatestAntigravityEffort(); } catch { /* effort rows must never break collection */ } });
     queueMicrotask(() => { try { scheduleEffortIndexing(); } catch { /* indexing must never break collection */ } });
     queueMicrotask(() => {
       // Advice is evaluated against the default, unfaceted scope so it cannot depend on what a

@@ -48,3 +48,9 @@ test("priced tokens exclude Warp sightings of a model that ccusage also prices",
   // Equal Warp traffic must not halve the rate: $10 over 1 Mtok of priced traffic.
   expect(model.cost / (model.pricedTokens / 1_000_000)).toBe(10);
 });
+
+test("Antigravity models are unpriced and stay out of the $/Mtok denominator", () => {
+  const gemini = { modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 100, cacheReadTokens: 9_000, cacheCreationTokens: 0, cost: 0 };
+  const [model] = aggregateModels([{ agent: "all", modelBreakdowns: [], agents: [{ agent: "antigravity", modelBreakdowns: [gemini] }] }]);
+  expect(model).toMatchObject({ model: "gemini-4-neon", tokens: 10_100, pricedTokens: 0, cost: 0, priced: false, agents: ["antigravity"] });
+});

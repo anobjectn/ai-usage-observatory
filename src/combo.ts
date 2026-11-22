@@ -115,6 +115,7 @@ const providerColors: Record<ActivityProvider, string> = {
   anthropic: "var(--color-provider-anthropic)",
   codex: "var(--color-provider-openai)",
   warp: warpColor,
+  antigravity: "var(--color-provider-antigravity)",
 };
 
 /** The provider hue a combo pill is drawn in. Families answer "which chart series"; the pill

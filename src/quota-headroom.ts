@@ -2,7 +2,7 @@ import { dateKeyInTimeZone, systemTimeZone } from "./reporting-time";
 import type { DashboardData, QuotaHistory, QuotaProvider, WindowQuotaSnapshot } from "./types";
 
 export type ProviderHeadroom = {
-  provider: "anthropic" | "openai" | "warp";
+  provider: "anthropic" | "openai" | "warp" | "antigravity";
   percent: number | null;
   state: "current" | "stale" | "unknown";
 };
@@ -13,7 +13,10 @@ function constrainedHeadroom(provider: QuotaProvider | undefined) {
     return Math.max(0, Math.min(100, 100 - provider.snapshot.pool.usedPercent));
   }
   const snapshot = provider.snapshot as WindowQuotaSnapshot;
-  const windows = [snapshot.fiveHour, snapshot.weekly, ...Object.values(snapshot.modelWindows ?? {})]
+  // Antigravity's model windows limit other models (Argon, the partner pool), so its headroom is
+  // its primary windows' alone.
+  const modelWindows = provider.provider === "antigravity" ? [] : Object.values(snapshot.modelWindows ?? {});
+  const windows = [snapshot.fiveHour, snapshot.weekly, ...modelWindows]
     .filter((window): window is NonNullable<typeof window> => window !== null);
   if (!windows.length) return null;
   const highestUsage = Math.max(...windows.map((window) => window.usedPercent));
@@ -63,11 +66,14 @@ export function dailyHeadroomSeries(
 
 export function providerHeadroom(quotas: DashboardData["quotas"]): ProviderHeadroom[] {
   const providers = new Map(quotas.usage?.providers.map((provider) => [provider.provider, provider]) ?? []);
-  return ([
+  // Antigravity's ring appears only once quota-service reports it.
+  const rings: ReadonlyArray<readonly [ProviderHeadroom["provider"], QuotaProvider["provider"]]> = [
     ["anthropic", "anthropic"],
     ["openai", "codex"],
     ["warp", "warp"],
-  ] as const).map(([provider, quotaKey]) => {
+    ...(providers.has("antigravity") ? [["antigravity", "antigravity"] as const] : []),
+  ];
+  return rings.map(([provider, quotaKey]) => {
     const quota = providers.get(quotaKey);
     const percent = constrainedHeadroom(quota);
     return {

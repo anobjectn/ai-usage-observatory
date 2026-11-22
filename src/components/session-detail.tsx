@@ -443,7 +443,7 @@ export function SessionQuotaBalanceCell({
   provider: ActivityProvider | null;
   modelsUsed: readonly string[];
 }) {
-  const balances = sessionQuotaBalanceItems(context).filter((balance) => quotaResourceApplies(balance.id, modelsUsed));
+  const balances = sessionQuotaBalanceItems(context).filter((balance) => quotaResourceApplies(balance.id, modelsUsed, context?.provider));
   const providerClass = provider ?? "unknown";
   if (loading) return <span className={`session-quota-balance ${providerClass} is-loading`} aria-label="Loading remaining quota">•••</span>;
   if (!balances.length) {
@@ -546,10 +546,10 @@ export function SessionQuotaContextPanel({
   sessionId?: string;
   modelsUsed: readonly string[];
 }) {
-  const providerLabel = context.provider === "anthropic" ? "Claude" : context.provider === "codex" ? "Codex" : "Warp";
+  const providerLabel = context.provider === "anthropic" ? "Claude" : context.provider === "codex" ? "Codex" : context.provider === "antigravity" ? "Antigravity" : "Warp";
   const sameProvider = context.concurrency.distinctOtherSameProviderSessions;
   const evidence = context.basis === "embedded_account_observation" ? "Embedded snapshots" : "Bracketed snapshots";
-  const balances = sessionQuotaBalanceItems(context).filter((balance) => quotaResourceApplies(balance.id, modelsUsed));
+  const balances = sessionQuotaBalanceItems(context).filter((balance) => quotaResourceApplies(balance.id, modelsUsed, context.provider));
   const availableBalances = balances.filter((balance) => balance.remainingPercent !== null || balance.remainingUnits !== null);
   const titleId = `session-quota-context-title-${useId()}`;
   const concurrentSessions = context.concurrency.sessions ?? [];
@@ -558,7 +558,7 @@ export function SessionQuotaContextPanel({
   // A model window the session never ran is not part of its story; a window that resolved
   // without moving is named once rather than given a row of zeros. A window with a caveat keeps
   // its row, because a zero so far says nothing about the part still awaiting a reading.
-  const applicable = context.resources.filter((resource) => quotaResourceApplies(resource.id, modelsUsed));
+  const applicable = context.resources.filter((resource) => quotaResourceApplies(resource.id, modelsUsed, context.provider));
   const unchanged = applicable.filter((resource) => resource.confidence !== "insufficient"
     && (resource.deltaPercentagePoints !== null || resource.deltaUnits !== null)
     && resource.reason === null
@@ -830,6 +830,10 @@ export function SessionDetailPanel({
   // column's numbers come from, and that Warp records no file paths and no
   // transcript file to open — never the shape of the panel.
   const warp = session.source === "warp" ? (session.warp ?? null) : null;
+  // Antigravity sessions are usage metadata only: the panel keeps its columns, and the ones that
+  // would hold conversation content say that it is not imported.
+  const antigravity = session.source === "antigravity" ? (session.antigravity ?? null) : null;
+  const notImported = "Antigravity conversation content is not imported.";
   if (loading)
     return (
       <div className="session-detail session-detail--loading">
@@ -847,7 +851,7 @@ export function SessionDetailPanel({
         )}
       </div>
     );
-  if (!warp && !detail?.available)
+  if (!warp && !antigravity && !detail?.available)
     return (
       <div className="session-detail session-detail--empty">
         The indexed record is no longer available locally.
@@ -911,7 +915,7 @@ export function SessionDetailPanel({
   ];
   const quotaSummary = quotaImpactSummary(detail?.quotaContext, session.modelsUsed);
   return (
-    <div className={`session-detail${warp ? " session-detail--warp" : ""}`}>
+    <div className={`session-detail${warp ? " session-detail--warp" : antigravity ? " session-detail--antigravity" : ""}`}>
       <div className={`session-detail__summary${quotaSummary.length > 0 ? " session-detail__summary--with-quota" : ""}`}>
         <div className="session-detail__verdict">
           <span>YOUR VERDICT</span>
@@ -923,25 +927,48 @@ export function SessionDetailPanel({
             />
           </strong>
         </div>
-        <div>
-          <span>{warp ? "RECORDED EVENTS" : "TRANSCRIPT EVENTS"}</span>
-          <strong>{eventsRead}</strong>
-        </div>
-        <div>
-          <span>TOOL CALLS</span>
-          <strong>{toolCalls}</strong>
-        </div>
-        <div>
-          <span>FILES TOUCHED</span>
-          <strong>{fileCount}</strong>
-        </div>
-        <div className="diff-count">
-          <span>PATCH SUMMARY</span>
-          <strong>
-            <i>+{additions}</i>
-            <em>−{deletions}</em>
-          </strong>
-        </div>
+        {antigravity ? (
+          <>
+            <div title="Model calls with a usage record: each turn, plus context compaction.">
+              <span>MODEL CALLS</span>
+              <strong>{antigravity.generations}</strong>
+            </div>
+            <div title="Thinking tokens, inside generated output.">
+              <span>REASONING TOKENS</span>
+              <strong>{formatCompact(antigravity.reasoningOutputTokens)}</strong>
+            </div>
+            <div title={session.cwd ?? undefined}>
+              <span>WORKSPACE</span>
+              <strong>{session.cwd?.split("/").filter(Boolean).at(-1) ?? "—"}</strong>
+            </div>
+            <div title={antigravity.parentConversationId ? `Subagent of ${antigravity.parentConversationId}` : undefined}>
+              <span>RECORDED BY</span>
+              <strong>{antigravity.root === "t3" ? "T3 Code" : "Antigravity IDE"}</strong>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <span>{warp ? "RECORDED EVENTS" : "TRANSCRIPT EVENTS"}</span>
+              <strong>{eventsRead}</strong>
+            </div>
+            <div>
+              <span>TOOL CALLS</span>
+              <strong>{toolCalls}</strong>
+            </div>
+            <div>
+              <span>FILES TOUCHED</span>
+              <strong>{fileCount}</strong>
+            </div>
+            <div className="diff-count">
+              <span>PATCH SUMMARY</span>
+              <strong>
+                <i>+{additions}</i>
+                <em>−{deletions}</em>
+              </strong>
+            </div>
+          </>
+        )}
         {quotaSummary.length > 0 && (
           <div
             className="session-detail__quota-meta"
@@ -999,9 +1026,9 @@ export function SessionDetailPanel({
                   {promptOrder === "newest" ? "Newest first ↓" : "Oldest first ↑"}
                 </button>
               ) : (
-                <small>No prompt events detected</small>
+                <small>{antigravity ? "Not imported" : "No prompt events detected"}</small>
               )}
-              {!warp && (
+              {!warp && !antigravity && (
                 <CompactActionMenu
                   label="Open Prompt source actions"
                   title="Prompt source"
@@ -1028,7 +1055,9 @@ export function SessionDetailPanel({
             </ol>
           ) : (
             <p>
-              {warp
+              {antigravity
+                ? notImported
+                : warp
                 ? "This conversation recorded no typed prompt of its own."
                 : "Prompt text was not available in this session format."}
             </p>
@@ -1059,9 +1088,9 @@ export function SessionDetailPanel({
               <small>
                 {outputs.length
                   ? `${outputs.length} recent sample${outputs.length === 1 ? "" : "s"}${outputs.some((output) => output.truncated) ? " · clipped" : ""}`
-                  : "No assistant text detected"}
+                  : antigravity ? "Not imported" : "No assistant text detected"}
               </small>
-              {!warp && (
+              {!warp && !antigravity && (
                 <CompactActionMenu
                   label="Open Output source actions"
                   title="Output source"
@@ -1089,7 +1118,9 @@ export function SessionDetailPanel({
             </ol>
           ) : (
             <p>
-              {warp
+              {antigravity
+                ? notImported
+                : warp
                 ? "Warp kept no local copy of this conversation's replies."
                 : "Assistant-visible output text was not available in this session format."}
             </p>
@@ -1165,6 +1196,8 @@ export function SessionDetailPanel({
               <li><span>Failed commands</span><b>{warp.failedCommands}</b></li>
               <li><span>Compaction observed</span><b>{warp.wasSummarized ? "Yes" : "No"}</b></li>
             </ul>
+          ) : antigravity ? (
+            <p>Antigravity tool payloads are not imported, so no file changes are listed.</p>
           ) : (
             <p>File changes are detected from structured patch calls only.</p>
           )}
@@ -1197,7 +1230,7 @@ export function SessionDetailPanel({
               ))}
             </ul>
           ) : (
-            <p>No structured tool calls were found.</p>
+            <p>{antigravity ? "Antigravity tool payloads are not imported." : "No structured tool calls were found."}</p>
           )}
         </SessionDetailColumn>
         <SessionModelEffortSection
@@ -1267,6 +1300,14 @@ export function SessionDetailPanel({
           />
         )}
       </div>
+      {antigravity && (
+        <p className="scope-note">
+          <Database /> Read from Antigravity's local conversation databases on this computer:
+          token counts, model, effort label, and step times only. Prompts, replies, reasoning,
+          and tool payloads are never imported. No ccusage price exists for these models, so
+          cost is withheld rather than estimated.
+        </p>
+      )}
       {warp && (
         <p className="scope-note">
           <Database /> Read from Warp's local database on this computer: prompts from its
@@ -1296,12 +1337,14 @@ export const sessionProviderLabels: Record<ActivityProvider, string> = {
   anthropic: "Anthropic",
   codex: "OpenAI",
   warp: "Warp",
+  antigravity: "Antigravity",
 };
 
 export const sessionProviderColors: Record<ActivityProvider, string> = {
   anthropic: "var(--color-provider-anthropic)",
   codex: "var(--color-provider-openai)",
   warp: "var(--color-provider-warp)",
+  antigravity: "var(--color-provider-antigravity)",
 };
 
 export type SessionMixCombo = Combo & { tokens: number; observations: number };

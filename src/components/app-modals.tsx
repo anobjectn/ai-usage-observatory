@@ -312,6 +312,7 @@ export function AppearanceModal({
     Number(providerColors.anthropic !== starting.providerColors.anthropic) +
     Number(providerColors.openai !== starting.providerColors.openai) +
     Number(providerColors.warp !== starting.providerColors.warp) +
+    Number(providerColors.antigravity !== starting.providerColors.antigravity) +
     Number(
       favoriteAccents.length !== starting.favoriteAccents.length ||
         favoriteAccents.some(
@@ -438,6 +439,13 @@ export function AppearanceModal({
               value={providerColors.warp}
               onChange={(value) =>
                 onProviderColorsChange({ ...providerColors, warp: value })
+              }
+            />
+            <ColorControl
+              label="Antigravity"
+              value={providerColors.antigravity}
+              onChange={(value) =>
+                onProviderColorsChange({ ...providerColors, antigravity: value })
               }
             />
           </div>

@@ -23,7 +23,7 @@ export type QuotaMarkerEntry = {
 
 type MarkerKind = "quota" | "weekly" | "reset";
 type MarkerProvider = "anthropic" | "codex";
-type ProviderFilter = MarkerProvider | "warp" | null;
+type ProviderFilter = MarkerProvider | "warp" | "antigravity" | null;
 type MarkerEvent = {
   timestamp: number;
   kind: MarkerKind;
@@ -38,7 +38,10 @@ const kindLabels: Record<MarkerKind, string> = {
 
 function events(history?: QuotaHistory): MarkerEvent[] {
   if (!history?.available) return [];
-  const quotaEvents = history.windows.flatMap((window) =>
+  // Chart markers cover Claude and Codex. Antigravity's reaches are listed on its quota card.
+  const markerWindows = history.windows.filter((window): window is typeof window & { provider: MarkerProvider } =>
+    window.provider === "anthropic" || window.provider === "codex");
+  const quotaEvents = markerWindows.flatMap((window) =>
     window.reachedAt.map((timestamp) => ({
       timestamp,
       kind: window.window === "weekly" ? ("weekly" as const) : ("quota" as const),

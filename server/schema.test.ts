@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { activeBlockExpiry, aggregateProjectActivity, aggregateProjects, ccusageCacheUsable, mergeWarp, monthKey, weekKey } from "./collector";
+import { activeBlockExpiry, aggregateProjectActivity, aggregateProjects, antigravityHealth, ccusageCacheUsable, mergeLocalRows, mergeWarp, monthKey, totalsWithLocal, weekKey } from "./collector";
 import { sessionReportKeys, stableSessionId } from "./path-indexer";
 import { blocksReportSchema, unifiedReportSchema } from "./schema";
 
@@ -277,5 +277,79 @@ describe("ccusage report cache", () => {
     expect(ccusageCacheUsable(cache, "a", Date.parse("2030-01-01"))).toBe(true);
     expect(ccusageCacheUsable(cache, "b", 0)).toBe(false);
     expect(ccusageCacheUsable(null, "a", 0)).toBe(false);
+  });
+});
+
+describe("Antigravity usage in period rows", () => {
+  const dayRow = (period: string, input: number, cacheRead: number) => ({
+    agent: "antigravity",
+    period,
+    inputTokens: input,
+    outputTokens: 10,
+    cacheReadTokens: cacheRead,
+    cacheCreationTokens: 0,
+    totalTokens: input + 10 + cacheRead,
+    totalCost: 0,
+    modelsUsed: ["gemini-4-neon"],
+    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: input, outputTokens: 10, cacheReadTokens: cacheRead, cacheCreationTokens: 0, cost: 0 }],
+  });
+  const ccusageRow = (period: string) => ({
+    agent: "all", period, inputTokens: 10, outputTokens: 5, cacheReadTokens: 20, cacheCreationTokens: 0,
+    totalTokens: 35, totalCost: 0.02, modelsUsed: [], modelBreakdowns: [],
+  });
+  const rows = [dayRow("2026-11-21", 100, 1_000), dayRow("2026-11-22", 50, 500), dayRow("2026-11-23", 7, 0)];
+
+  test("daily rows keep each generation day and join the ccusage day beside them", () => {
+    const daily = mergeLocalRows([ccusageRow("2026-11-21")], [], "UTC", undefined, rows);
+    expect(daily.map((row) => [row.period, row.totalTokens])).toEqual([["2026-11-21", 1_145], ["2026-11-22", 560], ["2026-11-23", 17]]);
+    expect(daily[0]!.agents?.map((agent) => agent.agent)).toEqual(["antigravity"]);
+    expect(daily[0]).toMatchObject({ agent: "all", cacheReadTokens: 1_020, totalCost: 0.02 });
+  });
+
+  test("weeks and months fold the same days on ccusage's calendar", () => {
+    const weekly = mergeLocalRows([], [], "UTC", weekKey, rows);
+    expect(weekly.map((row) => [row.period, row.totalTokens, row.modelBreakdowns[0]?.inputTokens])).toEqual([
+      ["2026-11-16", 1_670, 150],
+      ["2026-11-23", 17, 7],
+    ]);
+    const monthly = mergeLocalRows([ccusageRow("2026-11")], [], "UTC", monthKey, rows);
+    expect(monthly).toHaveLength(1);
+    expect(monthly[0]).toMatchObject({ period: "2026-11", totalTokens: 35 + 1_687 });
+  });
+
+  test("a multi-day session is split by day in rows and kept whole on its last day in projects", () => {
+    const session = {
+      agent: "antigravity", period: "2026-11-23T01:00:00.000Z", totalTokens: 1_687, totalCost: 0,
+      inputTokens: 157, outputTokens: 30, cacheReadTokens: 1_500, cacheCreationTokens: 0,
+      cwd: "/work/quota-service", metadata: { lastActivity: "2026-11-23T01:00:00.000Z" },
+      modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 157, outputTokens: 30, cacheReadTokens: 1_500, cacheCreationTokens: 0, cost: 0 }],
+    };
+    const activity = aggregateProjectActivity([session], "UTC");
+    expect(activity.map((row) => [row.date, row.provider, row.tokens])).toEqual([["2026-11-23", "antigravity", 1_687]]);
+    const daily = mergeLocalRows([], [session], "UTC", undefined, rows);
+    expect(daily.reduce((sum, row) => sum + row.totalTokens, 0)).toBe(session.totalTokens);
+  });
+
+  test("totals add each token bucket and never a cost", () => {
+    const totals = totalsWithLocal(
+      { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheCreationTokens: 4, totalTokens: 10, totalCost: 5 },
+      { tokens: 100 },
+      [{ inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheCreationTokens: 40, totalTokens: 100 }],
+    );
+    expect(totals).toEqual({ inputTokens: 111, outputTokens: 22, cacheReadTokens: 33, cacheCreationTokens: 44, totalTokens: 210, totalCost: 5 });
+  });
+
+  test("source health names the read and withholds cost", () => {
+    const data = {
+      available: true, roots: [".t3/userdata/providers/antigravity/x/antigravity-acp"], observedAt: "", sessionCount: 2,
+      generationCount: 9, auxiliaryCalls: 1, totals: { sessions: 2, generations: 9, tokens: 1, reasoningOutputTokens: 0 },
+      daily: [], notes: [], subagentConversations: 0,
+    };
+    expect(antigravityHealth(data)).toEqual({
+      name: "Antigravity local conversations", status: "healthy", kind: "local metadata",
+      detail: "2 conversations · 9 model calls · 1 data directory read · cost withheld: no ccusage price",
+    });
+    expect(antigravityHealth({ ...data, notes: ["1 database could not be read safely; the last good read is kept"] }).status).toBe("degraded");
+    expect(antigravityHealth({ ...data, available: false, roots: [], error: "No Antigravity data directory was found on this machine." })).toMatchObject({ status: "unavailable" });
   });
 });

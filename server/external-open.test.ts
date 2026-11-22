@@ -86,3 +86,19 @@ describe("external-open request boundary", () => {
     ).toEqual(["/usr/bin/open", "-t", path]);
   });
 });
+
+describe("Antigravity sessions", () => {
+  test("have no transcript to open: the provider database is refused", async () => {
+    const { db } = await import("./store");
+    const { openSessionExternalTarget } = await import("./external-open");
+    db.query(`INSERT OR REPLACE INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size)
+      VALUES ('antigravity-open', 'antigravity', 'open', '/tmp/antigravity-open.db', '/tmp', 1, 1)`).run();
+    try {
+      const attempt = openSessionExternalTarget("antigravity-open", "reveal", { kind: "transcript" });
+      await expect(attempt).rejects.toBeInstanceOf(ExternalOpenError);
+      await expect(openSessionExternalTarget("antigravity-open", "vscode", { kind: "transcript" })).rejects.toMatchObject({ status: 409 });
+    } finally {
+      db.query("DELETE FROM session_paths WHERE session_id = 'antigravity-open'").run();
+    }
+  });
+});
