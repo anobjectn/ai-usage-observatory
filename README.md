@@ -383,7 +383,9 @@ replies, reasoning, and tool payloads. Two readers open them:
   source health.
 
 Set `ANTIGRAVITY_DATA_DIRS` to read other directories instead; both readers then
-use exactly that list. ccusage takes the list comma-separated, so a directory
+use exactly that list. Effort rows already stored for a conversation outside the
+new list are kept until its database file is deleted, and source health counts
+them as not read. ccusage takes the list comma-separated, so a directory
 whose path contains a comma is read only by the metadata reader: ccusage reports
 no usage from it, and source health names it.
 

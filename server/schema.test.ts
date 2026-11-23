@@ -393,7 +393,12 @@ describe("Antigravity through ccusage", () => {
     const apart = antigravityHealth({ ...data, reconciliation: antigravityReconciliation(sessions, [conversation("a", 990), conversation("b", 5)]) });
     expect(apart.status).toBe("degraded");
     expect(apart.detail).toContain("ccusage reports 1 session and 1,000 tokens; the metadata reader found 2 and 995 (1 joined, 0 ccusage only, 1 metadata only)");
-    expect(antigravityHealth({ ...data, notes: ["1 database could not be read safely; the last good read is kept"] }).status).toBe("degraded");
+    expect(antigravityHealth({ ...data, notes: ["1 database could not be read this time"] }).status).toBe("degraded");
     expect(antigravityHealth({ ...data, available: false, roots: [], error: "No Antigravity data directory was found on this machine." })).toMatchObject({ status: "unavailable" });
+    // No root was read, but the collection noted why: degraded, with the notes, not "not found".
+    expect(antigravityHealth({ ...data, available: false, roots: [], error: "No Antigravity data directory could be read on this machine.", notes: ["1 data directory could not be checked; its sessions are left out"] })).toEqual({
+      name: "Antigravity local conversations", status: "degraded", kind: "local metadata",
+      detail: "No Antigravity data directory could be read on this machine. · 1 data directory could not be checked; its sessions are left out",
+    });
   });
 });

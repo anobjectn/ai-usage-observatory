@@ -133,9 +133,13 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
      with `immutable=1` and a non-empty one is skipped. Bun reports `SQLITE_CANTOPEN` (a closed
      WAL file with no sidecars) on the first query, which falls back to `immutable=1`; that read is
      kept only if the main file and `-wal` are unchanged after it. An unsafe read keeps the last
-     good parse and is noted in source health. A `conversations` directory that is missing has no
-     conversations; one that cannot be listed (permissions, I/O) keeps every parse cached under
-     that root, is noted, and marks the collection incomplete, so no session is pruned.
+     good parse, if there is one, and is noted in source health. A data directory or
+     `conversations` directory that is missing (ENOENT) has no conversations. One that cannot be
+     checked or listed (permissions, I/O), or a listed database whose stat fails, is noted in
+     source health, and its sessions are left out of the collection: ccusage cannot read them
+     either, so no cached parse is served for them. When no data directory could be read but
+     something was noted, source health reports the source degraded with those notes, not
+     missing.
    - **Evidence.** Step times become activity evidence through `saveLocalEvidence`; a summary's
      modified time orders a session but never stands in for activity.
    - **Cost.** Antigravity cost is ccusage's, like Claude's and Codex's. Offline, ccusage has no
@@ -205,9 +209,13 @@ each call's model, label, and tokens, so `server/antigravity-effort.ts` writes t
 successful collection: a `session_paths` row (agent `antigravity`) for every session, and, only
 while the index is enabled, one replacement of that session's effort state and rows whenever its
 database signature changes, in one transaction. A pass that began before derived data was deleted
-writes nothing. After a collection that read every source, rows for conversations that are gone
-are pruned, and the foreign-key cascade removes their effort rows. These sources never enter the
-transcript catalog or `PARSER_VERSION`; their databases enter the `ccusage` fingerprint only.
+writes nothing. Every stored session a collection did not produce is checked against its own
+database file: only ENOENT on that file prunes its row, and the foreign-key cascade removes its
+effort rows. Any other outcome (a permission or I/O error, a file that exists but was not read or
+understood this time, or a file under a root that is no longer configured) keeps the row and its
+effort rows, and source health says how many stored conversations were not read. These sources
+never enter the transcript catalog or `PARSER_VERSION`; their databases enter the `ccusage`
+fingerprint only.
 
 The database never stores prompt or response content, reasoning text, commands, tool payloads,
 file contents, or transcript fragments. Disabling retains derived rows but excludes them from

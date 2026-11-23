@@ -6,6 +6,7 @@ import { Database } from "bun:sqlite";
 import { antigravityDatabaseFiles, collectAntigravity, resetAntigravityCache } from "./antigravity";
 import { ANTIGRAVITY_EFFORT_VERSION, syncAntigravityEffort } from "./antigravity-effort";
 import { appendConversation, conversationPath, writeConversation } from "./antigravity-fixture";
+import { antigravityHealth } from "./collector";
 import { buildSessionEffortCombos } from "./effort-api";
 import { deleteEffortDerived, effortGeneration, getEffortState, setEffortEnabled } from "./effort-store";
 import { getSessionEpisodes } from "./session-evidence";
@@ -13,6 +14,8 @@ import { db } from "./store";
 import { testAntigravityDirectory } from "./test-setup";
 
 const t0 = Date.UTC(2026, 10, 21, 20, 0, 0);
+/** Root ignores file modes, so a test that denies access by chmod proves nothing there. */
+const permissionTest = test.skipIf(process.getuid?.() === 0);
 const neonHigh = { modelId: "gemini-4-neon", label: "Gemini 4 Neon (High)" };
 let root: string;
 
@@ -95,7 +98,8 @@ function sessionPathIds() {
   return (db.query("SELECT session_id FROM session_paths WHERE agent = 'antigravity' ORDER BY session_id").all() as Array<{ session_id: string }>).map((row) => row.session_id);
 }
 
-const uncheckedNote = "1 stored conversation could not be checked; its effort rows are kept";
+const uncheckedNote = "1 stored conversation was not read this time; its effort rows are kept until its database file is deleted";
+const unreadableNote = "1 database could not be read this time";
 
 /** Collects and syncs one conversation with effort enabled, so it has stored effort rows. */
 function storedConversation(id: string) {
@@ -128,7 +132,7 @@ test("a sync removes only the sessions the collection found missing", () => {
   expect(usageRows("antigravity-six")).toEqual([]);
 });
 
-test("an unlistable conversations directory keeps every stored session and prunes nothing", () => {
+permissionTest("an unlistable conversations directory keeps every stored session and prunes nothing", () => {
   storedConversation("seven");
 
   // Permission denied is not an empty directory: which conversations exist is unknown.
@@ -156,29 +160,65 @@ test("an unlistable conversations directory keeps every stored session and prune
   expect(sessionPathIds()).toEqual([]);
 });
 
-test("a conversations directory that lists but denies lookups (0400) keeps the stored rows", () => {
+permissionTest("a conversations directory that lists but denies lookups (0400) keeps the stored rows", () => {
   storedConversation("listable");
   chmodSync(join(root, "conversations"), 0o400);
   resetAntigravityCache();
   const collected = collectAntigravity("UTC");
   expect(collected.effortSources).toEqual([]);
   expect(collected.missingSessionIds).toEqual([]);
-  expect(collected.notes).toContain(uncheckedNote);
+  // The listed file could not be checked: counted as unreadable, never treated as missing.
+  expect(collected.notes).toEqual([unreadableNote, uncheckedNote]);
   syncAntigravityEffort(collected);
   expect(usageRows("antigravity-listable")).toHaveLength(1);
   expect(sessionPathIds()).toEqual(["antigravity-listable"]);
 });
 
-test("a root whose ancestor denies access (000) keeps the stored rows", () => {
+permissionTest("a cold start in a conversations directory that lists but denies lookups (0400) is noted", () => {
+  // No stored session, so only the per-file stat error can say anything is wrong.
+  writeConversation(root, "cold", conversation("cold"));
+  chmodSync(join(root, "conversations"), 0o400);
+  const collected = collectAntigravity("UTC");
+  expect(collected.effortSources).toEqual([]);
+  expect(collected.missingSessionIds).toEqual([]);
+  expect(collected.notes).toEqual([unreadableNote]);
+  const health = antigravityHealth(collected);
+  expect(health.status).toBe("degraded");
+  expect(health.detail).toContain(unreadableNote);
+});
+
+permissionTest("a root whose ancestor denies access (000) keeps the stored rows", () => {
   storedConversation("ancestor");
   chmodSync(join(root, ".."), 0o000);
   const collected = collectAntigravity("UTC");
   expect(collected.effortSources).toEqual([]);
   expect(collected.missingSessionIds).toEqual([]);
-  expect(collected.notes).toContain(uncheckedNote);
+  // The root could not be checked, which is not the same as no root at all.
+  expect(collected.notes).toEqual(["1 data directory could not be checked; its sessions are left out", uncheckedNote]);
+  expect(collected.error).toBe("No Antigravity data directory could be read on this machine.");
+  const health = antigravityHealth(collected);
+  expect(health.status).toBe("degraded");
+  expect(health.detail).toContain(uncheckedNote);
   syncAntigravityEffort(collected);
   expect(usageRows("antigravity-ancestor")).toHaveLength(1);
   expect(sessionPathIds()).toEqual(["antigravity-ancestor"]);
+});
+
+test("a stored conversation outside the configured roots keeps its rows and is noted", () => {
+  storedConversation("elsewhere");
+  // The configured list moves to another directory; the old file is still there.
+  const other = join(root, "../../other/antigravity-acp");
+  mkdirSync(join(other, "conversations"), { recursive: true });
+  process.env.ANTIGRAVITY_DATA_DIRS = other;
+  const collected = collectAntigravity("UTC");
+  expect(collected.available).toBe(true);
+  expect(collected.effortSources).toEqual([]);
+  expect(collected.missingSessionIds).toEqual([]);
+  expect(collected.notes).toEqual([uncheckedNote]);
+  expect(antigravityHealth(collected).status).toBe("degraded");
+  syncAntigravityEffort(collected);
+  expect(usageRows("antigravity-elsewhere")).toHaveLength(1);
+  expect(sessionPathIds()).toEqual(["antigravity-elsewhere"]);
 });
 
 test("a conversation whose schema changed (a renamed column) keeps its stored rows", () => {

@@ -129,9 +129,23 @@ function statOrNull(path: string) {
   try { return statSync(path); } catch { return undefined; }
 }
 
-function sidecars(path: string): Sidecars | null {
-  const main = statOrNull(path);
-  if (!main) return null;
+/** A path's stats, `"absent"` when it does not exist (ENOENT), or `"error"` when it could not be
+ * checked: a permission error on it or an ancestor, or an I/O error. Only `"absent"` means the
+ * path is missing; `"error"` says nothing either way, so callers count and note it. */
+type Probe = Stats | "absent" | "error";
+
+function probe(path: string): Probe {
+  try {
+    return statSync(path);
+  } catch (error) {
+    return errorCode(error) === "ENOENT" ? "absent" : "error";
+  }
+}
+
+/** The main file's state plus its sidecars, or the main file's probe result when it has none. */
+function sidecars(path: string): Sidecars | "absent" | "error" {
+  const main = probe(path);
+  if (typeof main === "string") return main;
   return {
     main: fileState(main)!,
     wal: fileState(statOrNull(`${path}-wal`)),
@@ -167,7 +181,7 @@ function errorCode(error: unknown) {
  */
 export function readProviderDatabase<T>(path: string, read: (database: Database) => T): ReadResult<T> {
   const before = sidecars(path);
-  if (!before) return { ok: false, reason: "missing" };
+  if (typeof before === "string") return { ok: false, reason: before === "absent" ? "missing" : "the file could not be checked" };
   const success = (value: T, mode: "plain" | "immutable", state: Sidecars) => ({
     ok: true as const, value, mode, signature: databaseSignature(state), identity: state.identity,
     mtimeMs: state.main.mtimeMs, size: state.main.size,
@@ -181,7 +195,7 @@ export function readProviderDatabase<T>(path: string, read: (database: Database)
       return { ok: false, reason: error instanceof Error ? error.message : String(error) };
     }
     const after = sidecars(path);
-    if (!after || databaseSignature(after) !== databaseSignature(before) || (after.wal?.size ?? 0) > 0) {
+    if (typeof after === "string" || databaseSignature(after) !== databaseSignature(before) || (after.wal?.size ?? 0) > 0) {
       return { ok: false, reason: "the database changed while it was read" };
     }
     return success(value, "immutable", before);
@@ -715,9 +729,10 @@ function plural(count: number, one: string, many = `${one}s`) {
 /**
  * Stored Antigravity sessions this collection did not produce, checked one by one against their
  * own database file. Only ENOENT on that file means the conversation is gone. Anything else (a
- * permission error on the file or an ancestor, an I/O error, or a file that is there but could
- * not be read or understood this time) says nothing about whether it still exists, so its row and
- * effort rows are kept and counted as unchecked.
+ * permission error on the file or an ancestor, an I/O error, a file that is there but could not
+ * be read or understood this time, or a file under a root that is no longer configured) says
+ * nothing about whether it still exists, so its row and effort rows are kept and counted as not
+ * read this time.
  */
 function checkStoredSessions(seen: ReadonlySet<string>) {
   const rows = db.query("SELECT session_id AS sessionId, source_file AS sourceFile FROM session_paths WHERE agent = 'antigravity'")
@@ -752,8 +767,16 @@ export function antigravitySessionModels(sessionId: string) {
  */
 export function collectAntigravity(timeZone = systemTimeZone()): AntigravityCollection {
   const observedAt = new Date().toISOString();
-  const roots = antigravityRoots().filter((root) => existsSync(root.path));
   const notes = new Set<string>();
+  // A root that is absent has nothing to read. One that could not be checked (a permission error
+  // on an ancestor, an I/O error) is not missing: it is counted and noted, and its stored rows are
+  // kept by the per-row check below.
+  let uncheckedRoots = 0;
+  const roots = antigravityRoots().filter((root) => {
+    const state = probe(root.path);
+    if (state === "error") uncheckedRoots++;
+    return typeof state !== "string";
+  });
   let unlisted = 0;
   let unreadable = 0;
   let drift = 0;
@@ -767,7 +790,14 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
     const summaryPath = join(root.path, "conversation_summaries.db");
     let summaries = new Map<string, Summary>();
     const summaryState = sidecars(summaryPath);
-    if (summaryState) {
+    if (summaryState === "error") {
+      unreadable++;
+      const cached = summaryCache.get(summaryPath);
+      if (cached) {
+        summaries = cached.summaries;
+        if (cached.drift) drift++;
+      }
+    } else if (summaryState !== "absent") {
       const cached = summaryCache.get(summaryPath);
       if (cached && cached.signature === databaseSignature(summaryState) && cached.identity === summaryState.identity) {
         summaries = cached.summaries;
@@ -799,7 +829,13 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
     for (const { conversationId, path } of listing.conversations) {
       present.add(path);
       const state = sidecars(path);
-      if (!state) continue;
+      // Listed a moment ago and gone now: nothing to read. A file that could not be checked is
+      // not missing, so it is counted; its stored rows are kept by the per-row check below.
+      if (state === "absent") continue;
+      if (state === "error") {
+        unreadable++;
+        continue;
+      }
       const cached = conversationCache.get(path);
       let parse: ConversationParse;
       let fresh = true;
@@ -875,16 +911,20 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   const unknownEffort = effortSources.reduce((sum, source) => sum + source.unknownObservations, 0);
   const commaRoots = roots.filter((root) => ccusageCannotRead(root.path)).length;
   const subagentConversations = chosen.filter((candidate) => candidate.summary?.parentConversationId || (candidate.summary?.nestingDepth ?? 0) > 0).length;
+  if (uncheckedRoots) notes.add(`${plural(uncheckedRoots, "data directory", "data directories")} could not be checked; ${uncheckedRoots === 1 ? "its" : "their"} sessions are left out`);
   if (unlisted) notes.add(`${plural(unlisted, "conversations directory", "conversations directories")} could not be listed; ${unlisted === 1 ? "its" : "their"} sessions are left out`);
   if (commaRoots) notes.add(`${plural(commaRoots, "data directory", "data directories")} with a comma in the path cannot be passed to ccusage, which reports no usage from ${commaRoots === 1 ? "it" : "them"}`);
-  if (unreadable) notes.add(`${plural(unreadable, "database")} could not be read safely; the last good read is kept`);
+  if (unreadable) notes.add(`${plural(unreadable, "database")} could not be read this time`);
   if (drift) notes.add(`${plural(drift, "database")} did not match the expected schema`);
   if (stepsNotUnderstood) notes.add(`${plural(stepsNotUnderstood, "step")} could not be decoded`);
   // A finished model turn always records its usage, so one without it means the field moved.
   if (turnsWithoutUsage) notes.add(`${plural(turnsWithoutUsage, "model turn")} carried no readable usage record`);
   if (oversizedGenerations) notes.add(`${plural(oversizedGenerations, "generation record")} over 16 MiB skipped`);
   if (unknownEffort) notes.add(`${plural(unknownEffort, "model call")} without a recognized effort label`);
-  if (stored.unchecked) notes.add(`${plural(stored.unchecked, "stored conversation")} could not be checked; ${stored.unchecked === 1 ? "its" : "their"} effort rows are kept`);
+  if (stored.unchecked) {
+    const one = stored.unchecked === 1;
+    notes.add(`${plural(stored.unchecked, "stored conversation")} ${one ? "was" : "were"} not read this time; ${one ? "its" : "their"} effort rows are kept until ${one ? "its" : "their"} database file is deleted`);
+  }
   if (subagentConversations) notes.add(`${plural(subagentConversations, "subagent conversation")} counted as separate sessions`);
 
   const days = new Map<string, { generations: number; tokens: number }>();
@@ -915,7 +955,9 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
     daily: [...days.entries()].map(([date, values]) => ({ date, ...values })).sort((left, right) => left.date.localeCompare(right.date)),
     notes: [...notes],
     subagentConversations,
-    ...(roots.length ? {} : { error: "No Antigravity data directory was found on this machine." }),
+    ...(roots.length ? {} : {
+      error: uncheckedRoots ? "No Antigravity data directory could be read on this machine." : "No Antigravity data directory was found on this machine.",
+    }),
     conversations,
     effortSources,
     missingSessionIds: stored.missing,

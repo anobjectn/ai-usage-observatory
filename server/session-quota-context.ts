@@ -504,9 +504,16 @@ function markerEpisodes(markers: QuotaLifecycleMarker[]): ActivityEpisode[] {
 export async function getSessionQuotaContext(sessionId: string): Promise<SessionQuotaContext | null> {
   const provider = getSessionProvider(sessionId);
   let episodes = getSessionEpisodes(sessionId);
-  // Keyed on the unrefined episodes so a hit also skips the lifecycle-marker fetch below.
+  // Keyed on the unrefined episodes so a hit also skips the lifecycle-marker fetch below. An
+  // Antigravity result also depends on which model windows were kept, so its key carries the
+  // session's models and the current window identity: a session that later records another model
+  // (a generation row written after its steps), or an identity that changes, is computed again
+  // rather than served a settled result built from the old window set.
+  const windowKey = provider === "antigravity"
+    ? `:${JSON.stringify([...(antigravitySessionModels(sessionId) ?? [])].sort())}:${JSON.stringify(currentModelWindowIdentity("antigravity"))}`
+    : "";
   const cacheKey = provider && episodes.length
-    ? `${sessionId}:${episodes.map((episode) => `${episode.startAt}-${episode.endAt}`).join(",")}`
+    ? `${sessionId}:${episodes.map((episode) => `${episode.startAt}-${episode.endAt}`).join(",")}${windowKey}`
     : null;
   if (cacheKey) {
     const cached = readContextCache(cacheKey);

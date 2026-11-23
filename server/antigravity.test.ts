@@ -345,7 +345,7 @@ describe("opening provider databases", () => {
     const collected = collectAntigravity("UTC");
     expect(collected.conversations[0]!.tokens).toBe(162);
     expect(collected.missingSessionIds).toEqual([]);
-    expect(collected.notes).toEqual(["1 database could not be read safely; the last good read is kept"]);
+    expect(collected.notes).toEqual(["1 database could not be read this time"]);
     syncAntigravityEffort(collected);
     expect(db.query("SELECT session_id FROM session_paths WHERE agent = 'antigravity'").all()).toEqual([{ session_id: "antigravity-kept" }]);
   });
@@ -356,7 +356,8 @@ describe("opening provider databases", () => {
     useRoots(base);
     const collected = collectAntigravity("UTC");
     expect(collected.conversations).toEqual([]);
-    expect(collected.notes).toHaveLength(1);
+    // There is no earlier read to keep, and the note claims none.
+    expect(collected.notes).toEqual(["1 database could not be read this time"]);
   });
 });
 
@@ -379,7 +380,7 @@ describe("degraded sources", () => {
     expect(collected.conversations.map((conversation) => conversation.sessionId)).toEqual(["antigravity-no-gen"]);
     expect(collected.conversations[0]!.models).toEqual(["Unknown model"]);
     expect(collected.notes).toContain("2 databases did not match the expected schema");
-    expect(collected.notes).toContain("1 database could not be read safely; the last good read is kept");
+    expect(collected.notes).toContain("1 database could not be read this time");
   });
 
   test("undecodable step metadata and turns without usage are noted", () => {

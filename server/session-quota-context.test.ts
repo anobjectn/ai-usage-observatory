@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { calculateSessionQuotaContext, windowsForModels, type ContextPolicyInput } from "./session-quota-context";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { calculateSessionQuotaContext, getSessionQuotaContext, windowsForModels, type ContextPolicyInput } from "./session-quota-context";
+import { collectAntigravity, resetAntigravityCache } from "./antigravity";
+import { appendConversation, writeConversation } from "./antigravity-fixture";
+import { testAntigravityDirectory } from "./test-setup";
 import type { QuotaObservation } from "../src/types";
 
 const episode = { startAt: 10 * 60_000, endAt: 20 * 60_000 };
@@ -333,5 +339,56 @@ describe("Antigravity quota context", () => {
     expect(windowsForModels([recorded], null, ["gemini-4-neon"])
       .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => window.id) : []))
       .toEqual(["fiveHour", "weekly"]);
+  });
+
+  test("a settled result is computed again when the session's models change", async () => {
+    // Older than the 48 h settle window, so the first result would otherwise be kept for good.
+    const at = Date.UTC(2025, 1, 2, 12);
+    const directory = mkdtempSync(join(tmpdir(), "antigravity-quota-context-"));
+    const root = join(directory, "install/antigravity-acp");
+    const realFetch = globalThis.fetch;
+    const realQuotaDb = process.env.QUOTA_DB_PATH;
+    process.env.ANTIGRAVITY_DATA_DIRS = root;
+    process.env.QUOTA_DB_PATH = join(directory, "missing-quota.sqlite");
+    resetAntigravityCache();
+    const argon = "Gemini 4 Argon Weekly Limit";
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json({
+        provider: "antigravity", earliestObservationAt: at - 60_000, historyVersion: 1, retentionDays: null, retentionMode: "forever", nextCursor: null,
+        observations: [at - 60_000, at + 120_000].map((observedAt, index) => ({
+          schemaVersion: 1, observedAt, capturedAt: observedAt, provider: "antigravity", timeSource: "provider", status: "ok", source: "antigravity_local",
+          plan: { id: "pro", label: "Google AI Pro", source: "provider", effectiveFrom: null },
+          modelWindowIdentity: { [argon]: { model: "gemini-4-argon", family: "gemini" } },
+          quota: { kind: "windows", windows: ["fiveHour", `model:${argon}`].map((id) => ({ id, usedPercent: 10 + index, resetsAt: at + 3_600_000, cycleId: "reset:1" })) },
+        })),
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const usage = { input: 10, output: 2, messageId: "m1" };
+      // A usage step whose generation row is not written yet: the model is not known.
+      const path = writeConversation(root, "quota-models", { steps: [{ idx: 0, at, finishedAt: at + 60_000, usage }], generations: [] });
+      collectAntigravity("UTC");
+      const before = await getSessionQuotaContext("antigravity-quota-models");
+      expect(before?.resources.map((resource) => resource.id)).toEqual(["fiveHour", `model:${argon}`]);
+      expect(calls).toBe(1);
+
+      // The generation row lands later and names Neon; the activity times do not move.
+      appendConversation(path, { steps: [], generations: [{ idx: 0, usage, modelId: "gemini-4-neon", label: "Gemini 4 Neon (High)" }] });
+      expect(collectAntigravity("UTC").conversations[0]?.models).toEqual(["gemini-4-neon"]);
+      const after = await getSessionQuotaContext("antigravity-quota-models");
+      // A Neon session cannot spend the Argon pool, so its window leaves, from fresh history.
+      expect(after?.resources.map((resource) => resource.id)).toEqual(["fiveHour"]);
+      expect(after).not.toBe(before);
+      expect(calls).toBe(2);
+    } finally {
+      globalThis.fetch = realFetch;
+      if (realQuotaDb === undefined) delete process.env.QUOTA_DB_PATH;
+      else process.env.QUOTA_DB_PATH = realQuotaDb;
+      process.env.ANTIGRAVITY_DATA_DIRS = testAntigravityDirectory;
+      resetAntigravityCache();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

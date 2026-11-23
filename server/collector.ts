@@ -294,7 +294,13 @@ export function joinAntigravitySessions<T extends { agent: string; period: strin
  * ccusage sessions it is joined to. Tokens and cost are ccusage's. */
 export function antigravityHealth(data: AntigravityData) {
   if (!data.available) {
-    return { name: "Antigravity local conversations", status: "unavailable" as const, detail: data.error ?? "No Antigravity data directory was found on this machine.", kind: "local metadata" };
+    const error = data.error ?? "No Antigravity data directory was found on this machine.";
+    // No root was read, but something was noted (a root that could not be checked, stored
+    // conversations kept unread): that is a source in trouble, not one that is absent.
+    if (data.notes.length) {
+      return { name: "Antigravity local conversations", status: "degraded" as const, detail: [error, ...data.notes].join(" · "), kind: "local metadata" };
+    }
+    return { name: "Antigravity local conversations", status: "unavailable" as const, detail: error, kind: "local metadata" };
   }
   const reconciliation = data.reconciliation;
   const matched = !reconciliation || (reconciliation.ccusageTokens === reconciliation.metadataTokens && reconciliation.ccusageOnly === 0 && reconciliation.metadataOnly === 0);
