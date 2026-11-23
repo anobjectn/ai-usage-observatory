@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -260,13 +260,42 @@ describe("opening provider databases", () => {
     expect(sidecarsOf(path)).toEqual({ wal: false, shm: false });
   });
 
-  test("a leftover empty -wal beside a -shm opens plainly", () => {
+  test("a leftover empty -wal beside a -shm is read immutably and leaves both sidecars as they were", () => {
     const base = root();
     const path = writeConversation(base, "leftover", highConversation());
     leaveEmptySidecars(path);
     expect(statSync(`${path}-wal`).size).toBe(0);
+    const sidecarStats = () => [`${path}-wal`, `${path}-shm`].map((file) => {
+      const stats = statSync(file);
+      return { size: stats.size, mtimeMs: stats.mtimeMs, ino: stats.ino };
+    });
+    const before = sidecarStats();
     const read = readProviderDatabase(path, (database) => database.query("SELECT count(*) AS n FROM steps").get());
-    expect(read).toMatchObject({ ok: true, mode: "plain", value: { n: 3 } });
+    expect(read).toMatchObject({ ok: true, mode: "immutable", value: { n: 3 } });
+    expect(sidecarStats()).toEqual(before);
+  });
+
+  test("a -shm removed after the probe is not recreated beside an empty -wal", () => {
+    const base = root();
+    const path = writeConversation(base, "shm-race", highConversation());
+    leaveEmptySidecars(path);
+    expect(sidecarsOf(path)).toEqual({ wal: true, shm: true });
+    // The -shm disappears between the probe and the first query.
+    const read = readProviderDatabase(path, (database) => {
+      rmSync(`${path}-shm`, { force: true });
+      return database.query("SELECT count(*) AS n FROM steps").get();
+    });
+    expect(sidecarsOf(path)).toEqual({ wal: true, shm: false });
+    expect(read).toMatchObject({ ok: true, mode: "immutable", value: { n: 3 } });
+  });
+
+  test("a -wal that cannot be checked (a symlink loop) is not opened", () => {
+    const base = root();
+    const path = writeConversation(base, "wal-loop", highConversation());
+    symlinkSync(`${path}-wal`, `${path}-wal`);
+    const read = readProviderDatabase(path, () => "read");
+    expect(read).toEqual({ ok: false, reason: "the file could not be checked" });
+    expect(existsSync(`${path}-shm`)).toBe(false);
   });
 
   test("an empty -wal without a -shm is read immutably, so no -shm is created", () => {
@@ -465,6 +494,69 @@ describe("roots shared with ccusage", () => {
     } finally {
       process.env.ANTIGRAVITY_DATA_DIRS = saved;
     }
+  });
+
+  test("a T3 installs directory that is missing is silent, and one that cannot be listed is reported", () => {
+    const saved = process.env.ANTIGRAVITY_DATA_DIRS;
+    delete process.env.ANTIGRAVITY_DATA_DIRS;
+    let unchecked = 0;
+    try {
+      const bare = join(directory, "bare-home");
+      mkdirSync(bare);
+      expect(antigravityRoots(bare, () => unchecked++)).toHaveLength(6);
+      expect(unchecked).toBe(0);
+      // ENOTDIR: the installs path runs through a regular file, which file modes cannot excuse,
+      // so this holds when tests run as root too.
+      const home = join(directory, "home");
+      mkdirSync(join(home, ".t3/userdata"), { recursive: true });
+      writeFileSync(join(home, ".t3/userdata/providers"), "");
+      expect(antigravityRoots(home, () => unchecked++).map((entry) => entry.kind)).toEqual(Array(6).fill("ide"));
+      expect(unchecked).toBe(1);
+    } finally {
+      process.env.ANTIGRAVITY_DATA_DIRS = saved;
+    }
+  });
+
+  /** Root ignores file modes, so a test that denies access by chmod proves nothing there. */
+  test.skipIf(process.getuid?.() === 0)("a T3 installs directory that denies listing (000) is reported", () => {
+    const home = join(directory, "home");
+    const installs = join(home, ".t3/userdata/providers/antigravity");
+    mkdirSync(join(installs, "abc123/antigravity-acp"), { recursive: true });
+    const saved = process.env.ANTIGRAVITY_DATA_DIRS;
+    delete process.env.ANTIGRAVITY_DATA_DIRS;
+    chmodSync(installs, 0o000);
+    let unchecked = 0;
+    try {
+      expect(antigravityRoots(home, () => unchecked++).map((entry) => entry.kind)).toEqual(Array(6).fill("ide"));
+      expect(unchecked).toBe(1);
+    } finally {
+      chmodSync(installs, 0o755);
+      process.env.ANTIGRAVITY_DATA_DIRS = saved;
+    }
+  });
+
+  test("default discovery counts a T3 installs directory that cannot be listed as a data directory not checked", () => {
+    const home = join(directory, "home");
+    mkdirSync(join(home, ".t3/userdata"), { recursive: true });
+    writeFileSync(join(home, ".t3/userdata/providers"), "");
+    // `homedir()` is fixed for this process, so default discovery runs in a child whose HOME is
+    // the fixture. The child exits before collecting if it would see any other home.
+    const script = `
+      import { homedir } from "node:os";
+      if (homedir() !== ${JSON.stringify(home)}) process.exit(2);
+      const { collectAntigravity } = await import(${JSON.stringify(join(import.meta.dir, "antigravity.ts"))});
+      const { available, notes, error } = collectAntigravity("UTC");
+      console.log(JSON.stringify({ available, notes, error }));
+    `;
+    const env: Record<string, string | undefined> = { ...process.env, HOME: home, USAGE_OBSERVATORY_DB: join(directory, "child.db") };
+    delete env.ANTIGRAVITY_DATA_DIRS;
+    const child = Bun.spawnSync({ cmd: [process.execPath, "-e", script], env, cwd: directory });
+    expect(child.exitCode).toBe(0);
+    expect(JSON.parse(child.stdout.toString())).toEqual({
+      available: false,
+      notes: ["1 data directory could not be checked; its sessions are left out"],
+      error: "No Antigravity data directory could be read on this machine.",
+    });
   });
 
   test("an override reaches ccusage as given, so a missing directory never falls back to real data", () => {

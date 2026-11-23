@@ -63,8 +63,11 @@ function isT3Root(path: string) {
  * itself; the IDE and CLI keep ccusage's default directories. A path in `ANTIGRAVITY_DATA_DIRS`
  * (path-delimited) replaces all of them, for this reader and for ccusage, which is how tests stay
  * off real data. ccusage takes its list comma-separated, so a path holding a comma reaches only
- * this reader; `collectAntigravity` notes it in source health. */
-export function antigravityRoots(home = homedir()): AntigravityRoot[] {
+ * this reader; `collectAntigravity` notes it in source health. A missing T3 installs directory
+ * (ENOENT) means no T3 install; any other error listing it says nothing about which installs
+ * exist, so it is passed to `onUnchecked`, which `collectAntigravity` counts as a data directory
+ * that could not be checked. */
+export function antigravityRoots(home = homedir(), onUnchecked?: () => void): AntigravityRoot[] {
   const override = process.env.ANTIGRAVITY_DATA_DIRS;
   if (override !== undefined) {
     return override.split(delimiter).map((path) => path.trim()).filter(Boolean)
@@ -74,7 +77,9 @@ export function antigravityRoots(home = homedir()): AntigravityRoot[] {
   const t3 = join(home, ".t3/userdata/providers/antigravity");
   try {
     for (const install of readdirSync(t3).sort()) roots.push({ path: join(t3, install, "antigravity-acp"), kind: "t3" });
-  } catch { /* No T3 Antigravity install on this machine. */ }
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") onUnchecked?.();
+  }
   for (const root of defaultRoots) roots.push({ path: join(home, root), kind: "ide" });
   return roots;
 }
@@ -142,13 +147,16 @@ function probe(path: string): Probe {
   }
 }
 
-/** The main file's state plus its sidecars, or the main file's probe result when it has none. */
+/** The main file's state plus its sidecars; the main file's probe result when it cannot be
+ * stat'ed; or `"error"` when its `-wal` could not be checked, which says nothing about the log. */
 function sidecars(path: string): Sidecars | "absent" | "error" {
   const main = probe(path);
   if (typeof main === "string") return main;
+  const wal = probe(`${path}-wal`);
+  if (wal === "error") return "error";
   return {
     main: fileState(main)!,
-    wal: fileState(statOrNull(`${path}-wal`)),
+    wal: wal === "absent" ? null : fileState(wal),
     shm: existsSync(`${path}-shm`),
     identity: `${main.dev}:${main.ino}`,
   };
@@ -169,15 +177,24 @@ function errorCode(error: unknown) {
 
 /**
  * Opens a provider database strictly read-only and runs `read` against it. A provider file is
- * never written, checkpointed, or copied, and no `-wal` or `-shm` is ever created beside it.
+ * never written, checkpointed, or copied, and the reader creates no `-wal` or `-shm` beside it,
+ * with one narrow exception described below.
  *
- * - A read-only connection creates a missing `-shm` when a `-wal` exists, so a `-wal` without a
- *   `-shm` is never opened plainly: an empty one is read with `immutable=1`, which has nothing to
- *   miss, and a non-empty one cannot be read safely at all.
- * - Otherwise the plain read-only open runs first. Bun defers `SQLITE_CANTOPEN` (a WAL-mode file
- *   whose writer closed and removed its sidecars) to the first query, so the read itself decides.
+ * - An empty `-wal` has nothing to miss, so it is always read with `immutable=1`, whether or not a
+ *   `-shm` exists. That read takes no lock and opens neither sidecar.
+ * - A read-only connection creates a missing `-shm` when a `-wal` exists, so a non-empty `-wal`
+ *   without a `-shm` cannot be read safely at all and is refused.
+ * - Otherwise the plain read-only open runs. Bun defers `SQLITE_CANTOPEN` (a WAL-mode file whose
+ *   writer closed and removed its sidecars) to the first query, so the read itself decides.
  * - `immutable=1` skips the log and every lock, so its result is kept only when the main file and
  *   `-wal` look the same after the read as before it.
+ *
+ * The exception: the plain open of a non-empty `-wal` recreates the `-shm` if a process other
+ * than SQLite deletes it between the probe and the first query. SQLite itself removes the two
+ * files only when the last connection closes, while it holds an exclusive lock that this reader
+ * waits for before it looks at the log; by then the `-wal` is gone too, and the read ends in the
+ * `SQLITE_CANTOPEN` path above. The worst case is a `-shm` left beside the database, holding
+ * SQLite's index of the log and no conversation data; the database and its `-wal` are unchanged.
  */
 export function readProviderDatabase<T>(path: string, read: (database: Database) => T): ReadResult<T> {
   const before = sidecars(path);
@@ -200,9 +217,8 @@ export function readProviderDatabase<T>(path: string, read: (database: Database)
     }
     return success(value, "immutable", before);
   };
-  if (before.wal && !before.shm) {
-    return before.wal.size === 0 ? immutable() : { ok: false, reason: "write-ahead log without shared memory" };
-  }
+  if (before.wal?.size === 0) return immutable();
+  if (before.wal && !before.shm) return { ok: false, reason: "write-ahead log without shared memory" };
   try {
     const database = new Database(path, { readonly: true });
     try {
@@ -732,15 +748,16 @@ function plural(count: number, one: string, many = `${one}s`) {
  * permission error on the file or an ancestor, an I/O error, a file that is there but could not
  * be read or understood this time, or a file under a root that is no longer configured) says
  * nothing about whether it still exists, so its row and effort rows are kept and counted as not
- * read this time.
+ * read this time. A file in `alreadyNoted` was listed and counted as unreadable by the collection,
+ * so it is kept without being counted again.
  */
-function checkStoredSessions(seen: ReadonlySet<string>) {
+function checkStoredSessions(seen: ReadonlySet<string>, alreadyNoted: ReadonlySet<string>) {
   const rows = db.query("SELECT session_id AS sessionId, source_file AS sourceFile FROM session_paths WHERE agent = 'antigravity'")
     .all() as Array<{ sessionId: string; sourceFile: string }>;
   const missing: string[] = [];
   let unchecked = 0;
   for (const row of rows) {
-    if (seen.has(row.sessionId)) continue;
+    if (seen.has(row.sessionId) || alreadyNoted.has(row.sourceFile)) continue;
     try {
       statSync(row.sourceFile);
       unchecked++;
@@ -772,7 +789,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   // on an ancestor, an I/O error) is not missing: it is counted and noted, and its stored rows are
   // kept by the per-row check below.
   let uncheckedRoots = 0;
-  const roots = antigravityRoots().filter((root) => {
+  const roots = antigravityRoots(homedir(), () => uncheckedRoots++).filter((root) => {
     const state = probe(root.path);
     if (state === "error") uncheckedRoots++;
     return typeof state !== "string";
@@ -785,6 +802,9 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   let turnsWithoutUsage = 0;
   const candidates = new Map<string, Candidate>();
   const present = new Set<string>();
+  // Listed conversation files already counted as unreadable, so the stored-row check below does
+  // not count them a second time.
+  const notedUnreadable = new Set<string>();
 
   for (const root of roots) {
     const summaryPath = join(root.path, "conversation_summaries.db");
@@ -792,6 +812,9 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
     const summaryState = sidecars(summaryPath);
     if (summaryState === "error") {
       unreadable++;
+      // Unlike a conversation's cached parse, cached summary metadata is kept through a stat
+      // error: it only labels sessions (working directory, subagent links) that ccusage already
+      // reports, and supplies no session, token, or cost of its own.
       const cached = summaryCache.get(summaryPath);
       if (cached) {
         summaries = cached.summaries;
@@ -834,6 +857,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
       if (state === "absent") continue;
       if (state === "error") {
         unreadable++;
+        notedUnreadable.add(path);
         continue;
       }
       const cached = conversationCache.get(path);
@@ -861,6 +885,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
           ({ identity, signature, mtimeMs, size } = cached);
         } else {
           unreadable++;
+          notedUnreadable.add(path);
           continue;
         }
       }
@@ -889,7 +914,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   sessionModels.clear();
   for (const conversation of conversations) sessionModels.set(conversation.sessionId, conversation.models);
   const effortSources = chosen.map((candidate) => effortSourceOf(candidate, conversationsById.get(candidate.conversationId)!, timeZone));
-  const stored = checkStoredSessions(new Set(effortSources.map((source) => source.sessionId)));
+  const stored = checkStoredSessions(new Set(effortSources.map((source) => source.sessionId)), notedUnreadable);
 
   for (const source of effortSources) {
     // Step times are the only activity evidence. A summary's modified time can order sessions but

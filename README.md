@@ -340,7 +340,7 @@ Usage records, derived indexes, annotations, and app state stay on the machine r
 - **Path index:** default, metadata-only. Reads only the opening bytes of each session file to recover the session ID and working directory. Codex rollouts compressed to `.jsonl.zst` are read the same way and keep their session ID. A rollout found both plain and compressed is counted once, from the plain copy as `ccusage` does; source health flags a plain copy older than its compressed copy, which usually means it was restored from a backup.
 - **Effort indexing:** opt-in, off by default. Stores categories and counts only, never prompts, responses, reasoning, commands, tool data, or file contents.
 - **Session detail:** the one place your own prompts and sampled assistant output appear. Read on demand, sent only to your localhost browser, never stored.
-- **Antigravity:** content-free. `ccusage` reads each conversation database for its usage records, and opens it the normal SQLite way, which can leave `-wal` and `-shm` files beside it. The Observatory's own metadata reader selects only usage, model, and timing fields, never reads prompts, replies, titles, reasoning, or tool payloads, and creates no such files. Session detail shows that metadata and nothing else.
+- **Antigravity:** content-free. `ccusage` reads each conversation database for its usage records, and opens it the normal SQLite way, which can leave `-wal` and `-shm` files beside it. The Observatory's own metadata reader selects only usage, model, and timing fields, never reads prompts, replies, titles, reasoning, or tool payloads, and does not create such files, except in one narrow race described under full privacy details. Session detail shows that metadata and nothing else.
 
 State lives in `.usage-observatory/data.db` (ignored by Git). Set `USAGE_OBSERVATORY_DB` to move it and `QUOTA_SERVICE_URL` to use another quota-service address.
 
@@ -377,9 +377,15 @@ replies, reasoning, and tool payloads. Two readers open them:
   workspace, status, parent, nesting, step-count, and modified-time columns, and
   decodes only the usage, model, effort-label, and timestamp fields inside them.
   It never selects a title, preview, summary, step payload, or full-text table,
-  and never writes, checkpoints, or copies a provider database or creates a
-  `-wal` or `-shm` file beside one. A database whose write-ahead log cannot be
-  read without creating its index keeps its last good read and is named in
+  and never writes, checkpoints, or copies a provider database. It creates no
+  `-wal` or `-shm` file beside one, with one exception: if a program other
+  than SQLite deletes the `-shm` of a database whose write-ahead log holds data,
+  in the moment between the reader's check and its first query, the read
+  recreates that `-shm`. SQLite itself removes the two files together, under a
+  lock the reader waits for, so the exception needs another program. The
+  `-shm` then holds only SQLite's index of the log, and the database and its
+  log are unchanged. A database whose write-ahead log cannot be read without
+  creating its index keeps its last good read, if it has one, and is noted in
   source health.
 
 Set `ANTIGRAVITY_DATA_DIRS` to read other directories instead; both readers then

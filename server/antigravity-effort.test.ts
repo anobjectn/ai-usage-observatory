@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -167,8 +167,8 @@ permissionTest("a conversations directory that lists but denies lookups (0400) k
   const collected = collectAntigravity("UTC");
   expect(collected.effortSources).toEqual([]);
   expect(collected.missingSessionIds).toEqual([]);
-  // The listed file could not be checked: counted as unreadable, never treated as missing.
-  expect(collected.notes).toEqual([unreadableNote, uncheckedNote]);
+  // The listed file could not be checked: counted once as unreadable, never treated as missing.
+  expect(collected.notes).toEqual([unreadableNote]);
   syncAntigravityEffort(collected);
   expect(usageRows("antigravity-listable")).toHaveLength(1);
   expect(sessionPathIds()).toEqual(["antigravity-listable"]);
@@ -202,6 +202,38 @@ permissionTest("a root whose ancestor denies access (000) keeps the stored rows"
   syncAntigravityEffort(collected);
   expect(usageRows("antigravity-ancestor")).toHaveLength(1);
   expect(sessionPathIds()).toEqual(["antigravity-ancestor"]);
+});
+
+// Root-safe variants of the permission tests above: a regular file in the path (ENOTDIR) and a
+// symlink loop (ELOOP) fail the same way for every user, root included.
+test("a root under a regular file (ENOTDIR) keeps the stored rows", () => {
+  storedConversation("under-file");
+  const install = join(root, "..");
+  renameSync(install, `${install}.moved`);
+  writeFileSync(install, "");
+  const collected = collectAntigravity("UTC");
+  expect(collected.effortSources).toEqual([]);
+  expect(collected.missingSessionIds).toEqual([]);
+  expect(collected.notes).toEqual(["1 data directory could not be checked; its sessions are left out", uncheckedNote]);
+  expect(collected.error).toBe("No Antigravity data directory could be read on this machine.");
+  expect(antigravityHealth(collected).status).toBe("degraded");
+  syncAntigravityEffort(collected);
+  expect(usageRows("antigravity-under-file")).toHaveLength(1);
+  expect(sessionPathIds()).toEqual(["antigravity-under-file"]);
+});
+
+test("a listed database that is a symlink loop (ELOOP) is noted once and keeps its stored rows", () => {
+  const path = storedConversation("loop");
+  rmSync(path);
+  symlinkSync(path, path);
+  const collected = collectAntigravity("UTC");
+  expect(collected.effortSources).toEqual([]);
+  expect(collected.missingSessionIds).toEqual([]);
+  expect(collected.notes).toEqual([unreadableNote]);
+  expect(antigravityHealth(collected).status).toBe("degraded");
+  syncAntigravityEffort(collected);
+  expect(usageRows("antigravity-loop")).toHaveLength(1);
+  expect(sessionPathIds()).toEqual(["antigravity-loop"]);
 });
 
 test("a stored conversation outside the configured roots keeps its rows and is noted", () => {
