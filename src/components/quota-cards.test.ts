@@ -129,7 +129,19 @@ test("no Antigravity card appears until quota-service reports the provider", asy
   const { quotaCards } = await import("../app/analytics");
   expect(quotaCards(antigravityQuotas(null)).map((card) => card.provider)).toEqual(["anthropic", "codex", "warp"]);
   const history = { available: true, trackingSince: 1, windows: [{ provider: "antigravity" as const, window: "fiveHour" as const, reachedCount: 1, lastReachedAt: 5, reachedAt: [5] }], codexBankedResets: { usedCount: 0, used: [] } };
-  expect(quotaCards(antigravityQuotas(null, history)).map((card) => card.provider)).toContain("antigravity");
+  expect(quotaCards(antigravityQuotas(null, history)).map((card) => card.provider)).toEqual(["anthropic", "codex", "antigravity", "warp"]);
+});
+
+test("a reported Antigravity subscription sits third, beside Anthropic and OpenAI, before Warp", async () => {
+  const { quotaCards, providerCapacityRows } = await import("../app/analytics");
+  const quotas = antigravityQuotas({});
+  expect(quotaCards(quotas).map((card) => card.provider)).toEqual(["anthropic", "codex", "antigravity", "warp"]);
+  const daily = [{ agents: ["claude", "codex", "warp"].map((agent) => ({ agent, totalTokens: 1 })) }] as unknown as Parameters<typeof providerCapacityRows>[0];
+  expect(providerCapacityRows(daily, quotas).map((row) => row.provider)).toEqual(["anthropic", "codex", "antigravity", "warp"]);
+  const html = renderToStaticMarkup(createElement(QuotaDials, { quotas, timeZone: "UTC" }));
+  const glance = html.slice(html.indexOf('<dl class="quota-glance">'), html.indexOf("</dl>"));
+  const order = [...glance.matchAll(/class="quota-glance__provider ([a-z]+)"/g)].map((match) => match[1]);
+  expect(order).toEqual(["anthropic", "codex", "antigravity", "warp"]);
 });
 
 test("the Antigravity card lists its primary windows, then each model window by name and scope", async () => {

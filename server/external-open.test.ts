@@ -101,4 +101,37 @@ describe("Antigravity sessions", () => {
       db.query("DELETE FROM session_paths WHERE session_id = 'antigravity-open'").run();
     }
   });
+
+  test("open only the files their edit and write tools changed", async () => {
+    const { db } = await import("./store");
+    const { openSessionExternalTarget } = await import("./external-open");
+    const { resetAntigravityCache } = await import("./antigravity");
+    const { modelTurnPayload, writeConversation } = await import("./antigravity-fixture");
+    const { testAntigravityDirectory } = await import("./test-setup");
+    const directory = mkdtempSync(join(tmpdir(), "antigravity-open-"));
+    const root = join(directory, "install/antigravity-acp");
+    process.env.ANTIGRAVITY_DATA_DIRS = root;
+    resetAntigravityCache();
+    const listed = join(directory, "workspace", "gone.ts");
+    const path = writeConversation(root, "files", {
+      steps: [{
+        idx: 0, stepType: 15, at: Date.UTC(2026, 10, 21), usage: { input: 1, output: 1 },
+        payloadBytes: modelTurnPayload({ calls: [{ name: "edit_file", args: { Path: listed, Target: "a", Replacement: "b" } }] }),
+      }],
+    });
+    db.query(`INSERT OR REPLACE INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size)
+      VALUES ('antigravity-files', 'antigravity', 'files', ?, ?, 1, 1)`).run(path, directory);
+    try {
+      await expect(openSessionExternalTarget("antigravity-files", "vscode", { kind: "transcript" })).rejects.toMatchObject({ status: 409 });
+      await expect(openSessionExternalTarget("antigravity-files", "vscode", { kind: "file", path: join(directory, "unlisted.ts") })).rejects.toMatchObject({ status: 403 });
+      // A listed path passes the listing check; this one no longer exists, so nothing is launched.
+      await expect(openSessionExternalTarget("antigravity-files", "vscode", { kind: "file", path: listed })).rejects.toMatchObject({ status: 404, message: "That file no longer exists locally." });
+      await expect(openSessionExternalTarget("antigravity-unknown", "vscode", { kind: "file", path: listed })).rejects.toMatchObject({ status: 404 });
+    } finally {
+      db.query("DELETE FROM session_paths WHERE session_id = 'antigravity-files'").run();
+      process.env.ANTIGRAVITY_DATA_DIRS = testAntigravityDirectory;
+      resetAntigravityCache();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

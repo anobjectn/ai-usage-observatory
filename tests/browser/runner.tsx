@@ -6,7 +6,7 @@ import { useUpdate } from "../../src/hooks/use-update";
 import { UpdateControl } from "../../src/components/update-control";
 import { Sessions } from "../../src/views/sessions";
 import { QuotaDials } from "../../src/components/quota-cards";
-import { antigravityDailyRows, antigravityQuotaFixture, antigravityQuotaHistory, dashboardFixture } from "../fixtures/dashboard";
+import { antigravityDailyRows, antigravityQuotaFixture, antigravityQuotaHistory, antigravitySessionFixture, dashboardFixture } from "../fixtures/dashboard";
 import { ProviderTimeline } from "../../src/components/activity-charts";
 import { ChartPinProvider } from "../../src/components/chart-pins";
 import type { DashboardData, UpdateCheck, UpdateJob, UpdateStatus } from "../../src/types";
@@ -433,7 +433,25 @@ await test("jumping to a later session page loads its border reading and shows q
   }
 });
 
-await test("an Antigravity session is filterable, priced by ccusage, and opens a metadata-only detail", async () => {
+/** A synthetic Antigravity detail as the on-demand reader returns it. */
+function antigravityDetailResponse() {
+  return {
+    available: true,
+    prompts: [{ text: "Add a retry to the fixture loader", timestamp: "2026-11-21T20:00:00.000Z" }],
+    outputs: [{ text: "Added the retry and a test for it.", timestamp: "2026-11-21T20:01:00.000Z", truncated: false }],
+    tools: [{ name: "read_file", count: 3 }, { name: "edit_file", count: 1 }, { name: "write_file", count: 1 }],
+    files: [
+      { path: "/fixture/gemini-project/src/loader.ts", status: "modified", additions: 4, deletions: 1 },
+      { path: "/fixture/gemini-project/src/loader.test.ts", status: "added", additions: 12, deletions: 0 },
+    ],
+    additions: 16, deletions: 1, eventsRead: 3,
+  };
+}
+
+await test("an Antigravity session is filterable, priced by ccusage, and opens its prompts, replies, tools, and files", async () => {
+  const originalFetch = window.fetch;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+    input === "/api/sessions/antigravity-fixture-conversation/detail" ? Response.json(antigravityDetailResponse()) : originalFetch(input, init)) as typeof window.fetch;
   const appRoot = createRoot(rootElement);
   try {
     appRoot.render(<App />);
@@ -461,11 +479,66 @@ await test("an Antigravity session is filterable, priced by ccusage, and opens a
     await waitFor(() => Boolean(row()), "Clearing the filter did not bring the Antigravity session back");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     row()!.querySelector<HTMLElement>('[aria-label="Open session details"]')!.click();
-    const detail = () => document.querySelector(".session-detail--antigravity");
-    await waitFor(() => detail()?.textContent?.includes("Antigravity conversation content is not imported") === true, "The detail panel did not say content is not imported");
-    assert(detail()!.textContent!.includes("MODEL CALLS"), "The detail panel did not show the model call count");
+    const detail = () => document.querySelector<HTMLElement>(".session-detail--antigravity");
+    await waitFor(() => detail()?.textContent?.includes("Add a retry to the fixture loader") === true, "The detail panel did not show the prompt");
+    const text = detail()!.textContent!;
+    assert(text.includes("Added the retry and a test for it."), "The detail panel did not show the reply");
+    assert(!/not imported/i.test(text), "The detail panel still said content is not imported");
+    for (const label of ["MODEL CALLS", "REASONING TOKENS", "TOOL CALLS", "FILES TOUCHED", "PATCH SUMMARY", "WORKSPACE", "RECORDED BY"]) {
+      assert(text.includes(label), `The detail summary did not show ${label}`);
+    }
+    const toolsRail = detail()!.querySelector<HTMLElement>('[aria-label^="Expand Tools"]');
+    assert(toolsRail?.getAttribute("aria-label") === "Expand Tools, 5 calls across 3 tool types", `The collapsed Tools column was wrong: ${toolsRail?.getAttribute("aria-label")}`);
+    toolsRail!.click();
+    await waitFor(() => Boolean(detail()!.querySelector(".tool-list")), "The Tools column did not expand");
+    const tools = [...detail()!.querySelectorAll(".tool-list li")].map((item) => item.textContent);
+    assert(tools.join("|") === "read_file×3|edit_file×1|write_file×1", `The tools column was wrong: ${tools.join("|")}`);
+    assert(detail()!.querySelectorAll(".file-list li").length === 2, "The files column did not list both files");
+    assert(Boolean(detail()!.querySelector('[aria-label="Open actions for /fixture/gemini-project/src/loader.ts"]')), "A listed file offered no open actions");
     assert(!detail()!.querySelector('[aria-label="Open Prompt source actions"]'), "The detail panel offered to open a transcript");
-  } finally { appRoot.unmount(); }
+    assert(!detail()!.querySelector('[aria-label="Open Output source actions"]'), "The detail panel offered to open a transcript");
+    for (const cell of detail()!.querySelectorAll<HTMLElement>(".session-detail__summary > div")) {
+      assert(cell.scrollWidth <= cell.clientWidth + 1, `A summary cell overflows: ${cell.textContent}`);
+    }
+  } finally {
+    appRoot.unmount();
+    window.fetch = originalFetch;
+  }
+});
+
+await test("an Antigravity detail whose database cannot be read keeps its metadata and says why", async () => {
+  const data = dashboardFixture();
+  const originalFetch = window.fetch;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+    input === "/api/sessions/antigravity-fixture-conversation/detail"
+      ? Response.json({ available: false, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 })
+      : originalFetch(input, init)) as typeof window.fetch;
+  const fixtureRoot = createRoot(rootElement);
+  try {
+    fixtureRoot.render(<Sessions
+      sessions={[antigravitySessionFixture()]}
+      rateCard={data.rateCard}
+      unpricedModels={[]}
+      showCache={true}
+      onEdit={() => {}}
+      quotaHistory={data.quotas.history}
+      collectedAt={data.collectedAt}
+    />);
+    await waitFor(() => Boolean(document.querySelector('[aria-label="Open session details"]')), "The Antigravity session did not render");
+    click('[aria-label="Open session details"]');
+    const detail = () => document.querySelector<HTMLElement>(".session-detail--antigravity");
+    await waitFor(() => detail()?.textContent?.includes("database could not be read right now") === true, "The detail panel did not say the database could not be read");
+    const text = detail()!.textContent!;
+    assert(text.includes("MODEL CALLS") && text.includes("12"), "The unavailable detail dropped the model call count");
+    assert(text.includes("gemini-project"), "The unavailable detail dropped the workspace");
+    // The Tools column starts collapsed: its rail says the database was not read, never "0 calls".
+    const toolsRail = detail()!.querySelector<HTMLElement>('[aria-label^="Expand Tools"]');
+    assert(toolsRail?.getAttribute("aria-label") === "Expand Tools, Not read", `The collapsed Tools rail did not say it was not read: ${toolsRail?.getAttribute("aria-label")}`);
+    assert(!toolsRail.textContent?.includes("0 calls"), "The collapsed Tools rail showed zero calls for an unread database");
+  } finally {
+    fixtureRoot.unmount();
+    window.fetch = originalFetch;
+  }
 });
 
 await test("the Projects diff trail shows an Antigravity session's recorded effort", async () => {
@@ -475,7 +548,9 @@ await test("the Projects diff trail shows an Antigravity session's recorded effo
     if (input === "/api/sessions/antigravity-fixture-conversation/detail") {
       detailReads++;
       return Response.json({
-        available: true, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0,
+        ...antigravityDetailResponse(),
+        files: [{ path: "/fixture/gemini-project/src/loader.ts", status: "modified", additions: 4, deletions: 1 }],
+        additions: 4, deletions: 1,
         effort: {
           coverageState: "complete", quality: "ok", dominant: "high", dominantBasis: "tokens", mixed: false,
           levels: [{ effort: "high", observations: 12, tokens: 64_900, tokenShare: 1 }], reconciliationDeltaTokens: 0,
@@ -510,7 +585,8 @@ await test("the Projects diff trail shows an Antigravity session's recorded effo
     await waitFor(() => Boolean(entry()), "The Antigravity session was not listed in the diff trail");
     await waitFor(() => entry()!.querySelector(".effort-badge")?.textContent === "High", `The diff trail did not show the recorded effort: "${entry()?.querySelector(".effort-badge")?.textContent}"`);
     assert(detailReads > 0, "The diff trail did not read the session's detail");
-    assert(entry()!.textContent!.includes("Files not imported"), "The diff trail did not say Antigravity files are not imported");
+    assert(entry()!.textContent!.includes("1 file"), `The diff trail did not count the session's file: "${entry()!.textContent}"`);
+    assert(entry()!.textContent!.includes("loader.ts"), "The diff trail did not name the session's file");
   } finally {
     appRoot.unmount();
     window.fetch = originalFetch;
@@ -539,6 +615,9 @@ await test("the Antigravity quota card reads at desktop and narrow widths, and i
       await waitFor(() => Boolean(glance()), `The Antigravity glance did not render at ${width}px`);
       const names = [...glance()!.querySelectorAll(".quota-glance__bucket > b")].map((node) => node.textContent);
       assert(names.join(",") === "5h,w,Partner w,Partner 5h,Argon w", `Unexpected glance windows at ${width}px: ${names.join(",")}`);
+      // The Gemini subscription is a peer of Anthropic's and OpenAI's: third, before Warp.
+      const providers = [...doc.querySelectorAll(".quota-glance__provider")].map((node) => [...node.classList].find((name) => name !== "quota-glance__provider"));
+      assert(providers.join(",") === "anthropic,codex,antigravity,warp", `Unexpected glance order at ${width}px: ${providers.join(",")}`);
       const panel = doc.querySelector(".quota-panel")!.getBoundingClientRect();
       for (const bucket of glance()!.querySelectorAll(".quota-glance__bucket")) {
         assert(bucket.getBoundingClientRect().right <= panel.right + 1, `An Antigravity glance window overflows its panel at ${width}px`);
@@ -546,6 +625,8 @@ await test("the Antigravity quota card reads at desktop and narrow widths, and i
       doc.querySelector<HTMLElement>(".quota-details-toggle")!.click();
       const card = () => doc.querySelector<HTMLElement>(".quota-card.antigravity");
       await waitFor(() => Boolean(doc.querySelector(".quota-grid:not(.is-collapsed)")) && Boolean(card()), `The Antigravity card did not open at ${width}px`);
+      const cards = [...doc.querySelectorAll(".quota-card")].map((node) => ["anthropic", "codex", "antigravity", "warp"].find((name) => node.classList.contains(name)));
+      assert(cards.join(",") === "anthropic,codex,antigravity,warp", `Unexpected card order at ${width}px: ${cards.join(",")}`);
       const text = card()!.textContent ?? "";
       assert(text.includes("Google AI Pro") && text.includes("Limits: Gemini 4 Argon") && text.includes("Limits: partner models"), `The Antigravity card is missing its plan or scopes at ${width}px`);
       // The card clips its decorative glow, so overflow is measured on each window's text.

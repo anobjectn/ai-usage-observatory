@@ -50,6 +50,46 @@ export function stepMetadata({ at, finishedAt, usage }: { at: number; finishedAt
   ));
 }
 
+/** A user-input step's payload (step type 14): field 19 holds the items the user's turn was sent as
+ * (19.3, each with its text in field 1), a concatenated copy of them (19.2) that the detail reader
+ * must ignore, and a short id (19.4). `concatenated` overrides the 19.2 copy, for canaries. */
+export function userInputPayload(items: string[], options: { concatenated?: string } = {}) {
+  return new Uint8Array(message(
+    varintField(1, 14),
+    varintField(4, 1),
+    bytesField(19, message(
+      textField(2, options.concatenated ?? items.join("")),
+      ...items.map((item) => bytesField(3, message(textField(1, item)))),
+      textField(4, "input-id"),
+    )),
+  ));
+}
+
+export type FixtureToolCall = { id?: string; name: string; args: unknown };
+
+/** A model turn's payload (step type 15): field 20 holds the final reply (20.1), its mirror (20.8,
+ * identical to 20.1 unless `mirror` says otherwise; `null` leaves it out), the thinking text
+ * (20.3), and each tool call (repeated 20.7: id, name, JSON arguments). An `args` string is sent
+ * as given, for malformed-argument tests. */
+export function modelTurnPayload({ reply, mirror, thinking, calls = [] }: { reply?: string; mirror?: string | null; thinking?: string; calls?: FixtureToolCall[] }) {
+  const mirrored = mirror === undefined ? reply : mirror;
+  return new Uint8Array(message(
+    varintField(1, 15),
+    bytesField(20, message(
+      reply === undefined ? [] : textField(1, reply),
+      thinking === undefined ? [] : textField(3, thinking),
+      ...calls.map((call, index) => bytesField(7, message(
+        textField(1, call.id ?? `call-${index}`),
+        textField(2, call.name),
+        textField(3, typeof call.args === "string" ? call.args : JSON.stringify(call.args)),
+      ))),
+      mirrored === undefined || mirrored === null ? [] : textField(8, mirrored),
+      varintField(11, 1),
+      bytesField(14, message(bytesField(2, message(textField(1, thinking ?? ""))))),
+    )),
+  ));
+}
+
 export type FixtureGeneration = { usage: FixtureUsage; modelId: string; label: string; filler?: string };
 
 export function generationData({ usage, modelId, label, filler = "" }: FixtureGeneration) {
@@ -79,6 +119,8 @@ export type FixtureStep = {
   /** Raw metadata bytes, for undecodable-step tests. */
   metadata?: Uint8Array | null;
   payload?: string;
+  /** Raw `step_payload` bytes (see `userInputPayload` and `modelTurnPayload`); used before `payload`. */
+  payloadBytes?: Uint8Array;
 };
 
 export type FixtureConversation = {
@@ -110,7 +152,7 @@ function fill(database: Database, conversation: FixtureConversation) {
     const metadata = step.metadata !== undefined ? step.metadata : stepMetadata(step);
     const values: Record<string, unknown> = {
       idx: step.idx, step_type: step.stepType ?? (step.usage ? 15 : 14), status: step.status ?? 3, metadata,
-      step_payload: new TextEncoder().encode(step.payload ?? ""),
+      step_payload: step.payloadBytes ?? new TextEncoder().encode(step.payload ?? ""),
     };
     insertStep.run(...names.map((name) => values[name] as never));
   }

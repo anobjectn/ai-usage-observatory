@@ -115,18 +115,27 @@ async function launch(command: string[]) {
   }
 }
 
+const antigravitySessionPrefix = "antigravity-";
+
+function noAntigravityTranscript() {
+  return new ExternalOpenError("Antigravity conversations have no transcript file to open.", 409);
+}
+
 export async function openSessionExternalTarget(
   sessionId: string,
   action: ExternalOpenAction,
   target: ExternalOpenTarget,
 ) {
-  const source = getSessionSource(sessionId);
+  // An Antigravity conversation is a provider database holding prompts, not a transcript to open.
+  // The files its edit and write tools changed are listed in its detail, and open like any other
+  // session's, through the same resolver the detail reads from.
+  const antigravityPrefixed = sessionId.startsWith(antigravitySessionPrefix);
+  if (antigravityPrefixed && target.kind === "transcript") throw noAntigravityTranscript();
+  const source = antigravityPrefixed
+    ? (await import("./antigravity-detail")).antigravityDetailSource(sessionId)
+    : getSessionSource(sessionId);
   if (!source)
     throw new ExternalOpenError("That session is no longer available.", 404);
-  // An Antigravity conversation is a provider database holding prompts, not a transcript to read,
-  // and the app lists none of its files.
-  if (source.agent === "antigravity")
-    throw new ExternalOpenError("Antigravity conversations have no transcript file to open.", 409);
 
   let targetPath: string;
   let label: string;

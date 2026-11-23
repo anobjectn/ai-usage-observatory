@@ -830,13 +830,16 @@ export function SessionDetailPanel({
   // column's numbers come from, and that Warp records no file paths and no
   // transcript file to open — never the shape of the panel.
   const warp = session.source === "warp" ? (session.warp ?? null) : null;
-  // Antigravity sessions are usage metadata only: the panel keeps its columns, and the ones that
-  // would hold conversation content say that it is not imported.
+  // Antigravity reads its prompts, replies, tool names, and edited paths from the conversation's
+  // own database when the panel opens. When that database cannot be read, the panel still shows
+  // the session's metadata, and the content columns say why they are empty.
   const antigravity = session.source === "antigravity";
   // The metadata reader's stats, joined onto ccusage's session. A session ccusage reported that
   // the reader did not see has none, and shows a dash rather than a zero.
   const antigravityStats = antigravity ? (session.antigravity ?? null) : null;
-  const notImported = "Antigravity conversation content is not imported.";
+  const antigravityUnavailable = antigravity && !detail?.available;
+  const antigravityUnreadable =
+    "This conversation's database could not be read right now (it may be in use, unsafe to open, or deleted).";
   if (loading)
     return (
       <div className="session-detail session-detail--loading">
@@ -940,6 +943,25 @@ export function SessionDetailPanel({
               <span>REASONING TOKENS</span>
               <strong>{antigravityStats ? formatCompact(antigravityStats.reasoningOutputTokens) : "—"}</strong>
             </div>
+            <div>
+              <span>TOOL CALLS</span>
+              <strong>{antigravityUnavailable ? "—" : toolCalls}</strong>
+            </div>
+            <div>
+              <span>FILES TOUCHED</span>
+              <strong>{antigravityUnavailable ? "—" : fileCount}</strong>
+            </div>
+            <div className="diff-count">
+              <span>PATCH SUMMARY</span>
+              {antigravityUnavailable ? (
+                <strong>—</strong>
+              ) : (
+                <strong>
+                  <i>+{additions}</i>
+                  <em>−{deletions}</em>
+                </strong>
+              )}
+            </div>
             <div title={session.cwd ?? undefined}>
               <span>WORKSPACE</span>
               <strong>{session.cwd?.split("/").filter(Boolean).at(-1) ?? "—"}</strong>
@@ -1003,8 +1025,8 @@ export function SessionDetailPanel({
           column="prompt"
           label="Prompt"
           collapsed={collapsedColumns.has("prompt")}
-          collapsedMeta={`${prompts.length} prompt${prompts.length === 1 ? "" : "s"}`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${prompts.length} prompt${prompts.length === 1 ? "" : "s"}`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             {
               value: formatCompact(prompts.length),
               label: "prompts",
@@ -1029,7 +1051,7 @@ export function SessionDetailPanel({
                   {promptOrder === "newest" ? "Newest first ↓" : "Oldest first ↑"}
                 </button>
               ) : (
-                <small>{antigravity ? "Not imported" : "No prompt events detected"}</small>
+                <small>{antigravityUnavailable ? "Not read" : "No prompt events detected"}</small>
               )}
               {!warp && !antigravity && (
                 <CompactActionMenu
@@ -1058,8 +1080,10 @@ export function SessionDetailPanel({
             </ol>
           ) : (
             <p>
-              {antigravity
-                ? notImported
+              {antigravityUnavailable
+                ? antigravityUnreadable
+                : antigravity
+                ? "No readable prompt in this conversation."
                 : warp
                 ? "This conversation recorded no typed prompt of its own."
                 : "Prompt text was not available in this session format."}
@@ -1070,8 +1094,8 @@ export function SessionDetailPanel({
           column="output"
           label="Output"
           collapsed={collapsedColumns.has("output")}
-          collapsedMeta={`${outputs.length} sample${outputs.length === 1 ? "" : "s"}`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${outputs.length} sample${outputs.length === 1 ? "" : "s"}`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             { value: formatCompact(outputs.length), label: "samples" },
             ...(clippedOutputs
               ? [
@@ -1091,7 +1115,7 @@ export function SessionDetailPanel({
               <small>
                 {outputs.length
                   ? `${outputs.length} recent sample${outputs.length === 1 ? "" : "s"}${outputs.some((output) => output.truncated) ? " · clipped" : ""}`
-                  : antigravity ? "Not imported" : "No assistant text detected"}
+                  : antigravityUnavailable ? "Not read" : "No assistant text detected"}
               </small>
               {!warp && !antigravity && (
                 <CompactActionMenu
@@ -1121,8 +1145,10 @@ export function SessionDetailPanel({
             </ol>
           ) : (
             <p>
-              {antigravity
-                ? notImported
+              {antigravityUnavailable
+                ? antigravityUnreadable
+                : antigravity
+                ? "No final reply text in this conversation."
                 : warp
                 ? "Warp kept no local copy of this conversation's replies."
                 : "Assistant-visible output text was not available in this session format."}
@@ -1133,8 +1159,8 @@ export function SessionDetailPanel({
           column="files"
           label="Files & Patches"
           collapsed={collapsedColumns.has("files")}
-          collapsedMeta={`${fileCount} file${fileCount === 1 ? "" : "s"}, ${additions} additions, ${deletions} deletions`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${fileCount} file${fileCount === 1 ? "" : "s"}, ${additions} additions, ${deletions} deletions`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             { value: formatCompact(fileCount), label: "files" },
             { value: `+${formatCompact(additions)}`, tone: "positive" },
             { value: `−${formatCompact(deletions)}`, tone: "negative" },
@@ -1142,7 +1168,9 @@ export function SessionDetailPanel({
           onToggle={() => toggleColumn("files")}
           aside={
             <small>
-              {fileCount
+              {antigravityUnavailable
+                ? "Not read"
+                : fileCount
                 ? `${fileCount} files · +${additions} −${deletions}`
                 : "No patch payload found"}
             </small>
@@ -1167,7 +1195,9 @@ export function SessionDetailPanel({
                     }
                     title={
                       file.additions === null || file.deletions === null
-                        ? "Line counts unavailable for this transcript record"
+                        ? antigravity
+                          ? "Line counts unavailable: the file was overwritten, and its earlier content is not recorded"
+                          : "Line counts unavailable for this transcript record"
                         : undefined
                     }
                   >
@@ -1200,7 +1230,7 @@ export function SessionDetailPanel({
               <li><span>Compaction observed</span><b>{warp.wasSummarized ? "Yes" : "No"}</b></li>
             </ul>
           ) : antigravity ? (
-            <p>Antigravity tool payloads are not imported, so no file changes are listed.</p>
+            <p>{antigravityUnavailable ? antigravityUnreadable : "File changes come from edit and write tool calls only."}</p>
           ) : (
             <p>File changes are detected from structured patch calls only.</p>
           )}
@@ -1209,8 +1239,8 @@ export function SessionDetailPanel({
           column="tools"
           label="Tools"
           collapsed={collapsedColumns.has("tools")}
-          collapsedMeta={`${toolCalls} call${toolCalls === 1 ? "" : "s"} across ${tools.length} tool type${tools.length === 1 ? "" : "s"}`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${toolCalls} call${toolCalls === 1 ? "" : "s"} across ${tools.length} tool type${tools.length === 1 ? "" : "s"}`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             { value: formatCompact(toolCalls), label: "calls" },
             { value: formatCompact(tools.length), label: "types" },
           ]}
@@ -1219,6 +1249,8 @@ export function SessionDetailPanel({
             <small>
               {tools.length
                 ? "Observed calls"
+                : antigravityUnavailable
+                ? "Not read"
                 : "No tool calls detected"}
             </small>
           }
@@ -1233,7 +1265,7 @@ export function SessionDetailPanel({
               ))}
             </ul>
           ) : (
-            <p>{antigravity ? "Antigravity tool payloads are not imported." : "No structured tool calls were found."}</p>
+            <p>{antigravityUnavailable ? antigravityUnreadable : "No structured tool calls were found."}</p>
           )}
         </SessionDetailColumn>
         <SessionModelEffortSection
@@ -1307,7 +1339,9 @@ export function SessionDetailPanel({
         <p className="scope-note">
           <Database /> Tokens and API-equivalent cost come from ccusage. Workspace, effort label,
           and step times come from Antigravity's local conversation databases on this computer.
-          Prompts, replies, reasoning, and tool payloads are never imported.
+          Prompts, final replies, tool names, and edited paths are read from this conversation's
+          database when the panel opens and are never stored. Reasoning and tool output are never
+          read.
         </p>
       )}
       {warp && (

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -25,13 +25,16 @@ import {
   generationData,
   fileUri,
   leaveEmptySidecars,
+  modelTurnPayload,
   openLiveWriter,
   removeSidecars,
   writeConversation,
   writeOrphanWal,
+  userInputPayload,
   writeSummaries,
   type FixtureConversation,
 } from "./antigravity-fixture";
+import { ANTIGRAVITY_DETAIL_SQL } from "./antigravity-detail";
 import { windowLimitsAny } from "../src/antigravity-quota";
 import { ccusageEnvironment } from "./ccusage";
 import { indexSessionPaths } from "./path-indexer";
@@ -695,7 +698,14 @@ test("privacy canary: no content column reaches the collection, the database, or
   const base = root();
   writeSummaries(base, [{ conversationId: "secret", title: canary, preview: canary, rawSummary: canary, workspaceUris: [fileUri("/tmp/project")] }]);
   const conversation = mixedConversation();
-  conversation.steps = conversation.steps.map((step) => ({ ...step, payload: canary }));
+  // Real-structure payloads (the user's request, the reply, the thinking, and tool arguments),
+  // each holding the canary, so a decode the collection should never make would surface it.
+  const turnPayload = modelTurnPayload({ reply: canary, thinking: canary, calls: [{ name: "edit_file", args: { Path: `/w/${canary}`, Target: canary, Replacement: canary } }] });
+  conversation.steps = conversation.steps.map((step) => ({
+    ...step,
+    payload: canary,
+    payloadBytes: step.stepType === 14 ? userInputPayload([`<user_request>${canary}</user_request>`]) : step.usage && step.stepType === undefined ? turnPayload : undefined,
+  }));
   conversation.generations = conversation.generations!.map((generation) => ({ ...generation, filler: `${canary}${"x".repeat(200_000)}` }));
   writeConversation(base, "secret", conversation);
   useRoots(base);
@@ -710,4 +720,8 @@ test("privacy canary: no content column reaches the collection, the database, or
   for (const sql of ANTIGRAVITY_SQL) {
     expect(sql).not.toMatch(/\b(title|preview|raw_summary|step_payload|fts)\b|\*/i);
   }
+  // Conversation content is decoded only by the on-demand detail reader, which this module never
+  // loads.
+  expect(ANTIGRAVITY_SQL).not.toContain(ANTIGRAVITY_DETAIL_SQL);
+  expect(readFileSync(join(import.meta.dir, "antigravity.ts"), "utf8")).not.toMatch(/(from\s+|import\()\s*["']\.\/antigravity-detail["']/);
 });

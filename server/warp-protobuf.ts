@@ -80,6 +80,11 @@ export function bytesOf(fields: WireField[], field: number) {
   return found?.kind === "bytes" ? found.value : null;
 }
 
+/** Every length-delimited entry of a repeated field, in wire order. */
+export function fieldsOf(fields: WireField[], field: number) {
+  return fields.flatMap((entry) => entry.field === field && entry.kind === "bytes" ? [entry.value] : []);
+}
+
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 /** Strings are only accepted as strings: bytes that are not valid UTF-8 are some

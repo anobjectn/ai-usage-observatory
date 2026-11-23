@@ -119,7 +119,7 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
    - **Ledger.** Each usage-bearing step's `steps.metadata` field 9 is one model call: uncached
      input, output (thinking included), cache write, cache read, and the thinking share of
      output, de-duplicated by message ID. Compaction calls count; they carry their own message
-     IDs. Field 1 is the call's UTC time. `step_payload` is never selected. A finished model turn
+     IDs. Field 1 is the call's UTC time. The metadata reader never selects `step_payload`. A finished model turn
      (`steps.status` 3) without a usage record is noted in source health; a turn still running
      has not written its record yet and is not.
    - **Model and effort.** `gen_metadata` maps each message ID to its model ID and display label,
@@ -162,6 +162,37 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
      parse, effort rows, and activity evidence.
    - **Evidence.** Step times become activity evidence through `saveLocalEvidence`; a summary's
      modified time orders a session but never stands in for activity.
+   - **Session detail.** `server/antigravity-detail.ts` is the one place Antigravity conversation
+     content is decoded, as `session-detail.ts` is for Claude and Codex transcripts. It loads
+     through a dynamic import from the `antigravity-` branch of `getSessionDetail` (the
+     collection never imports it) and runs only when a session's detail is requested.
+     - **Source.** The database the newest collection chose for the session (after `prefer()`),
+       then its `session_paths` row. It is opened only when it is `<conversation id>.db` directly
+       inside the `conversations` directory of a currently configured root; anything else is
+       unavailable.
+     - **Read.** The same open rule, through `readProviderDatabase`, retried once if the file
+       changed during an immutable read. Only `steps` rows of type 14 (user input) and 15 (model
+       turn) are selected, each payload capped at 8 MB and each metadata blob at 1 MB in SQL; more
+       than 20,000 such steps, or 64 MiB of payload and metadata in all, makes the detail
+       unavailable rather than partial.
+     - **Decode.** Prompts from 19.3 items, read by their top-level structure, never by searching
+       inside them: an item made only of tag blocks that include `<user_request>` gives those
+       blocks' text, and its other blocks are dropped as injected context; an item made only of
+       other tag blocks is dropped when they are all known harness blocks (`runtime_info`,
+       `environment_context`, `user_instructions`) or the turn has more than one item; any other
+       item is the user's text, kept verbatim after harness blocks at its start
+       and end are removed. The concatenated 19.2 is never read. Replies from 20.1, only while
+       its mirror 20.8 is present and agrees; thinking (20.3, 20.14) is never decoded. Tool names
+       from 20.7.2. `edit_file` and `write_file` arguments (20.7.3) give paths and line counts:
+       an edit counts the lines its target and replacement do not share; a new write counts its
+       lines; an overwrite of a file the session created replaces its count, and any other
+       overwrite is modified with unknown counts, which then stay unknown for that file.
+       Files are keyed by their exact normalized path. Tool results (step type 132) are never
+       selected, so an edit is counted as attempted.
+     - **Lifetime.** Concurrent requests share one in-flight read keyed by the file's identity,
+       size, mtime, and `-wal`; nothing is cached after it settles or written to the store. The
+       listed files open in an editor through the same resolver; the database itself is never
+       offered as a transcript.
    - **Cost.** Antigravity cost is ccusage's, like Claude's and Codex's. Offline, ccusage has no
      Gemini 4 price and names the model in `unpricedModels`; sessions that ran an unpriced model
      stay out of cost medians and rates. LiteLLM has no Gemini 4 rate, so the token-type cost

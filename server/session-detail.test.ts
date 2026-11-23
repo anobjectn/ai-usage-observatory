@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -286,18 +286,78 @@ describe("on-demand session detail reads", () => {
 });
 
 describe("Antigravity session detail", () => {
-  test("is metadata only and reads no source, even with a database row on record", async () => {
+  async function withConversation(run: (context: { root: string; path: string; insert: (sourceFile: string) => void }) => Promise<void>) {
     const { db } = await import("./store");
-    const missing = join(tmpdir(), `antigravity-${crypto.randomUUID()}.db`);
-    db.query(`INSERT OR REPLACE INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size)
-      VALUES ('antigravity-detail', 'antigravity', 'detail', ?, '/tmp', 1, 1)`).run(missing);
+    const { resetAntigravityCache } = await import("./antigravity");
+    const { modelTurnPayload, userInputPayload, writeConversation } = await import("./antigravity-fixture");
+    const { testAntigravityDirectory } = await import("./test-setup");
+    const directory = mkdtempSync(join(tmpdir(), "antigravity-session-detail-"));
+    const root = join(directory, "install/antigravity-acp");
+    process.env.ANTIGRAVITY_DATA_DIRS = root;
+    resetAntigravityCache();
+    const at = Date.UTC(2026, 10, 21, 20, 0, 0);
+    const path = writeConversation(root, "conv-detail", {
+      steps: [
+        { idx: 0, stepType: 14, at, payloadBytes: userInputPayload(["<user_request>Add a test</user_request>", "<runtime_info>x</runtime_info>"]) },
+        {
+          idx: 1, stepType: 15, at: at + 1000, usage: { input: 1, output: 1, messageId: "m1" },
+          payloadBytes: modelTurnPayload({
+            reply: "Added it.",
+            thinking: "private",
+            calls: [
+              { name: "write_file", args: { Path: "/w/new.test.ts", Content: "a\nb\n" } },
+              { name: "read_file", args: { Path: "/w/other.ts" } },
+            ],
+          }),
+        },
+      ],
+    });
+    const insert = (sourceFile: string) => db.query(`INSERT OR REPLACE INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size)
+      VALUES ('antigravity-conv-detail', 'antigravity', 'conv-detail', ?, '/w', 1, 1)`).run(sourceFile);
     try {
-      expect(await getSessionDetail("antigravity-detail")).toEqual({
-        available: true, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0,
-      });
-      expect(pendingSessionDetailReads()).toBe(0);
+      await run({ root, path, insert });
     } finally {
-      db.query("DELETE FROM session_paths WHERE session_id = 'antigravity-detail'").run();
+      db.query("DELETE FROM session_paths WHERE session_id = 'antigravity-conv-detail'").run();
+      process.env.ANTIGRAVITY_DATA_DIRS = testAntigravityDirectory;
+      resetAntigravityCache();
+      rmSync(directory, { recursive: true, force: true });
     }
+  }
+
+  test("reads prompts, replies, tools, and files on demand and keeps no read afterwards", async () => {
+    await withConversation(async ({ path, insert }) => {
+      insert(path);
+      const [first, second] = await Promise.all([getSessionDetail("antigravity-conv-detail"), getSessionDetail("antigravity-conv-detail")]);
+      // Concurrent requests for an unchanged file share one read.
+      expect(second).toBe(first);
+      expect(first).toMatchObject({
+        available: true,
+        prompts: [{ text: "Add a test" }],
+        outputs: [{ text: "Added it.", truncated: false }],
+        tools: [{ name: "read_file", count: 1 }, { name: "write_file", count: 1 }],
+        files: [{ path: "/w/new.test.ts", status: "added", additions: 2, deletions: 0 }],
+        additions: 2,
+        deletions: 0,
+        eventsRead: 2,
+      });
+      expect(JSON.stringify(first)).not.toContain("private");
+      expect(pendingSessionDetailReads()).toBe(0);
+    });
+  });
+
+  test("is unavailable with no row, a deleted file, a mismatched name, or a file outside the roots", async () => {
+    await withConversation(async ({ root, path, insert }) => {
+      expect((await getSessionDetail("antigravity-conv-detail")).available).toBe(false);
+      insert(join(root, "conversations", "someone-else.db"));
+      expect((await getSessionDetail("antigravity-conv-detail")).available).toBe(false);
+      const outside = join(tmpdir(), `outside-${crypto.randomUUID()}`, "conv-detail.db");
+      insert(outside);
+      expect((await getSessionDetail("antigravity-conv-detail")).available).toBe(false);
+      insert(path);
+      expect((await getSessionDetail("antigravity-conv-detail")).available).toBe(true);
+      rmSync(path);
+      expect((await getSessionDetail("antigravity-conv-detail")).available).toBe(false);
+      expect(pendingSessionDetailReads()).toBe(0);
+    });
   });
 });
