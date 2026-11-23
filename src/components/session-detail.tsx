@@ -1025,8 +1025,8 @@ export function SessionDetailPanel({
           column="prompt"
           label="Prompt"
           collapsed={collapsedColumns.has("prompt")}
-          collapsedMeta={`${prompts.length} prompt${prompts.length === 1 ? "" : "s"}`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${prompts.length} prompt${prompts.length === 1 ? "" : "s"}`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             {
               value: formatCompact(prompts.length),
               label: "prompts",
@@ -1094,8 +1094,8 @@ export function SessionDetailPanel({
           column="output"
           label="Output"
           collapsed={collapsedColumns.has("output")}
-          collapsedMeta={`${outputs.length} sample${outputs.length === 1 ? "" : "s"}`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${outputs.length} sample${outputs.length === 1 ? "" : "s"}`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             { value: formatCompact(outputs.length), label: "samples" },
             ...(clippedOutputs
               ? [
@@ -1159,8 +1159,8 @@ export function SessionDetailPanel({
           column="files"
           label="Files & Patches"
           collapsed={collapsedColumns.has("files")}
-          collapsedMeta={`${fileCount} file${fileCount === 1 ? "" : "s"}, ${additions} additions, ${deletions} deletions`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${fileCount} file${fileCount === 1 ? "" : "s"}, ${additions} additions, ${deletions} deletions`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             { value: formatCompact(fileCount), label: "files" },
             { value: `+${formatCompact(additions)}`, tone: "positive" },
             { value: `−${formatCompact(deletions)}`, tone: "negative" },
@@ -1239,8 +1239,8 @@ export function SessionDetailPanel({
           column="tools"
           label="Tools"
           collapsed={collapsedColumns.has("tools")}
-          collapsedMeta={`${toolCalls} call${toolCalls === 1 ? "" : "s"} across ${tools.length} tool type${tools.length === 1 ? "" : "s"}`}
-          collapsedStats={[
+          collapsedMeta={antigravityUnavailable ? "Not read" : `${toolCalls} call${toolCalls === 1 ? "" : "s"} across ${tools.length} tool type${tools.length === 1 ? "" : "s"}`}
+          collapsedStats={antigravityUnavailable ? undefined : [
             { value: formatCompact(toolCalls), label: "calls" },
             { value: formatCompact(tools.length), label: "types" },
           ]}

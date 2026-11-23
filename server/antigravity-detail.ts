@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DATABASE_CHANGED_WHILE_READ,
@@ -9,7 +9,7 @@ import {
   readProviderDatabase,
   stepTimestampMs,
 } from "./antigravity";
-import { upsertFile, type FileChange } from "./file-changes";
+import { fileStatus, type FileChange, type FileStatus } from "./file-changes";
 import { getSessionSource } from "./path-indexer";
 import {
   detailOutputSampleCharacters,
@@ -39,12 +39,15 @@ import { bytesOf, decodeText, fieldOf, fieldsOf, messageOf, textOf } from "./war
  */
 
 /** The size cap is applied per row in SQL, so an oversized payload's bytes never leave SQLite. */
-export const ANTIGRAVITY_DETAIL_SQL = "SELECT idx, step_type, metadata, CASE WHEN length(step_payload) <= ? THEN step_payload END AS step_payload FROM steps WHERE step_type IN (14, 15) ORDER BY idx";
+export const ANTIGRAVITY_DETAIL_SQL = "SELECT idx, step_type, CASE WHEN length(metadata) <= ? THEN metadata END AS metadata, CASE WHEN length(step_payload) <= ? THEN step_payload END AS step_payload FROM steps WHERE step_type IN (14, 15) ORDER BY idx";
 
 export const MAX_STEP_PAYLOAD_BYTES = 8_000_000;
+/** Step metadata only carries the step time here; an oversized one is not read and the step has
+ * no time. */
+export const MAX_STEP_METADATA_BYTES = 1_000_000;
 /** Above this many user-input and model-turn steps the conversation is not read at all. */
 export const MAX_DETAIL_STEPS = 20_000;
-/** Every payload decoded for one detail together; past it the detail is unavailable rather than
+/** Every payload and metadata blob read for one detail together; past it the detail is unavailable rather than
  * a partial view. */
 export const MAX_DETAIL_PAYLOAD_BYTES = 64 * 1024 * 1024;
 
@@ -77,36 +80,94 @@ export function antigravityDetailSource(sessionId: string): { sourceFile: string
 }
 
 /** Identity, main file, and `-wal`, or null when the file is missing or could not be checked. */
-export function antigravityDetailSignature(sourceFile: string) {
-  return antigravityFileSignature(sourceFile);
-}
+export { antigravityFileSignature };
 
 type StepRow = { idx: number; step_type: number | null; metadata: unknown; step_payload: unknown };
 
 const harnessTags = new Set(["runtime_info", "environment_context", "user_instructions"]);
-const wholeTagBlock = /^<([A-Za-z_][\w-]*)>[\s\S]*<\/\1>$/;
-const userRequestOpen = "<user_request>";
-const userRequestClose = "</user_request>";
+const userRequestTag = "user_request";
+const openTagAt = /<([A-Za-z_][\w-]*)(?:\s[^<>]*)?>/y;
+
+type TagBlock = { name: string; start: number; end: number; inner: string };
+
+/** The tag block that opens exactly at `start`, through its matching close (same-name tags nest),
+ * or null when there is no well-formed block there. */
+function tagBlockAt(text: string, start: number): TagBlock | null {
+  openTagAt.lastIndex = start;
+  const open = openTagAt.exec(text);
+  if (!open) return null;
+  const name = open[1]!;
+  const sameName = new RegExp(`<(/?)${name}(?:\\s[^<>]*)?>`, "g");
+  sameName.lastIndex = openTagAt.lastIndex;
+  let depth = 1;
+  for (let match = sameName.exec(text); match; match = sameName.exec(text)) {
+    depth += match[1] ? -1 : 1;
+    if (depth === 0) return { name, start, end: sameName.lastIndex, inner: text.slice(openTagAt.lastIndex, match.index) };
+  }
+  return null;
+}
+
+/** The item as a run of top-level tag blocks separated only by whitespace, or null when any other
+ * text sits between, before, or after them. */
+function topLevelBlocks(item: string): TagBlock[] | null {
+  const blocks: TagBlock[] = [];
+  let position = 0;
+  while (position < item.length) {
+    const next = item.slice(position).search(/\S/);
+    if (next < 0) break;
+    const block = tagBlockAt(item, position + next);
+    if (!block) return null;
+    blocks.push(block);
+    position = block.end;
+  }
+  return blocks;
+}
+
+/** An item with known harness blocks removed from its start and end, top level only. */
+function withoutHarnessEdges(item: string) {
+  let text = item.trim();
+  for (;;) {
+    const leading = tagBlockAt(text, 0);
+    if (leading && harnessTags.has(leading.name)) { text = text.slice(leading.end).trim(); continue; }
+    break;
+  }
+  for (;;) {
+    const close = text.match(/<\/([A-Za-z_][\w-]*)>$/);
+    if (!close || !harnessTags.has(close[1]!)) break;
+    const open = text.lastIndexOf(`<${close[1]}`);
+    const block = open >= 0 ? tagBlockAt(text, open) : null;
+    if (!block || block.end !== text.length) break;
+    text = text.slice(0, open).trim();
+  }
+  return text;
+}
 
 /**
- * The user's own request out of one input step's items. An item that wraps the request in
- * `<user_request>` gives the text between the first opening and the last closing tag. An item
- * that is one whole tag block is injected context and is dropped: always for a known harness tag,
- * and for any tag when the turn was sent as more than one item. Plain items are kept verbatim.
+ * The user's own request out of one input step's items. Each item is read by its top-level
+ * structure, never by searching inside it, so a tag nested in injected context or quoted in a
+ * question is never mistaken for the request:
+ *
+ * - An item made only of tag blocks that include `<user_request>` is a wrapped turn: those blocks
+ *   are the request, and every other block is injected context and is dropped.
+ * - An item made only of other tag blocks is injected context and is dropped when every block is
+ *   a known harness tag, or when the turn has more than one item.
+ * - Any other item is the user's text, kept verbatim after known harness blocks are removed from
+ *   its start and end, so a question that is itself markup stays as written.
  */
 export function promptFromItems(items: string[]) {
-  const present = items.map((item) => item.trim()).filter(Boolean);
   const parts: string[] = [];
-  for (const item of present) {
-    const open = item.indexOf(userRequestOpen);
-    const close = item.lastIndexOf(userRequestClose);
-    if (open >= 0 && close > open) {
-      parts.push(item.slice(open + userRequestOpen.length, close).trim());
+  for (const raw of items) {
+    const item = raw.trim();
+    if (!item) continue;
+    const blocks = topLevelBlocks(item);
+    if (blocks?.some((block) => block.name === userRequestTag)) {
+      for (const block of blocks) if (block.name === userRequestTag) parts.push(block.inner.trim());
       continue;
     }
-    const block = item.match(wholeTagBlock);
-    if (block && (harnessTags.has(block[1]!) || present.length > 1)) continue;
-    parts.push(item);
+    // Injected context: an item made only of tag blocks, when every block is a known harness tag
+    // or the turn was sent as more than one item (the request then travels in its own item).
+    if (blocks?.length && (blocks.every((block) => harnessTags.has(block.name)) || items.length > 1)) continue;
+    parts.push(withoutHarnessEdges(item));
   }
   return parts.filter(Boolean).join("\n").trim();
 }
@@ -141,11 +202,12 @@ function modelTurnOf(payload: Uint8Array): ModelTurn | null {
   const turn = top ? bytesOf(top, 20) : null;
   const fields = turn ? messageOf(turn) : null;
   if (!fields) return null;
-  // The reply is trusted only while its mirror agrees, so a renumbering that moved other text
-  // (the thinking) into field 1 yields no reply rather than the wrong one.
+  // The reply is trusted only while its mirror is present and agrees (every surveyed reply has
+  // one), so a renumbering that moved other text (the thinking) into field 1 yields no reply
+  // rather than the wrong one.
   const reply = bytesOf(fields, 1);
   const mirror = fieldOf(fields, 8);
-  const corroborated = reply !== null && (mirror === undefined || (mirror.kind === "bytes" && sameBytes(reply, mirror.value)));
+  const corroborated = reply !== null && mirror?.kind === "bytes" && sameBytes(reply, mirror.value);
   const calls: ToolCallArgs[] = [];
   for (const call of fieldsOf(fields, 7)) {
     const callFields = messageOf(call);
@@ -220,9 +282,27 @@ function pathOf(value: unknown) {
   try { return fileURLToPath(value); } catch { return null; }
 }
 
+type LedgerEntry = FileChange & { countsUnknown: boolean };
+
+/** Antigravity's tools record full paths, so files are keyed by the exact normalized path: two
+ * files that share a name stay two rows, and each lookup is constant time. Once any change to a
+ * path has unknown counts (an overwrite), that file's counts stay unknown. */
+function recordFileChange(files: Map<string, LedgerEntry>, path: string, status: FileStatus, delta?: { additions: number; deletions: number }) {
+  const key = normalize(path.replaceAll("\\", "/"));
+  const existing = files.get(key);
+  const countsUnknown = (existing?.countsUnknown ?? false) || delta === undefined;
+  files.set(key, {
+    path: existing?.path ?? path,
+    status: fileStatus(existing?.status, status),
+    countsUnknown,
+    additions: countsUnknown ? null : (existing?.additions ?? 0) + delta!.additions,
+    deletions: countsUnknown ? null : (existing?.deletions ?? 0) + delta!.deletions,
+  });
+}
+
 /** Only `edit_file` and `write_file` change files. Reads, commands, and every other tool record
  * none, and nothing is read from disk. */
-function applyFileChange(call: ToolCallArgs, files: Map<string, FileChange>, counts: { additions: number; deletions: number }) {
+function applyFileChange(call: ToolCallArgs, files: Map<string, LedgerEntry>, counts: { additions: number; deletions: number }) {
   if ((call.name !== "edit_file" && call.name !== "write_file") || call.args === null) return;
   let args: unknown;
   try { args = JSON.parse(call.args); } catch { return; }
@@ -234,18 +314,28 @@ function applyFileChange(call: ToolCallArgs, files: Map<string, FileChange>, cou
     const delta = editLineCounts(args.Target, args.Replacement);
     counts.additions += delta.additions;
     counts.deletions += delta.deletions;
-    upsertFile(files, path, "modified", delta);
+    recordFileChange(files, path, "modified", delta);
     return;
   }
   if (typeof args.Content !== "string") return;
-  // An overwrite replaced content this reader never saw, so its counts are unknown.
   if (args.Overwrite === true) {
-    upsertFile(files, path, "modified");
+    const key = normalize(path.replaceAll("\\", "/"));
+    const existing = files.get(key);
+    // A file this session created and has known counts for is still new: its lines are now the
+    // overwrite's. Any other overwrite replaced content this reader never saw, so its counts are
+    // unknown.
+    if (existing?.status === "added" && !existing.countsUnknown) {
+      const additions = lineCount(args.Content);
+      counts.additions += additions;
+      files.set(key, { ...existing, additions, deletions: 0 });
+      return;
+    }
+    recordFileChange(files, path, "modified");
     return;
   }
   const additions = lineCount(args.Content);
   counts.additions += additions;
-  upsertFile(files, path, "added", { additions, deletions: 0 });
+  recordFileChange(files, path, "added", { additions, deletions: 0 });
 }
 
 function timestampOf(metadata: unknown) {
@@ -263,7 +353,7 @@ export function decodeAntigravitySteps(rows: Iterable<StepRow>): SessionDetail |
   const seenPrompts = new Set<string>();
   const seenOutputs = new Set<string>();
   const tools = new Map<string, number>();
-  const files = new Map<string, FileChange>();
+  const files = new Map<string, LedgerEntry>();
   const counts = { additions: 0, deletions: 0 };
   let steps = 0;
   let payloadBytes = 0;
@@ -271,10 +361,10 @@ export function decodeAntigravitySteps(rows: Iterable<StepRow>): SessionDetail |
   for (const row of rows) {
     if (++steps > MAX_DETAIL_STEPS) return null;
     const payload = row.step_payload;
+    payloadBytes += (payload instanceof Uint8Array ? payload.length : 0) + (row.metadata instanceof Uint8Array ? row.metadata.length : 0);
+    if (payloadBytes > MAX_DETAIL_PAYLOAD_BYTES) return null;
     // An oversized payload comes back as null from SQL; a non-blob value is not a payload.
     if (!(payload instanceof Uint8Array)) continue;
-    payloadBytes += payload.length;
-    if (payloadBytes > MAX_DETAIL_PAYLOAD_BYTES) return null;
     const stepType = Number(row.step_type);
     if (stepType === USER_INPUT_STEP) {
       const prompt = promptOf(payload);
@@ -308,7 +398,7 @@ export function decodeAntigravitySteps(rows: Iterable<StepRow>): SessionDetail |
     prompts: prompts.slice(-detailPromptCount),
     outputs: outputs.slice(-detailOutputSampleCount),
     tools: [...tools.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
-    files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)),
+    files: [...files.values()].map(({ countsUnknown: _unknown, ...file }) => file).sort((a, b) => a.path.localeCompare(b.path)),
     additions: counts.additions,
     deletions: counts.deletions,
     eventsRead,
@@ -322,17 +412,17 @@ function readSteps(database: Database) {
   if (!tables.length) return null;
   const columns = new Set((database.query("PRAGMA table_info(steps)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!requiredColumns.every((column) => columns.has(column))) return null;
-  return decodeAntigravitySteps(database.query(ANTIGRAVITY_DETAIL_SQL).iterate(MAX_STEP_PAYLOAD_BYTES) as Iterable<StepRow>);
+  return decodeAntigravitySteps(database.query(ANTIGRAVITY_DETAIL_SQL).iterate(MAX_STEP_METADATA_BYTES, MAX_STEP_PAYLOAD_BYTES) as Iterable<StepRow>);
 }
 
 /** One conversation's detail, or null when it cannot be read safely right now (missing, a log
  * without its index, changed twice while read, past a budget, or not the expected schema). */
-export function readAntigravityDetail(sourceFile: string): SessionDetail | null {
+export function readAntigravityDetail(sourceFile: string, read: typeof readProviderDatabase = readProviderDatabase): SessionDetail | null {
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const read = readProviderDatabase(sourceFile, readSteps);
-      if (read.ok) return read.value;
-      if (read.reason !== DATABASE_CHANGED_WHILE_READ) return null;
+      const result = read(sourceFile, readSteps);
+      if (result.ok) return result.value;
+      if (result.reason !== DATABASE_CHANGED_WHILE_READ) return null;
     }
   } catch { /* fails closed */ }
   return null;

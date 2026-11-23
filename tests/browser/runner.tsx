@@ -531,6 +531,10 @@ await test("an Antigravity detail whose database cannot be read keeps its metada
     const text = detail()!.textContent!;
     assert(text.includes("MODEL CALLS") && text.includes("12"), "The unavailable detail dropped the model call count");
     assert(text.includes("gemini-project"), "The unavailable detail dropped the workspace");
+    // The Tools column starts collapsed: its rail says the database was not read, never "0 calls".
+    const toolsRail = detail()!.querySelector<HTMLElement>('[aria-label^="Expand Tools"]');
+    assert(toolsRail?.getAttribute("aria-label") === "Expand Tools, Not read", `The collapsed Tools rail did not say it was not read: ${toolsRail?.getAttribute("aria-label")}`);
+    assert(!toolsRail.textContent?.includes("0 calls"), "The collapsed Tools rail showed zero calls for an unread database");
   } finally {
     fixtureRoot.unmount();
     window.fetch = originalFetch;

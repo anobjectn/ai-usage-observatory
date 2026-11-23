@@ -399,12 +399,13 @@ and a third for session detail:
   and is not stored; a database that cannot be read safely shows the session's
   metadata with an empty, unavailable detail.
 
-Set `ANTIGRAVITY_DATA_DIRS` to read other directories instead; both readers then
-use exactly that list. Effort rows already stored for a conversation outside the
-new list are kept until its database file is deleted, and source health counts
-them as not read. ccusage takes the list comma-separated, so a directory
-whose path contains a comma is read only by the metadata reader: ccusage reports
-no usage from it, and source health names it.
+Set `ANTIGRAVITY_DATA_DIRS` to read other directories instead; all three
+readers then use exactly that list, and session detail opens only a database
+inside it. Effort rows already stored for a conversation outside the new list
+are kept until its database file is deleted, and source health counts them as
+not read. ccusage takes the list comma-separated, so a directory whose path
+contains a comma is read only by the metadata and detail readers: ccusage
+reports no usage from it, and source health names it.
 
 Reasoning-effort indexing is separate, opt-in, and disabled by default. When
 enabled in Data, it scans transcripts incrementally and stores only

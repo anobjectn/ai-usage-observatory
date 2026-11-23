@@ -321,7 +321,7 @@ async function antigravitySessionDetail(sessionId: string): Promise<SessionDetai
   if (!source) return detailUnavailable;
   // The reader's own signature: file identity, main file, and `-wal`, so a replacement that keeps
   // the size and mtime is never served a read of the file it replaced.
-  const signature = reader.antigravityDetailSignature(source.sourceFile);
+  const signature = reader.antigravityFileSignature(source.sourceFile);
   if (!signature) return detailUnavailable;
   return sharedRead(sessionId, `antigravity:${source.sourceFile}:${signature}`, async () => {
     // The read itself is synchronous. Yielding first keeps it in flight long enough for a burst of

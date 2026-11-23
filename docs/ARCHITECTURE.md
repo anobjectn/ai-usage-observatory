@@ -172,15 +172,23 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
        unavailable.
      - **Read.** The same open rule, through `readProviderDatabase`, retried once if the file
        changed during an immutable read. Only `steps` rows of type 14 (user input) and 15 (model
-       turn) are selected, each payload capped at 8 MB in SQL; more than 20,000 such steps, or
-       64 MiB of payload in all, makes the detail unavailable rather than partial.
-     - **Decode.** Prompts from 19.3 items: the text inside `<user_request>`, with whole-block
-       harness context (`runtime_info` and the like) dropped; the concatenated 19.2 is never read.
-       Replies from 20.1, only while its mirror 20.8 agrees; thinking (20.3, 20.14) is never
-       decoded. Tool names from 20.7.2. `edit_file` and `write_file` arguments (20.7.3) give
-       paths and line counts: an edit counts the lines its target and replacement do not share;
-       a new write counts its lines; an overwrite is modified with unknown counts. Tool results
-       (step type 132) are never selected, so an edit is counted as attempted.
+       turn) are selected, each payload capped at 8 MB and each metadata blob at 1 MB in SQL; more
+       than 20,000 such steps, or 64 MiB of payload and metadata in all, makes the detail
+       unavailable rather than partial.
+     - **Decode.** Prompts from 19.3 items, read by their top-level structure, never by searching
+       inside them: an item made only of tag blocks that include `<user_request>` gives those
+       blocks' text, and its other blocks are dropped as injected context; an item made only of
+       other tag blocks is dropped when they are all known harness blocks (`runtime_info`,
+       `environment_context`, `user_instructions`) or the turn has more than one item; any other
+       item is the user's text, kept verbatim after harness blocks at its start
+       and end are removed. The concatenated 19.2 is never read. Replies from 20.1, only while
+       its mirror 20.8 is present and agrees; thinking (20.3, 20.14) is never decoded. Tool names
+       from 20.7.2. `edit_file` and `write_file` arguments (20.7.3) give paths and line counts:
+       an edit counts the lines its target and replacement do not share; a new write counts its
+       lines; an overwrite of a file the session created replaces its count, and any other
+       overwrite is modified with unknown counts, which then stay unknown for that file.
+       Files are keyed by their exact normalized path. Tool results (step type 132) are never
+       selected, so an edit is counted as attempted.
      - **Lifetime.** Concurrent requests share one in-flight read keyed by the file's identity,
        size, mtime, and `-wal`; nothing is cached after it settles or written to the store. The
        listed files open in an editor through the same resolver; the database itself is never

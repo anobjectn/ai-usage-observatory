@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ANTIGRAVITY_SQL, collectAntigravity, resetAntigravityCache } from "./antigravity";
+import { ANTIGRAVITY_SQL, DATABASE_CHANGED_WHILE_READ, collectAntigravity, readProviderDatabase, resetAntigravityCache } from "./antigravity";
 import {
   ANTIGRAVITY_DETAIL_SQL,
+  MAX_DETAIL_PAYLOAD_BYTES,
+  MAX_DETAIL_STEPS,
+  MAX_STEP_METADATA_BYTES,
   antigravityDetailSource,
   decodeAntigravitySteps,
   editLineCounts,
@@ -105,6 +108,30 @@ describe("prompts", () => {
   });
 });
 
+describe("prompt structure", () => {
+  test("a request nested inside injected context is never the prompt", () => {
+    const canary = `CANARY-NESTED-${crypto.randomUUID()}`;
+    const nested = `<runtime_info><user_request>${canary}</user_request></runtime_info>`;
+    expect(promptFromItems([nested, "<user_request>Actual question</user_request>"])).toBe("Actual question");
+    expect(promptFromItems([nested, "ordinary prompt"])).toBe("ordinary prompt");
+    const detail = decode([input(0, [nested, "ordinary prompt"])]);
+    expect(detail.prompts.map((prompt) => prompt.text)).toEqual(["ordinary prompt"]);
+    expect(JSON.stringify(detail)).not.toContain(canary);
+  });
+
+  test("harness blocks at an item's edges are removed, and blocks only of harness context are dropped", () => {
+    expect(promptFromItems(["<runtime_info>SECRET</runtime_info>\nhello"])).toBe("hello");
+    expect(promptFromItems(["hello\n<environment_context>E</environment_context>"])).toBe("hello");
+    expect(promptFromItems(["plain ask", "<runtime_info>R</runtime_info><environment_context>E</environment_context>"])).toBe("plain ask");
+  });
+
+  test("a wrapped request keeps only its user_request blocks; a question that quotes or is markup stays as written", () => {
+    expect(promptFromItems(['<meta a="1">m</meta>\n<user_request>\nreal <b>bold</b> ask\n</user_request>', "<runtime_info>rt</runtime_info>"])).toBe("real <b>bold</b> ask");
+    expect(promptFromItems(["how do I parse <user_request>x</user_request> here"])).toBe("how do I parse <user_request>x</user_request> here");
+    expect(promptFromItems(["<div>plain html question</div>"])).toBe("<div>plain html question</div>");
+  });
+});
+
 describe("outputs", () => {
   test("the final reply is shown and the thinking never is", () => {
     const thinking = `CANARY-THINKING-${crypto.randomUUID()}`;
@@ -113,9 +140,14 @@ describe("outputs", () => {
     expect(JSON.stringify(detail)).not.toContain(thinking);
   });
 
-  test("a reply its mirror disagrees with is not shown; one without a mirror is", () => {
+  test("a reply is shown only while its mirror is present and agrees", () => {
     expect(decode([turn(1, { reply: "first", mirror: "something else" })]).outputs).toEqual([]);
-    expect(decode([turn(1, { reply: "unmirrored", mirror: null })]).outputs.map((output) => output.text)).toEqual(["unmirrored"]);
+    // A renumbered turn: the thinking moved into field 1 and the mirror is gone. No reply, never
+    // the thinking.
+    const thinking = `CANARY-RENUMBERED-${crypto.randomUUID()}`;
+    const renumbered = decode([turn(1, { reply: thinking, mirror: null })]);
+    expect(renumbered.outputs).toEqual([]);
+    expect(JSON.stringify(renumbered)).not.toContain(thinking);
   });
 
   test("long replies are clipped and only the newest samples are kept", () => {
@@ -172,11 +204,85 @@ describe("files and patches", () => {
     expect(detail.files).toEqual([
       { path: "/w/README.md", status: "modified", additions: null, deletions: null },
       { path: "/w/src/app.ts", status: "modified", additions: 3, deletions: 2 },
-      { path: "/w/src/new.ts", status: "added", additions: 3, deletions: 0 },
+      // Created, then overwritten in the same session: still new, with the overwrite's one line.
+      { path: "/w/src/new.ts", status: "added", additions: 1, deletions: 0 },
     ]);
-    expect([detail.additions, detail.deletions]).toEqual([6, 2]);
+    expect([detail.additions, detail.deletions]).toEqual([7, 2]);
     // A call whose arguments do not parse is still a tool call.
     expect(detail.tools.find((tool) => tool.name === "edit_file")?.count).toBe(4);
+  });
+});
+
+describe("file ledger", () => {
+  test("two files that share a name stay two rows", () => {
+    const detail = decode([calls(
+      { name: "write_file", args: { Path: "/w/README.md", Content: "one\n" } },
+      { name: "write_file", args: { Path: "/w/docs/README.md", Content: "one\n" } },
+    )]);
+    expect(detail.files.map((file) => [file.path, file.status, file.additions, file.deletions]).sort()).toEqual([
+      ["/w/README.md", "added", 1, 0],
+      ["/w/docs/README.md", "added", 1, 0],
+    ]);
+  });
+
+  test("a file overwritten with unknown counts keeps unknown counts after a later edit", () => {
+    const detail = decode([calls(
+      { name: "write_file", args: { Path: "/w/b.ts", Content: "replaced", Overwrite: true } },
+      { name: "edit_file", args: { Path: "/w/b.ts", Target: "x", Replacement: "y" } },
+    )]);
+    expect(detail.files).toEqual([{ path: "/w/b.ts", status: "modified", additions: null, deletions: null }]);
+    // The edit's own lines still count toward the session total.
+    expect([detail.additions, detail.deletions]).toEqual([1, 1]);
+  });
+
+  test("many distinct paths stay linear", () => {
+    const entries = Array.from({ length: 10_000 }, (_, index) => ({ name: "write_file", args: { Path: `/w/dir${index}/file${index}.ts`, Content: "x\n" } }));
+    const started = performance.now();
+    const detail = decode([calls(...entries)]);
+    expect(detail.files).toHaveLength(10_000);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("an edit too large to compare line by line counts every changed line", () => {
+    const before = Array.from({ length: 600 }, (_, index) => `old ${index}`).join("\n");
+    const after = Array.from({ length: 600 }, (_, index) => `new ${index}`).join("\n");
+    expect(editLineCounts(before, after)).toEqual({ additions: 600, deletions: 600 });
+  });
+});
+
+describe("budgets", () => {
+  const row = (idx: number, payload: Uint8Array | null, metadata: Uint8Array | null = null) => ({ idx, step_type: 14, metadata, step_payload: payload });
+
+  test("more than the step limit is unavailable, not partial", () => {
+    function* steps() { for (let idx = 0; idx <= MAX_DETAIL_STEPS; idx++) yield row(idx, null); }
+    expect(decodeAntigravitySteps(steps())).toBeNull();
+  });
+
+  test("payload and metadata bytes together past the byte budget are unavailable", () => {
+    const chunk = new Uint8Array(4 * 1024 * 1024);
+    const count = Math.ceil(MAX_DETAIL_PAYLOAD_BYTES / (2 * chunk.length)) + 1;
+    function* steps() { for (let idx = 0; idx < count; idx++) yield row(idx, chunk, chunk); }
+    expect(decodeAntigravitySteps(steps())).toBeNull();
+    function* metadataOnly() { for (let idx = 0; idx < 2 * count; idx++) yield row(idx, null, chunk); }
+    expect(decodeAntigravitySteps(metadataOnly())).toBeNull();
+  });
+
+  test("oversized step metadata is not read, and the step keeps its prompt without a time", () => {
+    const path = writeDetailConversation("big-metadata", [{ ...input(0, ["ask"]), metadata: new Uint8Array(MAX_STEP_METADATA_BYTES + 1) }]);
+    const detail = readAntigravityDetail(path)!;
+    expect(detail.prompts).toEqual([{ text: "ask", timestamp: null }]);
+  });
+
+  test("a file that changed during the read is retried once, then unavailable", () => {
+    const path = writeDetailConversation("changing", [input(0, ["ask"])]);
+    let calls = 0;
+    const changedOnce: typeof readProviderDatabase = (file, read) => (++calls === 1 ? { ok: false, reason: DATABASE_CHANGED_WHILE_READ } : readProviderDatabase(file, read));
+    expect(readAntigravityDetail(path, changedOnce)?.prompts.map((prompt) => prompt.text)).toEqual(["ask"]);
+    expect(calls).toBe(2);
+    calls = 0;
+    const alwaysChanged: typeof readProviderDatabase = () => (++calls, { ok: false, reason: DATABASE_CHANGED_WHILE_READ });
+    expect(readAntigravityDetail(path, alwaysChanged)).toBeNull();
+    expect(calls).toBe(2);
   });
 });
 

@@ -140,7 +140,6 @@ export async function openSessionExternalTarget(
   let targetPath: string;
   let label: string;
   if (target.kind === "transcript") {
-    if ("agent" in source && source.agent === "antigravity") throw noAntigravityTranscript();
     targetPath = source.sourceFile;
     label = "Session transcript";
   } else {
