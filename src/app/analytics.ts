@@ -1005,18 +1005,8 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       notice: quotaProviderNotice(codex),
       planLabel: snapshotPlanLabel(codexSnapshot),
     },
-    {
-      provider: "warp",
-      providerLabel: "Warp",
-      state: quotaCardState(warp),
-      stateLabel: quotaCardStateLabel(warp),
-      buckets: warpBuckets,
-      bankedResets: [],
-      usedResetCount: 0,
-      usedResets: [],
-      notice: quotaProviderNotice(warp),
-      planLabel: null,
-    },
+    // The Antigravity (Gemini) subscription is a peer of Anthropic's and OpenAI's, so it comes
+    // third, before Warp.
     ...(antigravityReported
       ? [{
           provider: "antigravity" as const,
@@ -1031,6 +1021,18 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
           planLabel: antigravitySnapshot?.extra?.rawPlanName?.trim() || snapshotPlanLabel(antigravitySnapshot),
         }]
       : []),
+    {
+      provider: "warp",
+      providerLabel: "Warp",
+      state: quotaCardState(warp),
+      stateLabel: quotaCardStateLabel(warp),
+      buckets: warpBuckets,
+      bankedResets: [],
+      usedResetCount: 0,
+      usedResets: [],
+      notice: quotaProviderNotice(warp),
+      planLabel: null,
+    },
   ];
 }
 

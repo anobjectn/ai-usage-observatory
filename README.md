@@ -297,7 +297,7 @@ For Projects captures, open `ai-usage-observatory` and scroll it into view so
 - Six connected views — Overview, Explorer, Sessions, Projects, Models, and Data — share one dataset. Date, agent, path, and cache controls carry context between them.
 - Usage by day, week, month, session, project instance, and reconstructed five-hour block, using pinned `ccusage@20.0.51`.
 - Input, output, cache-read, and cache-creation tokens, with an option to exclude cache traffic.
-- Google Antigravity (Gemini) conversations from T3 Code's Antigravity driver and the Antigravity IDE and CLI. `ccusage` reports their tokens and API-equivalent cost, as for Claude and Codex; the Observatory adds the project folder, effort, reasoning split, and activity times from the same databases, never content. Gemini run by another agent (Warp, for one) stays with that agent and is labelled Google.
+- Google Antigravity (Gemini) conversations from T3 Code's Antigravity driver and the Antigravity IDE and CLI. `ccusage` reports their tokens and API-equivalent cost, as for Claude and Codex; the Observatory adds the project folder, effort, reasoning split, and activity times from the same databases, and session detail reads a conversation's prompts, final replies, tools, and edited files on demand, as it does for Claude and Codex. Gemini run by another agent (Warp, for one) stays with that agent and is labelled Google.
 - Cost, model mix, and effort as model family x effort, the unit an effort label is comparable in. Missing effort labels are never shown as known data.
 - Path rules (glob or regular expression) applied retroactively to indexed history, plus durable session tags, notes, and verdicts.
 - Experimental Data analysis of allowance capture, efficiency signals, and outlier sessions.
@@ -340,7 +340,7 @@ Usage records, derived indexes, annotations, and app state stay on the machine r
 - **Path index:** default, metadata-only. Reads only the opening bytes of each session file to recover the session ID and working directory. Codex rollouts compressed to `.jsonl.zst` are read the same way and keep their session ID. A rollout found both plain and compressed is counted once, from the plain copy as `ccusage` does; source health flags a plain copy older than its compressed copy, which usually means it was restored from a backup.
 - **Effort indexing:** opt-in, off by default. Stores categories and counts only, never prompts, responses, reasoning, commands, tool data, or file contents.
 - **Session detail:** the one place your own prompts and sampled assistant output appear. Read on demand, sent only to your localhost browser, never stored.
-- **Antigravity:** content-free. `ccusage` reads each conversation database for its usage records, and opens it the normal SQLite way, which can leave `-wal` and `-shm` files beside it. The Observatory's own metadata reader decodes only usage, model, and timing fields. It never decodes, stores, or returns prompts, replies, titles, reasoning, or tool payloads, though the size-capped metadata records it reads can contain prompt bytes that it skips. It does not create such files, except in one narrow race described under full privacy details. Session detail shows that metadata and nothing else.
+- **Antigravity:** collection is content-free. `ccusage` reads each conversation database for its usage records, and opens it the normal SQLite way, which can leave `-wal` and `-shm` files beside it. The Observatory's own metadata reader decodes only usage, model, and timing fields. It never decodes, stores, or returns prompts, replies, titles, reasoning, or tool payloads, though the size-capped metadata records it reads can contain prompt bytes that it skips. It does not create such files, except in one narrow race described under full privacy details. Session detail is the one place Antigravity prompts and replies appear, as for the other providers: when you open a session, its own database is read on demand for your prompts, the final reply text, tool names, and the files edit and write tools changed. Reasoning and tool output are never read, and nothing is stored.
 
 State lives in `.usage-observatory/data.db` (ignored by Git). Set `USAGE_OBSERVATORY_DB` to move it and `QUOTA_SERVICE_URL` to use another quota-service address.
 
@@ -365,7 +365,8 @@ Antigravity keeps each conversation in its own SQLite database under
 `~/.gemini/antigravity/` (the IDE), or the other directories `ccusage` searches
 (`~/.gemini/antigravity-cli`, `-ide`, `-backup`, `-acp`, and
 `~/.config/antigravity`). Those databases also hold the conversation's prompts,
-replies, reasoning, and tool payloads. Two readers open them:
+replies, reasoning, and tool payloads. Two readers open them for collection,
+and a third for session detail:
 
 - `ccusage` reads the usage records for tokens and cost. `ccusage` does not find
   T3 Code's directory by itself, so the Observatory passes every existing
@@ -387,6 +388,16 @@ replies, reasoning, and tool payloads. Two readers open them:
   log are unchanged. A database whose write-ahead log cannot be read without
   creating its index keeps its last good read, if it has one, and is noted in
   source health.
+- Session detail (`server/antigravity-detail.ts`) runs only when you open an
+  Antigravity session's detail, and opens only that conversation's database,
+  with the same read-only rule. It selects the step payload of user-input and
+  model-turn steps only, each capped at 8 MB inside SQLite, and decodes only
+  the user's request (without the context the harness injects around it), the
+  final reply (never the reasoning), tool names, and the arguments of edit and
+  write tool calls, for their paths and line counts. Tool results and command
+  output are never selected. The result is sent only to your localhost browser
+  and is not stored; a database that cannot be read safely shows the session's
+  metadata with an empty, unavailable detail.
 
 Set `ANTIGRAVITY_DATA_DIRS` to read other directories instead; both readers then
 use exactly that list. Effort rows already stored for a conversation outside the
@@ -783,7 +794,7 @@ assignment can replace a generic `snapshot_json.extra.subscriptionType` value.
 
 - [`ccusage`](https://github.com/ccusage/ccusage) v20.0.51 by ryoppippi (MIT) supplies local usage analytics and API-equivalent price estimates.
 - Local Claude Code and Codex session files supply session metadata, on-demand prompt and output samples, and opt-in effort categories.
-- Local Google Antigravity conversation databases supply Gemini session usage and cost through `ccusage`, and model, effort labels, workspace, and activity times through the Observatory's read-only metadata reader, without content.
+- Local Google Antigravity conversation databases supply Gemini session usage and cost through `ccusage`, model, effort labels, workspace, and activity times through the Observatory's read-only metadata reader, without content, and on-demand prompt, output, tool, and file samples for session detail.
 - [`quota-service`](https://github.com/anobjectn/quota-service) optionally supplies provider allowance data. It is a separate localhost service, not a bundled dependency.
 
 <details>

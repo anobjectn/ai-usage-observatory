@@ -1,16 +1,10 @@
+import { matchingFile, upsertFile, type FileChange } from "./file-changes";
 import { getSessionSource } from "./path-indexer";
 import { readTranscriptHead } from "./transcript-file";
 import { stat } from "node:fs/promises";
 
 type JsonRecord = Record<string, unknown>;
 type ToolCall = { name: string; count: number };
-type FileStatus = "added" | "modified" | "deleted";
-type FileChange = {
-  path: string;
-  status: FileStatus;
-  additions: number | null;
-  deletions: number | null;
-};
 type Prompt = { text: string; timestamp: string | null };
 type OutputSample = { text: string; timestamp: string | null; truncated: boolean };
 
@@ -32,6 +26,9 @@ const detailUnavailable: SessionDetail = { available: false, prompts: [], output
 const detailReads = new Map<string, { signature: string; detail: Promise<SessionDetail> }>();
 export const detailOutputSampleCharacters = 4_000;
 export const detailOutputSampleCount = 8;
+/** Prompts keep their first characters and only the newest ones are sent. */
+export const detailPromptCharacters = 2_000;
+export const detailPromptCount = 8;
 
 function record(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -108,58 +105,6 @@ function walk(value: unknown, visit: (item: JsonRecord) => void) {
 
 const beginPatchMarker = "*** Begin Patch";
 const endPatchMarker = "*** End Patch";
-
-function fileStatus(existing: FileStatus | undefined, next: FileStatus) {
-  if (next === "deleted") return "deleted";
-  if (existing === "added" && next === "modified") return "added";
-  return next;
-}
-
-function matchingFile(
-  files: Map<string, FileChange>,
-  path: string,
-): [string, FileChange] | undefined {
-  const exact = files.get(path);
-  if (exact) return [path, exact];
-  const normalizedPath = path.replaceAll("\\", "/");
-  const suffixMatches = [...files.entries()].filter(([candidate]) => {
-    const normalizedCandidate = candidate.replaceAll("\\", "/");
-    return (
-      normalizedPath.endsWith(`/${normalizedCandidate}`) ||
-      normalizedCandidate.endsWith(`/${normalizedPath}`)
-    );
-  });
-  return suffixMatches.length === 1 ? suffixMatches[0] : undefined;
-}
-
-/** Counts stay null until a transcript shape exposes real patch lines. Once known, repeated edits
- * to the same path accumulate rather than letting a later metadata-only event erase them. */
-function upsertFile(
-  files: Map<string, FileChange>,
-  path: string,
-  status: FileStatus,
-  delta?: { additions: number; deletions: number },
-) {
-  const match = matchingFile(files, path);
-  const existing = match?.[1];
-  const displayPath =
-    existing && existing.path.length > path.length ? existing.path : path;
-  const next: FileChange = {
-    path: displayPath,
-    status: fileStatus(existing?.status, status),
-    additions:
-      delta === undefined
-        ? (existing?.additions ?? null)
-        : (existing?.additions ?? 0) + delta.additions,
-    deletions:
-      delta === undefined
-        ? (existing?.deletions ?? null)
-        : (existing?.deletions ?? 0) + delta.deletions,
-  };
-  if (match && match[0] !== displayPath) files.delete(match[0]);
-  files.set(displayPath, next);
-  return next;
-}
 
 // Some Codex tool-calling variants ("apply_patch" directly, or a generic "exec" that runs JS
 // source calling `tools.apply_patch(patch)`) don't line-break the patch text itself: the source
@@ -307,7 +252,7 @@ export function parseSessionDetailJsonl(raw: string): SessionDetail {
       const prompt = promptFrom(row);
       if (prompt && !seenPrompts.has(prompt)) {
         seenPrompts.add(prompt);
-        prompts.push({ text: prompt.slice(0, 2_000), timestamp: promptTimestamp(row) });
+        prompts.push({ text: prompt.slice(0, detailPromptCharacters), timestamp: promptTimestamp(row) });
       }
       const output = outputFrom(row);
       if (output && !seenOutputs.has(output)) {
@@ -329,7 +274,7 @@ export function parseSessionDetailJsonl(raw: string): SessionDetail {
   }
   return {
     available: true,
-    prompts: prompts.slice(-8),
+    prompts: prompts.slice(-detailPromptCount),
     outputs: outputs.slice(-detailOutputSampleCount),
     tools: [...tools.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
     files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)),
@@ -364,25 +309,41 @@ async function warpSessionDetail(sessionId: string): Promise<SessionDetail> {
   };
 }
 
-/** Antigravity conversations are read for usage metadata only. Their prompts, replies, and tool
- * payloads are never imported, so the detail has nothing to read and opens no database: the panel
- * draws from the session's own metadata. */
+/** Antigravity sessions are keyed by conversation id, like Warp's, and read out of that one
+ * conversation's own SQLite database. The reader is loaded through a dynamic import reached only
+ * by this branch, so the collection never loads it: the metadata reader stays content-free, and a
+ * conversation's prompts and replies are decoded only while its detail is requested. */
 const antigravitySessionPrefix = "antigravity-";
-const antigravityDetail: SessionDetail = { available: true, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 };
+
+async function antigravitySessionDetail(sessionId: string): Promise<SessionDetail> {
+  const reader = await import("./antigravity-detail");
+  const source = reader.antigravityDetailSource(sessionId);
+  if (!source) return detailUnavailable;
+  // The reader's own signature: file identity, main file, and `-wal`, so a replacement that keeps
+  // the size and mtime is never served a read of the file it replaced.
+  const signature = reader.antigravityDetailSignature(source.sourceFile);
+  if (!signature) return detailUnavailable;
+  return sharedRead(sessionId, `antigravity:${source.sourceFile}:${signature}`, async () => {
+    // The read itself is synchronous. Yielding first keeps it in flight long enough for a burst of
+    // requests for the same session to share it.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    return reader.readAntigravityDetail(source.sourceFile) ?? detailUnavailable;
+  });
+}
 
 async function readSessionDetail(sessionId: string): Promise<SessionDetail> {
   const source = getSessionSource(sessionId);
   if (!source || !await Bun.file(source.sourceFile).exists()) return detailUnavailable;
-  // Copilot sessions are indexed for their working directory only; the detail parser reads the
-  // Claude and Codex transcript formats.
-  if (source.agent === "copilot") return detailUnavailable;
+  // Copilot sessions are indexed for their working directory only, and an Antigravity row points
+  // at a provider database; the detail parser reads the Claude and Codex transcript formats.
+  if (source.agent === "copilot" || source.agent === "antigravity") return detailUnavailable;
 
   const raw = await readTranscriptHead(source.sourceFile, 12_000_000);
   return parseSessionDetailJsonl(raw);
 }
 
 export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
-  if (sessionId.startsWith(antigravitySessionPrefix)) return { ...antigravityDetail };
+  if (sessionId.startsWith(antigravitySessionPrefix)) return antigravitySessionDetail(sessionId);
   const warpSession = sessionId.startsWith(warpSessionPrefix);
   const source = warpSession ? null : getSessionSource(sessionId);
   if (!warpSession && !source) return detailUnavailable;
@@ -394,10 +355,15 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
   } catch {
     return detailUnavailable;
   }
+  return sharedRead(sessionId, signature, () => warpSession ? warpSessionDetail(sessionId) : readSessionDetail(sessionId));
+}
+
+/** Joins a read already in flight for the same source, or starts one that is forgotten as soon as
+ * it settles. */
+function sharedRead(sessionId: string, signature: string, read: () => Promise<SessionDetail>) {
   const pending = detailReads.get(sessionId);
   if (pending?.signature === signature) return pending.detail;
-
-  const detail = warpSession ? warpSessionDetail(sessionId) : readSessionDetail(sessionId);
+  const detail = read();
   detailReads.set(sessionId, { signature, detail });
   const release = () => {
     if (detailReads.get(sessionId)?.detail === detail) detailReads.delete(sessionId);

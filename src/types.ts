@@ -88,8 +88,9 @@ export type Session = MetricRow & {
   cwd: string | null;
   pathTags: string[];
   annotation: SessionAnnotation;
-  /** Where the session's detail comes from. An Antigravity session's tokens and cost are ccusage's,
-   * but its detail is the metadata reader's: content is never imported. */
+  /** Where the session's detail comes from. An Antigravity session's tokens and cost are ccusage's;
+   * its stats are the metadata reader's, and its prompts and replies are read on demand from the
+   * conversation's own database. */
   source?: "ccusage" | "warp" | "antigravity";
   warp?: WarpSessionStats;
   antigravity?: AntigravitySessionStats;

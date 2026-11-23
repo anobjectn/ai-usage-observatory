@@ -19,6 +19,10 @@ import { bytesOf, fieldOf, messageOf, textOf, type WireField } from "./warp-prot
  *
  * The field numbers come from bytes observed on the wire, not from a published schema, so every
  * decode is defensive: a renumbered field yields nothing rather than a wrong number.
+ *
+ * Conversation content is read in one other place only: the session-detail reader
+ * (`antigravity-detail.ts`), on demand, for the one conversation whose detail is open. This module
+ * never imports it.
  */
 
 /** Only these summary columns are read. The table also holds `title`, `preview`, and
@@ -170,6 +174,17 @@ export function databaseSignature(state: Pick<Sidecars, "main" | "wal" | "identi
   return `${state.identity}:${state.main.mtimeMs}:${state.main.size}:${state.wal?.mtimeMs ?? 0}:${state.wal?.size ?? 0}`;
 }
 
+/** The `ReadResult` reason of an immutable read whose file changed underneath it; a retry can
+ * succeed. */
+export const DATABASE_CHANGED_WHILE_READ = "the database changed while it was read";
+
+/** The signature of a conversation file as it is now (see `databaseSignature`), or null when it
+ * is missing or could not be checked. Stats only: nothing is opened. */
+export function antigravityFileSignature(path: string) {
+  const state = sidecars(path);
+  return typeof state === "string" ? null : databaseSignature(state);
+}
+
 export type ReadResult<T> =
   | { ok: true; value: T; mode: "plain" | "immutable"; signature: string; identity: string; mtimeMs: number; size: number }
   | { ok: false; reason: string };
@@ -214,7 +229,7 @@ export function readProviderDatabase<T>(path: string, read: (database: Database)
     }
     const after = sidecars(path);
     if (typeof after === "string" || databaseSignature(after) !== databaseSignature(before) || (after.wal?.size ?? 0) > 0) {
-      return { ok: false, reason: "the database changed while it was read" };
+      return { ok: false, reason: DATABASE_CHANGED_WHILE_READ };
     }
     return success(value, "immutable", before);
   };
@@ -300,7 +315,7 @@ function varintOf(fields: WireField[], field: number) {
 
 /** A `google.protobuf.Timestamp` (seconds in field 1, nanos in field 2) as epoch milliseconds.
  * Antigravity's step times are true UTC, unlike Warp's. */
-function timestampMs(fields: WireField[], field: number) {
+export function stepTimestampMs(fields: WireField[], field: number) {
   const bytes = bytesOf(fields, field);
   const message = bytes ? messageOf(bytes) : null;
   if (!message) return null;
@@ -504,9 +519,9 @@ function readConversation(database: Database, path: string, identity: string): {
       stepsNotUnderstood++;
       continue;
     }
-    const at = timestampMs(fields, 1);
+    const at = stepTimestampMs(fields, 1);
     if (at !== null) activity.push(at);
-    const finished = timestampMs(fields, 8);
+    const finished = stepTimestampMs(fields, 8);
     if (finished !== null) activity.push(finished);
     const usage = decodeUsage(bytesOf(fields, 9));
     if (!usage) {
@@ -554,6 +569,7 @@ export function resetAntigravityCache() {
   generationIndexes.clear();
   evidenceSaved.clear();
   sessionModels.clear();
+  sessionDatabases.clear();
   readStats.conversationReads = 0;
   readStats.generationRows = 0;
   readStats.summaryReads = 0;
@@ -774,6 +790,15 @@ export function antigravitySessionModels(sessionId: string) {
   return sessionModels.get(sessionId) ?? null;
 }
 
+/** The database file the newest collection chose for each session (after `prefer()` picked one
+ * of two roots holding the same conversation), with its working directory. Paths and directories
+ * only: the session-detail reader opens the file on demand. */
+const sessionDatabases = new Map<string, { sourceFile: string; cwd: string | null }>();
+
+export function antigravitySessionDatabase(sessionId: string) {
+  return sessionDatabases.get(sessionId) ?? null;
+}
+
 /**
  * Reads the conversation metadata ccusage does not report: working directory, effort labels, the
  * thinking split, step times, and source health. Tokens and cost are ccusage's; this reader's
@@ -910,6 +935,11 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   const conversations = [...conversationsById.values()];
   sessionModels.clear();
   for (const conversation of conversations) sessionModels.set(conversation.sessionId, conversation.models);
+  sessionDatabases.clear();
+  for (const candidate of chosen) {
+    const conversation = conversationsById.get(candidate.conversationId)!;
+    sessionDatabases.set(conversation.sessionId, { sourceFile: candidate.path, cwd: conversation.cwd });
+  }
   const effortSources = chosen.map((candidate) => effortSourceOf(candidate, conversationsById.get(candidate.conversationId)!, timeZone));
   const stored = checkStoredSessions(new Set(effortSources.map((source) => source.sessionId)), notedUnreadable);
 

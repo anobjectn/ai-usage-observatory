@@ -286,6 +286,15 @@
 .session-detail--antigravity {
   background: linear-gradient(145deg,color-mix(in srgb,var(--color-provider-antigravity) var(--tint-faint),var(--color-bg-deep)),var(--color-bg-deep) 55%);
 }
+.session-detail--antigravity .session-detail__summary {
+  grid-template-columns: repeat(8,minmax(88px,1fr));
+}
+.session-detail--antigravity .session-detail__summary--with-quota {
+  grid-template-columns: repeat(9,minmax(0,1fr));
+}
+.session-detail--antigravity .session-detail__verdict {
+  min-width: 130px;
+}
 
 /* Provider totals with model \u00d7 effort subtotals in one card. The provider total is the decision-sized number; each subtotal is a pill naming the model beside the effort it recorded, because effort alone is not a cohort. Colour is never the only label. */
 .session-mix__providers {
@@ -1681,13 +1690,15 @@
 }
 
 @media (max-width:900px) {
-  .session-detail--warp .session-detail__summary {
+  .session-detail--warp .session-detail__summary,
+  .session-detail--antigravity .session-detail__summary {
     grid-template-columns: repeat(3,1fr);
   }
 }
 
 @media (max-width:620px) {
-  .session-detail--warp .session-detail__summary {
+  .session-detail--warp .session-detail__summary,
+  .session-detail--antigravity .session-detail__summary {
     grid-template-columns: repeat(2,1fr);
   }
 }
