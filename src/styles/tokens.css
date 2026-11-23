@@ -39,6 +39,9 @@
   --palette-rose: #e58fc0;
   --palette-magenta: #ff4f9a;
   /* Third-party marks keep their own colours in every theme. */
+  /* Google's brand blue and green: Antigravity, and Gemini run by other agents. */
+  --palette-google-blue: #4285f4;
+  --palette-google-green: #34a853;
 
   /* ---- 2. Semantic roles ---- */
   /* Neutral anchors. Every other neutral is mixed from these two, so a theme that sets only
@@ -90,6 +93,10 @@
   --color-provider-anthropic: var(--palette-clay);
   --color-provider-openai: var(--palette-silver);
   --color-provider-warp: var(--palette-violet);
+  --color-provider-antigravity: var(--palette-google-blue);
+  /* Gemini run by an agent other than Antigravity: a vendor label, not a provider. A second
+     Google brand tone keeps it apart from Antigravity's blue; adjustable like the providers. */
+  --color-provider-google: var(--palette-google-green);
   /* Effort levels: an ordered run of distinct hues that brightens as it climbs and skips every hue with another
      job: amber (warnings), blue (accent), violet (Warp, credits), clay (Anthropic), red (danger). */
   --color-effort-low: var(--palette-teal);

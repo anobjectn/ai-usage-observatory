@@ -47,7 +47,7 @@ export type EffortQuery = {
   fromDate: string | null;
   /** Inclusive upper bound on calendar activity; only used by the timeline basis. */
   toDate: string | null;
-  agents: Array<"claude" | "codex"> | null;
+  agents: Array<"claude" | "codex" | "antigravity"> | null;
   project: string | null;
   model: string | null;
 };
@@ -58,7 +58,7 @@ export type EffortGroupedRow = {
   observations: number;
   tokens: number;
   outputTokens: number;
-  /** Provider-reported reasoning tokens inside `outputTokens`; only Codex reports them. */
+  /** Provider-reported reasoning tokens inside `outputTokens`; Codex and Antigravity report them. */
   reasoningOutputTokens: number;
   /** Usage events that carried a reasoning field at all, so a zero can be told from "not reported". */
   reasoningReportedEvents: number;
@@ -242,7 +242,7 @@ export type EffortSpanCommit = {
   contextGaps: number;
   skippedBytes: number;
   coverageState: string;
-  provider: "anthropic" | "codex";
+  provider: "anthropic" | "codex" | "antigravity";
   activityTimestamps: number[];
   quotaObservations: EmbeddedQuotaObservation[];
 };

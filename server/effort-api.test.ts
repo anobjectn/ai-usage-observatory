@@ -54,7 +54,7 @@ type SeedRow = {
   reasoningReportedEvents?: number;
 };
 
-function seed(sessionId: string, agent: "claude" | "codex", cwd: string, rows: SeedRow[]) {
+function seed(sessionId: string, agent: "claude" | "codex" | "antigravity" | "copilot", cwd: string, rows: SeedRow[]) {
   db.query("INSERT OR REPLACE INTO session_paths (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size) VALUES (?, ?, ?, ?, ?, 1, 1)")
     .run(sessionId, agent, sessionId, `/tmp/${sessionId}.jsonl`, cwd);
   db.query("INSERT OR REPLACE INTO session_effort_state (session_id, parser_version, source_size, source_mtime, last_offset, resume_hash, coverage_state, last_indexed_at) VALUES (?, 1, 1, 1, 1, 'x', 'partial', 'now')").run(sessionId);
@@ -194,6 +194,18 @@ describe("scoped denominators", () => {
     expect(api.scopedSessions(snapshot, scope).map((session) => session.sessionId)).toEqual(["s1", "s2"]);
     expect(api.scopedSessions(snapshot, api.resolveEffortScope(params(""))).map((session) => session.sessionId))
       .toEqual(["s1", "s2", "s3"]);
+  });
+
+  test("a Gemini family scopes Antigravity's sessions and other agents' sessions apart", () => {
+    const neon = [{ modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }];
+    const snapshot = snapshotOf([
+      session({ sessionId: "warp-1", agent: "warp", modelsUsed: ["gemini-4-neon"], modelBreakdowns: neon }),
+      session({ sessionId: "antigravity-1", agent: "antigravity", modelsUsed: ["gemini-4-neon"], modelBreakdowns: neon }),
+    ]);
+    const ids = (query: string) => api.scopedSessions(snapshot, api.resolveEffortScope(params(query))).map((entry) => entry.sessionId);
+    expect(ids("modelFamilies=gemini-4-neon")).toEqual(["warp-1"]);
+    expect(ids("modelFamilies=antigravity:gemini-4-neon")).toEqual(["antigravity-1"]);
+    expect(ids("modelFamilies=gemini-4-neon,antigravity:gemini-4-neon")).toEqual(["warp-1", "antigravity-1"]);
   });
 
   test("attributed tokens above the denominator degrade instead of rendering a share", () => {
@@ -852,5 +864,42 @@ describe("agents with no recognized provider", () => {
   test("a provider scope does not select them", () => {
     const scope = api.resolveEffortScope(params("providers=anthropic,codex"));
     expect(api.matchesAgentScope(copilot, scope)).toBe(false);
+  });
+});
+
+describe("Antigravity and unrecognized agents", () => {
+  const neon = (sessionId: string, cost = 0) => session({
+    sessionId, agent: "antigravity", source: "antigravity", totalTokens: 2_000, totalCost: cost,
+    modelsUsed: ["gemini-4-neon"],
+    modelBreakdowns: [{ modelName: "gemini-4-neon", inputTokens: 2_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost }],
+  });
+
+  test("the provider group keys each session by its own provider, never defaulting to Claude", () => {
+    const snapshot = snapshotOf([session({ sessionId: "c1" }), neon("g1"), session({ sessionId: "p1", agent: "copilot", totalTokens: 500 })]);
+    seed("c1", "claude", "/fixture/alpha", [{ day: today, model: "claude-opus-5", effort: "high", observations: 1, tokens: 400 }]);
+    seed("g1", "antigravity", "/fixture/alpha", [{ day: today, model: "gemini-4-neon", effort: "high", observations: 2, tokens: 2_000 }]);
+    const rows = api.buildEffortAggregate(snapshot, api.resolveEffortScope(params("")), "provider").rows;
+    expect(rows.map((row) => [row.key, row.label, row.summary.eligibleTokens, row.summary.attributedTokens])).toEqual([
+      ["antigravity", "Antigravity", 2_000, 2_000],
+      ["claude", "Claude Code", 1_000, 400],
+    ]);
+    const scoped = api.buildEffortAggregate(snapshot, api.resolveEffortScope(params("providers=antigravity")), "total").total;
+    expect([scoped.eligibleTokens, scoped.attributedTokens]).toEqual([2_000, 2_000]);
+  });
+
+  test("a session whose model ccusage could not price leads a combo without entering its cost median", () => {
+    const sessions = Array.from({ length: 6 }, (_, index) => neon(`g${index}`));
+    const snapshot = { ...snapshotOf(sessions), unpricedModels: ["gemini-4-neon"] };
+    for (const item of sessions) seed(item.sessionId, "antigravity", "/fixture/alpha", [{ day: today, model: "gemini-4-neon", effort: "high", observations: 1, tokens: 2_000 }]);
+    const row = api.buildEffortComboBoard(snapshot, api.resolveEffortScope(params(""))).rows.find((entry) => entry.family === "gemini-4-neon")!;
+    expect(row).toMatchObject({ sessionsLed: 6, medianTokensPerLedSession: 2_000, medianCostPerLedSession: null });
+  });
+
+  test("a priced Antigravity session enters the cost median like any ccusage session", () => {
+    const sessions = Array.from({ length: 6 }, (_, index) => neon(`g${index}`, 1 + index));
+    const snapshot = { ...snapshotOf(sessions), unpricedModels: [] };
+    for (const item of sessions) seed(item.sessionId, "antigravity", "/fixture/alpha", [{ day: today, model: "gemini-4-neon", effort: "high", observations: 1, tokens: 2_000 }]);
+    const row = api.buildEffortComboBoard(snapshot, api.resolveEffortScope(params(""))).rows.find((entry) => entry.family === "gemini-4-neon")!;
+    expect(row).toMatchObject({ sessionsLed: 6, medianCostPerLedSession: 3.5 });
   });
 });

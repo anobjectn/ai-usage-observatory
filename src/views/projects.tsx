@@ -469,6 +469,8 @@ function ProjectDetails({
         while (!cancelled) {
           const session = sessions[next++];
           if (!session) return;
+        // Antigravity goes through the detail endpoint like Claude and Codex: it is metadata only
+        // there (no provider database is opened) and carries the session's effort summary.
         if (session.source === "warp" && session.warp) {
           details.push({
             session,
@@ -982,6 +984,8 @@ function ProjectDetails({
                   <span>
                     {session.source === "warp"
                       ? `${session.warp?.filesChanged ?? 0} observed ${session.warp?.filesChanged === 1 ? "file" : "files"}`
+                      : session.source === "antigravity"
+                      ? "Files not imported"
                       : detail.available
                       ? `${detail.files.length} ${detail.files.length === 1 ? "file" : "files"}`
                       : "Patch unavailable"}

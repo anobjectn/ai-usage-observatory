@@ -4,6 +4,7 @@ import { type ModelRowInput } from "../token-types";
 import { addOneHourWrites } from "../types";
 import { quotaProviderNotice, type QuotaNotice } from "../quota-notice";
 import { quotaPlanLabel } from "../quota-reaches";
+import { ALL_GEMINI_IDENTITY, windowIdentity, windowScopeLabel, type WindowIdentity } from "../antigravity-quota";
 import type {
   DashboardData,
   EffortIndexStatus,
@@ -25,8 +26,14 @@ import { providerKey, compactDateParts, formatCompact, formatCompactDate, provid
 
 const fiveHoursMs = 5 * 60 * 60 * 1_000;
 
+/** Providers with independently timed five-hour and weekly windows. Warp's monthly pool has none. */
+export type WindowProvider = "anthropic" | "codex" | "antigravity";
+const windowProviders: readonly WindowProvider[] = ["anthropic", "codex", "antigravity"];
+const isWindowProvider = (provider: string): provider is WindowProvider =>
+  (windowProviders as readonly string[]).includes(provider);
+
 type CurrentFiveHourWindow = {
-  provider: "anthropic" | "codex";
+  provider: WindowProvider;
   startAt: number;
   endAt: number;
 };
@@ -38,8 +45,7 @@ export function currentFiveHourWindows(
   now = Date.now(),
 ): CurrentFiveHourWindow[] {
   return (quotas.usage?.providers ?? []).flatMap((provider) => {
-    if (provider.provider !== "anthropic" && provider.provider !== "codex")
-      return [];
+    if (!isWindowProvider(provider.provider)) return [];
     const resetAt =
       provider.snapshot?.kind === "window"
         ? provider.snapshot.fiveHour?.resetsAt
@@ -54,15 +60,15 @@ const weekMs = 7 * 24 * 60 * 60 * 1_000;
 
 
 /** Each provider's weekly window, ending at the reset it reports and running the seven days
- * before it. Both providers count a fixed seven-day week, so the opening follows from the reset.
+ * before it. Every window provider counts a fixed seven-day week, so the opening follows from
+ * the reset.
  */
 export function currentWeeklyWindows(
   quotas: DashboardData["quotas"],
   now = Date.now(),
-): Array<{ provider: "anthropic" | "codex"; startAt: number; endAt: number }> {
+): Array<{ provider: WindowProvider; startAt: number; endAt: number }> {
   return (quotas.usage?.providers ?? []).flatMap((provider) => {
-    if (provider.provider !== "anthropic" && provider.provider !== "codex")
-      return [];
+    if (!isWindowProvider(provider.provider)) return [];
     const resetAt =
       provider.snapshot?.kind === "window"
         ? provider.snapshot.weekly?.resetsAt
@@ -77,10 +83,12 @@ export type RecentSessionFloor = {
   at: number;
   /** `weekly` is an open cycle a provider is reporting; `sessions` is the fallback below. */
   basis: "weekly" | "sessions";
+  /** The providers the floor was taken across, in display order, so the heading can name them. */
+  providers: WindowProvider[];
 };
 
 
-/** How many sessions each main provider is guaranteed when neither reports a weekly reset. */
+/** How many sessions each main provider is guaranteed when none reports a weekly reset. */
 const recentSessionFallback = 10;
 
 const sessionActivityAt = (session: Session) =>
@@ -89,33 +97,41 @@ const sessionActivityAt = (session: Session) =>
 
 /** How far back the recent list runs.
  *
- * Normally the earlier of the two providers' weekly openings: each provider is then always shown
- * its whole current week, and whichever resets later is shown the few extra days that carries.
+ * Normally the earliest of the window providers' weekly openings (Claude, Codex, Antigravity):
+ * each is then always shown its whole current week, and those that reset later are shown the few
+ * extra days that carries.
  *
  * With no weekly reset reported there is no cycle to cut at, so the floor instead reaches back far
- * enough to hold the last ten sessions of each main provider — again the earlier of the two, so
- * neither is cut short by the other being busier. Null only when neither has a session to measure,
- * and then nothing is cut.
+ * enough to hold the last ten sessions of each window provider — again the earliest, so none is
+ * cut short by another being busier. Null only when none has a session to measure, and then
+ * nothing is cut.
  */
 export function recentSessionFloor(
   quotas: DashboardData["quotas"],
   sessions: Session[],
   now = Date.now(),
 ): RecentSessionFloor | null {
-  const openings = currentWeeklyWindows(quotas, now).map((window) => window.startAt);
-  if (openings.length) return { at: Math.min(...openings), basis: "weekly" };
-  const nth = (["anthropic", "codex"] as const).flatMap((provider) => {
+  const weekly = currentWeeklyWindows(quotas, now);
+  if (weekly.length) {
+    return {
+      at: Math.min(...weekly.map((window) => window.startAt)),
+      basis: "weekly",
+      providers: windowProviders.filter((provider) => weekly.some((window) => window.provider === provider)),
+    };
+  }
+  const providers: WindowProvider[] = [];
+  const nth = windowProviders.flatMap((provider) => {
     const times = sessions
       .filter((session) => providerKey(session.agent) === provider)
       .map(sessionActivityAt)
       .filter((at) => Number.isFinite(at))
       .sort((left, right) => right - left);
     // A provider with fewer than ten sessions contributes its oldest, which is all it has.
-    return times.length
-      ? [times[Math.min(recentSessionFallback, times.length) - 1]!]
-      : [];
+    if (!times.length) return [];
+    providers.push(provider);
+    return [times[Math.min(recentSessionFallback, times.length) - 1]!];
   });
-  return nth.length ? { at: Math.min(...nth), basis: "sessions" } : null;
+  return nth.length ? { at: Math.min(...nth), basis: "sessions", providers } : null;
 }
 
 
@@ -130,9 +146,7 @@ export function currentWindowSessions(
   const floor = recentSessionFloor(quotas, sessions, now);
   return sessions
     .filter((session) => {
-      const provider = providerKey(session.agent);
-      if (provider !== "anthropic" && provider !== "codex" && provider !== "warp")
-        return false;
+      if (!providerKey(session.agent)) return false;
       if (floor === null) return true;
       const at = sessionActivityAt(session);
       // A session with no readable activity time is kept: nothing about it says it is old.
@@ -146,7 +160,7 @@ export function currentWindowSessions(
 }
 
 export type RecentTerminus = {
-  provider: "anthropic" | "codex";
+  provider: WindowProvider;
   key: string;
   window: "fiveHour" | "weekly";
   /** `observed` is a boundary the account's own readings recorded, rather than one the provider
@@ -210,7 +224,7 @@ export function observedTermini(
     if (!seen) continue;
     for (const boundary of quotaResetBoundaries(seen.context, context)) {
       if (boundary.id !== "fiveHour" && boundary.id !== "weekly") continue;
-      if (boundary.provider !== "anthropic" && boundary.provider !== "codex") continue;
+      if (!isWindowProvider(boundary.provider)) continue;
       // A cycle id can change without a reset having happened: Codex re-anchors its weekly
       // reset instant as the week runs. Only an instant that falls in the gap between these two
       // sessions is a boundary they observed; anything else is the provider moving the goalposts.
@@ -711,10 +725,14 @@ export type QuotaBucket = {
   reachedCount?: number;
   reachedAt?: number[];
   reaches?: QuotaReach[];
+  /** Which models the window limits ("Limits: Gemini 4 Argon"), when the provider says. */
+  scope?: string;
+  /** A short name for the glance strip when the window's own name is several words. */
+  compactLabel?: string;
 };
 
 export type QuotaCard = {
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   providerLabel: string;
   state: QuotaState;
   buckets: QuotaBucket[];
@@ -809,7 +827,7 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       [],
   );
   const reachHistory = (
-    provider: "codex" | "anthropic",
+    provider: "codex" | "anthropic" | "antigravity",
     window: "fiveHour" | "weekly",
   ) =>
     quotas.history?.windows.find(
@@ -907,6 +925,56 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
         : warp?.error,
     ),
   ];
+  const antigravity = reports.get("antigravity");
+  const antigravitySnapshot =
+    antigravity?.snapshot?.kind === "window" ? antigravity.snapshot : null;
+  const antigravityIdentity = antigravitySnapshot?.extra?.modelWindowIdentity;
+  // The primary windows carry no identity of their own; quota-service's rule is that a window of
+  // unknown scope limits every Gemini model.
+  const primaryScope = windowScopeLabel(ALL_GEMINI_IDENTITY);
+  const antigravityBuckets = [
+    ...(["fiveHour", "weekly"] as const).map((window) => {
+      const value = antigravitySnapshot?.[window] ?? null;
+      const history = reachHistory("antigravity", window);
+      return {
+        ...quotaBucket(
+          `antigravity-${window === "fiveHour" ? "five-hour" : "weekly"}`,
+          window === "fiveHour" ? "5-hour" : "Weekly",
+          value?.usedPercent ?? null,
+          value?.resetsAt ?? null,
+          "resets",
+          antigravity?.status,
+          value ? undefined : antigravity?.error,
+          false,
+          window,
+          history?.reachedCount,
+          history?.reachedAt,
+          history?.reaches,
+        ),
+        scope: primaryScope,
+      };
+    }),
+    ...Object.entries(antigravitySnapshot?.modelWindows ?? {}).map(([name, window]) => {
+      const identity = windowIdentity(antigravityIdentity, name);
+      return {
+        ...quotaBucket(
+          `antigravity-model-${name}`,
+          name,
+          window.usedPercent,
+          window.resetsAt,
+          "resets",
+          antigravity?.status,
+        ),
+        scope: windowScopeLabel(identity),
+        compactLabel: compactWindowLabel(name, identity),
+      };
+    }),
+  ];
+  // Antigravity is shown only once quota-service reports it, now or in history: an older service,
+  // or one that does not collect it, leaves the strip exactly as it was.
+  const antigravityReported =
+    Boolean(antigravity) ||
+    Boolean(quotas.history?.windows.some((window) => window.provider === "antigravity"));
   const banked = quotas.resets?.codexBankedResetCredits;
   const bankedResets =
     banked?.credits
@@ -949,11 +1017,49 @@ export function quotaCards(quotas: DashboardData["quotas"]): QuotaCard[] {
       notice: quotaProviderNotice(warp),
       planLabel: null,
     },
+    ...(antigravityReported
+      ? [{
+          provider: "antigravity" as const,
+          providerLabel: "Antigravity",
+          state: quotaCardState(antigravity),
+          stateLabel: quotaCardStateLabel(antigravity),
+          buckets: antigravityBuckets,
+          bankedResets: [],
+          usedResetCount: 0,
+          usedResets: [],
+          notice: quotaProviderNotice(antigravity),
+          planLabel: antigravitySnapshot?.extra?.rawPlanName?.trim() || snapshotPlanLabel(antigravitySnapshot),
+        }]
+      : []),
   ];
 }
 
+/** The glance names a window in a word or two. Antigravity's model windows are named in full
+ * ("Claude and GPT models (5h)", "Gemini 4 Argon Weekly Limit"), so the short form keeps what
+ * the window limits and its cadence: "Partner 5h", "Argon w". */
+export function compactWindowLabel(name: string, identity: WindowIdentity) {
+  const cadence = /\b5\s*h\b|\b5-hour\b|\bfive[- ]hour\b/i.test(name)
+    ? "5h"
+    : /\bweekly\b|\bweek\b|\b7d\b/i.test(name)
+      ? "w"
+      : /\bdaily\b|\bday\b/i.test(name)
+        ? "d"
+        : /\bmonthly\b|\bmonth\b/i.test(name)
+          ? "mo"
+          : "";
+  const codename = identity.model?.split("-").filter((part) => !/^\d/.test(part)).at(-1);
+  const subject = codename
+    ? codename.charAt(0).toUpperCase() + codename.slice(1)
+    : identity.model === null && identity.family === null
+      ? "Partner"
+      : identity.family === "image"
+        ? "Image"
+        : name.replace(/\(.*?\)/g, " ").split(/\s+/).find((word) => word && !/^(the|limit|models?|\d+h?)$/i.test(word)) ?? "Pool";
+  return cadence ? `${subject} ${cadence}` : subject;
+}
+
 export type ProviderCapacityRow = {
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   label: string;
   state: QuotaCard["state"];
   tokens: number;
@@ -1003,7 +1109,13 @@ export function providerCapacityRows(
     })
     .map((card) => {
       const providerTokens = tokens.get(card.provider) ?? 0;
-      const usedLevels = card.buckets
+      // Antigravity's model windows limit other models (Argon, the partner pool); the provider's
+      // pressure is read from its primary five-hour and weekly windows only.
+      const buckets =
+        card.provider === "antigravity"
+          ? card.buckets.filter((bucket) => bucket.historyWindow)
+          : card.buckets;
+      const usedLevels = buckets
         .map((bucket) => bucket.usedPercent)
         .filter(
           (value): value is number => value !== null && Number.isFinite(value),
@@ -1030,7 +1142,7 @@ export function providerCapacityRows(
         tokens: providerTokens,
         tokenShare: total > 0 ? (providerTokens / total) * 100 : 0,
         highestUsedPercent: usedLevels.length ? Math.max(...usedLevels) : null,
-        windows: card.buckets.map((bucket) => ({
+        windows: buckets.map((bucket) => ({
           id: bucket.id,
           label: bucket.windowLabel,
           usedPercent: bucket.usedPercent,
@@ -1156,7 +1268,7 @@ export function quotaResetBoundaries(
 }
 
 export type SessionQuotaEvent = {
-  provider: "anthropic" | "codex";
+  provider: "anthropic" | "codex" | "antigravity";
   kind: "quota" | "weekly" | "reset";
   label: string;
   at: number;
@@ -1375,8 +1487,11 @@ const quotaModelWords = (value: string) => value.toLowerCase().split(/[^a-z]+/).
 /** A model-specific window (`model:Fable`) belongs to a session only when the session ran that
  * model; the account-wide windows always do. A window names the family loosely (`Opus 4.x`), so
  * it matches by its whole name or by its words, versions aside. A session whose models are
- * unknown keeps every window, since nothing shows it did not run one. */
-export function quotaResourceApplies(id: string, modelsUsed: readonly string[]) {
+ * unknown keeps every window, since nothing shows it did not run one. Antigravity's windows were
+ * already chosen by quota-service's window identity on the server, which a name match here
+ * would second-guess ("Gemini Pro (5h)" limits every Gemini model without naming one). */
+export function quotaResourceApplies(id: string, modelsUsed: readonly string[], provider?: SessionQuotaContext["provider"]) {
+  if (provider === "antigravity") return true;
   if (!id.startsWith("model:") || !modelsUsed.length) return true;
   const name = id.slice("model:".length);
   const family = quotaModelKey(name);
@@ -1418,7 +1533,7 @@ export function sessionQuotaImpacts(
 ): SessionQuotaImpact[] {
   if (!context) return [];
   return context.resources.flatMap((resource) => {
-    if (!quotaResourceApplies(resource.id, modelsUsed)) return [];
+    if (!quotaResourceApplies(resource.id, modelsUsed, context.provider)) return [];
     if (resource.confidence === "insufficient") return [];
     if (resource.deltaPercentagePoints === null && resource.deltaUnits === null) return [];
     const ranges = quotaRemainingRangeItems(resource).filter((range) => quotaDisplayedMagnitude(range.magnitude, range.unit) > 0);
@@ -1484,9 +1599,26 @@ export function quotaRemainingRanges(resource: SessionQuotaContext["resources"][
 
 /** The agent names the recent list spells out, where "Anthropic" and "OpenAI" would name the
  * vendor rather than the tool the session ran in. */
-export const agentTerminusLabels = { anthropic: "Claude", codex: "Codex" } as const;
+export const agentTerminusLabels = { anthropic: "Claude", codex: "Codex", antigravity: "Antigravity" } as const;
 
 export const terminusWindowLabels = { fiveHour: "5-hour", weekly: "weekly" } as const;
+
+/** "Claude", "Claude and Codex", "Claude, Codex, and Antigravity". */
+function listNames(names: string[]) {
+  return names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+}
+
+/** The recent list's heading clause: what its floor was taken across. */
+export function recentFloorLabel(floor: RecentSessionFloor) {
+  const names = floor.providers.map((provider) => agentTerminusLabels[provider]);
+  if (floor.basis === "sessions") {
+    return names.length === 1 ? `the last ten from ${names[0]}` : `the last ten each from ${listNames(names)}`;
+  }
+  const owners = names.map((name) => `${name}'s`);
+  return owners.length === 1
+    ? `${owners[0]} open weekly cycle`
+    : `the ${owners.length === 2 ? "earlier" : "earliest"} of ${listNames(owners)} open weekly cycles`;
+}
 
 export function projectDayRows(
   trend: ProjectTrendRow[],
@@ -1549,7 +1681,7 @@ export function projectDayRows(
           totals[item.provider] += item.tokens;
           return totals;
         },
-        { anthropic: 0, codex: 0, warp: 0 },
+        { anthropic: 0, codex: 0, warp: 0, antigravity: 0 },
       );
       const attributedTokens = Object.values(providerTokens).reduce(
         (sum, tokens) => sum + tokens,

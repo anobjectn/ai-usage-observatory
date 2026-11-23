@@ -1,5 +1,6 @@
 import type { DashboardData, Session } from "../src/types";
 import { providerFromAgent } from "../src/provider";
+import { familyToken } from "../src/agent-filter";
 import { familyOf } from "../src/model-family";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { shiftDateKey, validDateKey } from "../src/time-range";
@@ -21,7 +22,9 @@ export type AnalysisScope = {
    * with no recognized provider). The empty `providers` list then means "nothing", not
    * "everything"; without this, selecting only Copilot would show the whole corpus. */
   providersExcluded?: true;
-  /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
+  /** Selected dominant-model families, unioned with `providers`. Empty means every model. Each
+   * is a `familyToken`: Antigravity's Gemini arrives as `antigravity:<family>`, apart from the
+   * same family run by other agents. */
   modelFamilies: string[];
   pathTag: string;
   cache: "include" | "exclude";
@@ -37,7 +40,11 @@ export type AnalysisScope = {
    * scoring direction of the utilization-shaped components changes. */
   policy: "capture" | "headroom";
 };
-type Provider = "anthropic" | "codex";
+/** Antigravity is a peer of Claude and Codex: the token panels, ccusage's cost rates, and an
+ * allowance card graded from its own five-hour and weekly quota history. */
+type Provider = "anthropic" | "codex" | "antigravity";
+const insightProviders: Provider[] = ["anthropic", "codex", "antigravity"];
+const allowanceLabels: Record<Provider, string> = { anthropic: "Claude", codex: "Codex", antigravity: "Antigravity" };
 type InsightSession = Session & {
   provider: Provider;
   /** Session total under the current cache scope — what the volume panel reports. */
@@ -75,7 +82,7 @@ export type EfficiencyFinding = {
  * overclaiming — every rule below is a heuristic over token buckets, not an observed intent. */
 export const efficiencyRules = [
   { id: "split-session", label: "Should have been split", severity: "opportunity" as const, question: "Which threads carried far more context per unit of output than comparable ones?", basis: "Cache-read tokens per output token, against the median for the same provider and model family." },
-  { id: "missed-clear", label: "Missed a fresh start", severity: "opportunity" as const, question: "Which threads grew past a single context window instead of being cleared?", basis: "Cache-creation tokens written within one session. Claude only — ccusage reports no cache writes for Codex." },
+  { id: "missed-clear", label: "Missed a fresh start", severity: "opportunity" as const, question: "Which threads grew past a single context window instead of being cleared?", basis: "Cache-creation tokens written within one session. Claude only — ccusage reports no cache writes for Codex or Antigravity." },
   { id: "model-tier-mismatch", label: "Cost-tier mismatch", severity: "opportunity" as const, question: "Which small tasks ran on an expensive model?", basis: "Observed cost per million tokens for the dominant model versus the cheapest model you use regularly, on sessions in the smallest quartile." },
   { id: "model-switch", label: "Mid-thread model switch", severity: "notice" as const, question: "Which large threads split their work across model families?", basis: "Two or more families each holding at least 20% of one session. Switching mid-thread re-writes the prompt cache." },
   { id: "output-starved", label: "Read a lot, produced little", severity: "notice" as const, question: "Which large threads spent their tokens on context rather than answers?", basis: "Output share of session tokens, against the median for the same model family." },
@@ -156,7 +163,7 @@ export function resolveScope(input: URLSearchParams): AnalysisScope {
     (!requestedTo || validDateKey(requestedTo)) &&
     (!requestedFrom || !requestedTo || requestedFrom <= requestedTo);
   const requestedProviders = resolveProviders(input.get("providers"));
-  const providers = requestedProviders.filter((provider): provider is Provider => provider === "anthropic" || provider === "codex");
+  const providers = requestedProviders.filter((provider): provider is Provider => insightProviders.includes(provider as Provider));
   const requestedOutliers = input.get("outliers");
   const requestedFinding = input.get("finding");
   return {
@@ -205,7 +212,7 @@ function allowance(data: DashboardData, providerId: Provider, sessionCount: numb
   const available = components.filter((component) => component.normalized !== null);
   const score = confidence === "insufficient" ? null : Math.round(available.reduce((sum, component) => sum + component.weight * (component.normalized ?? 0), 0) / available.reduce((sum, component) => sum + component.weight, 0));
   const policyLabel = policy === "capture" ? "maximize capture" : "preserve headroom";
-  return { id:`allowance-capture-${providerId}`, rubricVersion:`allowance-capture@2:${policy}`, policy, score, band: score === null ? null : score >= 80 ? "on-target" : score >= 60 ? "drifting" : "off-target", confidence, components, previousPeriod:{score:null,delta:null}, withoutOutliers:{score,delta:0}, explanation: score === null ? "Allowance Capture needs locally observed quota percentage history before it can be graded." : `${providerId === "anthropic" ? "Claude" : "Codex"} is scored separately from its own locally observed quota history, under the "${policyLabel}" target policy.`, links:[{label:"Quota provenance",href:"?view=sources"}] };
+  return { id:`allowance-capture-${providerId}`, rubricVersion:`allowance-capture@2:${policy}`, policy, score, band: score === null ? null : score >= 80 ? "on-target" : score >= 60 ? "drifting" : "off-target", confidence, components, previousPeriod:{score:null,delta:null}, withoutOutliers:{score,delta:0}, explanation: score === null ? "Allowance Capture needs locally observed quota percentage history before it can be graded." : `${allowanceLabels[providerId]} is scored separately from its own locally observed quota history, under the "${policyLabel}" target policy.`, links:[{label:"Quota provenance",href:"?view=sources"}] };
 }
 
 /** Per-session context estimates. Claude writes one cache block per turn, so for a thread whose
@@ -434,7 +441,7 @@ export function flaggedSessionIds(sessions: Session[], timeZone: string, cache: 
 function matchesAgentScope(row: Session, itemProvider: Provider, scope: AnalysisScope) {
   if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return !scope.providersExcluded;
   if (scope.providers.includes(itemProvider)) return true;
-  return row.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyOf(model.modelName)));
+  return row.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyToken(row.agent, familyOf(model.modelName))));
 }
 
 export function buildInsights(data: DashboardData, scope: AnalysisScope) {
@@ -448,11 +455,11 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   }
   const overviewProviderIds = new Set<Provider>(overviewSessionCounts.keys());
   for (const quotaProvider of data.quotas.usage?.providers ?? []) {
-    if (quotaProvider.provider === "anthropic" || quotaProvider.provider === "codex") overviewProviderIds.add(quotaProvider.provider);
+    if (insightProviders.includes(quotaProvider.provider as Provider)) overviewProviderIds.add(quotaProvider.provider as Provider);
   }
   for (const point of data.quotas.history?.series ?? []) overviewProviderIds.add(point.provider);
   for (const window of data.quotas.history?.windows ?? []) overviewProviderIds.add(window.provider);
-  const overviewProviders = (["anthropic", "codex"] as Provider[]).filter((id) => overviewProviderIds.has(id));
+  const overviewProviders = insightProviders.filter((id) => overviewProviderIds.has(id));
 
   const timeZone = data.timeZone || systemTimeZone();
   const today = dateKeyInTimeZone(new Date(), timeZone);
@@ -478,7 +485,7 @@ export function buildInsights(data: DashboardData, scope: AnalysisScope) {
   // Provider rows follow what actually survived the Agent filter, so a model-only selection still
   // reports the provider that model belongs to rather than both.
   const present = new Set(sessions.map((row) => row.provider));
-  const providers = (["anthropic", "codex"] as Provider[]).filter((id) => present.has(id));
+  const providers = insightProviders.filter((id) => present.has(id));
   const rates = modelRates(sessions);
 
   const overall = summarizeGroup(sessions);

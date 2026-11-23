@@ -56,3 +56,12 @@ export function aggregateModels(rows: ModelAggregateRow[], unpricedModels: strin
       right.tokens - left.tokens,
   );
 }
+
+/** True when a session ran a model ccusage could not price (offline, or a model newer than its
+ * pricing data). Its cost is then 0 or understated, an absent figure rather than a cheap one, so
+ * it stays out of cost medians and per-session cost comparisons. */
+export function hasUnpricedModel(session: { modelBreakdowns: Array<Pick<ModelBreakdown, "modelName">> }, unpricedModels: readonly string[]) {
+  if (!unpricedModels.length) return false;
+  const unpriced = new Set(unpricedModels);
+  return session.modelBreakdowns.some((model) => unpriced.has(model.modelName));
+}

@@ -312,6 +312,8 @@ export function AppearanceModal({
     Number(providerColors.anthropic !== starting.providerColors.anthropic) +
     Number(providerColors.openai !== starting.providerColors.openai) +
     Number(providerColors.warp !== starting.providerColors.warp) +
+    Number(providerColors.antigravity !== starting.providerColors.antigravity) +
+    Number(providerColors.google !== starting.providerColors.google) +
     Number(
       favoriteAccents.length !== starting.favoriteAccents.length ||
         favoriteAccents.some(
@@ -440,10 +442,25 @@ export function AppearanceModal({
                 onProviderColorsChange({ ...providerColors, warp: value })
               }
             />
+            <ColorControl
+              label="Antigravity"
+              value={providerColors.antigravity}
+              onChange={(value) =>
+                onProviderColorsChange({ ...providerColors, antigravity: value })
+              }
+            />
+            <ColorControl
+              label="Google"
+              value={providerColors.google}
+              onChange={(value) =>
+                onProviderColorsChange({ ...providerColors, google: value })
+              }
+            />
           </div>
           <p className="signal-color-note">
             Provider colors identify quota headroom across satellites, charts,
-            and limit cards.
+            and limit cards. Google marks Gemini run by agents other than
+            Antigravity.
           </p>
           <div
             className={`accent-favorites${editingFavorites ? " editing" : ""}`}

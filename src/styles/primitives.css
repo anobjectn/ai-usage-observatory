@@ -338,6 +338,9 @@ td>small {
 .agent-pill.warp {
   --provider-color: var(--color-provider-warp);
 }
+.agent-pill.antigravity {
+  --provider-color: var(--color-provider-antigravity);
+}
 .icon-button {
   width: var(--control-height-sm);
   height: var(--control-height-sm);
@@ -1113,6 +1116,10 @@ td>small {
 .quota-marker-legend i.codex {
   background: var(--color-provider-openai);
   box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-openai) var(--tint-vivid),transparent);
+}
+.quota-marker-legend i.antigravity {
+  background: var(--color-provider-antigravity);
+  box-shadow: 0 0 5px color-mix(in srgb,var(--color-provider-antigravity) var(--tint-vivid),transparent);
 }
 
 .usage-trajectory-panel .panel-heading p {

@@ -228,9 +228,24 @@ export function footnotesFor(summary: TokenTypeSummary, context: FootnoteContext
           : `Cache-write cost is the ccusage residual after input, output, and cache-read rates; about ${percent(summary.impliedOneHourShare)} of write tokens were priced at the 1-hour rate.`,
     );
   }
-  if (summary.providers.includes("codex")) lines.push("Codex reports cache writes as zero.");
+  // Antigravity's source has a cache-write field that has never been seen filled; the note holds
+  // only while every Antigravity row in scope still reads zero.
+  const zeroWriters = [
+    summary.providers.includes("codex") ? "Codex" : null,
+    summary.providers.includes("antigravity") &&
+    !summary.models.some((model) => model.provider === "antigravity" && model.tokens.cacheWrite > 0)
+      ? "Antigravity"
+      : null,
+  ].filter(Boolean);
+  if (zeroWriters.length) {
+    lines.push(`${zeroWriters.join(" and ")} ${zeroWriters.length > 1 ? "report" : "reports"} cache writes as zero.`);
+  }
   if (context.reasoning && context.reasoning.reportedEvents > 0) {
-    lines.push(`Generated output includes reasoning tokens; Codex reported ${context.reasoning.reasoningOutputTokens.toLocaleString()} reasoning tokens inside output.`);
+    const reporters = [
+      summary.providers.includes("codex") ? "Codex" : null,
+      summary.providers.includes("antigravity") ? "Antigravity" : null,
+    ].filter(Boolean).join(" and ") || "Codex";
+    lines.push(`Generated output includes reasoning tokens; ${reporters} reported ${context.reasoning.reasoningOutputTokens.toLocaleString()} reasoning tokens inside output.`);
   } else if (context.effortIndexEnabled === false) {
     lines.push("Generated output includes reasoning tokens; no separate reasoning count is available while the effort index is off.");
   } else {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DateRange } from "../../time-range";
 
-export type Provider = "anthropic" | "codex";
+export type Provider = "anthropic" | "codex" | "antigravity";
 export type AllowancePolicy = "capture" | "headroom";
 export type ProfileCard = {
   id: string;
@@ -74,8 +74,14 @@ export type DataFacets = {
 
 export const compactTokens = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 export const percent = (value: number | null, digits = 0) => (value === null ? "N/A" : `${(value * 100).toFixed(digits)}%`);
-export const providerLabel = (provider: Provider) => (provider === "anthropic" ? "Claude" : "Codex");
-export const providerColor = (provider: Provider) => (provider === "anthropic" ? "var(--color-provider-anthropic)" : "var(--color-provider-openai)");
+const providerLabels: Record<Provider, string> = { anthropic: "Claude", codex: "Codex", antigravity: "Antigravity" };
+const providerColors: Record<Provider, string> = {
+  anthropic: "var(--color-provider-anthropic)",
+  codex: "var(--color-provider-openai)",
+  antigravity: "var(--color-provider-antigravity)",
+};
+export const providerLabel = (provider: Provider) => providerLabels[provider];
+export const providerColor = (provider: Provider) => providerColors[provider];
 export const shortDate = (value: string | null) =>
   value ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "no timestamp";
 /** Deep link to the Sessions view with the row expanded, matching `sessionHref` in App.tsx. */

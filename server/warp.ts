@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 import { canonicalModelName } from "../src/model-name";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import type { ModelBreakdown, Session, WarpData, WarpSessionStats } from "../src/types";
-import { mergeActivityEpisodes, saveWarpEvidence, type ActivityEpisode } from "./session-evidence";
+import { mergeActivityEpisodes, saveLocalEvidence, type ActivityEpisode } from "./session-evidence";
 
 const defaultDatabasePath = join(
   homedir(),
@@ -388,8 +388,9 @@ export async function collectWarp(timeZone = systemTimeZone()): Promise<WarpColl
       for (const row of taskActivity) addActivity(row.conversation_id, row.last_modified_at);
       const sourceIdentity = `${sourceStat.dev}:${sourceStat.ino}`;
       for (const [id, activityTimestamps] of activityByConversation) {
-        saveWarpEvidence({
+        saveLocalEvidence({
           sessionId: `warp-${id}`,
+          provider: "warp",
           sourceIdentity,
           sourceMtime: sourceStat.mtimeMs,
           activityTimestamps,

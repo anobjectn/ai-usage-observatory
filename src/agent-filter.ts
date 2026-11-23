@@ -1,11 +1,15 @@
 import type { MetricRow, ModelBreakdown, Session } from "./types";
 import { familyOf } from "./model-family";
-import { OTHER_PROVIDER, providerFromAgent, providerFromModel } from "./provider";
+import { isGeminiModel, OTHER_PROVIDER, providerFromAgent, providerFromModel } from "./provider";
 
 /** One checked entry in the Agent filter. `agent:` covers a whole coarse agent ("claude"),
  * `model:` covers one release-stripped model family ("claude-opus-5"). The two live in one list
- * so a person picking "everything Claude" and a person picking "just Opus 5" use one control. */
-export type AgentEntry = `agent:${string}` | `model:${string}`;
+ * so a person picking "everything Claude" and a person picking "just Opus 5" use one control.
+ *
+ * Gemini is the one family whose entry depends on the agent (see `buildAgentTree`): under the
+ * Antigravity branch it is `antigravity:<family>`, Antigravity's own sessions of that family, and
+ * under Google it is `model:<family>`, every other agent's. The two are selected independently. */
+export type AgentEntry = `agent:${string}` | `model:${string}` | `antigravity:${string}`;
 
 /** An empty selection means "everything" — the same thing the old `all` option meant. */
 export type AgentSelection = AgentEntry[];
@@ -13,34 +17,91 @@ export type AgentSelection = AgentEntry[];
 export const agentEntry = (agent: string): AgentEntry => `agent:${agent}`;
 export const modelEntry = (family: string): AgentEntry => `model:${family}`;
 
+function isAntigravityAgent(agent: string) {
+  return providerFromAgent(agent) === "antigravity";
+}
+
+/** What one agent's model family is matched against: the family itself, except Gemini run by
+ * Antigravity, which is `antigravity:<family>`. Shared with the server, which receives these
+ * tokens as `modelFamilies`. */
+export function familyToken(agent: string, family: string) {
+  return isGeminiModel(family) && isAntigravityAgent(agent) ? `antigravity:${family}` : family;
+}
+
+/** A family token as a filter chip reads it: `antigravity:<family>` is "Antigravity · <family>",
+ * any other token is the family itself. */
+export function familyTokenLabel(token: string) {
+  return token.startsWith("antigravity:") ? `Antigravity · ${token.slice("antigravity:".length)}` : token;
+}
+
+/** The entry that selects `family` as run by `agent`. A branch's children use it; the Google
+ * heading's families, run by other agents, are plain `model:` entries. */
+export function familyEntry(agent: string, family: string): AgentEntry {
+  const token = familyToken(agent, family);
+  return token === family ? modelEntry(family) : token as AgentEntry;
+}
+
+/** `models` holds family tokens (see `familyToken`). */
 export function splitSelection(selection: AgentSelection) {
   const agents = new Set<string>();
   const models = new Set<string>();
   for (const entry of selection) {
     if (entry.startsWith("agent:")) agents.add(entry.slice("agent:".length));
-    else models.add(entry.slice("model:".length));
+    else if (entry.startsWith("model:")) models.add(entry.slice("model:".length));
+    else models.add(entry);
   }
   return { agents, models };
 }
 
 /** One coarse agent and the model families that belong to it. */
 export type AgentBranch = { agent: string; models: string[] };
-export type AgentTree = { branches: AgentBranch[]; unparented: string[] };
+/** `google` lists the Gemini families some agent other than Antigravity ran (Warp, for one). It is
+ * a vendor heading, not an agent: it has no `agent:` entry of its own, and its families stay
+ * ordinary `model:` entries. */
+export type AgentTree = { branches: AgentBranch[]; google: string[]; unparented: string[] };
 
 /** Groups model families under the agent that produced them. A family whose vendor cannot be read
- * from its name gets no parent rather than an assumed one — it stays independently checkable. */
-export function buildAgentTree(agents: string[], families: string[]): AgentTree {
+ * from its name gets no parent rather than an assumed one — it stays independently checkable.
+ *
+ * Gemini is the one family that depends on the agent: it sits under Antigravity when Antigravity
+ * ran it and under Google when another agent did. A family both ran is listed in both places, with
+ * a separate entry in each (see `AgentEntry`), whereas a Claude family under the Claude branch
+ * also matches Warp's Claude sessions. `agentsByFamily` says which agents ran each family; a
+ * Gemini family missing from it is listed under Google. */
+export function buildAgentTree(agents: string[], families: string[], agentsByFamily: ReadonlyMap<string, readonly string[]> = new Map()): AgentTree {
   const branches = agents.map((agent) => ({ agent, models: [] as string[] }));
+  const google: string[] = [];
   const unparented: string[] = [];
+  const branchFor = (provider: string | null) => provider
+    ? branches.find((candidate) => providerFromAgent(candidate.agent) === provider)
+    : undefined;
   for (const family of families) {
-    const provider = providerFromModel(family);
-    const branch = provider
-      ? branches.find((candidate) => providerFromAgent(candidate.agent) === provider)
-      : undefined;
+    if (isGeminiModel(family)) {
+      const ranBy = agentsByFamily.get(family) ?? [];
+      const antigravity = ranBy.some((agent) => providerFromAgent(agent) === "antigravity") ? branchFor("antigravity") : undefined;
+      if (antigravity) antigravity.models.push(family);
+      if (!antigravity || ranBy.some((agent) => providerFromAgent(agent) !== "antigravity")) google.push(family);
+      continue;
+    }
+    const branch = branchFor(providerFromModel(family));
     if (branch) branch.models.push(family);
     else unparented.push(family);
   }
-  return { branches, unparented };
+  return { branches, google, unparented };
+}
+
+/** Which agents ran each model family, for `buildAgentTree`. */
+export function agentsByFamily(sessions: Array<Pick<Session, "agent" | "modelBreakdowns">>) {
+  const byFamily = new Map<string, string[]>();
+  for (const session of sessions) {
+    for (const model of session.modelBreakdowns) {
+      const family = familyOf(model.modelName);
+      const agents = byFamily.get(family) ?? [];
+      if (!agents.includes(session.agent)) agents.push(session.agent);
+      byFamily.set(family, agents);
+    }
+  }
+  return byFamily;
 }
 
 export type BranchState = "checked" | "indeterminate" | "unchecked";
@@ -48,9 +109,9 @@ export type BranchState = "checked" | "indeterminate" | "unchecked";
 /** `checked` is stored as the `agent:` entry, never as the expanded child list — see
  * `normalizeSelection`. */
 export function branchState(selection: AgentSelection, branch: AgentBranch): BranchState {
-  const { agents, models } = splitSelection(selection);
+  const { agents } = splitSelection(selection);
   if (agents.has(branch.agent)) return "checked";
-  const chosen = branch.models.filter((family) => models.has(family)).length;
+  const chosen = branch.models.filter((family) => selection.includes(familyEntry(branch.agent, family))).length;
   if (chosen === 0) return "unchecked";
   return chosen === branch.models.length ? "checked" : "indeterminate";
 }
@@ -58,8 +119,8 @@ export function branchState(selection: AgentSelection, branch: AgentBranch): Bra
 /** A collapsed parent makes every child read as checked even though the individual `model:`
  * entries are intentionally absent from storage. */
 export function matchesEntry(selection: AgentSelection, branch: AgentBranch, family: string) {
-  const { agents, models } = splitSelection(selection);
-  return agents.has(branch.agent) || models.has(family);
+  const { agents } = splitSelection(selection);
+  return agents.has(branch.agent) || selection.includes(familyEntry(branch.agent, family));
 }
 
 /** Collapses a fully-checked branch back to its `agent:` entry and expands nothing else.
@@ -68,23 +129,26 @@ export function matchesEntry(selection: AgentSelection, branch: AgentBranch, fam
  * catches a session whose models are missing or unrecognised. The expanded child list cannot,
  * which is why "all children checked" and "agent checked" must not be stored the same way. */
 export function normalizeSelection(selection: AgentSelection, tree: AgentTree): AgentSelection {
-  const { agents, models } = splitSelection(selection);
+  const { agents } = splitSelection(selection);
+  const entries = new Set(selection);
   const next: AgentSelection = [];
   for (const branch of tree.branches) {
-    const chosen = branch.models.filter((family) => models.has(family));
+    const chosen = branch.models.map((family) => familyEntry(branch.agent, family)).filter((entry) => entries.has(entry));
     const complete = agents.has(branch.agent) || (branch.models.length > 0 && chosen.length === branch.models.length);
     if (complete) next.push(agentEntry(branch.agent));
-    else next.push(...chosen.map(modelEntry));
+    else next.push(...chosen);
   }
-  next.push(...tree.unparented.filter((family) => models.has(family)).map(modelEntry));
-  return next;
+  // A family under Google is its own entry, never one of a branch's: it neither completes nor
+  // clears the Antigravity branch that also lists the family.
+  next.push(...[...tree.google, ...tree.unparented].map(modelEntry).filter((entry) => entries.has(entry)));
+  return [...new Set(next)];
 }
 
 /** Checking an agent means every model under it; unchecking clears the whole branch, including
  * children that were checked individually. */
 export function toggleBranch(selection: AgentSelection, branch: AgentBranch, tree: AgentTree): AgentSelection {
   const cleared = selection.filter(
-    (entry) => entry !== agentEntry(branch.agent) && !branch.models.some((family) => entry === modelEntry(family)),
+    (entry) => entry !== agentEntry(branch.agent) && !branch.models.some((family) => entry === familyEntry(branch.agent, family)),
   );
   if (branchState(selection, branch) !== "unchecked") return normalizeSelection(cleared, tree);
   return normalizeSelection([...cleared, agentEntry(branch.agent)], tree);
@@ -95,13 +159,21 @@ export function toggleBranch(selection: AgentSelection, branch: AgentBranch, tre
 export function toggleModel(selection: AgentSelection, family: string, tree: AgentTree): AgentSelection {
   const branch = tree.branches.find((candidate) => candidate.models.includes(family));
   const expanded: AgentSelection = branch && splitSelection(selection).agents.has(branch.agent)
-    ? [...selection.filter((entry) => entry !== agentEntry(branch.agent)), ...branch.models.map(modelEntry)]
+    ? [...selection.filter((entry) => entry !== agentEntry(branch.agent)), ...branch.models.map((child) => familyEntry(branch.agent, child))]
     : [...selection];
-  const entry = modelEntry(family);
+  const entry = branch ? familyEntry(branch.agent, family) : modelEntry(family);
   const next = expanded.includes(entry)
     ? expanded.filter((candidate) => candidate !== entry)
     : [...expanded, entry];
   return normalizeSelection(next, tree);
+}
+
+/** A family under a heading with no agent (Google, Other models) toggles its own `model:` entry
+ * only. It must not expand or collapse a branch that also lists it: the branch's entry for the
+ * family is a different one. */
+export function toggleFamilyEntry(selection: AgentSelection, family: string, tree: AgentTree): AgentSelection {
+  const entry = modelEntry(family);
+  return normalizeSelection(selection.includes(entry) ? selection.filter((candidate) => candidate !== entry) : [...selection, entry], tree);
 }
 
 /** Entries are unioned, never intersected: checking "claude" and "gpt-5.6-sol" asks for Claude
@@ -111,7 +183,7 @@ export function matchesAgentSelection(session: Session, selection: AgentSelectio
   if (selection.length === 0) return true;
   const { agents, models } = splitSelection(selection);
   if (agents.has(session.agent)) return true;
-  return session.modelBreakdowns.some((model) => models.has(familyOf(model.modelName)));
+  return session.modelBreakdowns.some((model) => models.has(familyToken(session.agent, familyOf(model.modelName))));
 }
 
 const zeroTotals = () => ({
@@ -157,7 +229,7 @@ export function selectAgentRow(row: MetricRow, selection: AgentSelection): Metri
       kept.push(source);
       continue;
     }
-    const matching = source.modelBreakdowns.filter((model) => models.has(familyOf(model.modelName)));
+    const matching = source.modelBreakdowns.filter((model) => models.has(familyToken(source.agent, familyOf(model.modelName))));
     if (matching.length === 0) continue;
     const partial = zeroTotals();
     matching.forEach((model) => addBreakdown(partial, model));
@@ -200,7 +272,8 @@ export function selectionProvider(selection: AgentSelection) {
 }
 
 /** Query parameters shared by `/api/effort` and `/api/insights`. Agents are sent as providers
- * because both endpoints scope by provider, not by the raw ccusage agent label. */
+ * because both endpoints scope by provider, not by the raw ccusage agent label. Families are sent
+ * as tokens (see `familyToken`), so an Antigravity Gemini entry stays apart from the Google one. */
 export function agentSelectionParams(selection: AgentSelection) {
   const { agents, models } = splitSelection(selection);
   // An agent with no recognized provider is sent as `other`. Dropping it would leave the list

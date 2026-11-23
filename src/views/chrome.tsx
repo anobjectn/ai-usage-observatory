@@ -447,7 +447,8 @@ export function InformationSources({ data }: { data: DashboardData }) {
           <b>Local agent records</b>
           <span>
             Claude Code, Codex, and Copilot session headers · working-directory metadata
-            only
+            only · Antigravity local metadata: working directory, effort labels, and step
+            times, never prompts or replies
           </span>
         </li>
         <li>

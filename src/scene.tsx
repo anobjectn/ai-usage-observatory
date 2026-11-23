@@ -11,7 +11,8 @@ function TelescopeIcon() {
 }
 
 export type SceneEffects = { starfield: boolean; parallax: boolean; twinkle: boolean; tesseract: boolean; speed: number; starDensity: number };
-export type ProviderColors = { anthropic: string; openai: string; warp: string };
+/** `google` colours Gemini run by agents other than Antigravity; it has no orrery ring. */
+export type ProviderColors = { anthropic: string; openai: string; warp: string; antigravity: string; google: string };
 
 const STAR_DENSITY_MULTIPLIERS = [0, 0.2, 0.42, 0.68, 1, 1.65, 4.95];
 const MAX_STAR_DENSITY = STAR_DENSITY_MULTIPLIERS.length - 1;
@@ -398,6 +399,8 @@ const RINGS = [
   { provider: "anthropic", r: 1.55, tiltX: 1.13, tiltZ: -0.31, dir: 1, phase: 1.2 },
   { provider: "openai", r: 1.82, tiltX: 1.36, tiltZ: 0.56, dir: -1, phase: 4.0 },
   { provider: "warp", r: 2.08, tiltX: 0.83, tiltZ: 0.92, dir: 1, phase: 5.45 },
+  // Drawn only while quota-service reports Antigravity; see `providerHeadroom`.
+  { provider: "antigravity", r: 2.32, tiltX: 1.02, tiltZ: -0.74, dir: -1, phase: 2.6 },
 ] as const;
 
 const MIN_ORBIT_RATE = 0.22;
@@ -428,6 +431,7 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
       anthropic: RINGS[0].phase,
       openai: RINGS[1].phase,
       warp: RINGS[2].phase,
+      antigravity: RINGS[3].phase,
     };
     let lastOrbitClock = clock;
     const resize = () => { ({ w, h } = fitCanvas(canvas, ctx)); dirtyRef.current = true; };
@@ -456,6 +460,7 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
       const backSegs: Seg[] = [], frontSegs: Seg[] = [];
       for (const ring of RINGS) {
         const signal = headroom.find((item) => item.provider === ring.provider);
+        if (!signal && ring.provider === "antigravity") continue;
         const color = providerColors[ring.provider];
         const known = signal?.percent !== null && signal?.percent !== undefined;
         const normalized = known ? signal.percent! / 100 : 0;
@@ -673,7 +678,7 @@ export function HeadroomOrrery({ accent, effects, providerColors, headroom, inte
     </div>
     <div className="headroom-orrery__legend" aria-label="Provider quota headroom">
       {headroom.map((signal) => {
-        const label = signal.provider === "openai" ? "OpenAI" : signal.provider === "anthropic" ? "Anthropic" : "Warp";
+        const label = signal.provider === "openai" ? "OpenAI" : signal.provider === "anthropic" ? "Anthropic" : signal.provider === "antigravity" ? "Antigravity" : "Warp";
         const value = signal.percent === null ? "Unknown" : `${Math.round(signal.percent)}%`;
         return <div key={signal.provider}><i style={{ background: providerColors[signal.provider], color: providerColors[signal.provider] }} /><span>{label}</span><b>{value}</b>{signal.state === "stale" && <small>stale</small>}</div>;
       })}

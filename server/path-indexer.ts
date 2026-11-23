@@ -3,6 +3,7 @@ import { basename, dirname, relative } from "node:path";
 import { stat } from "node:fs/promises";
 import { db, listRules } from "./store";
 import { archivedSessionId, recoverArchivedAnnotation, resolveSessionAlias, stableSessionId } from "./session-identity";
+import { antigravityDatabaseFiles } from "./antigravity";
 import { isCompressedTranscript, plainTranscriptPath, readTranscriptHead, transcriptStem } from "./transcript-file";
 export { stableSessionId } from "./session-identity";
 
@@ -86,7 +87,9 @@ export type PathIndexResult = {
   changed: SessionSource[];
   removedSessionIds: string[];
   /** Files indexed for attribution only. They never enter the effort catalog, but ccusage reads
-   * them, so they belong in the fingerprint that decides whether ccusage has to run again. */
+   * them, so they belong in the fingerprint that decides whether ccusage has to run again.
+   * Antigravity's conversation databases and their `-wal` logs are listed here too: stat only,
+   * never opened by the indexer. */
   attributionOnly?: Array<Pick<SessionSource, "sourceFile" | "mtimeMs" | "size">>;
   /** Codex rollouts present both plain and compressed. Codex keeps both only for the moment it
    * takes to resume a compressed session, so a lasting pair was usually copied back from a
@@ -201,7 +204,8 @@ export async function indexSessionPaths(root = homedir()): Promise<PathIndexResu
     pairs: codex.duplicates.pairs + codexArchived.duplicates.pairs,
     stalePlain: [...codex.duplicates.stalePlain, ...codexArchived.duplicates.stalePlain].sort(),
   };
-  return { catalog, changed, removedSessionIds, attributionOnly: copilot.catalog, duplicateTranscripts, indexed: changed.length + copilot.changed.length };
+  const attributionOnly = [...copilot.catalog, ...antigravityDatabaseFiles(root)];
+  return { catalog, changed, removedSessionIds, attributionOnly, duplicateTranscripts, indexed: changed.length + copilot.changed.length };
 }
 
 function globRegex(pattern: string) {
@@ -289,4 +293,44 @@ export function getNativeSessionKey(sessionId: string) {
   sessionId = resolveSessionAlias(db, sessionId);
   const row = db.query("SELECT native_session_key AS nativeKey FROM session_paths WHERE session_id = ?").get(sessionId) as { nativeKey: string } | null;
   return row?.nativeKey ?? null;
+}
+
+/** A session that lives in a provider database rather than a transcript file. It has a
+ * `session_paths` row so derived effort rows can reference it and be scoped by project like any
+ * other; the transcript indexer never reads, catalogs, or prunes it. */
+export type LocalSessionPath = {
+  sessionId: string;
+  agent: string;
+  nativeKey: string;
+  sourceFile: string;
+  cwd: string | null;
+  mtimeMs: number;
+  size: number;
+};
+
+const upsertLocalPath = db.query(`INSERT INTO session_paths
+  (session_id, agent, native_session_key, source_file, cwd, source_mtime, source_size, indexed_at)
+  VALUES ($sessionId, $agent, $nativeKey, $sourceFile, $cwd, $mtimeMs, $size, CURRENT_TIMESTAMP)
+  ON CONFLICT(session_id) DO UPDATE SET agent = excluded.agent, native_session_key = excluded.native_session_key,
+    source_file = excluded.source_file, cwd = excluded.cwd, source_mtime = excluded.source_mtime,
+    source_size = excluded.source_size, indexed_at = CURRENT_TIMESTAMP
+  WHERE session_paths.source_file IS NOT excluded.source_file OR session_paths.cwd IS NOT excluded.cwd
+    OR session_paths.source_mtime IS NOT excluded.source_mtime OR session_paths.source_size IS NOT excluded.source_size`);
+
+export function upsertLocalSessionPath(path: LocalSessionPath) {
+  upsertLocalPath.run({
+    $sessionId: path.sessionId, $agent: path.agent, $nativeKey: path.nativeKey, $sourceFile: path.sourceFile,
+    $cwd: path.cwd, $mtimeMs: path.mtimeMs, $size: path.size,
+  });
+}
+
+/** Removes the named sessions of one agent, whose sources the caller found gone. Derived effort
+ * rows go with each row, through the foreign-key cascade. */
+export function removeLocalSessionPaths(agent: string, sessionIds: Iterable<string>) {
+  const removed = [...new Set(sessionIds)];
+  if (removed.length) {
+    const remove = db.query("DELETE FROM session_paths WHERE session_id = ? AND agent = ?");
+    db.transaction(() => removed.forEach((sessionId) => remove.run(sessionId, agent)))();
+  }
+  return removed;
 }

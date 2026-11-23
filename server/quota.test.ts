@@ -3,7 +3,8 @@ import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectQuota, collectRawQuotaHistory, dailyHeadroomQuotaSeries, importAnthropicWebCredits, resolveQuotaPlan, summarizeQuotaHistory } from "./quota";
+import { collectQuota, collectRawQuotaHistory, currentModelWindowIdentity, dailyHeadroomQuotaSeries, importAnthropicWebCredits, resolveQuotaPlan, summarizeQuotaHistory } from "./quota";
+import { windowsForModels } from "./session-quota-context";
 
 const realFetch = globalThis.fetch;
 const realEnabled = process.env.QUOTA_SERVICE_ENABLED;
@@ -293,4 +294,168 @@ test("headroom down-sample keeps each day's last weekly and highest five-hour po
     ["fiveHour", 91],
     ["weekly", 34],
   ]);
+});
+
+describe("Antigravity quota", () => {
+  const antigravityReading = (fiveHour: number) => ({
+    provider: "antigravity", status: "ok", source: "antigravity_local", dataAgeMs: 0, capturedAt: 10,
+    snapshot: {
+      kind: "window",
+      fiveHour: { usedPercent: fiveHour, resetsAt: 9_000 },
+      weekly: { usedPercent: 40, resetsAt: 90_000 },
+      modelWindows: { "Gemini 4 Argon Weekly Limit": { usedPercent: 0, resetsAt: 90_000 } },
+      extra: {
+        planType: "pro",
+        rawPlanName: "Google AI Pro",
+        modelWindowIdentity: { "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" } },
+      },
+    },
+  });
+
+  test("a provider the service stops reporting is not served again from the last-good cache", async () => {
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [antigravityReading(10)] } } : { body: {} });
+    await collectQuota();
+    expect(currentModelWindowIdentity("antigravity")).toEqual({ "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" } });
+
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 2, providers: [] } } : { body: {} });
+    await collectQuota();
+    stubFetch((url) => url.endsWith("/usage") ? { status: 503, body: {} } : { body: {} });
+    const outage = await collectQuota();
+    const providers = (outage.usage as { providers: Array<{ provider: string }> } | undefined)?.providers ?? [];
+    expect(providers.some((entry) => entry.provider === "antigravity")).toBe(false);
+    expect(currentModelWindowIdentity("antigravity")).toBeNull();
+  });
+
+  test("history folds Antigravity reaches only once its snapshots exist", () => {
+    const without = summarizeQuotaHistory([
+      { provider: "anthropic", capturedAt: 1_000, snapshotJson: JSON.stringify({ kind: "window", fiveHour: { usedPercent: 100, resetsAt: 60_000 }, weekly: null }) },
+    ], []);
+    expect(without.windows.map((window) => window.provider)).not.toContain("antigravity");
+
+    const reached = summarizeQuotaHistory([
+      { provider: "antigravity", capturedAt: 1_000, snapshotJson: JSON.stringify(antigravityReading(100).snapshot) },
+      { provider: "antigravity", capturedAt: 2_000, snapshotJson: JSON.stringify(antigravityReading(100).snapshot) },
+    ], []);
+    const fiveHour = reached.windows.find((window) => window.provider === "antigravity" && window.window === "fiveHour");
+    expect(fiveHour).toMatchObject({ reachedCount: 1, reachedAt: [1_000] });
+    expect(fiveHour?.reaches?.[0]?.plan).toMatchObject({ id: "pro", source: "provider" });
+    // The headroom overlay carries Antigravity's primary windows, once per five-minute bucket;
+    // its model windows limit other models and never enter the series.
+    expect(reached.series).toEqual([
+      { provider: "antigravity", window: "fiveHour", capturedAt: 1_000, usedPercent: 100, resetsAt: 9_000, cycleId: "0" },
+      { provider: "antigravity", window: "weekly", capturedAt: 1_000, usedPercent: 40, resetsAt: 90_000, cycleId: "2" },
+    ]);
+  });
+
+  test("the slim browser series keeps Antigravity's daily weekly close and five-hour peak", () => {
+    const day = Date.UTC(2026, 10, 20, 12);
+    const reading = (capturedAt: number, fiveHour: number, weekly: number) => ({
+      provider: "antigravity", capturedAt,
+      snapshotJson: JSON.stringify({ ...antigravityReading(fiveHour).snapshot, weekly: { usedPercent: weekly, resetsAt: day + 86_400_000 } }),
+    });
+    const { series } = summarizeQuotaHistory([
+      reading(day, 20, 30), reading(day + 3_600_000, 75.5, 31.2), reading(day + 7_200_000, 5, 32.4),
+    ], []);
+    const slim = dailyHeadroomQuotaSeries(series, "UTC");
+    expect(slim.filter((point) => point.provider === "antigravity").map((point) => [point.window, point.usedPercent]))
+      .toEqual([["fiveHour", 75.5], ["weekly", 32.4]]);
+  });
+
+  async function withLocalHistory(run: () => Promise<void>) {
+    const path = join(tmpdir(), `quota-antigravity-${crypto.randomUUID()}.sqlite`);
+    const database = new Database(path);
+    database.run(`CREATE TABLE snapshots (id INTEGER PRIMARY KEY, provider TEXT, status TEXT, source TEXT,
+      data_as_of INTEGER, captured_at INTEGER, snapshot_json TEXT)`);
+    for (const observedAt of [150, 300]) {
+      database.run("INSERT INTO snapshots (provider, status, source, data_as_of, captured_at, snapshot_json) VALUES ('antigravity', 'ok', 'antigravity_local', ?, ?, ?)",
+        [observedAt, observedAt, JSON.stringify(antigravityReading(20).snapshot)]);
+    }
+    database.close();
+    const previous = process.env.QUOTA_DB_PATH;
+    process.env.QUOTA_DB_PATH = path;
+    try { await run(); } finally {
+      if (previous === undefined) delete process.env.QUOTA_DB_PATH;
+      else process.env.QUOTA_DB_PATH = previous;
+      rmSync(path, { force: true });
+    }
+  }
+
+  test("a model window /history already returned is not added again from the local database", async () => {
+    await withLocalHistory(async () => {
+      stubFetch(() => ({ body: {
+        provider: "antigravity", earliestObservationAt: 150, historyVersion: 2, retentionDays: null, retentionMode: "forever", nextCursor: null,
+        observations: [{
+          schemaVersion: 1, provider: "antigravity", capturedAt: 150, observedAt: 150, timeSource: "provider", status: "ok", source: "antigravity_local",
+          plan: { id: "pro", label: "pro", source: "provider", effectiveFrom: null },
+          quota: { kind: "windows", windows: [
+            { id: "fiveHour", usedPercent: 20, resetsAt: 9_000, cycleId: "reset:0" },
+            { id: "model:Gemini 4 Argon Weekly Limit", usedPercent: 0, resetsAt: 90_000, cycleId: "reset:120000" },
+          ] },
+        }],
+      } }));
+      const result = await collectRawQuotaHistory("antigravity", 0, 1_000);
+      expect(result.sourceState).toBe("connected");
+      const pairs = result.observations.flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => `${row.observedAt} ${window.id}`) : []);
+      expect(pairs.sort()).toEqual([
+        "150 fiveHour",
+        "150 model:Gemini 4 Argon Weekly Limit",
+        // Only the local database has the second reading; its model window is kept.
+        "300 model:Gemini 4 Argon Weekly Limit",
+      ]);
+    });
+  });
+
+  test("a window /history served keeps the identity the local snapshot recorded for it", async () => {
+    // No live identity: the process has seen no /usage report for the provider.
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [] } } : { body: {} });
+    await collectQuota();
+    expect(currentModelWindowIdentity("antigravity")).toBeNull();
+    await withLocalHistory(async () => {
+      stubFetch(() => ({ body: {
+        provider: "antigravity", earliestObservationAt: 150, historyVersion: 2, retentionDays: null, retentionMode: "forever", nextCursor: null,
+        observations: [{
+          schemaVersion: 1, provider: "antigravity", capturedAt: 150, observedAt: 150, timeSource: "provider", status: "ok", source: "antigravity_local",
+          plan: { id: "pro", label: "pro", source: "provider", effectiveFrom: null },
+          quota: { kind: "windows", windows: [
+            { id: "fiveHour", usedPercent: 20, resetsAt: 9_000, cycleId: "reset:0" },
+            { id: "model:Gemini 4 Argon Weekly Limit", usedPercent: 0, resetsAt: 90_000, cycleId: "reset:120000" },
+          ] },
+        }],
+      } }));
+      const result = await collectRawQuotaHistory("antigravity", 0, 1_000);
+      expect(result.sourceState).toBe("connected");
+      const argonOnly = { "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" } };
+      expect(result.observations.map((row) => [row.observedAt, row.modelWindowIdentity])).toEqual([[150, argonOnly], [300, argonOnly]]);
+      const kept = windowsForModels(result.observations, currentModelWindowIdentity("antigravity"), ["gemini-4-neon"])
+        .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => `${row.observedAt} ${window.id}`) : []);
+      // The Argon window limits only Argon, so a Neon session keeps neither reading of it.
+      expect(kept).toEqual(["150 fiveHour"]);
+    });
+  });
+
+  test("with /usage failing, local observations keep the window identity their snapshot recorded", async () => {
+    // A process that never saw a /usage report for the provider has no live identity.
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [] } } : { body: {} });
+    await collectQuota();
+    await withLocalHistory(async () => {
+      stubFetch(() => ({ status: 503, body: {} }));
+      expect((await collectQuota()).sourceState).not.toBe("connected");
+      expect(currentModelWindowIdentity("antigravity")).toBeNull();
+      const result = await collectRawQuotaHistory("antigravity", 0, 1_000);
+      expect(result.observations[0]?.modelWindowIdentity).toEqual({ "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" } });
+      const kept = windowsForModels(result.observations, currentModelWindowIdentity("antigravity"), ["gemini-4-neon"])
+        .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => window.id) : []);
+      // The Argon window limits only Argon, so a Neon session keeps only the primary windows.
+      expect(kept).toEqual(["fiveHour", "weekly", "fiveHour", "weekly"]);
+    });
+  });
+
+  test("an older service that rejects the provider falls back to the local database", async () => {
+    await withLocalHistory(async () => {
+      stubFetch(() => ({ status: 400, body: { error: "unknown provider" } }));
+      const result = await collectRawQuotaHistory("antigravity", 0, 1_000);
+      expect(result).toMatchObject({ available: true, sourceState: "history_only", error: "/history returned 400" });
+      expect(result.observations).toHaveLength(2);
+    });
+  });
 });

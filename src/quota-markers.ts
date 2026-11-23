@@ -5,7 +5,7 @@ export type QuotaMarker = {
   key: string;
   x: string;
   kind: MarkerKind | "mixed";
-  provider: "anthropic" | "codex";
+  provider: MarkerProvider;
   label: string;
   /** One row per event kind in this bucket, so a tooltip can restate what the
    * in-chart marker label says and add the instants behind it. */
@@ -22,8 +22,17 @@ export type QuotaMarkerEntry = {
 };
 
 type MarkerKind = "quota" | "weekly" | "reset";
-type MarkerProvider = "anthropic" | "codex";
+/** Providers whose quota history records reaches. Warp's pool has none. */
+export type MarkerProvider = "anthropic" | "codex" | "antigravity";
 type ProviderFilter = MarkerProvider | "warp" | null;
+
+/** The agent names a marker spells out, in the order markers sharing one point are listed. */
+export const markerProviderNames: Record<MarkerProvider, string> = {
+  anthropic: "Claude",
+  codex: "Codex",
+  antigravity: "Antigravity",
+};
+const markerProviderOrder: MarkerProvider[] = ["anthropic", "codex", "antigravity"];
 type MarkerEvent = {
   timestamp: number;
   kind: MarkerKind;
@@ -38,6 +47,7 @@ const kindLabels: Record<MarkerKind, string> = {
 
 function events(history?: QuotaHistory): MarkerEvent[] {
   if (!history?.available) return [];
+  // Reaches cover Claude, Codex and Antigravity's primary windows; banked resets are Codex's alone.
   const quotaEvents = history.windows.flatMap((window) =>
     window.reachedAt.map((timestamp) => ({
       timestamp,
@@ -72,7 +82,7 @@ function groupMarkers(
     const separator = bucketKey.lastIndexOf(":");
     const x = bucketKey.slice(0, separator);
     const provider = bucketKey.slice(separator + 1) as MarkerProvider;
-    const name = provider === "anthropic" ? "Claude" : "Codex";
+    const name = markerProviderNames[provider];
     const entries = (["quota", "weekly", "reset"] as const)
       .filter((candidate) => kinds.get(candidate)?.length)
       .map((candidate) => {
@@ -94,12 +104,12 @@ function groupMarkers(
 }
 
 /** Markers sharing one chart x value, so a tooltip opened over that point can
- * restate the marker labels its card covers. Claude first, then Codex. */
+ * restate the marker labels its card covers. Claude first, then Codex, then Antigravity. */
 export function quotaMarkersAt(markers: QuotaMarker[], x: string | number | undefined) {
   if (x === undefined) return [];
   return markers
     .filter((marker) => marker.x === String(x))
-    .sort((left, right) => left.provider.localeCompare(right.provider));
+    .sort((left, right) => markerProviderOrder.indexOf(left.provider) - markerProviderOrder.indexOf(right.provider));
 }
 
 export function dailyQuotaMarkers(

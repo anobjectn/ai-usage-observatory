@@ -1,13 +1,15 @@
 import { basename } from "node:path";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
-import { providerFromAgent } from "../src/provider";
-import { addOneHourWrites, type MetricRow, type ModelBreakdown, type WarpDailyUsage } from "../src/types";
+import { providerFromAgent, type ActivityProvider } from "../src/provider";
+import { addOneHourWrites, type AntigravityData, type AntigravityReconciliation, type MetricRow, type ModelBreakdown, type WarpDailyUsage } from "../src/types";
 import { collectCcusage } from "./ccusage";
 import { serverPort } from "./server-port";
 import { ensureUpstream, upstreamHealth } from "./ccusage-upstream";
 import { collectQuota } from "./quota";
 import { getPathIndex, indexSessionPaths, pathTagsForCwd, type PathIndexResult } from "./path-indexer";
 import { collectWarp } from "./warp";
+import { antigravitySessionId, collectAntigravity, type AntigravityCollection, type AntigravityConversation } from "./antigravity";
+import { syncAntigravityEffort } from "./antigravity-effort";
 import { scheduleEffortIndexing, setEffortCatalog } from "./effort-index";
 import { emptyAnnotation, getAnnotations, getAnnotationVersion, getSettings, listRules } from "./store";
 import { buildInsights, resolveScope } from "./insights";
@@ -120,7 +122,7 @@ function activityProvider(agent: string) {
 }
 
 export function aggregateProjectActivity(sessions: ProjectActivitySession[], timeZone = systemTimeZone()) {
-  const activity = new Map<string, {date:string;provider:"anthropic"|"codex"|"warp";projectId:string;projectName:string;tokens:number;cost:number;sessions:number;warpCredits:number;models:Map<string,{tokens:number;cost:number}>}>();
+  const activity = new Map<string, {date:string;provider:ActivityProvider;projectId:string;projectName:string;tokens:number;cost:number;sessions:number;warpCredits:number;models:Map<string,{tokens:number;cost:number}>}>();
   for (const session of sessions) {
     const provider = activityProvider(session.agent);
     const date = dateKeyInTimeZone(session.metadata?.lastActivity, timeZone) ?? session.period.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)?.slice(1).join("-") ?? null;
@@ -230,6 +232,8 @@ export function monthKey(date: string) {
   return date.slice(0, 7);
 }
 
+/** Adds Warp, the one source ccusage does not report, to ccusage's calendar rows. Antigravity is
+ * not merged here: ccusage reports its rows itself. */
 export function mergeWarp(base: MetricRow[], warpSessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date) {
   const rows = new Map(base.map((row) => [row.period, row]));
   for (const warp of warpRows(warpSessions, timeZone, bucket)) {
@@ -239,8 +243,88 @@ export function mergeWarp(base: MetricRow[], warpSessions: ProjectActivitySessio
   return [...rows.values()].sort((left, right) => left.period.localeCompare(right.period));
 }
 
-function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number}, warp: {tokens:number}) {
+/** Warp adds tokens only. Its cost is credits, never dollars, so `totalCost` stays ccusage's own. */
+export function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number}, warp: {tokens:number}) {
   return { ...base, inputTokens: base.inputTokens + warp.tokens, totalTokens: base.totalTokens + warp.tokens };
+}
+
+type AntigravityRow = { agent: string; period: string; totalTokens: number; totalCost: number };
+
+/** ccusage's Antigravity sessions against the metadata reader's conversations. The two read the
+ * same databases independently, so their token totals should match; a difference means one of
+ * them skipped or double-counted a call, or a conversation was written between the two reads. */
+export function antigravityReconciliation(ccusageSessions: AntigravityRow[], conversations: Pick<AntigravityConversation, "conversationId" | "tokens">[]): AntigravityReconciliation {
+  const ccusage = ccusageSessions.filter((row) => providerFromAgent(row.agent) === "antigravity");
+  const reported = new Set(ccusage.map((row) => row.period));
+  const read = new Set(conversations.map((conversation) => conversation.conversationId));
+  return {
+    ccusageSessions: ccusage.length,
+    ccusageTokens: ccusage.reduce((sum, row) => sum + row.totalTokens, 0),
+    ccusageCost: ccusage.reduce((sum, row) => sum + row.totalCost, 0),
+    metadataSessions: conversations.length,
+    metadataTokens: conversations.reduce((sum, conversation) => sum + conversation.tokens, 0),
+    joined: ccusage.filter((row) => read.has(row.period)).length,
+    ccusageOnly: ccusage.filter((row) => !read.has(row.period)).length,
+    metadataOnly: conversations.filter((conversation) => !reported.has(conversation.conversationId)).length,
+  };
+}
+
+/** Puts the metadata reader's facts onto ccusage's Antigravity sessions, by conversation id
+ * (ccusage's session `period`). ccusage keeps the tokens, cost, models, and last activity; the
+ * reader adds the working directory, the content-free stats, and the step-time intervals. The id
+ * is `antigravity-<conversation id>` whichever reader saw the session first. */
+export function joinAntigravitySessions<T extends { agent: string; period: string; sessionId: string; cwd: string | null; pathTags: string[] }>(sessions: T[], conversations: AntigravityConversation[], tags: (cwd: string | null) => string[] = pathTagsForCwd) {
+  const byId = new Map(conversations.map((conversation) => [conversation.conversationId, conversation]));
+  return sessions.map((session) => {
+    if (providerFromAgent(session.agent) !== "antigravity") return session;
+    const conversation = byId.get(session.period);
+    const cwd = conversation?.cwd ?? session.cwd;
+    return {
+      ...session,
+      sessionId: antigravitySessionId(session.period),
+      source: "antigravity" as const,
+      cwd,
+      pathTags: cwd === session.cwd ? session.pathTags : tags(cwd),
+      ...(conversation ? { antigravity: conversation.stats, activityIntervals: conversation.activityIntervals } : {}),
+    };
+  });
+}
+
+/** The Antigravity source-health line: the metadata reader, and how its totals compare with the
+ * ccusage sessions it is joined to. Tokens and cost are ccusage's. */
+export function antigravityHealth(data: AntigravityData) {
+  if (!data.available) {
+    const error = data.error ?? "No Antigravity data directory was found on this machine.";
+    // No root was read, but something was noted (a root that could not be checked, stored
+    // conversations kept unread): that is a source in trouble, not one that is absent.
+    if (data.notes.length) {
+      return { name: "Antigravity local conversations", status: "degraded" as const, detail: [error, ...data.notes].join(" · "), kind: "local metadata" };
+    }
+    return { name: "Antigravity local conversations", status: "unavailable" as const, detail: error, kind: "local metadata" };
+  }
+  const reconciliation = data.reconciliation;
+  const matched = !reconciliation || (reconciliation.ccusageTokens === reconciliation.metadataTokens && reconciliation.ccusageOnly === 0 && reconciliation.metadataOnly === 0);
+  const tokens = (value: number) => value.toLocaleString("en-US");
+  const parts = [
+    `${data.sessionCount} ${data.sessionCount === 1 ? "conversation" : "conversations"}`,
+    `${data.generationCount} ${data.generationCount === 1 ? "model call" : "model calls"}`,
+    `${data.roots.length} ${data.roots.length === 1 ? "data directory" : "data directories"} read`,
+    ...(reconciliation ? [
+      matched
+        ? `ccusage reconciles: ${reconciliation.ccusageSessions} ${reconciliation.ccusageSessions === 1 ? "session" : "sessions"}, ${tokens(reconciliation.ccusageTokens)} tokens`
+        : `ccusage reports ${reconciliation.ccusageSessions} ${reconciliation.ccusageSessions === 1 ? "session" : "sessions"} and ${tokens(reconciliation.ccusageTokens)} tokens; the metadata reader found ${reconciliation.metadataSessions} and ${tokens(reconciliation.metadataTokens)} (${reconciliation.joined} joined, ${reconciliation.ccusageOnly} ccusage only, ${reconciliation.metadataOnly} metadata only). A conversation written during collection can differ until the next one`,
+    ] : []),
+    ...data.notes,
+  ];
+  return { name: "Antigravity local conversations", status: data.notes.length || !matched ? "degraded" as const : "healthy" as const, detail: parts.join(" · "), kind: "local metadata" };
+}
+
+/** The collection behind the newest snapshot, so enabling the effort index can write Antigravity's
+ * rows without waiting for the next collection. */
+let latestAntigravity: AntigravityCollection | null = null;
+
+export function syncLatestAntigravityEffort() {
+  if (latestAntigravity) syncAntigravityEffort(latestAntigravity);
 }
 
 let ccusageCache: { fingerprint: string; expiresAt: number | null; result: Awaited<ReturnType<typeof collectCcusage>> } | null = null;
@@ -293,12 +377,13 @@ async function buildSnapshot() {
   const pathsPromise = indexSessionPaths();
   // The rate card resolves from cache or the bundled fallback; a stale table refreshes in the
   // background, so this never waits on the network.
-  const [paths, ccusage, quota, warpCollection, rateCardState] = await Promise.all([
+  const [paths, ccusage, quota, warpCollection, rateCardState, antigravityCollection] = await Promise.all([
     pathsPromise,
     pathsPromise.then((result) => collectCcusageCached(timeZone, result)),
     collectQuota(),
     collectWarp(timeZone),
     ensureRateCard(),
+    Promise.resolve().then(() => collectAntigravity(timeZone)),
   ]);
   setEffortCatalog(paths.catalog);
   const pathIndex = getPathIndex();
@@ -306,11 +391,11 @@ async function buildSnapshot() {
   // whereas the other order could leave a stale annotation looking current.
   const annotationVersion = getAnnotationVersion();
   const annotations = getAnnotations();
-  const transcriptSessions = ccusage.unified.session.map((row) => {
+  const transcriptSessions = joinAntigravitySessions(ccusage.unified.session.map((row) => {
     const path = pathIndex[`${row.agent}:${row.period}`];
     const sessionId = path?.sessionId ?? `${row.agent}-${row.period}`;
-    return { ...row, sessionId, cwd: path?.cwd ?? null, pathTags: path?.tags ?? [], annotation: annotations[sessionId] ?? emptyAnnotation() };
-  });
+    return { ...row, sessionId, cwd: path?.cwd ?? null, pathTags: path?.tags ?? [] };
+  }), antigravityCollection.conversations).map((row) => ({ ...row, annotation: annotations[row.sessionId] ?? emptyAnnotation() }));
   const warpSessions = warpCollection.sessions.map((session) => ({
     ...session,
     pathTags: pathTagsForCwd(session.cwd),
@@ -319,6 +404,9 @@ async function buildSnapshot() {
   const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
   const daily = mergeWarp(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
   const { sessions: _warpSessions, ...warp } = warpCollection;
+  const { conversations: _antigravityConversations, effortSources: _antigravityEffort, missingSessionIds: _antigravityMissing, ...antigravityData } = antigravityCollection;
+  const antigravity: AntigravityData = { ...antigravityData, reconciliation: antigravityReconciliation(ccusage.unified.session, antigravityCollection.conversations) };
+  latestAntigravity = antigravityCollection;
   const models = aggregateModels(daily, ccusage.unpricedModels);
   const rateCardHealthEntry = rateCardHealth(rateCardState);
   // Like the rate card, the release list resolves from cache and refreshes in the background.
@@ -345,6 +433,7 @@ async function buildSnapshot() {
     rateCard: summarizeRateCard(rateCardState, models.map((model) => model.model)),
     quotas: quota,
     warp,
+    antigravity,
     rules: listRules(),
     settings: getSettings(),
     sources: [
@@ -366,6 +455,7 @@ async function buildSnapshot() {
           : warp.error ?? "Warp's local session database is unavailable",
         kind: "local metadata",
       },
+      antigravityHealth(antigravity),
       {
         name: "quota-service",
         status: quota.sourceState === "connected" ? "healthy"
@@ -387,6 +477,7 @@ export async function refresh() {
   refreshPromise = buildSnapshot().then((next) => { snapshot = next; lastError = null;
     // Transcript indexing is scheduled only after the snapshot and path catalog succeeded, and
     // is never awaited by a request handler.
+    queueMicrotask(() => { try { syncLatestAntigravityEffort(); } catch { /* effort rows must never break collection */ } });
     queueMicrotask(() => { try { scheduleEffortIndexing(); } catch { /* indexing must never break collection */ } });
     queueMicrotask(() => {
       // Advice is evaluated against the default, unfaceted scope so it cannot depend on what a

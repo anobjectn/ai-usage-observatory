@@ -26,12 +26,15 @@ import type { MetricRow, Session } from "./types";
 import { AgentFilter, InformationSources, TimeRangeControl, type AgentFilterGroup } from "./views/chrome";
 import {
   branchState,
+  agentsByFamily,
   buildAgentTree,
   matchesEntry,
   matchesAgentSelection,
+  familyEntry,
   modelEntry,
   selectAgentRow,
   toggleBranch,
+  toggleFamilyEntry,
   toggleModel,
   type AgentSelection,
 } from "./agent-filter";
@@ -238,6 +241,14 @@ export function App() {
       "--color-provider-warp",
       providerColors.warp,
     );
+    document.documentElement.style.setProperty(
+      "--color-provider-antigravity",
+      providerColors.antigravity,
+    );
+    document.documentElement.style.setProperty(
+      "--color-provider-google",
+      providerColors.google,
+    );
     try {
       localStorage.setItem(
         providerColorsStorageKey,
@@ -364,7 +375,7 @@ export function App() {
           ),
         ].sort((left, right) => left.localeCompare(right))
       : [];
-    return buildAgentTree(agents, families);
+    return buildAgentTree(agents, families, agentsByFamily(data?.sessions ?? []));
   }, [agents, data]);
   const agentFilterGroups = useMemo<AgentFilterGroup[]>(() => {
     const groups: AgentFilterGroup[] = agentTree.branches
@@ -386,12 +397,25 @@ export function App() {
           onToggle: () => setAgent(toggleBranch(agent, branch, agentTree)),
         },
         options: branch.models.map((family) => ({
-          value: modelEntry(family),
+          value: familyEntry(branch.agent, family),
           label: family,
           checked: matchesEntry(agent, branch, family),
           onToggle: () => setAgent(toggleModel(agent, family, agentTree)),
         })),
       }));
+    if (agentTree.google.length > 0) {
+      groups.push({
+        label: "Google",
+        note: "Gemini run by agents other than Antigravity. Those sessions stay with the agent that ran them.",
+        summaryColor: "var(--color-provider-google)",
+        options: agentTree.google.map((family) => ({
+          value: modelEntry(family),
+          label: family,
+          checked: agent.includes(modelEntry(family)),
+          onToggle: () => setAgent(toggleFamilyEntry(agent, family, agentTree)),
+        })),
+      });
+    }
     if (agentTree.unparented.length > 0) {
       groups.push({
         label: `Other models (${agentTree.unparented.length})`,

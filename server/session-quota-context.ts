@@ -1,6 +1,8 @@
 import type { QuotaObservation, SessionQuotaContext } from "../src/types";
 import { getEffortMeta } from "./effort-store";
-import { collectQuotaLifecycleMarkers, collectRawQuotaHistory, type QuotaLifecycleMarker } from "./quota";
+import { collectQuotaLifecycleMarkers, collectRawQuotaHistory, currentModelWindowIdentity, type QuotaLifecycleMarker } from "./quota";
+import { antigravitySessionModels } from "./antigravity";
+import { windowIdentity, windowLimitsAny } from "../src/antigravity-quota";
 import { getNativeSessionKey } from "./path-indexer";
 import {
   getEmbeddedQuotaObservations,
@@ -136,9 +138,25 @@ function concurrencyOf(input: ContextPolicyInput): SessionQuotaContext["concurre
   };
 }
 
+/** One reporting unit plus float slop: Anthropic reports whole percents, Antigravity one decimal. */
 function tolerance(provider: Provider, kind: "window" | "pool") {
   if (kind === "pool") return 0.11;
-  return provider === "anthropic" ? 1 : 0.01;
+  if (provider === "anthropic") return 1;
+  return provider === "antigravity" ? 0.11 : 0.01;
+}
+
+/** Antigravity's model windows each limit a set of models. Only the windows that can have moved
+ * for this session's models stay: a Neon session cannot spend the Argon or partner-model pools.
+ * Each observation is read with the identity it recorded, then with `identity` (the current or
+ * last good `/usage` report). A window neither names fails closed and limits every Gemini model. */
+export function windowsForModels(observations: QuotaObservation[], identity: Record<string, unknown> | null, models: readonly string[]) {
+  return observations.flatMap((observation) => {
+    if (observation.quota.kind !== "windows") return [observation];
+    const recorded = observation.modelWindowIdentity ?? identity;
+    const windows = observation.quota.windows.filter((window) =>
+      !window.id.startsWith("model:") || windowLimitsAny(windowIdentity(recorded, window.id.slice("model:".length)), models));
+    return windows.length ? [{ ...observation, quota: { ...observation.quota, windows } }] : [];
+  });
 }
 
 type Confidence = SessionQuotaContext["confidence"];
@@ -486,9 +504,16 @@ function markerEpisodes(markers: QuotaLifecycleMarker[]): ActivityEpisode[] {
 export async function getSessionQuotaContext(sessionId: string): Promise<SessionQuotaContext | null> {
   const provider = getSessionProvider(sessionId);
   let episodes = getSessionEpisodes(sessionId);
-  // Keyed on the unrefined episodes so a hit also skips the lifecycle-marker fetch below.
+  // Keyed on the unrefined episodes so a hit also skips the lifecycle-marker fetch below. An
+  // Antigravity result also depends on which model windows were kept, so its key carries the
+  // session's models and the current window identity: a session that later records another model
+  // (a generation row written after its steps), or an identity that changes, is computed again
+  // rather than served a settled result built from the old window set.
+  const windowKey = provider === "antigravity"
+    ? `:${JSON.stringify([...(antigravitySessionModels(sessionId) ?? [])].sort())}:${JSON.stringify(currentModelWindowIdentity("antigravity"))}`
+    : "";
   const cacheKey = provider && episodes.length
-    ? `${sessionId}:${episodes.map((episode) => `${episode.startAt}-${episode.endAt}`).join(",")}`
+    ? `${sessionId}:${episodes.map((episode) => `${episode.startAt}-${episode.endAt}`).join(",")}${windowKey}`
     : null;
   if (cacheKey) {
     const cached = readContextCache(cacheKey);
@@ -507,7 +532,8 @@ export async function getSessionQuotaContext(sessionId: string): Promise<Session
     }
   }
   if (!provider || !episodes.length) {
-    const indexingDisabled = !getEffortMeta().enabled && !sessionId.startsWith("warp-");
+    // Warp and Antigravity evidence comes from their own databases, not the opt-in index.
+    const indexingDisabled = !getEffortMeta().enabled && !sessionId.startsWith("warp-") && !sessionId.startsWith("antigravity-");
     if (!provider) return null;
     return calculateSessionQuotaContext({
       sessionId,
@@ -560,10 +586,13 @@ export async function getSessionQuotaContext(sessionId: string): Promise<Session
     Math.max(0, episode.startAt - 24 * 60 * 60_000),
     episode.endAt + 24 * 60 * 60_000,
   )));
-  const observations = [...new Map(pages.flatMap((page) => page.observations).map((row) => [
+  const merged = [...new Map(pages.flatMap((page) => page.observations).map((row) => [
     `${row.observedAt}:${JSON.stringify(row.quota)}`,
     row,
   ])).values()].sort((a, b) => a.observedAt - b.observedAt);
+  const observations = provider === "antigravity"
+    ? windowsForModels(merged, currentModelWindowIdentity("antigravity"), antigravitySessionModels(sessionId) ?? [])
+    : merged;
   const points = pointsFromHistory(observations);
   const metaObservation = [...observations].reverse().find((row) => row.plan.id !== null)
     ?? observations.at(-1)

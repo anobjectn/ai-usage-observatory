@@ -150,6 +150,75 @@ function warpNotice(error: string): Pick<QuotaNotice, "kind" | "headline" | "nex
   };
 }
 
+/** quota-service reads Antigravity from its running language server first, then from its stored
+ * Cloud Code sign-in. Its messages name which of the two failed. */
+function antigravityNotice(error: string): Pick<QuotaNotice, "kind" | "headline" | "nextStep"> {
+  const text = error.toLowerCase();
+  if (/token expired|access token stale|\b401\b/.test(text)) {
+    return {
+      kind: "act",
+      headline: "The Antigravity sign-in the quota service reads has expired.",
+      nextStep: "Open Antigravity, or run a prompt through it. The quota service never refreshes the token itself, so the next sign-in or use restores the reading.",
+    };
+  }
+  if (/no antigravity oauth credentials|no access_token|not valid json|must be a json object|quota_antigravity_auth_path/.test(text)) {
+    return {
+      kind: "act",
+      headline: "No usable Antigravity sign-in was found on this machine.",
+      nextStep: "Sign in to Antigravity once, or point QUOTA_ANTIGRAVITY_AUTH_PATH at its credentials file.",
+    };
+  }
+  if (/budget exhausted|exceeded its \d+ms budget/.test(text)) {
+    return {
+      kind: "wait",
+      headline: "Antigravity took too long to answer a quota check.",
+      nextStep: "Nothing to do. The quota service retries on its normal cadence.",
+    };
+  }
+  if (/http 429\b/.test(text)) {
+    return {
+      kind: "wait",
+      headline: "Google is rate-limiting quota checks.",
+      nextStep: "Nothing to do. The quota service retries on its normal cadence.",
+    };
+  }
+  if (/http 5\d\d\b/.test(text)) {
+    return {
+      kind: "wait",
+      headline: "Google’s quota endpoint returned a server error.",
+      nextStep: "Nothing to do. Retries are automatic.",
+    };
+  }
+  if (/no usable quota|returned no quota data/.test(text)) {
+    return {
+      kind: "wait",
+      headline: "Antigravity answered without any quota windows.",
+      nextStep: "Nothing to do unless it persists. If it does, check the quota service’s own status page.",
+    };
+  }
+  if (/timeout|timed out|fetch failed|econnrefused|enotfound|network|abort/.test(text)) {
+    return {
+      kind: "wait",
+      headline: "The quota service could not reach Antigravity.",
+      nextStep: "Check your network connection. Retries are automatic.",
+    };
+  }
+  return {
+    kind: "act",
+    headline: "Antigravity quota is not being reported.",
+    nextStep: "Check the quota service’s own status page for the underlying cause.",
+  };
+}
+
+/** Any provider without guidance of its own. */
+function genericNotice(): Pick<QuotaNotice, "kind" | "headline" | "nextStep"> {
+  return {
+    kind: "act",
+    headline: "This provider's quota is not being reported.",
+    nextStep: "Check the quota service’s own status page for the underlying cause.",
+  };
+}
+
 /** Returns guidance when a provider report carries an error and is not fully
  * current. A healthy report, or an unconfigured provider that never reported,
  * yields null so cards stay quiet. */
@@ -165,7 +234,11 @@ export function quotaProviderNotice(
       ? anthropicNotice(provider.error)
       : provider.provider === "codex"
         ? codexNotice(provider.error)
-        : warpNotice(provider.error);
+        : provider.provider === "warp"
+          ? warpNotice(provider.error)
+          : provider.provider === "antigravity"
+            ? antigravityNotice(provider.error)
+            : genericNotice();
   const readingAgeMs =
     provider.snapshot && typeof provider.dataAgeMs === "number" && Number.isFinite(provider.dataAgeMs)
       ? Math.max(0, provider.dataAgeMs)

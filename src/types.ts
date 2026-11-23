@@ -32,7 +32,7 @@ export type RateCardSummary = { status: RateCardStatus; fetchedAt: string | null
 export type ProjectTrendRow = Omit<MetricRow, "agent" | "period"> & { date: string; period?: string; warpCredits?: number };
 export type ProjectActivity = {
   date: string;
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   projectId: string;
   projectName: string;
   tokens: number;
@@ -69,13 +69,30 @@ export type WarpSessionStats = {
   };
   tokensByCategory: Record<string, number>;
 };
+/** Content-free facts about one local Antigravity conversation. Nothing here is read from a
+ * prompt, a reply, a title, or a tool payload. */
+export type AntigravitySessionStats = {
+  conversationId: string;
+  /** Usage-bearing model calls: generations plus compaction and other non-turn calls. */
+  generations: number;
+  /** Thinking tokens inside `outputTokens`, as the usage record splits them. ccusage leaves them
+   * out of output; the collector folds them back in, so this is a subset of the session's output. */
+  reasoningOutputTokens: number;
+  parentConversationId: string | null;
+  /** Which install wrote the conversation: T3 Code's Antigravity driver, or the Antigravity app
+   * (IDE or CLI, in ccusage's default directories). */
+  root: "t3" | "ide";
+};
 export type Session = MetricRow & {
   sessionId: string;
   cwd: string | null;
   pathTags: string[];
   annotation: SessionAnnotation;
-  source?: "ccusage" | "warp";
+  /** Where the session's detail comes from. An Antigravity session's tokens and cost are ccusage's,
+   * but its detail is the metadata reader's: content is never imported. */
+  source?: "ccusage" | "warp" | "antigravity";
   warp?: WarpSessionStats;
+  antigravity?: AntigravitySessionStats;
   activityIntervals?: Array<{ startAt: number; endAt: number }>;
 };
 export type SessionDetail = {
@@ -362,6 +379,11 @@ export type WindowQuotaSnapshot = {
     planType?: string | null;
     /** Anthropic's generic subscription family (`max`), used when `planType` is absent. */
     subscriptionType?: string | null;
+    /** The provider's own plan name ("Google AI Pro"), reported by Antigravity. */
+    rawPlanName?: string | null;
+    /** Which models each `modelWindows` entry limits, keyed by window name. Antigravity only;
+     * read through `coerceWindowIdentity`, never trusted raw. */
+    modelWindowIdentity?: Record<string, unknown>;
   };
 };
 export type QuotaManualEntry = {
@@ -385,7 +407,7 @@ export type PoolQuotaSnapshot = {
   };
 };
 export type QuotaProvider = {
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   status: "ok" | "stale" | "unavailable" | "unknown";
   source: string | null;
   snapshot: WindowQuotaSnapshot | PoolQuotaSnapshot | null;
@@ -424,19 +446,23 @@ export type QuotaReach = {
 export type QuotaHistory = {
   available: boolean;
   trackingSince: number | null;
-  windows: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";reachedCount:number;lastReachedAt:number|null;reachedAt:number[];reaches?:QuotaReach[]}>;
-  series?: Array<{provider:"codex"|"anthropic";window:"fiveHour"|"weekly";capturedAt:number;usedPercent:number;resetsAt:number|null;cycleId:string}>;
+  windows: Array<{provider:"codex"|"anthropic"|"antigravity";window:"fiveHour"|"weekly";reachedCount:number;lastReachedAt:number|null;reachedAt:number[];reaches?:QuotaReach[]}>;
+  series?: Array<{provider:"codex"|"anthropic"|"antigravity";window:"fiveHour"|"weekly";capturedAt:number;usedPercent:number;resetsAt:number|null;cycleId:string}>;
   codexBankedResets: {usedCount:number;used:Array<{id:string;title:string;usedAt:number}>};
 };
 export type QuotaObservation = {
   schemaVersion: 1;
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   capturedAt: number;
   observedAt: number;
   timeSource: "provider" | "source_mtime" | "collector";
   status: "ok" | "stale";
   source: string;
   plan: QuotaPlan;
+  /** Which models each model window limits (`snapshot.extra.modelWindowIdentity`), as the
+   * snapshot recorded it. Only observations read from the local quota database carry it;
+   * `/history` does not. */
+  modelWindowIdentity?: Record<string, unknown>;
   quota:
     | {
         kind: "windows";
@@ -463,7 +489,7 @@ export type QuotaObservation = {
       };
 };
 export type SessionQuotaContext = {
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   basis: "embedded_account_observation" | "bracketed_account_delta";
   resources: Array<{
     id: "fiveHour" | "weekly" | "monthly" | string;
@@ -516,7 +542,7 @@ export type SessionQuotaContext = {
      * so these links identify possible contributors rather than causal allocations. */
     sessions?: Array<{
       sessionId: string;
-      provider: "anthropic" | "codex" | "warp";
+      provider: "anthropic" | "codex" | "warp" | "antigravity";
       overlapMs: number;
     }>;
     externalActivity: "unknown";
@@ -555,6 +581,41 @@ export type WarpData = {
   schema: { required: string[]; missing: string[] };
   error?: string;
 };
+export type AntigravityDailyUsage = {
+  date: string;
+  generations: number;
+  tokens: number;
+};
+export type AntigravityData = {
+  available: boolean;
+  /** Data directories that exist on this machine, home-relative. */
+  roots: string[];
+  observedAt: string;
+  sessionCount: number;
+  generationCount: number;
+  /** Usage-bearing calls that were not a model turn: context compaction, mostly. */
+  auxiliaryCalls: number;
+  totals: { sessions: number; generations: number; tokens: number; reasoningOutputTokens: number };
+  daily: AntigravityDailyUsage[];
+  /** Degraded-read notes: unreadable databases, schema drift, unknown effort labels. */
+  notes: string[];
+  subagentConversations: number;
+  /** ccusage's Antigravity sessions against this reader's conversations. */
+  reconciliation?: AntigravityReconciliation;
+  error?: string;
+};
+/** ccusage supplies Antigravity's sessions, tokens, and cost; the metadata reader reads the same
+ * databases for cwd, effort, and reasoning. Both token totals include thinking. */
+export type AntigravityReconciliation = {
+  ccusageSessions: number;
+  ccusageTokens: number;
+  ccusageCost: number;
+  metadataSessions: number;
+  metadataTokens: number;
+  joined: number;
+  ccusageOnly: number;
+  metadataOnly: number;
+};
 export type DashboardData = {
   collectedAt: string;
   /** IANA timezone used by ccusage and every AIUO calendar boundary in this snapshot. */
@@ -578,6 +639,7 @@ export type DashboardData = {
   rateCard: RateCardSummary;
   quotas: {available:boolean;sourceState?:"disabled"|"history_only"|"connected"|"degraded"|"unreachable";usage?:{generatedAt:number;providers:QuotaProvider[]};resets?:QuotaResets;history?:QuotaHistory;status?:unknown;error?:string;collectedAt:string};
   warp: WarpData;
+  antigravity?: AntigravityData;
   rules: Array<{id:number;pattern:string;kind:"glob"|"regex";tag:string}>;
   settings: Record<string,string>;
   sources: Array<{name:string;status:string;detail:string;kind:string}>;

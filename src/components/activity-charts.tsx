@@ -32,7 +32,7 @@ import {
   chartTickCompact,
   chartTooltipWrapperStyle,
 } from "./chart-theme";
-import { dailyHeadroomSeries, type DailyHeadroom } from "../quota-headroom";
+import { dailyHeadroomSeries, type DailyHeadroom, type HeadroomProvider } from "../quota-headroom";
 import { modelSignalSlopes, type SlopeMeasure, type SlopeSort } from "../model-slope";
 import {
   Area,
@@ -56,7 +56,7 @@ import type {
   ProjectActivity,
   Session,
 } from "../types";
-import { dailyQuotaMarkers, hourlyQuotaMarkers, quotaMarkersAt, type QuotaMarker } from "../quota-markers";
+import { dailyQuotaMarkers, hourlyQuotaMarkers, markerProviderNames, quotaMarkersAt, type MarkerProvider, type QuotaMarker } from "../quota-markers";
 import { Empty, Segmented } from "../views/chrome";
 import { agentSelectionParams, type AgentSelection } from "../agent-filter";
 import { familyOf } from "../model-family";
@@ -880,6 +880,31 @@ function TooltipDateStep({
 }
 
 
+/** The providers with quota history, in the order charts and tooltips list them. */
+const quotaProviderOrder: HeadroomProvider[] = ["anthropic", "codex", "antigravity"];
+/** The preference key behind each headroom line. */
+const headroomLineKeyFor: Record<"weekly" | "fiveHour", Record<HeadroomProvider, HeadroomLineKey>> = {
+  weekly: { anthropic: "headroomAnthropic", codex: "headroomCodex", antigravity: "headroomAntigravity" },
+  fiveHour: {
+    anthropic: "fiveHourHeadroomAnthropic",
+    codex: "fiveHourHeadroomCodex",
+    antigravity: "fiveHourHeadroomAntigravity",
+  },
+};
+
+function TooltipHeadroom({ label, values }: { label: string; values: DailyHeadroom | undefined }) {
+  const shown = quotaProviderOrder.filter((provider) => values?.[provider] != null);
+  if (!values || shown.length === 0) return null;
+  return (
+    <p className="tooltip-headroom">
+      {label}
+      {shown.map((provider) => (
+        <b key={provider}> · {markerProviderNames[provider]} {Math.round(values[provider]!)}%</b>
+      ))}
+    </p>
+  );
+}
+
 /** The card's whole body, driven by whichever day it is currently showing.
  * Holding that day here rather than in the tooltip is what lets a pinned copy —
  * which renders the element captured at pin time, detached from the chart —
@@ -960,28 +985,8 @@ function ActivityDayCard({
         markers={quotaMarkersAt(quotaMarkers, point)}
         timeZone={timeZone}
       />
-      {row?.headroom && (row.headroom.anthropic !== null || row.headroom.codex !== null) && (
-        <p className="tooltip-headroom">
-          Weekly headroom at day's end
-          {row.headroom.anthropic !== null && (
-            <b> · Claude {Math.round(row.headroom.anthropic)}%</b>
-          )}
-          {row.headroom.codex !== null && (
-            <b> · Codex {Math.round(row.headroom.codex)}%</b>
-          )}
-        </p>
-      )}
-      {row?.fiveHourHeadroom && (row.fiveHourHeadroom.anthropic !== null || row.fiveHourHeadroom.codex !== null) && (
-        <p className="tooltip-headroom">
-          Lowest 5-hour headroom
-          {row.fiveHourHeadroom.anthropic !== null && (
-            <b> · Claude {Math.round(row.fiveHourHeadroom.anthropic)}%</b>
-          )}
-          {row.fiveHourHeadroom.codex !== null && (
-            <b> · Codex {Math.round(row.fiveHourHeadroom.codex)}%</b>
-          )}
-        </p>
-      )}
+      <TooltipHeadroom label="Weekly headroom at day's end" values={row?.headroom} />
+      <TooltipHeadroom label="Lowest 5-hour headroom" values={row?.fiveHourHeadroom} />
       {providers.map((provider) => {
         const models = tooltipModels(row, provider.key);
         const visibleModels = models.slice(0, 3);
@@ -1346,10 +1351,11 @@ export function modelSignalColor(baseColor: string, dominant: string | null) {
   return baseColor;
 }
 
-const quotaMarkerColors = {
+const quotaMarkerColors: Record<MarkerProvider, string> = {
   anthropic: "var(--color-provider-anthropic)",
   codex: "var(--color-provider-openai)",
-} as const;
+  antigravity: "var(--color-provider-antigravity)",
+};
 
 /** The key normally tucks up into the right end of the series legend row. Pass
  * `stacked` when that row already ends with its own items (the headroom
@@ -1362,15 +1368,15 @@ export function QuotaMarkerLegend({
   stacked?: boolean;
 }) {
   if (markers.length === 0) return null;
-  const hasClaude = markers.some((marker) => marker.provider === "anthropic");
-  const hasCodex = markers.some((marker) => marker.provider === "codex");
+  const present = quotaProviderOrder.filter((provider) => markers.some((marker) => marker.provider === provider));
   return (
     <div
       className={stacked ? "quota-marker-legend quota-marker-legend--stacked" : "quota-marker-legend"}
       aria-label="Quota event markers"
     >
-      {hasClaude && <span><i className="anthropic" />Claude events</span>}
-      {hasCodex && <span><i className="codex" />Codex events</span>}
+      {present.map((provider) => (
+        <span key={provider}><i className={provider} />{markerProviderNames[provider]} events</span>
+      ))}
     </div>
   );
 }
@@ -1389,7 +1395,7 @@ export function QuotaReachNotes({
   return (
     <section className="tooltip-quota" aria-label="Quota events">
       {markers.flatMap((marker) => {
-        const name = marker.provider === "anthropic" ? "Claude" : "Codex";
+        const name = markerProviderNames[marker.provider];
         return marker.entries.map((entry) => (
           <div className="tooltip-quota__row" key={`${marker.key}:${entry.kind}`}>
             <i style={{ background: quotaMarkerColors[marker.provider] }} />
@@ -1426,7 +1432,7 @@ export function QuotaReferenceLines({
     const sharedXIndex = markers
       .slice(0, markerIndex)
       .filter((candidate) => candidate.x === marker.x).length;
-    const providerLabel = marker.provider === "anthropic" ? "Claude" : "Codex";
+    const providerLabel = markerProviderNames[marker.provider];
     const resetEntry = marker.entries.find((entry) => entry.kind === "reset");
     const reachedEntries = marker.entries.filter((entry) => entry.kind !== "reset");
     const markerLabel = (entries: QuotaMarker["entries"]) => entries
@@ -1535,12 +1541,13 @@ export function ProviderTimeline({
     projectsByDay.set(project.date, day);
   });
   const data = rows.map((row) => {
-    const values = { anthropic: 0, codex: 0, warp: 0 };
-    const costs = { anthropic: 0, codex: 0, warp: 0 };
+    const values = { anthropic: 0, codex: 0, warp: 0, antigravity: 0 };
+    const costs = { anthropic: 0, codex: 0, warp: 0, antigravity: 0 };
     const modelMaps = {
       anthropic: new Map<string, { tokens: number; cost: number }>(),
       codex: new Map<string, { tokens: number; cost: number }>(),
       warp: new Map<string, { tokens: number; cost: number }>(),
+      antigravity: new Map<string, { tokens: number; cost: number }>(),
     };
     if (row.agents?.length) {
       row.agents.forEach((item) => {
@@ -1618,36 +1625,34 @@ export function ProviderTimeline({
   const chartData = data.map((row) => {
     const weekly = headroomByDay.get(row.period);
     const fiveHour = fiveHourHeadroomByDay.get(row.period);
-    const headroom: DailyHeadroom = {
-      anthropic: shown("headroomAnthropic", weekly?.anthropic),
-      codex: shown("headroomCodex", weekly?.codex),
-    };
-    const fiveHourHeadroom: DailyHeadroom = {
-      anthropic: shown("fiveHourHeadroomAnthropic", fiveHour?.anthropic),
-      codex: shown("fiveHourHeadroomCodex", fiveHour?.codex),
-    };
+    const pick = (keys: Record<HeadroomProvider, HeadroomLineKey>, day: DailyHeadroom | undefined) =>
+      Object.fromEntries(quotaProviderOrder.map((provider) => [provider, shown(keys[provider], day?.[provider])])) as DailyHeadroom;
+    const headroom = pick(headroomLineKeyFor.weekly, weekly);
+    const fiveHourHeadroom = pick(headroomLineKeyFor.fiveHour, fiveHour);
     return {
       ...row,
       headroom,
       fiveHourHeadroom,
-      headroomAnthropic: headroom.anthropic,
-      headroomCodex: headroom.codex,
-      fiveHourHeadroomAnthropic: fiveHourHeadroom.anthropic,
-      fiveHourHeadroomCodex: fiveHourHeadroom.codex,
+      ...Object.fromEntries(quotaProviderOrder.flatMap((provider) => [
+        [headroomLineKeyFor.weekly[provider], headroom[provider]],
+        [headroomLineKeyFor.fiveHour[provider], fiveHourHeadroom[provider]],
+      ])),
     };
   });
-  const headroomLines = (
-    [
-      { key: "headroomAnthropic" as const, provider: "anthropic" as const, label: "Claude weekly", window: "weekly" as const, byDay: headroomByDay },
-      { key: "headroomCodex" as const, provider: "codex" as const, label: "Codex weekly", window: "weekly" as const, byDay: headroomByDay },
-      { key: "fiveHourHeadroomAnthropic" as const, provider: "anthropic" as const, label: "Claude 5-hour low", window: "fiveHour" as const, byDay: fiveHourHeadroomByDay },
-      { key: "fiveHourHeadroomCodex" as const, provider: "codex" as const, label: "Codex 5-hour low", window: "fiveHour" as const, byDay: fiveHourHeadroomByDay },
-    ]
-  ).filter(
-    (line) =>
-      [...line.byDay.values()].filter((entry) => entry[line.provider] !== null)
-        .length >= 2,
-  );
+  // Weekly lines first, then five-hour lows, each in provider order. A line with readings on only
+  // one day has no segment to draw, so it shows as a dot instead.
+  const headroomLines = (["weekly", "fiveHour"] as const)
+    .flatMap((window) => quotaProviderOrder.map((provider) => {
+      const byDay = window === "weekly" ? headroomByDay : fiveHourHeadroomByDay;
+      return {
+        key: headroomLineKeyFor[window][provider],
+        provider,
+        label: `${markerProviderNames[provider]} ${window === "weekly" ? "weekly" : "5-hour low"}`,
+        window,
+        days: [...byDay.values()].filter((entry) => entry[provider] !== null).length,
+      };
+    }))
+    .filter((line) => line.days >= 1);
   const visibleHeadroomLines = headroomLines.filter((line) =>
     shownHeadroomLines.includes(line.key),
   );
@@ -1702,7 +1707,7 @@ export function ProviderTimeline({
       <QuotaMarkerLegend markers={quotaMarkers} stacked={headroomLines.length > 0} />
       <div
         className="chart-wrap provider-chart"
-        aria-label="Token usage by day, split into Claude, Codex, and Warp sections"
+        aria-label="Token usage by day, split into Claude, Codex, Warp, and Antigravity sections"
         role="img"
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -1815,7 +1820,7 @@ export function ProviderTimeline({
                     : { strokeWidth: 2, strokeDasharray: "0 7" })}
                   strokeLinecap="round"
                   strokeOpacity={0.85}
-                  dot={false}
+                  dot={line.days === 1 ? { r: 2.5, fill: color, stroke: "none", fillOpacity: 0.85 } : false}
                   activeDot={false}
                   connectNulls
                   isAnimationActive={false}
@@ -1848,16 +1853,19 @@ export function HourlyProviderTimeline({
     anthropic: 0,
     codex: 0,
     warp: 0,
-    costs: { anthropic: 0, codex: 0, warp: 0 },
+    antigravity: 0,
+    costs: { anthropic: 0, codex: 0, warp: 0, antigravity: 0 },
     models: {
       anthropic: [] as Array<{ name: string; tokens: number; cost: number }>,
       codex: [] as Array<{ name: string; tokens: number; cost: number }>,
       warp: [] as Array<{ name: string; tokens: number; cost: number }>,
+      antigravity: [] as Array<{ name: string; tokens: number; cost: number }>,
     },
     modelMaps: {
       anthropic: new Map<string, { tokens: number; cost: number }>(),
       codex: new Map<string, { tokens: number; cost: number }>(),
       warp: new Map<string, { tokens: number; cost: number }>(),
+      antigravity: new Map<string, { tokens: number; cost: number }>(),
     },
     projectGroups: {} as Record<string, ProjectActivity[]>,
     projectMaps: {
@@ -1873,6 +1881,17 @@ export function HourlyProviderTimeline({
         }
       >(),
       codex: new Map<
+        string,
+        {
+          projectId: string;
+          projectName: string;
+          tokens: number;
+          cost: number;
+          sessions: number;
+          models: Map<string, { tokens: number; cost: number }>;
+        }
+      >(),
+      antigravity: new Map<
         string,
         {
           projectId: string;
@@ -1953,7 +1972,7 @@ export function HourlyProviderTimeline({
     }),
   );
   data.forEach((bucket) =>
-    (["anthropic", "codex"] as const).forEach((provider) => {
+    (["anthropic", "codex", "antigravity"] as const).forEach((provider) => {
       bucket.projectGroups[provider] = [
         ...bucket.projectMaps[provider].values(),
       ]
@@ -1991,7 +2010,7 @@ export function HourlyProviderTimeline({
       <QuotaMarkerLegend markers={quotaMarkers} />
       <div
         className="chart-wrap provider-chart"
-        aria-label="Session token usage by last activity hour, split into Claude, Codex, and Warp sections"
+        aria-label="Session token usage by last activity hour, split into Claude, Codex, Warp, and Antigravity sections"
         role="img"
       >
         <ResponsiveContainer width="100%" height="100%">

@@ -1,7 +1,7 @@
 import { Activity, AlertTriangle } from "lucide-react";
 import { useMemo } from "react";
 import type { DashboardData } from "../../types";
-import { agentSelectionParams, type AgentSelection } from "../../agent-filter";
+import { agentSelectionParams, familyTokenLabel, type AgentSelection } from "../../agent-filter";
 import { useEffortAggregate, useEffortRefreshOnIndexChange } from "../../hooks/use-effort";
 import { EfficiencyFindings } from "./efficiency";
 import { FacetBar } from "./facets";
@@ -14,7 +14,7 @@ import type { DateRange } from "../../time-range";
 
 function agentSummary(providers: string[], modelFamilies: string[]) {
   if (providers.length === 0 && modelFamilies.length === 0) return "all agents";
-  return [...providers, ...modelFamilies].join(" + ");
+  return [...providers, ...modelFamilies.map(familyTokenLabel)].join(" + ");
 }
 
 export function UsageIntelligence({

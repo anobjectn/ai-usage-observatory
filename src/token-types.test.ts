@@ -208,3 +208,35 @@ describe("footnotesFor", () => {
     expect(lines.some((line) => line.includes("effort index is off"))).toBe(true);
   });
 });
+
+describe("Antigravity rows", () => {
+  // ccusage prices gemini-4-neon from models.dev, but the LiteLLM rate card has no gemini-4 entry,
+  // so the split by token type has nothing to split with.
+  test("a priced row with no rate card keeps its tokens and withholds only the split", () => {
+    const gemini = breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0.0083);
+    const summary = summarizeTokenTypes([{ agent: "antigravity", breakdown: gemini }], card);
+    expect(summary.totalTokens).toBe(10_300);
+    expect(summary.costAvailable).toBe(false);
+    expect(summary.withheld).toEqual([{ model: "gemini-4-neon", reason: "no-rate" }]);
+    expect(summary.providers).toEqual(["antigravity"]);
+    const lines = footnotesFor(summary, { reasoning: { outputTokens: 300, reasoningOutputTokens: 200, reportedEvents: 1 } });
+    expect(lines).toContain("Generated output includes reasoning tokens; Antigravity reported 200 reasoning tokens inside output.");
+    expect(lines.some((line) => line.includes("gemini-4-neon has no LiteLLM rate to split with"))).toBe(true);
+    expect(lines).toContain("Antigravity reports cache writes as zero.");
+  });
+
+  test("Codex and Antigravity share the zero cache-write note, which drops once Antigravity writes", () => {
+    const codexTokens = { input: 40_000, output: 12_000, cacheRead: 900_000 };
+    const codex = { agent: "codex", breakdown: breakdown("gpt-5.6-sol", codexTokens, 0.5) };
+    const gemini = { agent: "antigravity", breakdown: breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0.0083) };
+    expect(footnotesFor(summarizeTokenTypes([codex, gemini], card))).toContain("Codex and Antigravity report cache writes as zero.");
+    const writing = { agent: "antigravity", breakdown: breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000, cacheWrite: 50 }, 0.0084) };
+    expect(footnotesFor(summarizeTokenTypes([codex, writing], card))).toContain("Codex reports cache writes as zero.");
+  });
+
+  test("offline, ccusage's unpriced model withholds the split as unpriced", () => {
+    const gemini = breakdown("gemini-4-neon", { input: 1_000, output: 300, cacheRead: 9_000 }, 0);
+    const summary = summarizeTokenTypes([{ agent: "antigravity", breakdown: gemini }], card, ["gemini-4-neon"]);
+    expect(summary.withheld).toEqual([{ model: "gemini-4-neon", reason: "unpriced" }]);
+  });
+});

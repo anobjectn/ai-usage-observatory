@@ -580,6 +580,9 @@
 .quota-card.warp {
   --quota-color: var(--color-provider-warp);
 }
+.quota-card.antigravity {
+  --quota-color: var(--color-provider-antigravity);
+}
 
 .quota-card__head {
   display: flex;
@@ -683,6 +686,10 @@
   margin-top: var(--space-1-5);
   font: var(--data-text-compact)/1.4 var(--font-label);
   color: var(--color-text-subtle);
+}
+.quota-bucket .quota-bucket__scope {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
 }
 
 .quota-history {
@@ -1093,6 +1100,7 @@
 
 .provider-capacity__row.codex { --provider-color: var(--color-provider-openai); }
 .provider-capacity__row.warp { --provider-color: var(--color-provider-warp); }
+.provider-capacity__row.antigravity { --provider-color: var(--color-provider-antigravity); }
 
 .provider-capacity__row>header {
   display: flex;
@@ -1376,6 +1384,10 @@
   --provider-color: var(--color-provider-warp);
 }
 
+.recent-session .agent-pill.antigravity {
+  --provider-color: var(--color-provider-antigravity);
+}
+
 /* Each provider times its own five-hour window, so the list is crossed by one bar per provider per window: the rows above a bar are the ones inside it. */
 .recent-terminus {
   display: flex;
@@ -1637,6 +1649,9 @@
 }
 .quota-glance__provider.warp {
   --provider-color: var(--color-provider-warp);
+}
+.quota-glance__provider.antigravity {
+  --provider-color: var(--color-provider-antigravity);
 }
 .quota-glance dd {
   display: flex;

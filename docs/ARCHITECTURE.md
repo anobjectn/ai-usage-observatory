@@ -82,10 +82,98 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
 3. The metadata-only path indexer incrementally reads session file heads when mtimes change. It
    indexes Claude and Codex transcripts, and the `events.jsonl` of each Copilot session for its
    working directory only. Copilot files never enter the effort catalog, but they are part of
-   the fingerprint that decides whether ccusage runs again. An agent that `providerFromAgent`
+   the fingerprint that decides whether ccusage runs again. So is every Antigravity conversation
+   database and its `-wal` (stat only, never opened by the indexer), so a new call, even one that
+   lands only in the log, triggers a re-collection. An agent that `providerFromAgent`
    does not recognize has no quota, effort index, or chart series; the Agent filter still lists
    it, and both analysis endpoints scope it through the `other` provider value.
 4. Native report sessions are joined to indexed paths without copying transcript content.
+   Warp (`server/warp.ts`) sits beside `ccusage` and reads Warp's SQLite ledger.
+   Google Antigravity is a `ccusage` agent with a metadata reader beside it:
+   - **ccusage.** ccusage reads Antigravity's per-conversation SQLite databases itself, but finds
+     only its default directories (`~/.gemini/antigravity`, `-cli`, `-ide`, `-backup`, `-acp`,
+     `~/.config/antigravity`), never T3 Code's driver directory
+     (`~/.t3/userdata/providers/antigravity/*/antigravity-acp/`). `server/ccusage.ts` passes
+     every existing root, comma-separated, in `ANTIGRAVITY_DATA_DIR`, which replaces ccusage's
+     search; `ANTIGRAVITY_DATA_DIRS` replaces the list for both readers. A root whose path holds a
+     comma cannot be put in ccusage's list, so it is left out and named in source health. ccusage
+     supplies the sessions (`period` is the conversation ID), daily, weekly, and monthly rows,
+     totals, and the API-equivalent cost, priced from models.dev and LiteLLM, with thinking
+     billed as output.
+     ccusage opens these databases with normal SQLite reads and can leave `-wal`/`-shm` files.
+   - **Thinking tokens.** ccusage counts Antigravity's thinking in `totalTokens` but not in
+     `outputTokens`, so its buckets fall short of the total by exactly the thinking. Every other
+     agent's buckets add up. `foldAntigravityThinking` folds the gap into output on every
+     Antigravity row, agent sub-row, session, model breakdown, and the totals. That matches
+     Codex, whose output already holds its reasoning, and matches the price, so totals,
+     token-type shares, and per-model sums agree. Model breakdowns carry no total of their own,
+     so a row with several models splits its gap by each model's output tokens; that per-model
+     split is an estimate, the row totals are exact. The thinking count itself comes from the
+     metadata reader (`reasoningOutputTokens`), a subset of output, as Codex's is.
+   - **Metadata reader.** `server/antigravity.ts` reads the same roots for what ccusage lacks:
+     the working directory (`workspace_uris`), effort labels, the thinking split, step times and
+     activity evidence, the effort-store rows, and source health. It emits no session, row,
+     total, or cost. The collector joins it onto ccusage's sessions by conversation ID; the
+     session ID is `antigravity-<conversation_id>` either way. Source health compares ccusage's
+     Antigravity session count and token total with the reader's.
+   - **Ledger.** Each usage-bearing step's `steps.metadata` field 9 is one model call: uncached
+     input, output (thinking included), cache write, cache read, and the thinking share of
+     output, de-duplicated by message ID. Compaction calls count; they carry their own message
+     IDs. Field 1 is the call's UTC time. `step_payload` is never selected. A finished model turn
+     (`steps.status` 3) without a usage record is noted in source health; a turn still running
+     has not written its record yet and is not.
+   - **Model and effort.** `gen_metadata` maps each message ID to its model ID and display label,
+     so a mid-conversation effort switch is attributed per call. Rows are scanned incrementally
+     by `idx`; only three fields are decoded, and rows over 16 MiB are skipped in SQL. The reader
+     relies on the observed contract that rows are appended and only the newest can still be
+     completed in place: each pass reads again from the last `idx` it read, and a change to an
+     older row is seen only when the file is replaced.
+   - **Open rule.**
+     - A database with no `-wal`, or an empty one, is always read with `immutable=1`, whether or
+       not a `-shm` exists. The read is kept only if the file (identity, size, mtime) is unchanged
+       and no non-empty `-wal` appeared while it ran; otherwise it fails closed for that pass.
+     - A non-empty `-wal` without a `-shm` is never opened, because a read-only connection would
+       create the `-shm`.
+     - Only a non-empty `-wal` beside a `-shm` (a live writer) is opened plainly, read-only, with
+       a short busy timeout.
+     - An unsafe read keeps the last good parse, if there is one, and is noted in source health.
+   - **Sidecar exception.** The reader creates no sidecar unless a process other than SQLite
+     deletes a `-shm` beside a non-empty `-wal` between the probe and the first query. SQLite
+     removes both files only when the last connection closes, under an exclusive lock that the
+     reader waits for. The worst case is a `-shm` left beside the database, holding SQLite's
+     index of the log and no conversation data.
+   - **Directory and file errors.**
+     - A data directory or `conversations` directory that is missing (ENOENT) has no
+       conversations, and a missing T3 installs directory (`~/.t3/userdata/providers/antigravity`)
+       means no T3 install.
+     - One that cannot be checked or listed (permissions, I/O, a path through a regular file),
+       or a listed database or `-wal` whose stat fails, is noted in source health. A T3 installs
+       directory that cannot be listed counts as one data directory that could not be checked.
+     - Their sessions are left out of the collection: ccusage cannot read them either, so no
+       cached parse is served for them.
+     - When no data directory could be read but something was noted, source health reports the
+       source degraded with those notes, not missing.
+   - **Stored rows and cached summaries.** A listed database already counted as unreadable is not
+     counted again among the stored conversations not read. Cached summary metadata is kept
+     through a stat error on `conversation_summaries.db`, because it only labels sessions that
+     ccusage already reports.
+   - **Change detection.** A database's signature includes its file identity (device and inode)
+     with its size and mtime, so a replacement that keeps the size and mtime still rebuilds its
+     parse, effort rows, and activity evidence.
+   - **Evidence.** Step times become activity evidence through `saveLocalEvidence`; a summary's
+     modified time orders a session but never stands in for activity.
+   - **Cost.** Antigravity cost is ccusage's, like Claude's and Codex's. Offline, ccusage has no
+     Gemini 4 price and names the model in `unpricedModels`; sessions that ran an unpriced model
+     stay out of cost medians and rates. LiteLLM has no Gemini 4 rate, so the token-type cost
+     split is withheld for it with the `no-rate` reason.
+   - **Vendor grouping.** "Antigravity" means the Gemini subscription. A Gemini model run by
+     another agent (Warp) stays that agent's session, scope, and quota. `providerFromModel` does
+     not map Gemini to any provider; `modelGroup(model, agent)` places it under Antigravity only
+     when Antigravity ran it, and under the Google vendor label otherwise. The Agent filter lists
+     a Gemini family under each group whose agent ran it, with a separate entry in each:
+     `antigravity:<family>` under Antigravity and `model:<family>` under Google. Each matches only
+     its own agents' sessions, so neither checks, clears, or collapses the other; the same tokens
+     reach `/api/effort` and `/api/insights` as `modelFamilies`.
 5. Project activity groups joined session totals by provider, working directory, and local last-activity day. A session spanning multiple days is attributed to its latest activity day.
 6. Path rules are evaluated on demand, so edits apply retroactively.
 7. A successful in-memory snapshot replaces the prior one. A failure preserves the last success and marks it stale.
@@ -98,7 +186,10 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
 session_id = sha256(agent + NUL + source_file_relative_path + NUL + native_session_key)[0:24]
 ```
 
-Agent and source path namespace native identifiers. The source path and key are taken from the agent record, not from mutable `ccusage` display ordering. If a future pinned ccusage version changes native session keys, an explicit compatibility map must be added before upgrade; unmapped rows must be surfaced in source health rather than silently orphaning annotations.
+Agent and source path namespace native identifiers. Sessions from provider databases rather
+than transcript files are keyed by their provider's own conversation ID: `warp-<id>` and
+`antigravity-<conversation_id>`. Neither includes a machine path, so a reinstall keeps
+annotations. The source path and key are taken from the agent record, not from mutable `ccusage` display ordering. If a future pinned ccusage version changes native session keys, an explicit compatibility map must be added before upgrade; unmapped rows must be surfaced in source health rather than silently orphaning annotations.
 
 A Codex transcript moved between the active and archive roots retains its existing ID when
 the native key and filename match and the prior file no longer exists. Existing archived IDs
@@ -132,6 +223,19 @@ lines up, it skips the burst of records Codex rewrote to the fork instant, for a
 successive records stay within one second of each other. The cumulative total and the replay
 position persist with the parser state, so a resumed span continues where the last one stopped.
 Malformed relevant records clear active attribution and surface quality counters.
+
+Antigravity effort rows do not pass through the byte-offset index. The collector already holds
+each call's model, label, and tokens, so `server/antigravity-effort.ts` writes them after each
+successful collection: a `session_paths` row (agent `antigravity`) for every session, and, only
+while the index is enabled, one replacement of that session's effort state and rows whenever its
+database signature changes, in one transaction. A pass that began before derived data was deleted
+writes nothing. Every stored session a collection did not produce is checked against its own
+database file: only ENOENT on that file prunes its row, and the foreign-key cascade removes its
+effort rows. Any other outcome (a permission or I/O error, a file that exists but was not read or
+understood this time, or a file under a root that is no longer configured) keeps the row and its
+effort rows, and source health says how many stored conversations were not read. These sources
+never enter the transcript catalog or `PARSER_VERSION`; their databases enter the `ccusage`
+fingerprint only.
 
 The database never stores prompt or response content, reasoning text, commands, tool payloads,
 file contents, or transcript fragments. Disabling retains derived rows but excludes them from
@@ -195,3 +299,17 @@ recovery reaches the browser even when the last successful collection time stays
 ## Quota integration
 
 [`quota-service`](https://github.com/anobjectn/quota-service) remains an optional, separate localhost dependency. The adapter reads `/usage`, `/resets`, `/status`, bounded `/history` pages, and optional Claude lifecycle markers. Endpoint failures are independent. A recognized local SQLite database provides a read-only history fallback for older service versions, and is additionally read on the connected path for model-specific windows that the `/history` contract drops. Session quota context joins that account-level evidence to locally indexed activity episodes and never allocates provider movement to a thread: movement is reported as remaining-quota ranges per quota cycle, plus a closing balance per resource that stays valid even when movement is blanked as inconsistent. The allowance-comparison report de-duplicates account movement once per quota cycle across overlapping cohort members. It does not supply analytical cost, so two cost methodologies cannot appear for the same activity.
+
+Antigravity reports its five-hour and weekly windows plus named model windows (`model:<name>` in
+history), each described by `extra.modelWindowIdentity` on `/usage`. `src/antigravity-quota.ts`
+reads that record with quota-service's fail-closed rule, copied rather than imported: an exact
+model ID limits only that model, the partner pool limits no Gemini model, an image pool limits no
+text model, and a window with no record limits every Gemini model. A session's quota context keeps
+only the windows that limit its models, and its movement tolerance is one reporting unit (0.1
+point) plus slop. Local model-window rows are merged into `/history` only for (`observedAt`,
+window) pairs `/history` lacks, so no window is counted twice. Capacity rows, the orrery, the
+headroom overlay series, quota-reach markers, recent-list window boundaries, and the allowance
+capture profile read the primary five-hour and weekly windows only, exactly as for Claude and
+Codex; model windows never enter them. A provider that a
+successful `/usage` no longer reports is dropped from the last-good cache, so a disabled provider
+does not return during a later outage.

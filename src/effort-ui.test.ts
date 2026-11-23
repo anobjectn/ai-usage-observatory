@@ -13,7 +13,7 @@ import {
 import { comboKey, encodeComboFacet, type Combo } from "./combo";
 import { EffortCoverage, effortColor, effortLabel, familyColor, familyLabel, sharePercent } from "./components/effort";
 import { buildEffortDaySeries, effortRank, foldEffort } from "./effort-model";
-import type { EffortSessionDigest } from "./types";
+import type { EffortComboBoardRow, EffortSessionDigest } from "./types";
 
 describe("effort scope params", () => {
   test("omits defaults and preserves the facet", () => {
@@ -240,5 +240,39 @@ describe("effort-only day series", () => {
     expect(points[1].values.warp).toBe(0);
     expect(buildEffortDaySeries(rows, "observations", new Map([["2026-07-01", 120]])).keys).not.toContain("warp");
     expect(effortLabel("warp")).toBe("Warp tokens");
+  });
+});
+
+describe("Antigravity effort on the allowance card and the board", () => {
+  const status = {
+    enabled: true, phase: "ready", quality: "ok", parserVersion: 1, indexVersion: 1, indexedAt: null, error: null,
+    progress: null, parseErrors: 0, contextGaps: 0, skippedBytes: 0,
+  } as const;
+  const summary = foldEffort([{ effort: "high", observations: 4, tokens: 1_000 }], { eligibleTokens: 1_000, unknownObservations: 0, quality: "ok" });
+
+  test("the Antigravity card's effort pie counts Gemini model rows", async () => {
+    const { AllowanceProfiles } = await import("./views/data/profiles");
+    const markup = renderToStaticMarkup(createElement(AllowanceProfiles, {
+      profiles: [{ id: "allowance-capture-antigravity", policy: "capture", score: null, band: null, confidence: "low", explanation: "", rubricVersion: "1", components: [] }],
+      modelEffort: { group: "model", rows: [{ key: "gemini-4-neon", label: "gemini-4-neon", summary }], total: summary, status },
+      policy: "capture",
+      onPolicyChange: () => {},
+    }));
+    expect(markup).not.toContain("No supported effort metadata was found in this scope.");
+    expect(markup).toContain("Antigravity recorded effort distribution: High 100%");
+  });
+
+  test("a comparable combo whose led sessions are unpriced shows its cost as withheld, not $0.00", async () => {
+    const { MedianCostCell } = await import("./views/data/effort");
+    const row: EffortComboBoardRow = {
+      family: "gemini-4-neon", effort: "high", kind: "interactive", tokens: 1_000, observations: 6, sessionsAppeared: 6, sessionsLed: 6,
+      tiesExcluded: 0, reasoningShare: null, medianTokensPerLedSession: 100, medianCostPerLedSession: null, flagRate: 0,
+      verdict: { rated: 0, good: 0, mixed: 0, bad: 0, goodRate: null }, projects: [],
+    };
+    const cell = (value: EffortComboBoardRow) =>
+      renderToStaticMarkup(createElement("table", null, createElement("tbody", null, createElement("tr", null, createElement(MedianCostCell, { row: value })))));
+    expect(cell(row)).toContain("unpriced");
+    expect(cell(row)).not.toContain("$0.00");
+    expect(cell({ ...row, medianCostPerLedSession: 0.42 })).toContain("$0.42");
   });
 });

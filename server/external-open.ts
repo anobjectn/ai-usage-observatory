@@ -123,6 +123,10 @@ export async function openSessionExternalTarget(
   const source = getSessionSource(sessionId);
   if (!source)
     throw new ExternalOpenError("That session is no longer available.", 404);
+  // An Antigravity conversation is a provider database holding prompts, not a transcript to read,
+  // and the app lists none of its files.
+  if (source.agent === "antigravity")
+    throw new ExternalOpenError("Antigravity conversations have no transcript file to open.", 409);
 
   let targetPath: string;
   let label: string;

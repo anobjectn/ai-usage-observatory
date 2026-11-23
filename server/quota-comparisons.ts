@@ -1,3 +1,4 @@
+import { hasUnpricedModel } from "../src/model-aggregation";
 import type { Session, SessionQuotaContext } from "../src/types";
 import { getSessionEpisodes, listEvidenceSessionIds } from "./session-evidence";
 import {
@@ -16,7 +17,7 @@ export type AllowanceComparisonSample = {
 };
 
 export type AllowanceComparisonCohort = {
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   plan: { id: string; label: string; source: "provider" | "configured" };
   resource: string;
   poolLimit: number | null;
@@ -63,9 +64,12 @@ function cohortKey(sample: AllowanceComparisonSample, resource: SessionQuotaCont
   ].join("\0");
 }
 
+/** `unpricedModels` is ccusage's list of models it could not price; a session that ran one has a
+ * zero or understated cost. */
 export function buildAllowanceComparisonReport(
   samples: AllowanceComparisonSample[],
   sampleFloor = QUOTA_COMPARISON_SAMPLE_FLOOR,
+  unpricedModels: readonly string[] = [],
 ): AllowanceComparisonReport {
   const excluded = { unknownTier: 0, confidence: 0, unresolved: 0, zeroMovement: 0 };
   const groups = new Map<string, Array<{ sample: AllowanceComparisonSample; resource: SessionQuotaContext["resources"][number] }>>();
@@ -147,6 +151,9 @@ export function buildAllowanceComparisonReport(
     const totalActive = values.reduce((sum, value) => sum + value.sample.activeMinutes, 0);
     const totalOutput = values.reduce((sum, value) => sum + value.sample.session.outputTokens, 0);
     const totalCost = values.reduce((sum, value) => sum + value.sample.session.totalCost, 0);
+    // One session without a full price makes the sum an undercount, so the dollar rate is
+    // withheld for the whole cohort; tokens and active time do not depend on prices.
+    const unpriced = values.some((value) => hasUnpricedModel(value.sample.session, unpricedModels));
     const warpTokens = values.reduce((sum, value) => sum + (value.sample.session.warp?.tokensBySource.warp ?? 0), 0);
     const resolvedCycles = cycles.size;
     const overlappedSamples = values.filter((value) => value.sample.context.concurrency.maxOtherSameProviderSessions > 0).length;
@@ -170,7 +177,9 @@ export function buildAllowanceComparisonReport(
       confidence,
       coveragePercent: values.reduce((sum, value) => sum + value.sample.context.coverage.activeDurationCoveredPercent, 0) / values.length,
       metrics: {
-        apiEquivalentUsdPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalCost / totalPp * 100,
+        // A zero total with movement is a missing price (ccusage offline, or a model newer than its
+        // pricing data), never a free allowance.
+        apiEquivalentUsdPer100PercentagePoints: provider === "warp" || totalPp <= 0 || totalCost <= 0 || unpriced ? null : totalCost / totalPp * 100,
         outputTokensPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalOutput / totalPp * 100,
         activeMinutesPer100PercentagePoints: provider === "warp" || totalPp <= 0 ? null : totalActive / totalPp * 100,
         warpManagedTokensPer100Credits: provider !== "warp" || totalCredits <= 0 ? null : warpTokens / totalCredits * 100,
@@ -194,7 +203,7 @@ export function buildAllowanceComparisonReport(
   };
 }
 
-export async function collectAllowanceComparisonReport(sessions: Session[]) {
+export async function collectAllowanceComparisonReport(sessions: Session[], unpricedModels: readonly string[] = []) {
   const byId = new Map(sessions.map((session) => [session.sessionId, session]));
   const samples = (await Promise.all(listEvidenceSessionIds().map(async (sessionId) => {
     const session = byId.get(sessionId);
@@ -206,5 +215,5 @@ export async function collectAllowanceComparisonReport(sessions: Session[]) {
       .reduce((sum, episode) => sum + Math.max(0, episode.endAt - episode.startAt), 0) / 60_000;
     return { session, context, meta, activeMinutes };
   }))).filter(Boolean) as AllowanceComparisonSample[];
-  return buildAllowanceComparisonReport(samples);
+  return buildAllowanceComparisonReport(samples, QUOTA_COMPARISON_SAMPLE_FLOOR, unpricedModels);
 }

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { getSnapshot, refresh } from "./collector";
+import { getSnapshot, refresh, syncLatestAntigravityEffort } from "./collector";
 import { buildInsights, resolveScope } from "./insights";
 import { dailyHeadroomQuotaSeries, importAnthropicWebCredits } from "./quota";
 import { getSessionDetail } from "./session-detail";
@@ -95,6 +95,8 @@ async function api(request: Request, url: URL, services: Services) {
     // never the transcript parsing it schedules.
     if (input.enabled) {
       await services.getSnapshot();
+      // Antigravity's rows come from the collection itself, not from the transcript backlog.
+      try { syncLatestAntigravityEffort(); } catch { /* the next collection retries */ }
       scheduleEffortIndexing();
     }
     return json(buildEffortStatus());
@@ -219,7 +221,7 @@ async function api(request: Request, url: URL, services: Services) {
     return json({ items: snapshot.sessions.slice((page - 1) * limit, page * limit), total: snapshot.sessions.length, page, limit });
   }
   if (request.method === "GET" && path === "/api/quota-comparisons") {
-    return json(await collectAllowanceComparisonReport(snapshot.sessions as import("../src/types").Session[]));
+    return json(await collectAllowanceComparisonReport(snapshot.sessions as import("../src/types").Session[], snapshot.unpricedModels ?? []));
   }
   if (request.method === "GET" && path === "/api/projects") return json(snapshot.projects);
   if (request.method === "GET" && path === "/api/models") return json(snapshot.models);

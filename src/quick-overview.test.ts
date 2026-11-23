@@ -20,6 +20,8 @@ const providerColors: ProviderColors = {
   anthropic: "#d97757",
   openai: "#7d8fff",
   warp: "#58d9cf",
+  antigravity: "#3f8f86",
+  google: "#34a853",
 };
 
 function quotasFixture(): DashboardData["quotas"] {

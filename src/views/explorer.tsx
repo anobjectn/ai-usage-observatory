@@ -151,7 +151,9 @@ export function Explorer({
             ? "Claude Code"
             : selectionProvider(agent) === "codex"
               ? "Codex"
-              : "All providers"
+              : selectionProvider(agent) === "antigravity"
+                ? "Antigravity"
+                : "All providers"
         }
       />
       <section className="split-grid">

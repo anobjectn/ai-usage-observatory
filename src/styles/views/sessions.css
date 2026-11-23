@@ -283,6 +283,9 @@
 .session-detail--warp .session-detail__verdict {
   min-width: 130px;
 }
+.session-detail--antigravity {
+  background: linear-gradient(145deg,color-mix(in srgb,var(--color-provider-antigravity) var(--tint-faint),var(--color-bg-deep)),var(--color-bg-deep) 55%);
+}
 
 /* Provider totals with model \u00d7 effort subtotals in one card. The provider total is the decision-sized number; each subtotal is a pill naming the model beside the effort it recorded, because effort alone is not a cohort. Colour is never the only label. */
 .session-mix__providers {
@@ -1605,6 +1608,10 @@
 
 .session-table .agent-pill.warp {
   --provider-color: var(--color-provider-warp);
+}
+
+.session-table .agent-pill.antigravity {
+  --provider-color: var(--color-provider-antigravity);
 }
 
 .session-detail__metrics-row {

@@ -17,7 +17,9 @@ type SnapshotHistoryRow = {
 type ResetHistoryRow = { capturedAt: number; creditsJson: string | null };
 type ResetCreditHistory = { id?: string; title?: string | null; status?: string | null; expiresAt?: string | null };
 type PlanAssignment = { rowId: number; provider: string; id: string; label: string; effectiveFrom: number };
-export type QuotaSeriesPoint = { provider: "anthropic" | "codex"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
+/** One primary-window reading. Only the declared five-hour and weekly windows enter the series;
+ * model-specific windows (Antigravity's partner and Argon pools) never do. */
+export type QuotaSeriesPoint = { provider: "anthropic" | "codex" | "antigravity"; window: "fiveHour" | "weekly"; capturedAt: number; usedPercent: number; resetsAt: number | null; cycleId: string };
 
 const unknownPlan = (): QuotaPlan => ({ id: null, label: null, source: "unknown", effectiveFrom: null });
 
@@ -87,6 +89,7 @@ type HistoryFoldState = {
   previousAvailable: Map<string, ResetCreditHistory>;
   snapshotCount: number;
   resetCount: number;
+  antigravitySeen: boolean;
 };
 
 function emptyHistoryFoldState(): HistoryFoldState {
@@ -99,6 +102,7 @@ function emptyHistoryFoldState(): HistoryFoldState {
     previousAvailable: new Map(),
     snapshotCount: 0,
     resetCount: 0,
+    antigravitySeen: false,
   };
 }
 
@@ -110,19 +114,21 @@ function foldSnapshotRows(state: HistoryFoldState, snapshotRows: SnapshotHistory
     try {
       const snapshot = JSON.parse(row.snapshotJson) as { kind?: string; fiveHour?: {usedPercent?:number;resetsAt?:number|null}|null; weekly?: {usedPercent?:number;resetsAt?:number|null}|null; extra?: unknown };
       if (snapshot.kind !== "window") continue;
-      if (row.provider !== "anthropic" && row.provider !== "codex") continue;
+      if (row.provider !== "anthropic" && row.provider !== "codex" && row.provider !== "antigravity") continue;
+      const provider = row.provider;
+      if (provider === "antigravity") state.antigravitySeen = true;
       const plan = resolveQuotaPlan(snapshot, row.plan);
       for (const [window, value] of [["fiveHour", snapshot.fiveHour], ["weekly", snapshot.weekly]] as const) {
         if (!value || !Number.isFinite(Number(value.usedPercent))) continue;
         const cycleId = value.resetsAt ? String(Math.round(value.resetsAt / 60_000)) : `observed:${row.capturedAt}`;
-        const bucketKey = `${row.provider}:${window}`;
+        const bucketKey = `${provider}:${window}`;
         const bucket = Math.floor(row.capturedAt / 300_000);
         if (state.lastBucket.get(bucketKey) !== bucket) {
           state.lastBucket.set(bucketKey, bucket);
-          state.series.push({ provider: row.provider, window, capturedAt: row.capturedAt, usedPercent: Number(value.usedPercent), resetsAt: value.resetsAt ?? null, cycleId });
+          state.series.push({ provider, window, capturedAt: row.capturedAt, usedPercent: Number(value.usedPercent), resetsAt: value.resetsAt ?? null, cycleId });
         }
         if (Number(value.usedPercent) < 100) continue;
-        const key = `${row.provider}:${window}`;
+        const key = `${provider}:${window}`;
         const cycle = cycleId;
         const cycles = state.reachedCycles.get(key) ?? new Map<string, QuotaReach>();
         const firstReach = cycles.get(cycle);
@@ -164,7 +170,12 @@ function foldResetRows(state: HistoryFoldState, resetRows: ResetHistoryRow[]) {
 }
 
 function finalizeHistory(state: HistoryFoldState) {
-  const windows = (["codex", "anthropic"] as const).flatMap((provider) => (["fiveHour", "weekly"] as const).map((window) => {
+  // Antigravity rows appear only once its snapshots exist, so a history without the provider keeps
+  // exactly its previous shape.
+  const providers = state.antigravitySeen
+    ? ["codex", "anthropic", "antigravity"] as const
+    : ["codex", "anthropic"] as const;
+  const windows = providers.flatMap((provider) => (["fiveHour", "weekly"] as const).map((window) => {
     const reaches = [...(state.reachedCycles.get(`${provider}:${window}`)?.values() ?? [])]
       .sort((left, right) => right.reachedAt - left.reachedAt);
     const reachedAt = reaches.map((reach) => reach.reachedAt);
@@ -262,7 +273,7 @@ export function collectQuotaHistory() {
 
 type RawHistoryResult = {
   available: boolean;
-  provider: "anthropic" | "codex" | "warp";
+  provider: "anthropic" | "codex" | "warp" | "antigravity";
   observations: QuotaObservation[];
   earliestObservationAt: number | null;
   historyVersion: number;
@@ -283,6 +294,14 @@ const lastRawHistory = new Map<RawHistoryResult["provider"], RawHistoryResult>()
 /** The last provider entry that carried a snapshot, and when this process received it. */
 const lastUsageProviders = new Map<QuotaProvider["provider"], { provider: QuotaProvider; receivedAt: number }>();
 
+/** The window-identity record from the current or last good `/usage` report. `/history`
+ * observations do not carry it, so this is the only source of which models a window limits. */
+export function currentModelWindowIdentity(provider: QuotaProvider["provider"]): Record<string, unknown> | null {
+  const snapshot = lastUsageProviders.get(provider)?.provider.snapshot;
+  const record = snapshot?.kind === "window" ? snapshot.extra?.modelWindowIdentity : undefined;
+  return record && typeof record === "object" && !Array.isArray(record) ? record : null;
+}
+
 /** Serves a cached reading in place of a failed one. Its age grows by the time since it was
  * received, and a failed entry from quota-service supplies the current error and attempt time. */
 function lastGoodProvider(cached: { provider: QuotaProvider; receivedAt: number }, now: number, failed?: QuotaProvider): QuotaProvider {
@@ -298,7 +317,7 @@ function lastGoodProvider(cached: { provider: QuotaProvider; receivedAt: number 
 }
 
 function providerId(value: string): value is RawHistoryResult["provider"] {
-  return value === "anthropic" || value === "codex" || value === "warp";
+  return value === "anthropic" || value === "codex" || value === "warp" || value === "antigravity";
 }
 
 function tableExists(database: Database, name: string) {
@@ -365,7 +384,13 @@ function normalizeLocalObservation(database: Database, row: {
       const resetsAt = instantOrNull(value.resetsAt);
       return [{ id, usedPercent, resetsAt, cycleId: cycle(resetsAt) }];
     });
-    return { ...base, quota: { kind: "windows", windows } };
+    // The identity recorded with these windows, so they can be told apart without a live /usage.
+    const extra = snapshot.extra as { modelWindowIdentity?: unknown } | null | undefined;
+    const identity = extra && typeof extra === "object" ? extra.modelWindowIdentity : undefined;
+    const modelWindowIdentity = identity && typeof identity === "object" && !Array.isArray(identity)
+      ? identity as Record<string, unknown>
+      : null;
+    return { ...base, ...(modelWindowIdentity ? { modelWindowIdentity } : {}), quota: { kind: "windows", windows } };
   }
   if (snapshot.kind !== "pool" || !snapshot.pool || typeof snapshot.pool !== "object") return null;
   const pool = snapshot.pool as Record<string, unknown>;
@@ -503,12 +528,36 @@ export async function collectRawQuotaHistory(
       observations.push(...page.observations);
       cursor = page.nextCursor;
     } while (cursor);
-    // The service's /history contract carries no model-specific windows; its raw local database
-    // does. Reading them back keeps the connected path as informative as the fallback path.
-    const modelObservations = readLocalModelWindowObservations(provider, from, to);
+    // The service's /history contract carries no model-specific windows for most providers; its
+    // raw local database does. Reading them back keeps the connected path as informative as the
+    // fallback path. A provider whose /history already returns them (Antigravity) would otherwise
+    // count each one twice, so a local window is kept only when /history lacks that exact
+    // (observedAt, window) pair.
+    const served = new Set(observations.flatMap((row) => row.quota.kind === "windows"
+      ? row.quota.windows.map((window) => `${row.observedAt}\0${window.id}`)
+      : []));
+    // /history carries no window identity, so the identity a local snapshot recorded for a window
+    // /history also served moves onto the served observation instead of being dropped with the
+    // duplicate window.
+    const localIdentity = new Map<string, Record<string, unknown>>();
+    const modelObservations = readLocalModelWindowObservations(provider, from, to).flatMap((row) => {
+      if (row.quota.kind !== "windows") return [];
+      const windows = row.quota.windows.filter((window) => {
+        const key = `${row.observedAt}\0${window.id}`;
+        if (!served.has(key)) return true;
+        if (row.modelWindowIdentity) localIdentity.set(key, row.modelWindowIdentity);
+        return false;
+      });
+      return windows.length ? [{ ...row, quota: { ...row.quota, windows } }] : [];
+    });
+    const servedObservations = localIdentity.size === 0 ? observations : observations.map((row) => {
+      if (row.modelWindowIdentity || row.quota.kind !== "windows") return row;
+      const identity = row.quota.windows.map((window) => localIdentity.get(`${row.observedAt}\0${window.id}`)).find(Boolean);
+      return identity ? { ...row, modelWindowIdentity: identity } : row;
+    });
     const result: RawHistoryResult = {
-      available: observations.length > 0 || modelObservations.length > 0,
-      observations: [...observations, ...modelObservations],
+      available: servedObservations.length > 0 || modelObservations.length > 0,
+      observations: [...servedObservations, ...modelObservations],
       sourceState: "connected",
       ...metadata!,
     };
@@ -605,7 +654,13 @@ export async function collectQuota() {
   if (usageResult.ok && usage && typeof usage === "object" && Array.isArray((usage as { providers?: unknown }).providers)) {
     // Only an entry with a snapshot replaces the cache. An entry without one is answered with the
     // previous reading, marked stale, so one failed provider read does not erase it.
-    const providers = (usage as { providers: QuotaProvider[] }).providers.map((provider) => {
+    const reported = (usage as { providers: QuotaProvider[] }).providers;
+    // A provider the service stopped reporting (disabled, or an older build) must not come back
+    // from this cache during a later outage.
+    for (const provider of [...lastUsageProviders.keys()]) {
+      if (!reported.some((entry) => entry.provider === provider)) lastUsageProviders.delete(provider);
+    }
+    const providers = reported.map((provider) => {
       if (provider.snapshot) {
         lastUsageProviders.set(provider.provider, { provider, receivedAt: now });
         return provider;

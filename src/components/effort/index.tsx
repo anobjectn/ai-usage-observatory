@@ -2,6 +2,7 @@ import type { Combo, ComboKind } from "../../combo";
 import type { EffortCoverageFields, EffortIndexStatus, EffortSummary } from "../../types";
 import { capEffortLevels } from "../../effort-model";
 import {
+  EFFORT_COMBO_AGENT,
   EFFORT_LEVEL_COUNT,
   comboLabel,
   effortColor,
@@ -20,7 +21,7 @@ export const EFFORT_HELP = "Provider-recorded reasoning effort, as written by th
 
 /** Colour and label vocabulary lives in `src/combo.ts` so the server can use it too; it is
  * re-exported here because every existing view imports it from this module. */
-export { comboColor, comboLabel, comboShortLabel, effortColor, effortLabel, effortShortLabel, familyColor, familyLabel, providerColor } from "../../combo";
+export { comboColor, comboLabel, comboShortLabel, EFFORT_COMBO_AGENT, effortColor, effortLabel, effortShortLabel, familyColor, familyLabel, providerColor } from "../../combo";
 
 /** One combo rendered as its family and its recorded effort, never as effort alone. The whole
  * pill is drawn in its provider's hue; the effort half deepens with the level and carries a
@@ -32,7 +33,7 @@ export function ComboPill({ combo, trailing }: { combo: Combo; trailing?: string
     <span
       className="split-pill combo-pill"
       data-effort-level={level ?? undefined}
-      style={{ ["--split-pill-color" as string]: providerColor(combo.family) }}
+      style={{ ["--split-pill-color" as string]: providerColor(combo.family, EFFORT_COMBO_AGENT) }}
     >
       <span>{familyLabel(combo.family)}</span>
       <span className={level === null ? "combo-pill__effort is-unscaled" : "combo-pill__effort"}>

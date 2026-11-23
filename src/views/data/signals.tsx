@@ -240,7 +240,9 @@ export function CacheComposition({ insights }: { insights: Insights }) {
             </dl>
           ) : (
             <p className="cache-provider__gap">
-              ccusage reports no cache-creation tokens for {providerLabel(row.provider)}, so cache
+              {row.provider === "antigravity"
+                ? "Antigravity's usage records report no cache writes"
+                : `ccusage reports no cache-creation tokens for ${providerLabel(row.provider)}`}, so cache
               writes, reads-per-write, turn counts, and context size are unavailable here — not zero.
               Its cache reads are still counted above.
             </p>

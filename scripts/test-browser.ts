@@ -12,6 +12,7 @@ const directory = mkdtempSync(join(tmpdir(), "aiuo-browser-tests-"));
 process.env.USAGE_OBSERVATORY_DB = join(directory, "data.db");
 process.env.QUOTA_DB_PATH = join(directory, "missing-quota.db");
 process.env.WARP_DB_PATH = join(directory, "missing-warp.db");
+process.env.ANTIGRAVITY_DATA_DIRS = join(directory, "missing-antigravity");
 process.env.QUOTA_SERVICE_URL = "http://127.0.0.1:1";
 process.env.QUOTA_SERVICE_ENABLED = "0";
 process.env.USAGE_OBSERVATORY_OFFLINE_PRICING = "1";

@@ -184,6 +184,18 @@ function OutcomeCell({ row, children }: { row: EffortComboBoardRow; children: Re
   return <td>{children}</td>;
 }
 
+/** A comparable row whose led sessions have too few known prices (ccusage could not price a model
+ * they ran) has no median cost. It is withheld, never shown as $0.00. */
+export function MedianCostCell({ row }: { row: EffortComboBoardRow }) {
+  return (
+    <OutcomeCell row={row}>
+      {row.medianCostPerLedSession === null
+        ? <span className="effort-board__muted" title={`Fewer than ${LED_SESSION_FLOOR} led sessions have a known price: ccusage could not price a model they ran.`}>unpriced</span>
+        : money(row.medianCostPerLedSession)}
+    </OutcomeCell>
+  );
+}
+
 function VerdictCell({ row }: { row: EffortComboBoardRow }) {
   const { rated, good, goodRate } = row.verdict;
   if (rated === 0) return <td className="effort-board__muted" title="Verdicts are user-supplied. Nothing here is inferred.">—</td>;
@@ -313,7 +325,7 @@ export function ReasoningEffortAnalysis({
                         {row.tiesExcluded > 0 && <small>{row.tiesExcluded} tied</small>}
                       </td>
                       <OutcomeCell row={row}>{compactNumber.format(row.medianTokensPerLedSession ?? 0)}</OutcomeCell>
-                      <OutcomeCell row={row}>{money(row.medianCostPerLedSession ?? 0)}</OutcomeCell>
+                      <MedianCostCell row={row} />
                       <OutcomeCell row={row}>{percentOf(row.flagRate)}</OutcomeCell>
                       <td>{row.reasoningShare === null ? <span className="effort-board__muted" title="This provider reports no reasoning tokens.">not reported</span> : percentOf(row.reasoningShare)}</td>
                       <VerdictCell row={row} />

@@ -1,17 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import {
   agentEntry,
+  agentsByFamily,
   agentSelectionParams,
   branchState,
   buildAgentTree,
+  familyEntry,
+  familyTokenLabel,
   matchesEntry,
   matchesAgentSelection,
   modelEntry,
   selectAgentRow,
   selectionProvider,
   toggleBranch,
+  toggleFamilyEntry,
   toggleModel,
 } from "./agent-filter";
+import { parseUrlFilters, writeUrlFilters, defaultUrlFilters } from "./url-filters";
 import type { MetricRow, ModelBreakdown, Session } from "./types";
 
 const breakdown = (modelName: string, tokens: number): ModelBreakdown => ({
@@ -235,5 +240,171 @@ describe("selection to query parameters", () => {
     // Cline (ccusage 20.0.49+) runs models from many vendors; it scopes as other, like Copilot.
     expect(agentSelectionParams([agentEntry("cline")])).toEqual({ providers: ["other"], modelFamilies: [] });
     expect(agentSelectionParams([agentEntry("copilot"), agentEntry("grok"), agentEntry("codex")]).providers).toEqual(["other", "codex"]);
+  });
+});
+
+describe("family token labels", () => {
+  test("an Antigravity Gemini token reads as Antigravity and its family, any other token as itself", () => {
+    const params = agentSelectionParams([familyEntry("antigravity", "gemini-4-neon"), modelEntry("gemini-4-argon")]);
+    expect(params.modelFamilies.map(familyTokenLabel)).toEqual(["Antigravity · gemini-4-neon", "gemini-4-argon"]);
+    expect(familyTokenLabel("claude-opus-5")).toBe("claude-opus-5");
+  });
+});
+
+describe("Antigravity and Google in the Agent filter", () => {
+  test("Gemini Antigravity ran groups under the Antigravity agent, and the agent maps to its provider", async () => {
+    const { modelGroup, providerFromAgent, providerFromModel } = await import("./provider");
+    expect(providerFromAgent("antigravity")).toBe("antigravity");
+    // A Gemini model names no provider by itself: the agent that ran it decides.
+    expect(providerFromModel("gemini-4-neon")).toBeNull();
+    expect(modelGroup("gemini-4-neon", "antigravity")).toBe("antigravity");
+    expect(modelGroup("gemini-3-flash", "warp")).toBe("google");
+    expect(modelGroup("claude-opus-5-5", "warp")).toBe("anthropic");
+    expect(providerFromModel("claude-opus-5-5")).toBe("anthropic");
+    const sessions = [
+      session("c", "claude", [breakdown("claude-opus-5", 1)]),
+      session("g", "antigravity", [breakdown("gemini-4-neon", 1), breakdown("gemini-4-argon", 1)]),
+    ];
+    const tree = buildAgentTree(["claude", "antigravity"], ["claude-opus-5", "gemini-4-neon", "gemini-4-argon"], agentsByFamily(sessions));
+    expect(tree.branches).toEqual([
+      { agent: "claude", models: ["claude-opus-5"] },
+      { agent: "antigravity", models: ["gemini-4-neon", "gemini-4-argon"] },
+    ]);
+    expect(tree.google).toEqual([]);
+    expect(tree.unparented).toEqual([]);
+    expect(agentSelectionParams([agentEntry("antigravity")])).toEqual({ providers: ["antigravity"], modelFamilies: [] });
+  });
+
+  test("Gemini another agent ran groups under Google, never under Antigravity", () => {
+    const sessions = [
+      session("w", "warp", [breakdown("gemini-3-flash", 1), breakdown("claude-opus-5", 1)]),
+      session("g", "antigravity", [breakdown("gemini-4-neon", 1)]),
+    ];
+    const tree = buildAgentTree(["warp", "antigravity", "claude"], ["claude-opus-5", "gemini-3-flash", "gemini-4-neon"], agentsByFamily(sessions));
+    expect(tree.branches).toEqual([
+      { agent: "warp", models: [] },
+      { agent: "antigravity", models: ["gemini-4-neon"] },
+      // Claude in Warp keeps grouping under Anthropic.
+      { agent: "claude", models: ["claude-opus-5"] },
+    ]);
+    expect(tree.google).toEqual(["gemini-3-flash"]);
+    // Picking the Google entry selects Warp's session, not Antigravity's.
+    const selection = toggleFamilyEntry([], "gemini-3-flash", tree);
+    expect(selection).toEqual([modelEntry("gemini-3-flash")]);
+    expect(matchesAgentSelection(sessions[0]!, selection)).toBe(true);
+    expect(matchesAgentSelection(sessions[1]!, selection)).toBe(false);
+    // No provider is highlighted for a Gemini family: it is not Antigravity's by name.
+    expect(selectionProvider(selection)).toBeNull();
+    // With no Antigravity sessions loaded, Gemini still groups under Google.
+    expect(buildAgentTree(["warp"], ["gemini-3-flash"], agentsByFamily([sessions[0]!])).google).toEqual(["gemini-3-flash"]);
+  });
+
+  test("a Gemini family both agents ran is listed under each, as one entry", () => {
+    const sessions = [
+      session("w", "warp", [breakdown("gemini-3-flash", 1)]),
+      session("g", "antigravity", [breakdown("gemini-3-flash", 1), breakdown("gemini-4-neon", 1)]),
+    ];
+    const tree = buildAgentTree(["warp", "antigravity"], ["gemini-3-flash", "gemini-4-neon"], agentsByFamily(sessions));
+    const antigravity = tree.branches.find((branch) => branch.agent === "antigravity")!;
+    expect(antigravity.models).toEqual(["gemini-3-flash", "gemini-4-neon"]);
+    expect(tree.google).toEqual(["gemini-3-flash"]);
+    // Checking the whole Antigravity branch leaves the Google entry unchecked: Warp's Gemini is
+    // not Antigravity usage.
+    const branch = toggleBranch([], antigravity, tree);
+    expect(branch).toEqual([agentEntry("antigravity")]);
+    expect(branch.includes(modelEntry("gemini-3-flash"))).toBe(false);
+    expect(matchesAgentSelection(sessions[0]!, branch)).toBe(false);
+    // Checking the Google entry then adds Warp's sessions and does not expand the branch.
+    const both = toggleFamilyEntry(branch, "gemini-3-flash", tree);
+    expect(both).toEqual([agentEntry("antigravity"), modelEntry("gemini-3-flash")]);
+    expect(matchesAgentSelection(sessions[0]!, both)).toBe(true);
+    // And unchecking it again keeps the branch.
+    expect(toggleFamilyEntry(both, "gemini-3-flash", tree)).toEqual([agentEntry("antigravity")]);
+  });
+});
+
+describe("a Gemini family under both Google and Antigravity is selected independently in each", () => {
+  const antigravityNeon = familyEntry("antigravity", "gemini-4-neon");
+
+  test("as Antigravity's only model, toggling the Google entry twice restores the selection", () => {
+    const sessions = [
+      session("w", "warp", [breakdown("gemini-4-neon", 1)]),
+      session("g", "antigravity", [breakdown("gemini-4-neon", 1)]),
+    ];
+    const tree = buildAgentTree(["warp", "antigravity"], ["gemini-4-neon"], agentsByFamily(sessions));
+    const antigravity = tree.branches.find((branch) => branch.agent === "antigravity")!;
+    expect(antigravity.models).toEqual(["gemini-4-neon"]);
+    expect(tree.google).toEqual(["gemini-4-neon"]);
+
+    // The Google entry neither adds `agent:antigravity` nor checks the branch.
+    const once = toggleFamilyEntry([], "gemini-4-neon", tree);
+    expect(once).toEqual([modelEntry("gemini-4-neon")]);
+    expect(branchState(once, antigravity)).toBe("unchecked");
+    expect(matchesEntry(once, antigravity, "gemini-4-neon")).toBe(false);
+    expect(matchesAgentSelection(sessions[0]!, once)).toBe(true);
+    expect(matchesAgentSelection(sessions[1]!, once)).toBe(false);
+    expect(toggleFamilyEntry(once, "gemini-4-neon", tree)).toEqual([]);
+    // Starting from Antigravity checked, two Google toggles return to it.
+    const branch = toggleBranch([], antigravity, tree);
+    expect(branch).toEqual([agentEntry("antigravity")]);
+    expect(toggleFamilyEntry(toggleFamilyEntry(branch, "gemini-4-neon", tree), "gemini-4-neon", tree)).toEqual(branch);
+
+    // Toggling the Antigravity parent on and off keeps the Google choice.
+    const withParent = toggleBranch(once, antigravity, tree);
+    expect(withParent).toEqual([agentEntry("antigravity"), modelEntry("gemini-4-neon")]);
+    expect(toggleBranch(withParent, antigravity, tree)).toEqual(once);
+    // The Antigravity child is its own entry: Antigravity's sessions only. As the branch's only
+    // child, checking it collapses to the agent entry, and the Google choice stays.
+    const child = toggleModel([], "gemini-4-neon", tree);
+    expect(child).toEqual([agentEntry("antigravity")]);
+    expect(toggleModel(withParent, "gemini-4-neon", tree)).toEqual(once);
+  });
+
+  test("beside other Antigravity models, the two entries filter different sessions", () => {
+    const sessions = [
+      session("w", "warp", [breakdown("gemini-4-neon", 3)]),
+      session("g", "antigravity", [breakdown("gemini-4-neon", 5), breakdown("gemini-4-argon", 7)]),
+    ];
+    const tree = buildAgentTree(["warp", "antigravity"], ["gemini-4-argon", "gemini-4-neon"], agentsByFamily(sessions));
+    const antigravity = tree.branches.find((branch) => branch.agent === "antigravity")!;
+    expect(antigravity.models).toEqual(["gemini-4-argon", "gemini-4-neon"]);
+
+    const child = toggleModel([], "gemini-4-neon", tree);
+    expect(child).toEqual([antigravityNeon]);
+    expect(branchState(child, antigravity)).toBe("indeterminate");
+    expect(matchesAgentSelection(sessions[0]!, child)).toBe(false);
+    expect(matchesAgentSelection(sessions[1]!, child)).toBe(true);
+    const google = toggleFamilyEntry([], "gemini-4-neon", tree);
+    expect(branchState(google, antigravity)).toBe("unchecked");
+    expect(matchesAgentSelection(sessions[0]!, google)).toBe(true);
+    expect(matchesAgentSelection(sessions[1]!, google)).toBe(false);
+
+    const both = toggleFamilyEntry(child, "gemini-4-neon", tree);
+    expect(both).toEqual([antigravityNeon, modelEntry("gemini-4-neon")]);
+    expect(toggleFamilyEntry(both, "gemini-4-neon", tree)).toEqual(child);
+    // Unchecking the Antigravity child leaves the Google entry.
+    expect(toggleModel(both, "gemini-4-neon", tree)).toEqual(google);
+    // Unchecking the whole branch leaves it too.
+    expect(toggleBranch(toggleModel(both, "gemini-4-argon", tree), antigravity, tree)).toEqual(google);
+
+    // Daily rows split the same way.
+    const row: MetricRow = {
+      period: "2026-07-20", agent: "all", modelsUsed: [], inputTokens: 15, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 15, totalCost: 3,
+      modelBreakdowns: [],
+      agents: [
+        { period: "2026-07-20", agent: "warp", modelsUsed: ["gemini-4-neon"], inputTokens: 3, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 3, totalCost: 1, modelBreakdowns: [breakdown("gemini-4-neon", 3)] },
+        { period: "2026-07-20", agent: "antigravity", modelsUsed: ["gemini-4-neon", "gemini-4-argon"], inputTokens: 12, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 12, totalCost: 2, modelBreakdowns: [breakdown("gemini-4-neon", 5), breakdown("gemini-4-argon", 7)] },
+      ],
+    } as MetricRow;
+    expect(selectAgentRow(row, google)?.totalTokens).toBe(3);
+    expect(selectAgentRow(row, child)?.totalTokens).toBe(5);
+    expect(selectAgentRow(row, both)?.totalTokens).toBe(8);
+
+    // Query parameters and the URL keep the distinction.
+    expect(agentSelectionParams(both)).toEqual({ providers: [], modelFamilies: ["antigravity:gemini-4-neon", "gemini-4-neon"] });
+    expect(selectionProvider(child)).toBe("antigravity");
+    const params = new URLSearchParams();
+    writeUrlFilters(params, { ...defaultUrlFilters, agent: both });
+    expect(parseUrlFilters(params).agent).toEqual(both);
   });
 });

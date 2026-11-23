@@ -2279,6 +2279,9 @@ main {
 .quick-overview__provider.warp,.quick-overview__group.warp {
   --quota-color: var(--color-provider-warp);
 }
+.quick-overview__provider.antigravity,.quick-overview__group.antigravity {
+  --quota-color: var(--color-provider-antigravity);
+}
 
 .quick-overview__provider>header,.quick-overview__group>header {
   position: relative;
@@ -2398,7 +2401,7 @@ main {
   gap: var(--space-2);
 }
 
-.quick-overview__group.warp {
+.quick-overview__group.warp,.quick-overview__group.antigravity {
   grid-column: 1/-1;
 }
 

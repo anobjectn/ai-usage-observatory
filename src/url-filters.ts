@@ -22,7 +22,7 @@ export const defaultUrlFilters: UrlFilters = {
 const filterKeys = ["range", "from", "to", "agent", "path", "cache"] as const;
 const presetRanges = new Set<string>(["1", "3", "7", "14", "30", "120", "all"]);
 const isAgentEntry = (value: string): value is AgentEntry =>
-  /^(agent|model):.+/.test(value);
+  /^(agent|model|antigravity):.+/.test(value);
 
 /** Unknown or malformed values fall back to the default, so a hand-edited URL never breaks the app. */
 export function parseUrlFilters(search: string | URLSearchParams): UrlFilters {

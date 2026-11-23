@@ -1,4 +1,5 @@
 import { formatReadingAge } from "../quota-notice";
+import { providerFromAgent } from "../provider";
 
 export const formatCompact = (value: number) =>
   Intl.NumberFormat("en", {
@@ -88,6 +89,7 @@ export const providerSeries = [
   { key: "anthropic", label: "Claude", color: "var(--color-provider-anthropic)" },
   { key: "codex", label: "Codex", color: "var(--color-provider-openai)" },
   { key: "warp", label: "Warp", color: "var(--color-provider-warp)" },
+  { key: "antigravity", label: "Antigravity", color: "var(--color-provider-antigravity)" },
 ] as const;
 
 const stackedProviderSeries = [...providerSeries].reverse();
@@ -136,13 +138,10 @@ export function ActivityAxisTick({ x = 0, y = 0, payload, tokens }: ActivityAxis
   );
 }
 
+/** The chart series an agent draws in. Delegates to the one provider mapper, so a session can
+ * never be one provider in a chart and another in a filter. */
 export function providerKey(agent: string) {
-  const normalized = agent.toLowerCase();
-  if (normalized.includes("claude") || normalized.includes("anthropic"))
-    return "anthropic";
-  if (normalized.includes("codex")) return "codex";
-  if (normalized.includes("warp")) return "warp";
-  return null;
+  return providerFromAgent(agent);
 }
 
 export function resetCopy(timestamp: number | null, verb = "resets") {

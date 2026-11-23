@@ -63,6 +63,7 @@ const providerColorByAgent: Record<string, string> = {
   claude: "var(--color-provider-anthropic)",
   codex: "var(--color-provider-openai)",
   warp: "var(--color-provider-warp)",
+  antigravity: "var(--color-provider-antigravity)",
 };
 
 function modelProviderColor(agents: string[]) {
