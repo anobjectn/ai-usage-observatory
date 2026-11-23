@@ -126,7 +126,7 @@ export function dashboardFixture(): DashboardData {
   return {
     collectedAt: now, timeZone: "UTC", ccusageVersion: "fixture", apiPort: 0,
     costMethodology: "ccusage", blockScope: "Claude Code",
-    daily: [daily], weekly: [daily], monthly: [daily], totals: daily, sessions: [session, antigravitySessionFixture(), warpGeminiSessionFixture()],
+    daily: [daily], weekly: [daily], monthly: [daily], totals: daily, sessions: [session, antigravitySessionFixture(now), warpGeminiSessionFixture(now)],
     projectActivity: [], projects: [], models: [], blocks: [], unpricedModels: [],
     rateCard: { status: "fallback", fetchedAt: null, models: {} },
     quotas: { available: false, collectedAt: now, sourceState: "disabled", history: {

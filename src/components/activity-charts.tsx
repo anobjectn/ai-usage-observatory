@@ -1639,21 +1639,20 @@ export function ProviderTimeline({
       ])),
     };
   });
-  // Weekly lines first, then five-hour lows, each in provider order. A line needs two days of
-  // readings to draw.
+  // Weekly lines first, then five-hour lows, each in provider order. A line with readings on only
+  // one day has no segment to draw, so it shows as a dot instead.
   const headroomLines = (["weekly", "fiveHour"] as const)
-    .flatMap((window) => quotaProviderOrder.map((provider) => ({
-      key: headroomLineKeyFor[window][provider],
-      provider,
-      label: `${markerProviderNames[provider]} ${window === "weekly" ? "weekly" : "5-hour low"}`,
-      window,
-      byDay: window === "weekly" ? headroomByDay : fiveHourHeadroomByDay,
-    })))
-    .filter(
-      (line) =>
-        [...line.byDay.values()].filter((entry) => entry[line.provider] !== null)
-          .length >= 2,
-    );
+    .flatMap((window) => quotaProviderOrder.map((provider) => {
+      const byDay = window === "weekly" ? headroomByDay : fiveHourHeadroomByDay;
+      return {
+        key: headroomLineKeyFor[window][provider],
+        provider,
+        label: `${markerProviderNames[provider]} ${window === "weekly" ? "weekly" : "5-hour low"}`,
+        window,
+        days: [...byDay.values()].filter((entry) => entry[provider] !== null).length,
+      };
+    }))
+    .filter((line) => line.days >= 1);
   const visibleHeadroomLines = headroomLines.filter((line) =>
     shownHeadroomLines.includes(line.key),
   );
@@ -1821,7 +1820,7 @@ export function ProviderTimeline({
                     : { strokeWidth: 2, strokeDasharray: "0 7" })}
                   strokeLinecap="round"
                   strokeOpacity={0.85}
-                  dot={false}
+                  dot={line.days === 1 ? { r: 2.5, fill: color, stroke: "none", fillOpacity: 0.85 } : false}
                   activeDot={false}
                   connectNulls
                   isAnimationActive={false}

@@ -520,6 +520,42 @@ await test("the Antigravity quota card reads at desktop and narrow widths, and i
   }
 });
 
+await test("a headroom line with readings on one day shows as a dot", async () => {
+  localStorage.removeItem("usage-observatory:headroom-lines");
+  const { doc, root: fixtureRoot, remove } = frameRoot(1280);
+  try {
+    const history = antigravityQuotaHistory();
+    const series = history.series ?? [];
+    const lastDay = Math.max(...series.map((point) => point.capturedAt));
+    const oneDay = { ...history, series: series.filter((point) => lastDay - point.capturedAt < 12 * 3_600_000) };
+    fixtureRoot.render(
+      <ChartPinProvider>
+        <div className="panel">
+          <ProviderTimeline
+            rows={antigravityDailyRows()}
+            projectActivity={[]}
+            activeProvider={null}
+            quotaHistory={oneDay}
+            timeZone="UTC"
+            emptyText="No activity"
+            headroomOverlay
+          />
+        </div>
+      </ChartPinProvider>,
+    );
+    const toggles = () => [...doc.querySelectorAll<HTMLLabelElement>(".provider-legend__headroom")];
+    await waitFor(() => toggles().length > 0, "A single day of headroom readings offered no headroom toggle");
+    await waitFor(
+      () => [...doc.querySelectorAll("circle.recharts-dot")].some((dot) => dot.getAttribute("fill") === "var(--color-provider-antigravity)"),
+      "The single-day Antigravity weekly headroom was not drawn as a dot",
+    );
+  } finally {
+    fixtureRoot.unmount();
+    remove();
+    localStorage.removeItem("usage-observatory:headroom-lines");
+  }
+});
+
 await test("Antigravity draws weekly and five-hour headroom lines and reach markers on the activity chart", async () => {
   localStorage.removeItem("usage-observatory:headroom-lines");
   const { doc, root: fixtureRoot, remove } = frameRoot(1280);
