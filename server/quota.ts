@@ -384,7 +384,13 @@ function normalizeLocalObservation(database: Database, row: {
       const resetsAt = instantOrNull(value.resetsAt);
       return [{ id, usedPercent, resetsAt, cycleId: cycle(resetsAt) }];
     });
-    return { ...base, quota: { kind: "windows", windows } };
+    // The identity recorded with these windows, so they can be told apart without a live /usage.
+    const extra = snapshot.extra as { modelWindowIdentity?: unknown } | null | undefined;
+    const identity = extra && typeof extra === "object" ? extra.modelWindowIdentity : undefined;
+    const modelWindowIdentity = identity && typeof identity === "object" && !Array.isArray(identity)
+      ? identity as Record<string, unknown>
+      : null;
+    return { ...base, ...(modelWindowIdentity ? { modelWindowIdentity } : {}), quota: { kind: "windows", windows } };
   }
   if (snapshot.kind !== "pool" || !snapshot.pool || typeof snapshot.pool !== "object") return null;
   const pool = snapshot.pool as Record<string, unknown>;

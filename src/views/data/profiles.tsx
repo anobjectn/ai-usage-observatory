@@ -2,10 +2,11 @@ import { ShieldCheck } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { foldEffort } from "../../effort-model";
 import { familyOf } from "../../model-family";
-import { providerFromModel } from "../../provider";
+import { modelGroup } from "../../provider";
 import type { EffortAggregate, EffortGroupRow, EffortSummary } from "../../types";
 import {
   ComboPill,
+  EFFORT_COMBO_AGENT,
   EffortCoverage,
   EffortState,
   effortColor,
@@ -49,7 +50,8 @@ function ProviderEffortPie({
   provider: Provider;
   aggregate: EffortAggregate | null;
 }) {
-  const rows = (aggregate?.rows ?? []).filter((row) => providerFromModel(row.key) === provider);
+  // Model rows carry no agent; only Antigravity writes Gemini effort rows, so its pie reads them.
+  const rows = (aggregate?.rows ?? []).filter((row) => modelGroup(row.key, EFFORT_COMBO_AGENT) === provider);
   const summary = providerSummary(rows);
   const pie = (summary?.levels ?? [])
     .filter((level) => level.tokens > 0)

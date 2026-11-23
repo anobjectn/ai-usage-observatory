@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { activeBlockExpiry, aggregateProjectActivity, aggregateProjects, antigravityHealth, antigravityReconciliation, ccusageCacheUsable, joinAntigravitySessions, mergeLocalRows, mergeWarp, monthKey, totalsWithLocal, weekKey } from "./collector";
+import { activeBlockExpiry, aggregateProjectActivity, aggregateProjects, antigravityHealth, antigravityReconciliation, ccusageCacheUsable, joinAntigravitySessions, mergeWarp, monthKey, totalsWithWarp, weekKey } from "./collector";
 import { foldAntigravityThinking } from "./ccusage";
 import { sessionReportKeys, stableSessionId } from "./path-indexer";
 import { blocksReportSchema, unifiedReportSchema } from "./schema";
@@ -340,11 +340,11 @@ describe("Antigravity through ccusage", () => {
 
   test("ccusage's Antigravity rows pass through the calendar merge once", () => {
     const unified = foldAntigravityThinking(report());
-    const daily = mergeLocalRows(unified.daily as never, [{ agent: "antigravity", period: "x", totalTokens: 1_150, totalCost: 0.05, cwd: "/work", metadata: { lastActivity: "2026-11-22T15:00:00.000Z" }, modelBreakdowns: [] }], "UTC");
+    const daily = mergeWarp(unified.daily as never, [{ agent: "antigravity", period: "x", totalTokens: 1_150, totalCost: 0.05, cwd: "/work", metadata: { lastActivity: "2026-11-22T15:00:00.000Z" }, modelBreakdowns: [] }], "UTC");
     expect(daily).toHaveLength(1);
     expect(daily[0]!.totalTokens).toBe(1_186);
     expect(daily[0]!.agents).toHaveLength(2);
-    expect(totalsWithLocal(unified.totals, { tokens: 100 })).toMatchObject({ inputTokens: 210, outputTokens: 55, totalTokens: 1_286, totalCost: 0.07 });
+    expect(totalsWithWarp(unified.totals, { tokens: 100 })).toMatchObject({ inputTokens: 210, outputTokens: 55, totalTokens: 1_286, totalCost: 0.07 });
   });
 
   const conversation = (conversationId: string, tokens: number) => ({

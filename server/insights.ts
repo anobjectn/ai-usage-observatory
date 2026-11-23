@@ -1,5 +1,6 @@
 import type { DashboardData, Session } from "../src/types";
 import { providerFromAgent } from "../src/provider";
+import { familyToken } from "../src/agent-filter";
 import { familyOf } from "../src/model-family";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import { shiftDateKey, validDateKey } from "../src/time-range";
@@ -21,7 +22,9 @@ export type AnalysisScope = {
    * with no recognized provider). The empty `providers` list then means "nothing", not
    * "everything"; without this, selecting only Copilot would show the whole corpus. */
   providersExcluded?: true;
-  /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
+  /** Selected dominant-model families, unioned with `providers`. Empty means every model. Each
+   * is a `familyToken`: Antigravity's Gemini arrives as `antigravity:<family>`, apart from the
+   * same family run by other agents. */
   modelFamilies: string[];
   pathTag: string;
   cache: "include" | "exclude";
@@ -79,7 +82,7 @@ export type EfficiencyFinding = {
  * overclaiming — every rule below is a heuristic over token buckets, not an observed intent. */
 export const efficiencyRules = [
   { id: "split-session", label: "Should have been split", severity: "opportunity" as const, question: "Which threads carried far more context per unit of output than comparable ones?", basis: "Cache-read tokens per output token, against the median for the same provider and model family." },
-  { id: "missed-clear", label: "Missed a fresh start", severity: "opportunity" as const, question: "Which threads grew past a single context window instead of being cleared?", basis: "Cache-creation tokens written within one session. Claude only — ccusage reports no cache writes for Codex." },
+  { id: "missed-clear", label: "Missed a fresh start", severity: "opportunity" as const, question: "Which threads grew past a single context window instead of being cleared?", basis: "Cache-creation tokens written within one session. Claude only — ccusage reports no cache writes for Codex or Antigravity." },
   { id: "model-tier-mismatch", label: "Cost-tier mismatch", severity: "opportunity" as const, question: "Which small tasks ran on an expensive model?", basis: "Observed cost per million tokens for the dominant model versus the cheapest model you use regularly, on sessions in the smallest quartile." },
   { id: "model-switch", label: "Mid-thread model switch", severity: "notice" as const, question: "Which large threads split their work across model families?", basis: "Two or more families each holding at least 20% of one session. Switching mid-thread re-writes the prompt cache." },
   { id: "output-starved", label: "Read a lot, produced little", severity: "notice" as const, question: "Which large threads spent their tokens on context rather than answers?", basis: "Output share of session tokens, against the median for the same model family." },
@@ -438,7 +441,7 @@ export function flaggedSessionIds(sessions: Session[], timeZone: string, cache: 
 function matchesAgentScope(row: Session, itemProvider: Provider, scope: AnalysisScope) {
   if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return !scope.providersExcluded;
   if (scope.providers.includes(itemProvider)) return true;
-  return row.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyOf(model.modelName)));
+  return row.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyToken(row.agent, familyOf(model.modelName))));
 }
 
 export function buildInsights(data: DashboardData, scope: AnalysisScope) {

@@ -119,12 +119,15 @@ const providerColors: Record<ModelGroup, string> = {
   google: "var(--color-provider-google)",
 };
 
+/** The agent an effort combo's Gemini family is read as. A combo carries no agent, and effort rows
+ * are written for Claude, Codex, and Antigravity sessions only, so a Gemini combo is
+ * Antigravity's. Callers that draw a combo name this; any other caller names the agent it has. */
+export const EFFORT_COMBO_AGENT = "antigravity";
+
 /** The provider hue a combo pill is drawn in. Families answer "which chart series"; the pill
  * answers "whose model, at what effort", so it follows the user's provider colours instead.
- *
- * A combo carries no agent. Effort rows are written for Claude, Codex, and Antigravity sessions
- * only, so a Gemini combo is Antigravity's unless the caller names another agent. */
-export function providerColor(family: string, agent = "antigravity") {
+ * The agent decides Gemini's group (`modelGroup`), so it is always given. */
+export function providerColor(family: string, agent: string | null) {
   if (!family || family === UNKNOWN_COMBO_KEY) return neutral;
   const provider = modelGroup(family, agent);
   return provider ? providerColors[provider] : neutral;
@@ -135,7 +138,7 @@ export const EFFORT_LEVEL_COUNT = 5;
 /** The pill scheme as one fill: provider hue, deepening with effort. For marks that sit beside a
  * combo pill (share pies, a provider's own share bar) rather than in a multi-family chart. */
 export function comboProviderColor(combo: Combo) {
-  const base = providerColor(combo.family);
+  const base = providerColor(combo.family, EFFORT_COMBO_AGENT);
   if (base === neutral) return base;
   const level = effortLevel(combo.effort);
   const weight = level === null ? 60 : 40 + level * 12;

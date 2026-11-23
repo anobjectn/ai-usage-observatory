@@ -9,7 +9,7 @@ import { QuotaDials } from "../../src/components/quota-cards";
 import { antigravityDailyRows, antigravityQuotaFixture, antigravityQuotaHistory, dashboardFixture } from "../fixtures/dashboard";
 import { ProviderTimeline } from "../../src/components/activity-charts";
 import { ChartPinProvider } from "../../src/components/chart-pins";
-import type { UpdateCheck, UpdateJob, UpdateStatus } from "../../src/types";
+import type { DashboardData, UpdateCheck, UpdateJob, UpdateStatus } from "../../src/types";
 import "../../src/styles/index.css";
 
 // Never run mutation scenarios against the user's normal app server.
@@ -466,6 +466,55 @@ await test("an Antigravity session is filterable, priced by ccusage, and opens a
     assert(detail()!.textContent!.includes("MODEL CALLS"), "The detail panel did not show the model call count");
     assert(!detail()!.querySelector('[aria-label="Open Prompt source actions"]'), "The detail panel offered to open a transcript");
   } finally { appRoot.unmount(); }
+});
+
+await test("the Projects diff trail shows an Antigravity session's recorded effort", async () => {
+  const originalFetch = window.fetch;
+  let detailReads = 0;
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input === "/api/sessions/antigravity-fixture-conversation/detail") {
+      detailReads++;
+      return Response.json({
+        available: true, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0,
+        effort: {
+          coverageState: "complete", quality: "ok", dominant: "high", dominantBasis: "tokens", mixed: false,
+          levels: [{ effort: "high", observations: 12, tokens: 64_900, tokenShare: 1 }], reconciliationDeltaTokens: 0,
+          observedObservations: 12, unknownObservations: 0, observationCoverage: 1, eligibleTokens: 64_900, attributedTokens: 64_900, unknownTokens: 0, tokenCoverage: 1,
+        },
+      });
+    }
+    if (String(input).startsWith("/api/dashboard")) {
+      // The shared fixture lists no projects; this one holds the Antigravity session's directory.
+      const response = await originalFetch(input, init);
+      if (!response.ok) return response;
+      const data = await response.json() as DashboardData;
+      const session = data.sessions.find((entry) => entry.sessionId === "antigravity-fixture-conversation")!;
+      const { sessionId: _id, agent: _agent, period: _period, cwd: _cwd, pathTags: _tags, annotation: _note, metadata: _meta, antigravity: _stats, activityIntervals: _intervals, source: _source, ...totals } = session;
+      data.projects = [{
+        name: "/fixture/gemini-project", tokens: session.totalTokens, cost: session.totalCost, sessions: 1, models: session.modelsUsed,
+        trend: [{ ...totals, date: data.daily[0]!.period }],
+      }];
+      return Response.json(data);
+    }
+    return originalFetch(input, init);
+  }) as typeof window.fetch;
+  const appRoot = createRoot(rootElement);
+  try {
+    appRoot.render(<App />);
+    await waitFor(() => Boolean(document.querySelector('aside nav button[aria-label="Projects"]')), "App did not load");
+    click('aside nav button[aria-label="Projects"]');
+    const projectRow = () => [...document.querySelectorAll<HTMLButtonElement>("button.project-row")].find((row) => row.textContent?.includes("gemini-project"));
+    await waitFor(() => Boolean(projectRow()), "The Antigravity project did not appear");
+    projectRow()!.click();
+    const entry = () => [...document.querySelectorAll<HTMLElement>(".project-session-list li")].find((item) => item.querySelector(".agent-pill.antigravity"));
+    await waitFor(() => Boolean(entry()), "The Antigravity session was not listed in the diff trail");
+    await waitFor(() => entry()!.querySelector(".effort-badge")?.textContent === "High", `The diff trail did not show the recorded effort: "${entry()?.querySelector(".effort-badge")?.textContent}"`);
+    assert(detailReads > 0, "The diff trail did not read the session's detail");
+    assert(entry()!.textContent!.includes("Files not imported"), "The diff trail did not say Antigravity files are not imported");
+  } finally {
+    appRoot.unmount();
+    window.fetch = originalFetch;
+  }
 });
 
 /** A frame of its own width, so the stylesheet's media queries see a real narrow viewport. */

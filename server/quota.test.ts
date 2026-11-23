@@ -4,6 +4,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectQuota, collectRawQuotaHistory, currentModelWindowIdentity, dailyHeadroomQuotaSeries, importAnthropicWebCredits, resolveQuotaPlan, summarizeQuotaHistory } from "./quota";
+import { windowsForModels } from "./session-quota-context";
 
 const realFetch = globalThis.fetch;
 const realEnabled = process.env.QUOTA_SERVICE_ENABLED;
@@ -401,6 +402,23 @@ describe("Antigravity quota", () => {
         // Only the local database has the second reading; its model window is kept.
         "300 model:Gemini 4 Argon Weekly Limit",
       ]);
+    });
+  });
+
+  test("with /usage failing, local observations keep the window identity their snapshot recorded", async () => {
+    // A process that never saw a /usage report for the provider has no live identity.
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [] } } : { body: {} });
+    await collectQuota();
+    await withLocalHistory(async () => {
+      stubFetch(() => ({ status: 503, body: {} }));
+      expect((await collectQuota()).sourceState).not.toBe("connected");
+      expect(currentModelWindowIdentity("antigravity")).toBeNull();
+      const result = await collectRawQuotaHistory("antigravity", 0, 1_000);
+      expect(result.observations[0]?.modelWindowIdentity).toEqual({ "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" } });
+      const kept = windowsForModels(result.observations, currentModelWindowIdentity("antigravity"), ["gemini-4-neon"])
+        .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => window.id) : []);
+      // The Argon window limits only Argon, so a Neon session keeps only the primary windows.
+      expect(kept).toEqual(["fiveHour", "weekly", "fiveHour", "weekly"]);
     });
   });
 

@@ -82,9 +82,12 @@ export function windowLimitsModel(window: WindowIdentity, model: string) {
   return window.family !== null && window.family === candidate.family;
 }
 
+/** With no models known, nothing rules out any Gemini text window, exact-model windows included,
+ * so all of them are kept (fail closed). Only the partner and image pools are dropped: Antigravity
+ * runs Gemini text models on its own. */
 export function windowLimitsAny(window: WindowIdentity, models: readonly string[]) {
   return models.length === 0
-    ? windowLimitsModel(window, "")
+    ? window.family === ALL_GEMINI_IDENTITY.family
     : models.some((model) => windowLimitsModel(window, model));
 }
 

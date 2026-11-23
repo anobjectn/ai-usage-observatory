@@ -47,6 +47,14 @@ describe("Antigravity window identity", () => {
     expect(windowLimitsAny(argon, ["gemini-4-neon", "gemini-4-argon"])).toBe(true);
   });
 
+  test("with no models known, every Gemini text window is kept and only the partner and image pools drop", () => {
+    expect(windowLimitsAny({ model: "gemini-4-neon", family: "gemini" }, [])).toBe(true);
+    expect(windowLimitsAny({ model: "gemini-4-argon", family: "gemini" }, [])).toBe(true);
+    expect(windowLimitsAny(ALL_GEMINI_IDENTITY, [])).toBe(true);
+    expect(windowLimitsAny(NO_MODEL_IDENTITY, [])).toBe(false);
+    expect(windowLimitsAny(IMAGE_GENERATION_IDENTITY, [])).toBe(false);
+  });
+
   test("each window states what it limits", () => {
     expect(windowScopeLabel({ model: "gemini-4-argon", family: "gemini" })).toBe("Limits: Gemini 4 Argon");
     expect(windowScopeLabel(NO_MODEL_IDENTITY)).toBe("Limits: partner models");

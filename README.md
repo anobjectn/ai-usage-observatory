@@ -383,7 +383,9 @@ replies, reasoning, and tool payloads. Two readers open them:
   source health.
 
 Set `ANTIGRAVITY_DATA_DIRS` to read other directories instead; both readers then
-use exactly that list.
+use exactly that list. ccusage takes the list comma-separated, so a directory
+whose path contains a comma is read only by the metadata reader: ccusage reports
+no usage from it, and source health names it.
 
 Reasoning-effort indexing is separate, opt-in, and disabled by default. When
 enabled in Data, it scans transcripts incrementally and stores only

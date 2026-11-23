@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectAntigravity, resetAntigravityCache } from "./antigravity";
@@ -38,6 +38,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  try { chmodSync(join(root, "conversations"), 0o755); } catch { /* removed by the test */ }
   process.env.ANTIGRAVITY_DATA_DIRS = testAntigravityDirectory;
   rmSync(join(root, "../.."), { recursive: true, force: true });
   resetAntigravityCache();
@@ -107,4 +108,43 @@ test("an incomplete collection never prunes", () => {
   syncAntigravityEffort(collectAntigravity("UTC"));
   syncAntigravityEffort({ effortSources: [], complete: false });
   expect(usageRows("antigravity-six")).toHaveLength(1);
+});
+
+test("an unlistable conversations directory keeps every session and prunes nothing", () => {
+  setEffortEnabled(true);
+  writeConversation(root, "seven", conversation("seven"));
+  syncAntigravityEffort(collectAntigravity("UTC"));
+  expect(usageRows("antigravity-seven")).toHaveLength(1);
+
+  // Permission denied is not an empty directory: which conversations exist is unknown.
+  chmodSync(join(root, "conversations"), 0o000);
+  const denied = collectAntigravity("UTC");
+  expect(denied.complete).toBe(false);
+  expect(denied.notes).toContain("1 conversations directory could not be listed; the last good read is kept");
+  expect(denied.conversations.map((entry) => entry.sessionId)).toEqual(["antigravity-seven"]);
+  syncAntigravityEffort(denied);
+  expect(usageRows("antigravity-seven")).toHaveLength(1);
+  expect(db.query("SELECT session_id FROM session_paths WHERE agent = 'antigravity'").all()).toEqual([{ session_id: "antigravity-seven" }]);
+
+  // A directory that is gone is a root with no conversations: complete, so the session is pruned.
+  chmodSync(join(root, "conversations"), 0o755);
+  rmSync(join(root, "conversations"), { recursive: true });
+  const gone = collectAntigravity("UTC");
+  expect(gone.complete).toBe(true);
+  syncAntigravityEffort(gone);
+  expect(usageRows("antigravity-seven")).toEqual([]);
+});
+
+test("a reporting time-zone change rewrites the rows' days", () => {
+  setEffortEnabled(true);
+  const late = Date.UTC(2026, 10, 22, 1, 0, 0);
+  writeConversation(root, "eight", {
+    steps: [{ idx: 0, at: late, usage: { input: 100, output: 10, thinking: 4, messageId: "a" } }],
+    generations: [{ idx: 0, usage: { input: 100, output: 10, thinking: 4, messageId: "a" }, ...neonHigh }],
+  });
+  syncAntigravityEffort(collectAntigravity("UTC"));
+  expect(usageRows("antigravity-eight").map((row) => row.occurred_on)).toEqual(["2026-11-22"]);
+  expect(syncAntigravityEffort(collectAntigravity("America/New_York"))).toEqual({ written: 1 });
+  expect(usageRows("antigravity-eight").map((row) => row.occurred_on)).toEqual(["2026-11-21"]);
+  expect(syncAntigravityEffort(collectAntigravity("America/New_York"))).toEqual({ written: 0 });
 });

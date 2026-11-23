@@ -1,7 +1,7 @@
 import { Database, constants } from "bun:sqlite";
 import { existsSync, readdirSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join, relative } from "node:path";
+import { basename, delimiter, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalModelName } from "../src/model-name";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
@@ -23,20 +23,26 @@ import { bytesOf, fieldOf, messageOf, textOf, type WireField } from "./warp-prot
 /** Only these summary columns are read. The table also holds `title`, `preview`, and
  * `raw_summary`, and full-text tables hold prompt text; none of them is ever selected. */
 const summaryColumns = ["conversation_id", "workspace_uris", "last_modified_time", "status", "parent_conversation_id", "nesting_depth", "step_count"] as const;
-export const ANTIGRAVITY_STEPS_SQL = "SELECT idx, step_type, metadata FROM steps ORDER BY idx";
+export const ANTIGRAVITY_STEPS_SQL = "SELECT idx, step_type, status, metadata FROM steps ORDER BY idx";
+/** The same read for a `steps` table without a `status` column. */
+export const ANTIGRAVITY_STEPS_NO_STATUS_SQL = "SELECT idx, step_type, NULL AS status, metadata FROM steps ORDER BY idx";
 export const ANTIGRAVITY_GENERATION_MAX_SQL = "SELECT COALESCE(MAX(idx), -1) AS maxIdx FROM gen_metadata";
-/** The size cap is applied per row in SQL so an oversized row's bytes never leave SQLite. */
-export const ANTIGRAVITY_GENERATION_SQL = "SELECT idx, CASE WHEN length(data) <= ? THEN data END AS data FROM gen_metadata WHERE idx > ? ORDER BY idx";
+/** The size cap is applied per row in SQL so an oversized row's bytes never leave SQLite. The
+ * lower bound is inclusive, so the newest row already read is read again (see `readGenerations`). */
+export const ANTIGRAVITY_GENERATION_SQL = "SELECT idx, CASE WHEN length(data) <= ? THEN data END AS data FROM gen_metadata WHERE idx >= ? ORDER BY idx";
 export function antigravitySummarySql(columns: readonly string[]) {
   return `SELECT ${columns.join(", ")} FROM conversation_summaries`;
 }
 /** Every SQL text this module can send, for the privacy test. */
-export const ANTIGRAVITY_SQL = [ANTIGRAVITY_STEPS_SQL, ANTIGRAVITY_GENERATION_MAX_SQL, ANTIGRAVITY_GENERATION_SQL, antigravitySummarySql(summaryColumns)];
+export const ANTIGRAVITY_SQL = [ANTIGRAVITY_STEPS_SQL, ANTIGRAVITY_STEPS_NO_STATUS_SQL, ANTIGRAVITY_GENERATION_MAX_SQL, ANTIGRAVITY_GENERATION_SQL, antigravitySummarySql(summaryColumns)];
 
 const MAX_GENERATION_BYTES = 16 * 1024 * 1024;
 /** A step whose `step_type` is a model turn. Other usage-bearing steps (context compaction, 23)
  * are real model calls with their own message ids, so they count too. */
 const TURN_STEP_TYPE = 15;
+/** `steps.status` of a finished step. A turn still being written (observed as 8) has not recorded
+ * its usage yet. */
+const STEP_DONE = 3;
 const BUSY_TIMEOUT_MS = 250;
 
 export type AntigravityRootKind = AntigravitySessionStats["root"];
@@ -55,7 +61,8 @@ function isT3Root(path: string) {
 /** T3 Code's driver keeps one data directory per install hash, which ccusage never finds by
  * itself; the IDE and CLI keep ccusage's default directories. A path in `ANTIGRAVITY_DATA_DIRS`
  * (path-delimited) replaces all of them, for this reader and for ccusage, which is how tests stay
- * off real data. */
+ * off real data. ccusage takes its list comma-separated, so a path holding a comma reaches only
+ * this reader; `collectAntigravity` notes it in source health. */
 export function antigravityRoots(home = homedir()): AntigravityRoot[] {
   const override = process.env.ANTIGRAVITY_DATA_DIRS;
   if (override !== undefined) {
@@ -79,12 +86,17 @@ export function antigravityRoots(home = homedir()): AntigravityRoot[] {
 export function antigravityCcusageDataDir(home = homedir()) {
   const override = process.env.ANTIGRAVITY_DATA_DIRS !== undefined;
   const roots = antigravityRoots(home).map((root) => root.path)
-    .filter((path) => !path.includes(","))
+    .filter((path) => !ccusageCannotRead(path))
     .filter((path) => override || existsSync(path));
   // An override naming nothing must still keep ccusage off the defaults: a path that does not
   // exist reads as no data.
   if (override) return roots.length ? roots.join(",") : join(home, ".usage-observatory-no-antigravity-data");
   return roots.length ? roots.join(",") : undefined;
+}
+
+/** ccusage splits `ANTIGRAVITY_DATA_DIR` on commas, so it cannot be given a path that holds one. */
+function ccusageCannotRead(path: string) {
+  return path.includes(",");
 }
 
 /** Each conversation database and its `-wal`, with the stats that decide whether ccusage has to
@@ -93,7 +105,9 @@ export function antigravityCcusageDataDir(home = homedir()) {
 export function antigravityDatabaseFiles(home = homedir()) {
   const files: Array<{ sourceFile: string; mtimeMs: number; size: number }> = [];
   for (const root of antigravityRoots(home)) {
-    for (const { path } of listConversations(root.path)) {
+    const listing = listConversations(root.path);
+    if (!listing.ok) continue;
+    for (const { path } of listing.conversations) {
       for (const file of [path, `${path}-wal`]) {
         const stats = statOrNull(file);
         if (stats) files.push({ sourceFile: file, mtimeMs: stats.mtimeMs, size: stats.size });
@@ -322,48 +336,83 @@ export function effortFromLabel(label: string | null | undefined) {
 }
 
 type ModelLabel = { modelId: string | null; label: string | null };
-/** `gen_metadata` scanned so far for one conversation file. Rows are appended, so only rows past
- * `lastIdx` are read on the next pass. */
-type GenerationIndex = {
-  identity: string;
-  lastIdx: number;
+/** What the generation rows say, for looking up each usage step's model and label. */
+type GenerationLookup = {
   byMessage: Map<string, ModelLabel>;
   byEnum: Map<number, { modelId: string | null; labels: Set<string> }>;
   oversized: number;
 };
+/** One decoded `gen_metadata` row: its message id, model enum, and model label, or an oversized
+ * row whose bytes were never read. */
+type GenerationRow = { oversized: true } | { oversized: false; messageId: string | null; modelEnum: number | null; entry: ModelLabel };
+/** `gen_metadata` scanned so far for one conversation file.
+ *
+ * The contract, as observed: rows are appended, and only the newest row can still be completed in
+ * place (a generation's metadata is written before the turn ends). So `settled` holds every row
+ * below `lastIdx`, read once, and `tail` holds the row at `lastIdx`, which the next pass reads
+ * again. A change to an older row is not seen until the file is replaced. */
+type GenerationIndex = {
+  identity: string;
+  lastIdx: number;
+  settled: GenerationLookup;
+  tail: GenerationRow | null;
+};
 
-function emptyGenerationIndex(identity: string): GenerationIndex {
-  return { identity, lastIdx: -1, byMessage: new Map(), byEnum: new Map(), oversized: 0 };
+function emptyLookup(): GenerationLookup {
+  return { byMessage: new Map(), byEnum: new Map(), oversized: 0 };
 }
 
-function cloneGenerationIndex(index: GenerationIndex): GenerationIndex {
+function emptyGenerationIndex(identity: string): GenerationIndex {
+  return { identity, lastIdx: -1, settled: emptyLookup(), tail: null };
+}
+
+function cloneLookup(lookup: GenerationLookup): GenerationLookup {
   return {
-    ...index,
-    byMessage: new Map(index.byMessage),
-    byEnum: new Map([...index.byEnum].map(([key, value]) => [key, { modelId: value.modelId, labels: new Set(value.labels) }])),
+    byMessage: new Map(lookup.byMessage),
+    byEnum: new Map([...lookup.byEnum].map(([key, value]) => [key, { modelId: value.modelId, labels: new Set(value.labels) }])),
+    oversized: lookup.oversized,
   };
 }
 
 /** Reads only 1.19 (model id), 1.21 (label), and the usage record at 1.4 from one generation.
  * The same row also embeds prompt content in other fields; those bytes are skipped by length and
  * never decoded. */
-function indexGeneration(index: GenerationIndex, data: Uint8Array) {
+function decodeGeneration(data: Uint8Array | null): GenerationRow | null {
+  if (data === null) return { oversized: true };
   const top = messageOf(data);
   const generation = top ? bytesOf(top, 1) : null;
   const fields = generation ? messageOf(generation) : null;
-  if (!fields) return;
+  if (!fields) return null;
   const usage = bytesOf(fields, 4);
   const usageFields = usage ? messageOf(usage) : null;
-  const messageId = usageFields ? textOf(usageFields, 7) : null;
-  const modelEnum = (usageFields ? varintOf(usageFields, 1) : null) ?? varintOf(fields, 3);
-  const entry = { modelId: stringOrNull(textOf(fields, 19)), label: stringOrNull(textOf(fields, 21)) };
-  if (messageId) index.byMessage.set(messageId, entry);
+  return {
+    oversized: false,
+    messageId: usageFields ? textOf(usageFields, 7) : null,
+    modelEnum: (usageFields ? varintOf(usageFields, 1) : null) ?? varintOf(fields, 3),
+    entry: { modelId: stringOrNull(textOf(fields, 19)), label: stringOrNull(textOf(fields, 21)) },
+  };
+}
+
+function applyGeneration(lookup: GenerationLookup, row: GenerationRow) {
+  if (row.oversized) {
+    lookup.oversized++;
+    return;
+  }
+  const { messageId, modelEnum, entry } = row;
+  if (messageId) lookup.byMessage.set(messageId, entry);
   if (modelEnum !== null) {
-    const known = index.byEnum.get(modelEnum) ?? { modelId: entry.modelId, labels: new Set<string>() };
+    const known = lookup.byEnum.get(modelEnum) ?? { modelId: entry.modelId, labels: new Set<string>() };
     known.modelId ??= entry.modelId;
     if (entry.label) known.labels.add(entry.label);
-    index.byEnum.set(modelEnum, known);
+    lookup.byEnum.set(modelEnum, known);
   }
+}
+
+/** The settled rows plus the newest one. */
+function lookupOf(index: GenerationIndex) {
+  const lookup = cloneLookup(index.settled);
+  if (index.tail) applyGeneration(lookup, index.tail);
+  return lookup;
 }
 
 const generationIndexes = new Map<string, GenerationIndex>();
@@ -373,13 +422,16 @@ function readGenerations(database: Database, path: string, identity: string, tab
   const maxIdx = Number((database.query(ANTIGRAVITY_GENERATION_MAX_SQL).get() as { maxIdx: number }).maxIdx);
   const prior = generationIndexes.get(path);
   // A replaced file, or one whose rows moved backwards, cannot be appended to.
-  const next = prior && prior.identity === identity && maxIdx >= prior.lastIdx ? cloneGenerationIndex(prior) : emptyGenerationIndex(identity);
-  if (maxIdx <= next.lastIdx) return next;
+  const resume = prior && prior.identity === identity && maxIdx >= prior.lastIdx;
+  // The previous tail is dropped: its row is read again, as it may have been completed in place.
+  const next: GenerationIndex = resume
+    ? { identity, lastIdx: prior.lastIdx, settled: cloneLookup(prior.settled), tail: null }
+    : emptyGenerationIndex(identity);
   for (const row of database.query(ANTIGRAVITY_GENERATION_SQL).iterate(MAX_GENERATION_BYTES, next.lastIdx) as Iterable<{ idx: number; data: Uint8Array | null }>) {
-    next.lastIdx = Math.max(next.lastIdx, Number(row.idx));
     readStats.generationRows++;
-    if (row.data === null) next.oversized++;
-    else indexGeneration(next, row.data);
+    if (next.tail) applyGeneration(next.settled, next.tail);
+    next.tail = decodeGeneration(row.data);
+    next.lastIdx = Math.max(next.lastIdx, Number(row.idx));
   }
   return next;
 }
@@ -410,12 +462,14 @@ function readConversation(database: Database, path: string, identity: string): {
     return { parse: { calls: [], activity: [], stepsNotUnderstood: 0, turnsWithoutUsage: 0, oversizedGenerations: 0, drift: true }, generations: emptyGenerationIndex(identity) };
   }
   const generations = readGenerations(database, path, identity, tables);
+  const lookup = lookupOf(generations);
   const calls: UsageCall[] = [];
   const seen = new Set<string>();
   const activity: number[] = [];
   let stepsNotUnderstood = 0;
   let turnsWithoutUsage = 0;
-  for (const row of database.query(ANTIGRAVITY_STEPS_SQL).iterate() as Iterable<{ idx: number; step_type: number | null; metadata: Uint8Array | null }>) {
+  const stepsSql = stepColumns.has("status") ? ANTIGRAVITY_STEPS_SQL : ANTIGRAVITY_STEPS_NO_STATUS_SQL;
+  for (const row of database.query(stepsSql).iterate() as Iterable<{ idx: number; step_type: number | null; status: number | null; metadata: Uint8Array | null }>) {
     if (!row.metadata) continue;
     const fields = messageOf(row.metadata);
     if (!fields) {
@@ -428,14 +482,17 @@ function readConversation(database: Database, path: string, identity: string): {
     if (finished !== null) activity.push(finished);
     const usage = decodeUsage(bytesOf(fields, 9));
     if (!usage) {
-      if (Number(row.step_type) === TURN_STEP_TYPE) turnsWithoutUsage++;
+      // A turn still running has not written its usage yet; only a finished one is expected to.
+      // Without a status column every turn is taken as finished.
+      const finishedTurn = row.status === null || Number(row.status) === STEP_DONE;
+      if (Number(row.step_type) === TURN_STEP_TYPE && finishedTurn) turnsWithoutUsage++;
       continue;
     }
     const key = usage.messageId ? `message:${usage.messageId}` : `step:${row.idx}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const byMessage = usage.messageId ? generations.byMessage.get(usage.messageId) : undefined;
-    const byEnum = generations.byEnum.get(usage.modelEnum);
+    const byMessage = usage.messageId ? lookup.byMessage.get(usage.messageId) : undefined;
+    const byEnum = lookup.byEnum.get(usage.modelEnum);
     // A step absent from `gen_metadata` (a compaction call) takes its model from the enum, and its
     // label only when that enum ran under exactly one label in this conversation.
     const model: ModelLabel = byMessage ?? {
@@ -444,18 +501,18 @@ function readConversation(database: Database, path: string, identity: string): {
     };
     calls.push({ ...usage, stepIdx: Number(row.idx), stepType: Number(row.step_type), at, modelId: model.modelId, label: model.label });
   }
-  return { parse: { calls, activity, stepsNotUnderstood, turnsWithoutUsage, oversizedGenerations: generations.oversized, drift: false }, generations };
+  return { parse: { calls, activity, stepsNotUnderstood, turnsWithoutUsage, oversizedGenerations: lookup.oversized, drift: false }, generations };
 }
 
 type CachedConversation = { signature: string; parse: ConversationParse; identity: string; mtimeMs: number; size: number };
 const conversationCache = new Map<string, CachedConversation>();
-type CachedSummaries = { signature: string; summaries: Map<string, Summary>; drift: boolean };
+type CachedSummaries = { signature: string; identity: string; summaries: Map<string, Summary>; drift: boolean };
 const summaryCache = new Map<string, CachedSummaries>();
 /** Conversations whose activity evidence was saved for this signature, so evidence is rewritten
  * only when the conversation changed or its rows were deleted. */
 const evidenceSaved = new Map<string, string>();
 
-const readStats = { conversationReads: 0, generationRows: 0 };
+const readStats = { conversationReads: 0, generationRows: 0, summaryReads: 0 };
 
 /** Test hook: how much work the caches saved. */
 export function antigravityReadStats() {
@@ -471,6 +528,7 @@ export function resetAntigravityCache() {
   sessionModels.clear();
   readStats.conversationReads = 0;
   readStats.generationRows = 0;
+  readStats.summaryReads = 0;
 }
 
 /** Everything the effort sync needs for one session, computed with the collection. */
@@ -483,6 +541,8 @@ export type AntigravityEffortSource = {
   identity: string;
   mtimeMs: number;
   size: number;
+  /** The reporting time zone the rows' `occurredOn` days were computed in. */
+  timeZone: string;
   rows: EffortUsageRow[];
   activityTimestamps: number[];
   observations: number;
@@ -614,6 +674,7 @@ function effortSourceOf(candidate: Candidate, conversation: AntigravityConversat
     identity: candidate.identity,
     mtimeMs: candidate.mtimeMs,
     size: candidate.size,
+    timeZone,
     rows: [...rows.values()],
     activityTimestamps: [...new Set(candidate.parse.activity)].sort((a, b) => a - b),
     observations: candidate.parse.calls.length,
@@ -627,14 +688,22 @@ function displayPath(path: string) {
   return relative(homedir(), path) || path;
 }
 
-function listConversations(root: string) {
+type ConversationListing =
+  | { ok: true; conversations: Array<{ conversationId: string; path: string }> }
+  | { ok: false; reason: string };
+
+/** A missing `conversations` directory is a root with no conversations: an empty, complete
+ * listing. Any other failure (permissions, I/O) says nothing about which conversations exist. */
+function listConversations(root: string): ConversationListing {
   try {
-    return readdirSync(join(root, "conversations"))
+    const conversations = readdirSync(join(root, "conversations"))
       .filter((name) => name.endsWith(".db"))
       .map((name) => ({ conversationId: name.slice(0, -".db".length), path: join(root, "conversations", name) }))
       .sort((left, right) => left.conversationId.localeCompare(right.conversationId));
-  } catch {
-    return [];
+    return { ok: true, conversations };
+  } catch (error) {
+    if (sqliteCode(error) === "ENOENT") return { ok: true, conversations: [] };
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -660,6 +729,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   const roots = antigravityRoots().filter((root) => existsSync(root.path));
   const notes = new Set<string>();
   let complete = true;
+  let unlisted = 0;
   let unreadable = 0;
   let drift = 0;
   let stepsNotUnderstood = 0;
@@ -671,20 +741,50 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   for (const root of roots) {
     const summaryPath = join(root.path, "conversation_summaries.db");
     let summaries = new Map<string, Summary>();
-    if (existsSync(summaryPath)) {
-      const read = readProviderDatabase(summaryPath, readSummaries);
+    const summaryState = sidecars(summaryPath);
+    if (summaryState) {
       const cached = summaryCache.get(summaryPath);
-      if (read.ok) {
-        summaries = read.value.summaries;
-        if (read.value.drift) drift++;
-        summaryCache.set(summaryPath, { signature: read.signature, summaries, drift: read.value.drift });
+      if (cached && cached.signature === databaseSignature(summaryState) && cached.identity === summaryState.identity) {
+        summaries = cached.summaries;
+        if (cached.drift) drift++;
       } else {
-        unreadable++;
-        complete = false;
-        if (cached) summaries = cached.summaries;
+        readStats.summaryReads++;
+        const read = readProviderDatabase(summaryPath, readSummaries);
+        if (read.ok) {
+          summaries = read.value.summaries;
+          if (read.value.drift) drift++;
+          summaryCache.set(summaryPath, { signature: read.signature, identity: read.identity, summaries, drift: read.value.drift });
+        } else {
+          unreadable++;
+          complete = false;
+          if (cached) {
+            summaries = cached.summaries;
+            if (cached.drift) drift++;
+          }
+        }
       }
     }
-    for (const { conversationId, path } of listConversations(root.path)) {
+    const listing = listConversations(root.path);
+    if (!listing.ok) {
+      // Which conversations exist is unknown, so none is dropped: every parse cached under this
+      // root is kept and reported as last good, and the collection is incomplete, so nothing is
+      // pruned.
+      unlisted++;
+      complete = false;
+      const directory = join(root.path, "conversations");
+      for (const [path, cached] of conversationCache) {
+        if (relative(directory, path) !== basename(path)) continue;
+        present.add(path);
+        if (cached.parse.drift) drift++;
+        if (!cached.parse.calls.length) continue;
+        const conversationId = basename(path).slice(0, -".db".length);
+        const candidate: Candidate = { conversationId, root, path, summary: summaries.get(conversationId), parse: cached.parse, fresh: false, identity: cached.identity, signature: cached.signature, mtimeMs: cached.mtimeMs, size: cached.size };
+        const existing = candidates.get(conversationId);
+        candidates.set(conversationId, existing ? prefer(existing, candidate) : candidate);
+      }
+      continue;
+    }
+    for (const { conversationId, path } of listing.conversations) {
       present.add(path);
       const state = sidecars(path);
       if (!state) continue;
@@ -762,11 +862,14 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   const calls = chosen.flatMap((candidate) => candidate.parse.calls);
   const auxiliaryCalls = calls.filter((call) => call.stepType !== TURN_STEP_TYPE).length;
   const unknownEffort = effortSources.reduce((sum, source) => sum + source.unknownObservations, 0);
+  const commaRoots = roots.filter((root) => ccusageCannotRead(root.path)).length;
   const subagentConversations = chosen.filter((candidate) => candidate.summary?.parentConversationId || (candidate.summary?.nestingDepth ?? 0) > 0).length;
+  if (unlisted) notes.add(`${plural(unlisted, "conversations directory", "conversations directories")} could not be listed; the last good read is kept`);
+  if (commaRoots) notes.add(`${plural(commaRoots, "data directory", "data directories")} with a comma in the path cannot be passed to ccusage, which reports no usage from ${commaRoots === 1 ? "it" : "them"}`);
   if (unreadable) notes.add(`${plural(unreadable, "database")} could not be read safely; the last good read is kept`);
   if (drift) notes.add(`${plural(drift, "database")} did not match the expected schema`);
   if (stepsNotUnderstood) notes.add(`${plural(stepsNotUnderstood, "step")} could not be decoded`);
-  // A model turn always records its usage, so turns without one mean the field moved.
+  // A finished model turn always records its usage, so one without it means the field moved.
   if (turnsWithoutUsage) notes.add(`${plural(turnsWithoutUsage, "model turn")} carried no readable usage record`);
   if (oversizedGenerations) notes.add(`${plural(oversizedGenerations, "generation record")} over 16 MiB skipped`);
   if (unknownEffort) notes.add(`${plural(unknownEffort, "model call")} without a recognized effort label`);

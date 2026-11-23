@@ -13,8 +13,8 @@ class StaleGeneration extends Error {}
  *
  * Every session gets a `session_paths` row, so its derived rows can be scoped by project and are
  * removed with it. Rows are written only while the effort index is enabled, and only for a
- * session whose database signature changed: the old rows are replaced in the same transaction,
- * so a change never double-counts. A pass that began before derived data was deleted writes
+ * session whose database signature or reporting time zone changed: the old rows are replaced in
+ * the same transaction, so a change never double-counts. A pass that began before derived data was deleted writes
  * nothing. */
 export function syncAntigravityEffort(collection: Pick<AntigravityCollection, "effortSources" | "complete">, generation = effortGeneration()) {
   let written = 0;
@@ -32,7 +32,8 @@ export function syncAntigravityEffort(collection: Pick<AntigravityCollection, "e
   if (collection.complete) pruneLocalSessionPaths("antigravity", collection.effortSources.map((source) => source.sessionId));
   if (!getEffortMeta().enabled) return { written };
   for (const source of collection.effortSources) {
-    const signature = `${ANTIGRAVITY_EFFORT_VERSION}:${source.signature}`;
+    // Rows are bucketed into days in the reporting time zone, so a change of zone rewrites them.
+    const signature = `${ANTIGRAVITY_EFFORT_VERSION}:${source.timeZone}:${source.signature}`;
     const state = getEffortState(source.sessionId);
     if (state && state.parserVersion === ANTIGRAVITY_EFFORT_VERSION && state.resumeHash === signature) continue;
     try {

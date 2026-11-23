@@ -24,6 +24,7 @@ import { OTHER_PROVIDER, providerFromAgent, type ActivityProvider } from "../src
 import { hasUnpricedModel } from "../src/model-aggregation";
 import { PARSER_VERSION } from "./effort-parse";
 import { effortProgress, isEffortIndexing } from "./effort-index";
+import { familyToken } from "../src/agent-filter";
 import { familyOf } from "../src/model-family";
 import { flaggedSessionIds, outlierFlags } from "./insights";
 import { shiftDateKey, validDateKey } from "../src/time-range";
@@ -48,7 +49,9 @@ export type EffortScope = {
    * every agent `providerFromAgent` does not recognize; without it, selecting only such an agent
    * would send an empty list, which means "everything". */
   providers: ScopeProvider[];
-  /** Selected dominant-model families, unioned with `providers`. Empty means every model. */
+  /** Selected dominant-model families, unioned with `providers`. Empty means every model. Each
+   * is a `familyToken`: Antigravity's Gemini arrives as `antigravity:<family>`, apart from the
+   * same family run by other agents. */
   modelFamilies: string[];
   pathTag: string;
   project: string | null;
@@ -147,7 +150,7 @@ function dominantModelOf(session: Session) {
 export function matchesAgentScope(session: Session, scope: EffortScope) {
   if (scope.providers.length === 0 && scope.modelFamilies.length === 0) return true;
   if (scope.providers.includes(providerFromAgent(session.agent) ?? OTHER_PROVIDER)) return true;
-  return session.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyOf(model.modelName)));
+  return session.modelBreakdowns.some((model) => scope.modelFamilies.includes(familyToken(session.agent, familyOf(model.modelName))));
 }
 
 /** Session selection is identical for both bases; only whether the day filter reaches the derived

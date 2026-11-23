@@ -95,9 +95,11 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
      `~/.config/antigravity`), never T3 Code's driver directory
      (`~/.t3/userdata/providers/antigravity/*/antigravity-acp/`). `server/ccusage.ts` passes
      every existing root, comma-separated, in `ANTIGRAVITY_DATA_DIR`, which replaces ccusage's
-     search; `ANTIGRAVITY_DATA_DIRS` replaces the list for both readers. ccusage supplies the
-     sessions (`period` is the conversation ID), daily, weekly, and monthly rows, totals, and the
-     API-equivalent cost, priced from models.dev and LiteLLM, with thinking billed as output.
+     search; `ANTIGRAVITY_DATA_DIRS` replaces the list for both readers. A root whose path holds a
+     comma cannot be put in ccusage's list, so it is left out and named in source health. ccusage
+     supplies the sessions (`period` is the conversation ID), daily, weekly, and monthly rows,
+     totals, and the API-equivalent cost, priced from models.dev and LiteLLM, with thinking
+     billed as output.
      ccusage opens these databases with normal SQLite reads and can leave `-wal`/`-shm` files.
    - **Thinking tokens.** ccusage counts Antigravity's thinking in `totalTokens` but not in
      `outputTokens`, so its buckets fall short of the total by exactly the thinking. Every other
@@ -117,16 +119,23 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
    - **Ledger.** Each usage-bearing step's `steps.metadata` field 9 is one model call: uncached
      input, output (thinking included), cache write, cache read, and the thinking share of
      output, de-duplicated by message ID. Compaction calls count; they carry their own message
-     IDs. Field 1 is the call's UTC time. `step_payload` is never selected.
+     IDs. Field 1 is the call's UTC time. `step_payload` is never selected. A finished model turn
+     (`steps.status` 3) without a usage record is noted in source health; a turn still running
+     has not written its record yet and is not.
    - **Model and effort.** `gen_metadata` maps each message ID to its model ID and display label,
      so a mid-conversation effort switch is attributed per call. Rows are scanned incrementally
-     by `idx`; only three fields are decoded, and rows over 16 MiB are skipped in SQL.
+     by `idx`; only three fields are decoded, and rows over 16 MiB are skipped in SQL. The reader
+     relies on the observed contract that rows are appended and only the newest can still be
+     completed in place: each pass reads again from the last `idx` it read, and a change to an
+     older row is seen only when the file is replaced.
    - **Open rule.** Read-only, with a short busy timeout. A `-wal` without a `-shm` is never
      opened plainly, because a read-only connection would create the `-shm`: an empty one is read
      with `immutable=1` and a non-empty one is skipped. Bun reports `SQLITE_CANTOPEN` (a closed
      WAL file with no sidecars) on the first query, which falls back to `immutable=1`; that read is
      kept only if the main file and `-wal` are unchanged after it. An unsafe read keeps the last
-     good parse and is noted in source health.
+     good parse and is noted in source health. A `conversations` directory that is missing has no
+     conversations; one that cannot be listed (permissions, I/O) keeps every parse cached under
+     that root, is noted, and marks the collection incomplete, so no session is pruned.
    - **Evidence.** Step times become activity evidence through `saveLocalEvidence`; a summary's
      modified time orders a session but never stands in for activity.
    - **Cost.** Antigravity cost is ccusage's, like Claude's and Codex's. Offline, ccusage has no
@@ -137,7 +146,10 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
      another agent (Warp) stays that agent's session, scope, and quota. `providerFromModel` does
      not map Gemini to any provider; `modelGroup(model, agent)` places it under Antigravity only
      when Antigravity ran it, and under the Google vendor label otherwise. The Agent filter lists
-     a Gemini family under each group whose agent ran it, as one `model:` entry.
+     a Gemini family under each group whose agent ran it, with a separate entry in each:
+     `antigravity:<family>` under Antigravity and `model:<family>` under Google. Each matches only
+     its own agents' sessions, so neither checks, clears, or collapses the other; the same tokens
+     reach `/api/effort` and `/api/insights` as `modelFamilies`.
 5. Project activity groups joined session totals by provider, working directory, and local last-activity day. A session spanning multiple days is attributed to its latest activity day.
 6. Path rules are evaluated on demand, so edits apply retroactively.
 7. A successful in-memory snapshot replaces the prior one. A failure preserves the last success and marks it stale.

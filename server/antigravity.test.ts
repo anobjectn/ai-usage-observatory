@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -15,9 +16,11 @@ import {
   readProviderDatabase,
   resetAntigravityCache,
 } from "./antigravity";
+import { antigravityHealth } from "./collector";
 import {
   appendConversation,
   conversationPath,
+  generationData,
   fileUri,
   leaveEmptySidecars,
   openLiveWriter,
@@ -381,6 +384,31 @@ describe("degraded sources", () => {
     expect(collected.notes).toContain("1 model turn carried no readable usage record");
   });
 
+  test("a model turn still running has not written its usage, so it is not noted", () => {
+    const base = root();
+    writeConversation(base, "live", {
+      steps: [
+        { idx: 0, at: t0, usage: { input: 3, output: 1, messageId: "q" } },
+        { idx: 1, stepType: 15, status: 8, at: t0 + second },
+      ],
+      generations: [{ idx: 0, usage: { input: 3, output: 1, messageId: "q" }, ...neonHigh }],
+    });
+    useRoots(base);
+    const collected = collectAntigravity("UTC");
+    expect(collected.notes).toEqual([]);
+    expect(antigravityHealth(collected).status).toBe("healthy");
+  });
+
+  test("a data directory with a comma is read here and noted, as ccusage cannot be given it", () => {
+    const base = root("with,comma/antigravity-acp");
+    writeConversation(base, "comma", highConversation());
+    useRoots(base);
+    const collected = collectAntigravity("UTC");
+    expect(collected.conversations).toHaveLength(1);
+    expect(collected.notes).toContain("1 data directory with a comma in the path cannot be passed to ccusage, which reports no usage from it");
+    expect(antigravityCcusageDataDir()).not.toContain("with,comma");
+  });
+
   test("the same conversation in two roots is one session, from the newer copy", () => {
     const t3 = root("t3/antigravity-acp");
     const ide = root("ide");
@@ -470,9 +498,43 @@ describe("caching", () => {
     const collected = collectAntigravity("UTC");
     expect(antigravityReadStats().conversationReads).toBe(2);
     expect(collected.conversations[0]!.stats.generations).toBe(3);
-    // Only the appended generation row is decoded; the earlier one comes from the index.
-    expect(antigravityReadStats().generationRows).toBe(first.generationRows + 1);
+    // The newest row already read is decoded again with the appended one; older rows come from
+    // the index.
+    expect(antigravityReadStats().generationRows).toBe(first.generationRows + 2);
     expect(collected.effortSources[0]!.rows.map((row) => [row.effort, row.observations])).toEqual([["high", 1], ["", 1], ["low", 1]]);
+  });
+
+  test("the newest generation row completed in place is read again", () => {
+    const base = root();
+    const path = writeConversation(base, "in-place", highConversation());
+    useRoots(base);
+    const rows = () => collectAntigravity("UTC").effortSources[0]!.rows.map((row) => [row.effort, row.observations]);
+    // The compaction call takes the label its model enum ran under, so both calls follow the row.
+    expect(rows()).toEqual([["high", 2]]);
+    const writer = new Database(path);
+    writer.query("UPDATE gen_metadata SET data = ? WHERE idx = 0").run(generationData({ usage: { input: 100, output: 20, thinking: 5, messageId: "h1" }, ...neonLow }));
+    writer.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    writer.close();
+    removeSidecars(path);
+    const later = new Date(t0 + 3600 * second);
+    utimesSync(path, later, later);
+    expect(rows()).toEqual([["low", 2]]);
+  });
+
+  test("an unchanged summaries database is not read again, and its drift is still noted", () => {
+    const base = root();
+    writeSummaries(base, [{ conversationId: "cached" }], { columns: ["conversation_id TEXT", "title TEXT"] });
+    writeConversation(base, "cached", highConversation());
+    useRoots(base);
+    expect(collectAntigravity("UTC").notes).toContain("1 database did not match the expected schema");
+    expect(antigravityReadStats().summaryReads).toBe(1);
+    expect(collectAntigravity("UTC").notes).toContain("1 database did not match the expected schema");
+    expect(antigravityReadStats().summaryReads).toBe(1);
+    writeSummaries(base, [{ conversationId: "cached", workspaceUris: [fileUri("/tmp/project")] }]);
+    const collected = collectAntigravity("UTC");
+    expect(antigravityReadStats().summaryReads).toBe(2);
+    expect(collected.conversations[0]!.cwd).toBe("/tmp/project");
+    expect(collected.notes).not.toContain("1 database did not match the expected schema");
   });
 
   test("a rewritten file rebuilds its generation index", () => {

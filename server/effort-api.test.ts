@@ -196,6 +196,18 @@ describe("scoped denominators", () => {
       .toEqual(["s1", "s2", "s3"]);
   });
 
+  test("a Gemini family scopes Antigravity's sessions and other agents' sessions apart", () => {
+    const neon = [{ modelName: "gemini-4-neon", inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, cost: 1 }];
+    const snapshot = snapshotOf([
+      session({ sessionId: "warp-1", agent: "warp", modelsUsed: ["gemini-4-neon"], modelBreakdowns: neon }),
+      session({ sessionId: "antigravity-1", agent: "antigravity", modelsUsed: ["gemini-4-neon"], modelBreakdowns: neon }),
+    ]);
+    const ids = (query: string) => api.scopedSessions(snapshot, api.resolveEffortScope(params(query))).map((entry) => entry.sessionId);
+    expect(ids("modelFamilies=gemini-4-neon")).toEqual(["warp-1"]);
+    expect(ids("modelFamilies=antigravity:gemini-4-neon")).toEqual(["antigravity-1"]);
+    expect(ids("modelFamilies=gemini-4-neon,antigravity:gemini-4-neon")).toEqual(["warp-1", "antigravity-1"]);
+  });
+
   test("attributed tokens above the denominator degrade instead of rendering a share", () => {
     const snapshot = snapshotOf([session({ sessionId: "s1", totalTokens: 100 })]);
     seed("s1", "claude", "/fixture/alpha", [{ day: today, model: "m", effort: "high", observations: 1, tokens: 900 }]);

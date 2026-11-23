@@ -221,7 +221,7 @@ async function api(request: Request, url: URL, services: Services) {
     return json({ items: snapshot.sessions.slice((page - 1) * limit, page * limit), total: snapshot.sessions.length, page, limit });
   }
   if (request.method === "GET" && path === "/api/quota-comparisons") {
-    return json(await collectAllowanceComparisonReport(snapshot.sessions as import("../src/types").Session[]));
+    return json(await collectAllowanceComparisonReport(snapshot.sessions as import("../src/types").Session[], snapshot.unpricedModels ?? []));
   }
   if (request.method === "GET" && path === "/api/projects") return json(snapshot.projects);
   if (request.method === "GET" && path === "/api/models") return json(snapshot.models);

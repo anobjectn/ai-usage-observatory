@@ -192,3 +192,22 @@ test("a ccusage-priced Antigravity cohort reports $/100pp like Codex; an unprice
   const unpriced = buildAllowanceComparisonReport(Array.from({ length: 5 }, (_, index) => antigravity(index, 0)));
   expect(unpriced.cohorts[0]!.metrics.apiEquivalentUsdPer100PercentagePoints).toBeNull();
 });
+
+test("one unpriced session in a cohort withholds the dollar rate; tokens and time stay", () => {
+  const value = (index: number, model: string, cost: number): AllowanceComparisonSample => {
+    const base = sample("codex", index);
+    return {
+      ...base,
+      session: { ...base.session, totalCost: cost, modelsUsed: [model], modelBreakdowns: [{ ...base.session.modelBreakdowns[0]!, modelName: model, cost }] },
+    };
+  };
+  // Four sessions at $0.40 and one that ran a model ccusage could not price, recorded at $0.
+  const samples = [...Array.from({ length: 4 }, (_, index) => value(index, "gpt-6", 0.4)), value(4, "gpt-6-unreleased", 0)];
+  const report = buildAllowanceComparisonReport(samples, 5, ["gpt-6-unreleased"]);
+  expect(report.cohorts).toHaveLength(1);
+  expect(report.cohorts[0]!.metrics.apiEquivalentUsdPer100PercentagePoints).toBeNull();
+  expect(report.cohorts[0]!.metrics.outputTokensPer100PercentagePoints).toBe(200);
+  expect(report.cohorts[0]!.metrics.activeMinutesPer100PercentagePoints).not.toBeNull();
+  // The same cohort, every price known, reports the rate.
+  expect(buildAllowanceComparisonReport(samples, 5, []).cohorts[0]!.metrics.apiEquivalentUsdPer100PercentagePoints).toBeCloseTo(3.2, 6);
+});

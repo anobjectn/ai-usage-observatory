@@ -325,5 +325,13 @@ describe("Antigravity quota context", () => {
     expect(windowsForModels([observation(all)], null, ["gemini-4-neon"])
       .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => window.id) : []))
       .toEqual(all);
+    // Models unknown (ccusage reported the session, the metadata reader did not): nothing rules
+    // out an exact Gemini window, so it stays.
+    expect(kept([])).toEqual(["fiveHour", "weekly", "model:Gemini 4 Argon Weekly Limit", "model:Gemini Pro (5h)"]);
+    // An observation's own recorded identity wins over the live one, and stands in when there is none.
+    const recorded = { ...observation(all), modelWindowIdentity: { ...identity, "Gemini Pro (5h)": { model: "gemini-4-argon", family: "gemini" } } };
+    expect(windowsForModels([recorded], null, ["gemini-4-neon"])
+      .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => window.id) : []))
+      .toEqual(["fiveHour", "weekly"]);
   });
 });

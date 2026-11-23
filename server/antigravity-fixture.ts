@@ -74,6 +74,8 @@ export type FixtureStep = {
   at: number;
   finishedAt?: number;
   usage?: FixtureUsage;
+  /** `steps.status`: 3 (finished, the default) or the in-progress value 8. */
+  status?: number;
   /** Raw metadata bytes, for undecodable-step tests. */
   metadata?: Uint8Array | null;
   payload?: string;
@@ -107,7 +109,7 @@ function fill(database: Database, conversation: FixtureConversation) {
   for (const step of conversation.steps) {
     const metadata = step.metadata !== undefined ? step.metadata : stepMetadata(step);
     const values: Record<string, unknown> = {
-      idx: step.idx, step_type: step.stepType ?? (step.usage ? 15 : 14), status: 3, metadata,
+      idx: step.idx, step_type: step.stepType ?? (step.usage ? 15 : 14), status: step.status ?? 3, metadata,
       step_payload: new TextEncoder().encode(step.payload ?? ""),
     };
     insertStep.run(...names.map((name) => values[name] as never));

@@ -469,14 +469,8 @@ function ProjectDetails({
         while (!cancelled) {
           const session = sessions[next++];
           if (!session) return;
-        if (session.source === "antigravity") {
-          // Antigravity conversations are imported as usage metadata only: no files to list.
-          details.push({
-            session,
-            detail: { available: false, prompts: [], outputs: [], tools: [], files: [], additions: 0, deletions: 0, eventsRead: 0 },
-          });
-          continue;
-        }
+        // Antigravity goes through the detail endpoint like Claude and Codex: it is metadata only
+        // there (no provider database is opened) and carries the session's effort summary.
         if (session.source === "warp" && session.warp) {
           details.push({
             session,

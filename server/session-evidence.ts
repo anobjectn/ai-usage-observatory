@@ -39,26 +39,22 @@ export type LocalEvidenceProvider = "warp" | "antigravity";
  * past activity does not change. */
 export const saveLocalEvidence = db.transaction((input: {
   sessionId: string;
-  provider?: LocalEvidenceProvider;
+  provider: LocalEvidenceProvider;
   sourceIdentity: string;
   sourceMtime: number;
   activityTimestamps: number[];
 }) => {
-  const provider = input.provider ?? "warp";
   db.query(`INSERT INTO session_evidence_meta
     (session_id, provider, source_identity, source_mtime, updated_at)
     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(session_id) DO UPDATE SET
       provider = excluded.provider, source_identity = excluded.source_identity,
       source_mtime = excluded.source_mtime, updated_at = CURRENT_TIMESTAMP`)
-    .run(input.sessionId, provider, input.sourceIdentity, input.sourceMtime);
+    .run(input.sessionId, input.provider, input.sourceIdentity, input.sourceMtime);
   const insert = db.query(`INSERT OR IGNORE INTO session_activity_events
     (session_id, provider, occurred_at) VALUES (?, ?, ?)`);
-  for (const occurredAt of new Set(input.activityTimestamps)) insert.run(input.sessionId, provider, occurredAt);
+  for (const occurredAt of new Set(input.activityTimestamps)) insert.run(input.sessionId, input.provider, occurredAt);
 });
-
-/** The original Warp-only name, kept for existing callers. */
-export const saveWarpEvidence = saveLocalEvidence;
 
 export function getSessionEpisodes(sessionId: string): ActivityEpisode[] {
   const rows = db.query(

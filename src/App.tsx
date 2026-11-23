@@ -30,6 +30,7 @@ import {
   buildAgentTree,
   matchesEntry,
   matchesAgentSelection,
+  familyEntry,
   modelEntry,
   selectAgentRow,
   toggleBranch,
@@ -396,7 +397,7 @@ export function App() {
           onToggle: () => setAgent(toggleBranch(agent, branch, agentTree)),
         },
         options: branch.models.map((family) => ({
-          value: modelEntry(family),
+          value: familyEntry(branch.agent, family),
           label: family,
           checked: matchesEntry(agent, branch, family),
           onToggle: () => setAgent(toggleModel(agent, family, agentTree)),

@@ -459,6 +459,10 @@ export type QuotaObservation = {
   status: "ok" | "stale";
   source: string;
   plan: QuotaPlan;
+  /** Which models each model window limits (`snapshot.extra.modelWindowIdentity`), as the
+   * snapshot recorded it. Only observations read from the local quota database carry it;
+   * `/history` does not. */
+  modelWindowIdentity?: Record<string, unknown>;
   quota:
     | {
         kind: "windows";

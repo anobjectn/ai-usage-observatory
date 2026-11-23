@@ -232,30 +232,20 @@ export function monthKey(date: string) {
   return date.slice(0, 7);
 }
 
-/** Adds the local, non-ccusage source (Warp) to ccusage's own calendar rows. Warp is bucketed by
- * each session's last activity, as it records one ledger per conversation. Antigravity is not
- * merged here: ccusage reports its rows itself. */
-export function mergeLocalRows(base: MetricRow[], sessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date) {
+/** Adds Warp, the one source ccusage does not report, to ccusage's calendar rows. Antigravity is
+ * not merged here: ccusage reports its rows itself. */
+export function mergeWarp(base: MetricRow[], warpSessions: ProjectActivitySession[], timeZone: string, bucket: (date: string) => string = (date) => date) {
   const rows = new Map(base.map((row) => [row.period, row]));
-  for (const local of warpRows(sessions, timeZone, bucket)) {
-    const current = rows.get(local.period);
-    rows.set(local.period, current ? mergeRows(current, local) : { ...local, agents: [local] });
+  for (const warp of warpRows(warpSessions, timeZone, bucket)) {
+    const current = rows.get(warp.period);
+    rows.set(warp.period, current ? mergeRows(current, warp) : { ...warp, agents: [warp] });
   }
   return [...rows.values()].sort((left, right) => left.period.localeCompare(right.period));
 }
 
-/** The original Warp-only name, kept for existing callers. */
-export const mergeWarp = mergeLocalRows;
-
-type TokenTotals = {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number};
-
 /** Warp adds tokens only. Its cost is credits, never dollars, so `totalCost` stays ccusage's own. */
-export function totalsWithLocal(base: TokenTotals, warp: {tokens:number}) {
-  return {
-    ...base,
-    inputTokens: base.inputTokens + warp.tokens,
-    totalTokens: base.totalTokens + warp.tokens,
-  };
+export function totalsWithWarp(base: {inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheCreationTokens:number;totalTokens:number;totalCost:number}, warp: {tokens:number}) {
+  return { ...base, inputTokens: base.inputTokens + warp.tokens, totalTokens: base.totalTokens + warp.tokens };
 }
 
 type AntigravityRow = { agent: string; period: string; totalTokens: number; totalCost: number };
@@ -406,7 +396,7 @@ async function buildSnapshot() {
     annotation: annotations[session.sessionId] ?? emptyAnnotation(),
   }));
   const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
-  const daily = mergeLocalRows(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
+  const daily = mergeWarp(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
   const { sessions: _warpSessions, ...warp } = warpCollection;
   const { conversations: _antigravityConversations, effortSources: _antigravityEffort, complete: _antigravityComplete, ...antigravityData } = antigravityCollection;
   const antigravity: AntigravityData = { ...antigravityData, reconciliation: antigravityReconciliation(ccusage.unified.session, antigravityCollection.conversations) };
@@ -424,9 +414,9 @@ async function buildSnapshot() {
     costMethodology: "ccusage",
     blockScope: "Claude Code",
     daily,
-    weekly: mergeLocalRows(ccusage.unified.weekly as unknown as MetricRow[], sessions, timeZone, weekKey),
-    monthly: mergeLocalRows(ccusage.unified.monthly as unknown as MetricRow[], sessions, timeZone, monthKey),
-    totals: totalsWithLocal(ccusage.unified.totals, warp.totals),
+    weekly: mergeWarp(ccusage.unified.weekly as unknown as MetricRow[], sessions, timeZone, weekKey),
+    monthly: mergeWarp(ccusage.unified.monthly as unknown as MetricRow[], sessions, timeZone, monthKey),
+    totals: totalsWithWarp(ccusage.unified.totals, warp.totals),
     sessions,
     projectActivity: aggregateProjectActivity(sessions, timeZone),
     blocks: ccusage.blocks.blocks,

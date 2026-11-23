@@ -18,7 +18,7 @@ import {
   selectComboSeries,
 } from "./combo";
 import { compareEffort, effortRank, sortEffortBuckets } from "./effort-model";
-import { comboProviderColor, effortColor, effortLevel, familyColor, providerColor } from "./combo";
+import { comboProviderColor, EFFORT_COMBO_AGENT, effortColor, effortLevel, familyColor, providerColor } from "./combo";
 
 const bucket = (family: string, effort: string, tokens: number, observations = 0) => ({ family, effort, tokens, observations });
 const amount = (family: string, effort: string, value: number) => ({ family, effort, amount: value });
@@ -46,12 +46,13 @@ describe("effort ordering", () => {
 
 describe("combo pill colour", () => {
   test("follows the provider, not the family", () => {
-    expect(providerColor("claude-opus-5-5")).toBe("var(--color-provider-anthropic)");
-    expect(providerColor("claude-sonnet-5-5")).toBe(providerColor("claude-opus-5-5"));
-    expect(providerColor("gpt-6.1-terra")).toBe("var(--color-provider-openai)");
-    expect(providerColor("unknown")).toBe(providerColor("mystery-model"));
+    expect(providerColor("claude-opus-5-5", "warp")).toBe("var(--color-provider-anthropic)");
+    expect(providerColor("claude-sonnet-5-5", null)).toBe(providerColor("claude-opus-5-5", "claude"));
+    expect(providerColor("gpt-6.1-terra", "codex")).toBe("var(--color-provider-openai)");
+    expect(providerColor("unknown", null)).toBe(providerColor("mystery-model", null));
     // Effort combos come from the effort store, where only Antigravity writes Gemini rows.
-    expect(providerColor("gemini-4-neon")).toBe("var(--color-provider-antigravity)");
+    expect(providerColor("gemini-4-neon", EFFORT_COMBO_AGENT)).toBe("var(--color-provider-antigravity)");
+    expect(providerColor("gemini-4-neon", null)).toBe("var(--color-provider-google)");
     // A Gemini combo another agent ran is Google's, never Antigravity's aqua.
     expect(providerColor("gemini-3-flash", "warp")).toBe("var(--color-provider-google)");
   });
@@ -68,7 +69,8 @@ describe("combo pill colour", () => {
     expect(opus("max")).toBe("var(--color-provider-anthropic)");
     expect(opus("low")).toContain("var(--color-provider-anthropic) 52%");
     expect(opus("high")).not.toBe(opus("low"));
-    expect(comboProviderColor({ family: "unknown", effort: "high" })).toBe(providerColor("unknown"));
+    expect(comboProviderColor({ family: "unknown", effort: "high" })).toBe(providerColor("unknown", null));
+    expect(comboProviderColor({ family: "gemini-4-neon", effort: "max" })).toBe("var(--color-provider-antigravity)");
   });
 });
 

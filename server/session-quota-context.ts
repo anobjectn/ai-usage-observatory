@@ -147,12 +147,14 @@ function tolerance(provider: Provider, kind: "window" | "pool") {
 
 /** Antigravity's model windows each limit a set of models. Only the windows that can have moved
  * for this session's models stay: a Neon session cannot spend the Argon or partner-model pools.
- * A window quota-service gave no identity for fails closed and limits every Gemini model. */
+ * Each observation is read with the identity it recorded, then with `identity` (the current or
+ * last good `/usage` report). A window neither names fails closed and limits every Gemini model. */
 export function windowsForModels(observations: QuotaObservation[], identity: Record<string, unknown> | null, models: readonly string[]) {
   return observations.flatMap((observation) => {
     if (observation.quota.kind !== "windows") return [observation];
+    const recorded = observation.modelWindowIdentity ?? identity;
     const windows = observation.quota.windows.filter((window) =>
-      !window.id.startsWith("model:") || windowLimitsAny(windowIdentity(identity, window.id.slice("model:".length)), models));
+      !window.id.startsWith("model:") || windowLimitsAny(windowIdentity(recorded, window.id.slice("model:".length)), models));
     return windows.length ? [{ ...observation, quota: { ...observation.quota, windows } }] : [];
   });
 }
