@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -279,4 +279,31 @@ test("a reporting time-zone change rewrites the rows' days", () => {
   expect(syncAntigravityEffort(collectAntigravity("America/New_York"))).toEqual({ written: 1 });
   expect(usageRows("antigravity-eight").map((row) => row.occurred_on)).toEqual(["2026-11-21"]);
   expect(syncAntigravityEffort(collectAntigravity("America/New_York"))).toEqual({ written: 0 });
+});
+
+test("a replacement that keeps the size and mtime but is a different file rebuilds the effort and activity rows", () => {
+  setEffortEnabled(true);
+  const path = writeConversation(root, "swap", conversation("swap"));
+  // A whole-second mtime, so the replacement can carry exactly the same one.
+  const fixed = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
+  utimesSync(path, fixed, fixed);
+  syncAntigravityEffort(collectAntigravity("UTC"));
+  expect(usageRows("antigravity-swap").map((row) => row.effort)).toEqual(["high"]);
+  const original = statSync(path);
+  // The same conversation, restored from elsewhere: Medium effort, a day later.
+  const elsewhere = join(root, "../elsewhere");
+  mkdirSync(join(elsewhere, "conversations"), { recursive: true });
+  const day = 86_400_000;
+  const replacement = writeConversation(elsewhere, "swap", {
+    steps: [{ idx: 0, at: t0 + day, usage: { input: 100, output: 10, thinking: 4, messageId: "a" } }],
+    generations: [{ idx: 0, usage: { input: 100, output: 10, thinking: 4, messageId: "a" }, modelId: "gemini-4-neon", label: "Gemini 4 Neon (Medium)" }],
+  });
+  expect(statSync(replacement).size).toBe(original.size);
+  utimesSync(replacement, fixed, fixed);
+  renameSync(replacement, path);
+  expect(statSync(path).mtimeMs).toBe(original.mtimeMs);
+  expect(statSync(path).ino).not.toBe(original.ino);
+  expect(syncAntigravityEffort(collectAntigravity("UTC"))).toEqual({ written: 1 });
+  expect(usageRows("antigravity-swap").map((row) => row.effort)).toEqual(["medium"]);
+  expect(getSessionEpisodes("antigravity-swap")).toEqual([{ startAt: t0 + day, endAt: t0 + day }]);
 });

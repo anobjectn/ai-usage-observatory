@@ -128,28 +128,38 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
      relies on the observed contract that rows are appended and only the newest can still be
      completed in place: each pass reads again from the last `idx` it read, and a change to an
      older row is seen only when the file is replaced.
-   - **Open rule.** Read-only, with a short busy timeout. An empty `-wal` is always read with
-     `immutable=1`, whether or not a `-shm` exists. A non-empty `-wal` without a `-shm` is never
-     opened, because a read-only connection would create the `-shm`. Bun reports
-     `SQLITE_CANTOPEN` (a closed WAL file with no sidecars) on the first query, which falls back
-     to `immutable=1`. An `immutable=1` read is kept only if the main file and `-wal` are
-     unchanged after it. The reader creates no sidecar unless a process other than SQLite deletes
-     a `-shm` beside a non-empty `-wal` between the probe and the first query. SQLite removes both
-     files only when the last connection closes, under an exclusive lock that the reader waits
-     for. The worst case is a `-shm` left beside the database, holding SQLite's index of the log
-     and no conversation data. An unsafe read keeps the last good parse, if there is one, and is
-     noted in source health. A data directory or `conversations` directory that is missing
-     (ENOENT) has no conversations, and a missing T3 installs directory
-     (`~/.t3/userdata/providers/antigravity`) means no T3 install. One that cannot be checked or
-     listed (permissions, I/O, a path through a regular file), or a listed database or `-wal`
-     whose stat fails, is noted in source health; a T3 installs directory that cannot be listed
-     counts as one data directory that could not be checked. Their sessions are left out of the
-     collection: ccusage cannot read them either, so no cached parse is served for them. A listed
-     database already counted as unreadable is not counted again among the stored conversations
-     not read. Cached summary metadata is kept through a stat error on
-     `conversation_summaries.db`, because it only labels sessions that ccusage already reports.
-     When no data directory could be read but something was noted, source health reports the
-     source degraded with those notes, not missing.
+   - **Open rule.**
+     - A database with no `-wal`, or an empty one, is always read with `immutable=1`, whether or
+       not a `-shm` exists. The read is kept only if the file (identity, size, mtime) is unchanged
+       and no non-empty `-wal` appeared while it ran; otherwise it fails closed for that pass.
+     - A non-empty `-wal` without a `-shm` is never opened, because a read-only connection would
+       create the `-shm`.
+     - Only a non-empty `-wal` beside a `-shm` (a live writer) is opened plainly, read-only, with
+       a short busy timeout.
+     - An unsafe read keeps the last good parse, if there is one, and is noted in source health.
+   - **Sidecar exception.** The reader creates no sidecar unless a process other than SQLite
+     deletes a `-shm` beside a non-empty `-wal` between the probe and the first query. SQLite
+     removes both files only when the last connection closes, under an exclusive lock that the
+     reader waits for. The worst case is a `-shm` left beside the database, holding SQLite's
+     index of the log and no conversation data.
+   - **Directory and file errors.**
+     - A data directory or `conversations` directory that is missing (ENOENT) has no
+       conversations, and a missing T3 installs directory (`~/.t3/userdata/providers/antigravity`)
+       means no T3 install.
+     - One that cannot be checked or listed (permissions, I/O, a path through a regular file),
+       or a listed database or `-wal` whose stat fails, is noted in source health. A T3 installs
+       directory that cannot be listed counts as one data directory that could not be checked.
+     - Their sessions are left out of the collection: ccusage cannot read them either, so no
+       cached parse is served for them.
+     - When no data directory could be read but something was noted, source health reports the
+       source degraded with those notes, not missing.
+   - **Stored rows and cached summaries.** A listed database already counted as unreadable is not
+     counted again among the stored conversations not read. Cached summary metadata is kept
+     through a stat error on `conversation_summaries.db`, because it only labels sessions that
+     ccusage already reports.
+   - **Change detection.** A database's signature includes its file identity (device and inode)
+     with its size and mtime, so a replacement that keeps the size and mtime still rebuilds its
+     parse, effort rows, and activity evidence.
    - **Evidence.** Step times become activity evidence through `saveLocalEvidence`; a summary's
      modified time orders a session but never stands in for activity.
    - **Cost.** Antigravity cost is ccusage's, like Claude's and Codex's. Offline, ccusage has no

@@ -163,8 +163,11 @@ function sidecars(path: string): Sidecars | "absent" | "error" {
 }
 
 /** Main file and `-wal` together: a write that lands only in the log still changes this. */
-export function databaseSignature(state: Pick<Sidecars, "main" | "wal">) {
-  return `${state.main.mtimeMs}:${state.main.size}:${state.wal?.mtimeMs ?? 0}:${state.wal?.size ?? 0}`;
+/** Which file this is (device and inode) and how it last changed. The identity is part of the
+ * signature, so a replacement that keeps the size and mtime still reads as a change everywhere a
+ * signature is compared: the parse cache, the effort rows, and the activity evidence. */
+export function databaseSignature(state: Pick<Sidecars, "main" | "wal" | "identity">) {
+  return `${state.identity}:${state.main.mtimeMs}:${state.main.size}:${state.wal?.mtimeMs ?? 0}:${state.wal?.size ?? 0}`;
 }
 
 export type ReadResult<T> =
@@ -180,21 +183,19 @@ function errorCode(error: unknown) {
  * never written, checkpointed, or copied, and the reader creates no `-wal` or `-shm` beside it,
  * with one narrow exception described below.
  *
- * - An empty `-wal` has nothing to miss, so it is always read with `immutable=1`, whether or not a
- *   `-shm` exists. That read takes no lock and opens neither sidecar.
+ * - A database with no `-wal`, or an empty one, has no log to miss, so it is always read with
+ *   `immutable=1`, whether or not a `-shm` exists. That read takes no lock and opens neither
+ *   sidecar, and its result is kept only when the file (identity, size, mtime) and the absence of a
+ *   non-empty `-wal` look the same after the read as before it; otherwise it fails closed.
  * - A read-only connection creates a missing `-shm` when a `-wal` exists, so a non-empty `-wal`
  *   without a `-shm` cannot be read safely at all and is refused.
- * - Otherwise the plain read-only open runs. Bun defers `SQLITE_CANTOPEN` (a WAL-mode file whose
- *   writer closed and removed its sidecars) to the first query, so the read itself decides.
- * - `immutable=1` skips the log and every lock, so its result is kept only when the main file and
- *   `-wal` look the same after the read as before it.
+ * - Only a non-empty `-wal` beside a `-shm` (a live writer) gets the plain read-only open.
  *
- * The exception: the plain open of a non-empty `-wal` recreates the `-shm` if a process other
- * than SQLite deletes it between the probe and the first query. SQLite itself removes the two
- * files only when the last connection closes, while it holds an exclusive lock that this reader
- * waits for before it looks at the log; by then the `-wal` is gone too, and the read ends in the
- * `SQLITE_CANTOPEN` path above. The worst case is a `-shm` left beside the database, holding
- * SQLite's index of the log and no conversation data; the database and its `-wal` are unchanged.
+ * The exception: that plain open recreates the `-shm` if a process other than SQLite deletes it
+ * between the probe and the first query. SQLite itself removes the two files only when the last
+ * connection closes, while it holds an exclusive lock that this reader waits for. The worst case
+ * is a `-shm` left beside the database, holding SQLite's index of the log and no conversation
+ * data; the database and its `-wal` are unchanged.
  */
 export function readProviderDatabase<T>(path: string, read: (database: Database) => T): ReadResult<T> {
   const before = sidecars(path);
@@ -217,7 +218,7 @@ export function readProviderDatabase<T>(path: string, read: (database: Database)
     }
     return success(value, "immutable", before);
   };
-  if (before.wal?.size === 0) return immutable();
+  if (!before.wal || before.wal.size === 0) return immutable();
   if (before.wal && !before.shm) return { ok: false, reason: "write-ahead log without shared memory" };
   try {
     const database = new Database(path, { readonly: true });
@@ -228,10 +229,6 @@ export function readProviderDatabase<T>(path: string, read: (database: Database)
       database.close();
     }
   } catch (error) {
-    if (errorCode(error) === "SQLITE_CANTOPEN") {
-      const wal = fileState(statOrNull(`${path}-wal`));
-      if (!wal || wal.size === 0) return immutable();
-    }
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -287,6 +287,38 @@ describe("opening provider databases", () => {
     });
     expect(sidecarsOf(path)).toEqual({ wal: true, shm: false });
     expect(read).toMatchObject({ ok: true, mode: "immutable", value: { n: 3 } });
+  });
+
+  test("a -wal that appears after the probe of a database without one fails the read closed and creates no -shm", () => {
+    const base = root();
+    const path = writeConversation(base, "wal-appears", highConversation());
+    const donor = writeOrphanWal(base, "donor", highConversation(), { steps: [{ idx: 9, at: t0 + 60 * second, usage: { input: 1, output: 1, messageId: "late" } }] });
+    expect(sidecarsOf(path)).toEqual({ wal: false, shm: false });
+    // Another process puts a log in place between the probe and the first query.
+    const read = readProviderDatabase(path, (database) => {
+      copyFileSync(`${donor}-wal`, `${path}-wal`);
+      return database.query("SELECT count(*) AS n FROM steps").get();
+    });
+    expect(read).toEqual({ ok: false, reason: "the database changed while it was read" });
+    expect(sidecarsOf(path)).toEqual({ wal: true, shm: false });
+  });
+
+  test("the one documented exception: a -shm removed beside a non-empty -wal is recreated, and the data is unchanged", () => {
+    const base = root();
+    const path = writeOrphanWal(base, "shm-exception", highConversation(), { steps: [{ idx: 9, at: t0 + 60 * second, usage: { input: 1, output: 1, messageId: "late" } }] });
+    writeFileSync(`${path}-shm`, new Uint8Array(32 * 1024));
+    const fileState = (file: string) => { const stat = statSync(file); return { size: stat.size, mtimeMs: stat.mtimeMs, ino: stat.ino }; };
+    const mainBefore = fileState(path);
+    const walBefore = fileState(`${path}-wal`);
+    const read = readProviderDatabase(path, (database) => {
+      rmSync(`${path}-shm`, { force: true });
+      return database.query("SELECT count(*) AS n FROM steps").get();
+    });
+    expect(read).toMatchObject({ ok: true, mode: "plain", value: { n: 4 } });
+    // The worst case the contract names: a -shm is left behind, holding only SQLite's index of the log.
+    expect(existsSync(`${path}-shm`)).toBe(true);
+    expect(fileState(path)).toEqual(mainBefore);
+    expect(fileState(`${path}-wal`)).toEqual(walBefore);
   });
 
   test("a -wal that cannot be checked (a symlink loop) is not opened", () => {
