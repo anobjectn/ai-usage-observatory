@@ -398,7 +398,7 @@ async function buildSnapshot() {
   const sessions = [...transcriptSessions, ...warpSessions].sort((a, b) => String(b.metadata?.lastActivity ?? "").localeCompare(String(a.metadata?.lastActivity ?? "")));
   const daily = mergeWarp(ccusage.unified.daily as unknown as MetricRow[], sessions, timeZone);
   const { sessions: _warpSessions, ...warp } = warpCollection;
-  const { conversations: _antigravityConversations, effortSources: _antigravityEffort, complete: _antigravityComplete, ...antigravityData } = antigravityCollection;
+  const { conversations: _antigravityConversations, effortSources: _antigravityEffort, missingSessionIds: _antigravityMissing, ...antigravityData } = antigravityCollection;
   const antigravity: AntigravityData = { ...antigravityData, reconciliation: antigravityReconciliation(ccusage.unified.session, antigravityCollection.conversations) };
   latestAntigravity = antigravityCollection;
   const models = aggregateModels(daily, ccusage.unpricedModels);

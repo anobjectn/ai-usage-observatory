@@ -536,14 +536,28 @@ export async function collectRawQuotaHistory(
     const served = new Set(observations.flatMap((row) => row.quota.kind === "windows"
       ? row.quota.windows.map((window) => `${row.observedAt}\0${window.id}`)
       : []));
+    // /history carries no window identity, so the identity a local snapshot recorded for a window
+    // /history also served moves onto the served observation instead of being dropped with the
+    // duplicate window.
+    const localIdentity = new Map<string, Record<string, unknown>>();
     const modelObservations = readLocalModelWindowObservations(provider, from, to).flatMap((row) => {
       if (row.quota.kind !== "windows") return [];
-      const windows = row.quota.windows.filter((window) => !served.has(`${row.observedAt}\0${window.id}`));
+      const windows = row.quota.windows.filter((window) => {
+        const key = `${row.observedAt}\0${window.id}`;
+        if (!served.has(key)) return true;
+        if (row.modelWindowIdentity) localIdentity.set(key, row.modelWindowIdentity);
+        return false;
+      });
       return windows.length ? [{ ...row, quota: { ...row.quota, windows } }] : [];
     });
+    const servedObservations = localIdentity.size === 0 ? observations : observations.map((row) => {
+      if (row.modelWindowIdentity || row.quota.kind !== "windows") return row;
+      const identity = row.quota.windows.map((window) => localIdentity.get(`${row.observedAt}\0${window.id}`)).find(Boolean);
+      return identity ? { ...row, modelWindowIdentity: identity } : row;
+    });
     const result: RawHistoryResult = {
-      available: observations.length > 0 || modelObservations.length > 0,
-      observations: [...observations, ...modelObservations],
+      available: servedObservations.length > 0 || modelObservations.length > 0,
+      observations: [...servedObservations, ...modelObservations],
       sourceState: "connected",
       ...metadata!,
     };

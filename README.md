@@ -308,7 +308,7 @@ For Projects captures, open `ai-usage-observatory` and scroll it into view so
 **With the optional [`quota-service`](https://github.com/anobjectn/quota-service)** ([setup](#provider-allowance-data)):
 
 - Live headroom, resets, and credits for Claude, Codex, Warp, and Antigravity.
-- Locally observed quota history for trend and reach analysis, with account-tier attribution. Claude, Codex, and Antigravity each get weekly and five-hour headroom lines on the activity chart, quota-reach markers, and an allowance-capture card in Data, from their own five-hour and weekly windows. Antigravity's model windows (Gemini 4 Argon, the partner-model pool) appear on its quota card only.
+- Locally observed quota history for trend and reach analysis, with account-tier attribution. Claude, Codex, and Antigravity each get weekly and five-hour headroom lines on the activity chart, quota-reach markers, and an allowance-capture card in Data, from their own five-hour and weekly windows. Antigravity's model windows (Gemini 4 Argon, the partner-model pool) appear on its quota card and in session quota context, which shows the ones that limit the session's models. The headroom lines, reach markers, and allowance-capture cards use only the five-hour and weekly windows.
 - Per-session quota movement and closing balances, resolved to the quota cycle.
 
 History and per-session views need quota-service v1.3.0 or newer; tier assignments need v1.4.0 or newer; Antigravity quota needs v1.6.0 or newer with its `antigravity` provider enabled. Older services and other collectors can supply the same data through the SQLite path in [BYOQS](#byoqs).

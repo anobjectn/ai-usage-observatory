@@ -324,16 +324,13 @@ export function upsertLocalSessionPath(path: LocalSessionPath) {
   });
 }
 
-/** Removes one agent's rows whose sessions are gone. Call it only after a collection that read
- * every source: a partial read must never look like a deletion. Derived effort rows go with the
- * row, through the foreign-key cascade. */
-export function pruneLocalSessionPaths(agent: string, keepIds: Iterable<string>) {
-  const keep = new Set(keepIds);
-  const rows = db.query("SELECT session_id FROM session_paths WHERE agent = ?").all(agent) as Array<{ session_id: string }>;
-  const removed = rows.map((row) => row.session_id).filter((sessionId) => !keep.has(sessionId));
+/** Removes the named sessions of one agent, whose sources the caller found gone. Derived effort
+ * rows go with each row, through the foreign-key cascade. */
+export function removeLocalSessionPaths(agent: string, sessionIds: Iterable<string>) {
+  const removed = [...new Set(sessionIds)];
   if (removed.length) {
-    const remove = db.query("DELETE FROM session_paths WHERE session_id = ?");
-    db.transaction(() => removed.forEach((sessionId) => remove.run(sessionId)))();
+    const remove = db.query("DELETE FROM session_paths WHERE session_id = ? AND agent = ?");
+    db.transaction(() => removed.forEach((sessionId) => remove.run(sessionId, agent)))();
   }
   return removed;
 }

@@ -70,12 +70,14 @@ export function windowIdentity(record: Record<string, unknown> | null | undefine
 }
 
 /** Whether a window limits a model a session recorded. Sessions name models the way the
- * Observatory spells them ("gemini-4-neon"); a name that is no model id is read as some Gemini
- * text model, because that is all Antigravity runs on its own. Partner models (Claude, GPT) run
- * against the partner pool only. */
+ * Observatory spells them ("gemini-4-neon"); a name that is no model id (the collector's
+ * "Unknown model") is read as some Gemini text model, because that is all Antigravity runs on its
+ * own, so every Gemini text window may limit it, exact-model windows included (fail closed).
+ * Partner models (Claude, GPT) run against the partner pool only. */
 export function windowLimitsModel(window: WindowIdentity, model: string) {
   const id = canonicalModelId(model);
-  const candidate = id === null ? ALL_GEMINI_IDENTITY : modelIdIdentity(id);
+  if (id === null) return window.family === ALL_GEMINI_IDENTITY.family;
+  const candidate = modelIdIdentity(id);
   const partner = candidate.model !== null && candidate.family === null;
   if (window.model === null && window.family === null) return partner;
   if (window.model !== null) return window.model === candidate.model;

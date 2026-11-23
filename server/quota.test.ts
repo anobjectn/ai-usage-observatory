@@ -405,6 +405,34 @@ describe("Antigravity quota", () => {
     });
   });
 
+  test("a window /history served keeps the identity the local snapshot recorded for it", async () => {
+    // No live identity: the process has seen no /usage report for the provider.
+    stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [] } } : { body: {} });
+    await collectQuota();
+    expect(currentModelWindowIdentity("antigravity")).toBeNull();
+    await withLocalHistory(async () => {
+      stubFetch(() => ({ body: {
+        provider: "antigravity", earliestObservationAt: 150, historyVersion: 2, retentionDays: null, retentionMode: "forever", nextCursor: null,
+        observations: [{
+          schemaVersion: 1, provider: "antigravity", capturedAt: 150, observedAt: 150, timeSource: "provider", status: "ok", source: "antigravity_local",
+          plan: { id: "pro", label: "pro", source: "provider", effectiveFrom: null },
+          quota: { kind: "windows", windows: [
+            { id: "fiveHour", usedPercent: 20, resetsAt: 9_000, cycleId: "reset:0" },
+            { id: "model:Gemini 4 Argon Weekly Limit", usedPercent: 0, resetsAt: 90_000, cycleId: "reset:120000" },
+          ] },
+        }],
+      } }));
+      const result = await collectRawQuotaHistory("antigravity", 0, 1_000);
+      expect(result.sourceState).toBe("connected");
+      const argonOnly = { "Gemini 4 Argon Weekly Limit": { model: "gemini-4-argon", family: "gemini" } };
+      expect(result.observations.map((row) => [row.observedAt, row.modelWindowIdentity])).toEqual([[150, argonOnly], [300, argonOnly]]);
+      const kept = windowsForModels(result.observations, currentModelWindowIdentity("antigravity"), ["gemini-4-neon"])
+        .flatMap((row) => row.quota.kind === "windows" ? row.quota.windows.map((window) => `${row.observedAt} ${window.id}`) : []);
+      // The Argon window limits only Argon, so a Neon session keeps neither reading of it.
+      expect(kept).toEqual(["150 fiveHour"]);
+    });
+  });
+
   test("with /usage failing, local observations keep the window identity their snapshot recorded", async () => {
     // A process that never saw a /usage report for the provider has no live identity.
     stubFetch((url) => url.endsWith("/usage") ? { body: { generatedAt: 1, providers: [] } } : { body: {} });

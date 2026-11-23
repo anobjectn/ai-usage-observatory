@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentEntry, modelEntry } from "./agent-filter";
+import { agentEntry, familyEntry, modelEntry } from "./agent-filter";
 import { filterEmptyMessage } from "./filter-summary";
 
 describe("filtered widget empty message", () => {
@@ -23,6 +23,9 @@ describe("filtered widget empty message", () => {
         "all",
       ),
     ).toBe("No data matches Agent: claude + gpt-5.6-sol.");
+    expect(filterEmptyMessage([familyEntry("antigravity", "gemini-4-neon")], "all", "all")).toBe(
+      "No data matches Agent: Antigravity · gemini-4-neon.",
+    );
   });
 
   test("describes range, path, and combined narrowing", () => {

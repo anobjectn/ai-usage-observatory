@@ -2,9 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectAntigravity, resetAntigravityCache } from "./antigravity";
+import { Database } from "bun:sqlite";
+import { antigravityDatabaseFiles, collectAntigravity, resetAntigravityCache } from "./antigravity";
 import { ANTIGRAVITY_EFFORT_VERSION, syncAntigravityEffort } from "./antigravity-effort";
-import { appendConversation, writeConversation } from "./antigravity-fixture";
+import { appendConversation, conversationPath, writeConversation } from "./antigravity-fixture";
 import { buildSessionEffortCombos } from "./effort-api";
 import { deleteEffortDerived, effortGeneration, getEffortState, setEffortEnabled } from "./effort-store";
 import { getSessionEpisodes } from "./session-evidence";
@@ -38,7 +39,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try { chmodSync(join(root, "conversations"), 0o755); } catch { /* removed by the test */ }
+  // Restored outermost first, so each inner directory can be reached again.
+  for (const path of [join(root, ".."), root, join(root, "conversations")]) {
+    try { chmodSync(path, 0o755); } catch { /* removed by the test */ }
+  }
   process.env.ANTIGRAVITY_DATA_DIRS = testAntigravityDirectory;
   rmSync(join(root, "../.."), { recursive: true, force: true });
   resetAntigravityCache();
@@ -87,52 +91,108 @@ test("a pass that began before derived data was deleted writes nothing", () => {
   expect(syncAntigravityEffort(collected)).toEqual({ written: 1 });
 });
 
-test("a session gone from a complete collection is pruned with its effort rows", () => {
+function sessionPathIds() {
+  return (db.query("SELECT session_id FROM session_paths WHERE agent = 'antigravity' ORDER BY session_id").all() as Array<{ session_id: string }>).map((row) => row.session_id);
+}
+
+const uncheckedNote = "1 stored conversation could not be checked; its effort rows are kept";
+
+/** Collects and syncs one conversation with effort enabled, so it has stored effort rows. */
+function storedConversation(id: string) {
   setEffortEnabled(true);
-  const path = writeConversation(root, "four", conversation("four"));
+  const path = writeConversation(root, id, conversation(id));
+  syncAntigravityEffort(collectAntigravity("UTC"));
+  expect(usageRows(`antigravity-${id}`)).toHaveLength(1);
+  return path;
+}
+
+test("a session whose database file is deleted is pruned with its effort rows", () => {
+  const path = storedConversation("four");
   writeConversation(root, "five", conversation("five"));
   syncAntigravityEffort(collectAntigravity("UTC"));
-  expect(usageRows("antigravity-four")).toHaveLength(1);
   rmSync(path);
   const collected = collectAntigravity("UTC");
-  expect(collected.complete).toBe(true);
+  expect(collected.missingSessionIds).toEqual(["antigravity-four"]);
+  expect(collected.notes).not.toContain(uncheckedNote);
   syncAntigravityEffort(collected);
-  expect(db.query("SELECT session_id FROM session_paths WHERE agent = 'antigravity' ORDER BY session_id").all()).toEqual([{ session_id: "antigravity-five" }]);
+  expect(sessionPathIds()).toEqual(["antigravity-five"]);
   expect(usageRows("antigravity-four")).toEqual([]);
   expect(getEffortState("antigravity-four")).toBeNull();
 });
 
-test("an incomplete collection never prunes", () => {
-  setEffortEnabled(true);
-  writeConversation(root, "six", conversation("six"));
-  syncAntigravityEffort(collectAntigravity("UTC"));
-  syncAntigravityEffort({ effortSources: [], complete: false });
+test("a sync removes only the sessions the collection found missing", () => {
+  storedConversation("six");
+  syncAntigravityEffort({ effortSources: [], missingSessionIds: [] });
   expect(usageRows("antigravity-six")).toHaveLength(1);
+  syncAntigravityEffort({ effortSources: [], missingSessionIds: ["antigravity-six"] });
+  expect(usageRows("antigravity-six")).toEqual([]);
 });
 
-test("an unlistable conversations directory keeps every session and prunes nothing", () => {
-  setEffortEnabled(true);
-  writeConversation(root, "seven", conversation("seven"));
-  syncAntigravityEffort(collectAntigravity("UTC"));
-  expect(usageRows("antigravity-seven")).toHaveLength(1);
+test("an unlistable conversations directory keeps every stored session and prunes nothing", () => {
+  storedConversation("seven");
 
   // Permission denied is not an empty directory: which conversations exist is unknown.
   chmodSync(join(root, "conversations"), 0o000);
   const denied = collectAntigravity("UTC");
-  expect(denied.complete).toBe(false);
-  expect(denied.notes).toContain("1 conversations directory could not be listed; the last good read is kept");
-  expect(denied.conversations.map((entry) => entry.sessionId)).toEqual(["antigravity-seven"]);
+  expect(denied.notes).toContain("1 conversations directory could not be listed; its sessions are left out");
+  expect(denied.notes).toContain(uncheckedNote);
+  expect(denied.missingSessionIds).toEqual([]);
+  // ccusage cannot list it either, and its files leave the ccusage fingerprint, so no session is
+  // served from a cached parse; the stored effort rows stay.
+  expect(denied.conversations).toEqual([]);
+  expect(antigravityDatabaseFiles()).toEqual([]);
   syncAntigravityEffort(denied);
   expect(usageRows("antigravity-seven")).toHaveLength(1);
-  expect(db.query("SELECT session_id FROM session_paths WHERE agent = 'antigravity'").all()).toEqual([{ session_id: "antigravity-seven" }]);
+  expect(sessionPathIds()).toEqual(["antigravity-seven"]);
 
-  // A directory that is gone is a root with no conversations: complete, so the session is pruned.
+  // A directory that is gone takes its conversations with it: each file is ENOENT, so it is pruned.
   chmodSync(join(root, "conversations"), 0o755);
   rmSync(join(root, "conversations"), { recursive: true });
   const gone = collectAntigravity("UTC");
-  expect(gone.complete).toBe(true);
+  expect(gone.missingSessionIds).toEqual(["antigravity-seven"]);
+  expect(gone.notes).toEqual([]);
   syncAntigravityEffort(gone);
   expect(usageRows("antigravity-seven")).toEqual([]);
+  expect(sessionPathIds()).toEqual([]);
+});
+
+test("a conversations directory that lists but denies lookups (0400) keeps the stored rows", () => {
+  storedConversation("listable");
+  chmodSync(join(root, "conversations"), 0o400);
+  resetAntigravityCache();
+  const collected = collectAntigravity("UTC");
+  expect(collected.effortSources).toEqual([]);
+  expect(collected.missingSessionIds).toEqual([]);
+  expect(collected.notes).toContain(uncheckedNote);
+  syncAntigravityEffort(collected);
+  expect(usageRows("antigravity-listable")).toHaveLength(1);
+  expect(sessionPathIds()).toEqual(["antigravity-listable"]);
+});
+
+test("a root whose ancestor denies access (000) keeps the stored rows", () => {
+  storedConversation("ancestor");
+  chmodSync(join(root, ".."), 0o000);
+  const collected = collectAntigravity("UTC");
+  expect(collected.effortSources).toEqual([]);
+  expect(collected.missingSessionIds).toEqual([]);
+  expect(collected.notes).toContain(uncheckedNote);
+  syncAntigravityEffort(collected);
+  expect(usageRows("antigravity-ancestor")).toHaveLength(1);
+  expect(sessionPathIds()).toEqual(["antigravity-ancestor"]);
+});
+
+test("a conversation whose schema changed (a renamed column) keeps its stored rows", () => {
+  storedConversation("drifted");
+  const database = new Database(conversationPath(root, "drifted"));
+  database.run("ALTER TABLE steps RENAME COLUMN metadata TO metadata_v2");
+  database.close();
+  const collected = collectAntigravity("UTC");
+  expect(collected.effortSources).toEqual([]);
+  expect(collected.missingSessionIds).toEqual([]);
+  expect(collected.notes).toEqual(["1 database did not match the expected schema", uncheckedNote]);
+  syncAntigravityEffort(collected);
+  expect(usageRows("antigravity-drifted")).toHaveLength(1);
+  expect(sessionPathIds()).toEqual(["antigravity-drifted"]);
 });
 
 test("a reporting time-zone change rewrites the rows' days", () => {

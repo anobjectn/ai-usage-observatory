@@ -1,6 +1,6 @@
 import type { AntigravityCollection } from "./antigravity";
 import { commitEffortSpan, effortGeneration, getEffortMeta, getEffortState, resetEffortSession } from "./effort-store";
-import { pruneLocalSessionPaths, upsertLocalSessionPath } from "./path-indexer";
+import { removeLocalSessionPaths, upsertLocalSessionPath } from "./path-indexer";
 import { db } from "./store";
 
 /** Antigravity effort rows are computed by the collector, not by the byte-offset transcript
@@ -15,8 +15,9 @@ class StaleGeneration extends Error {}
  * removed with it. Rows are written only while the effort index is enabled, and only for a
  * session whose database signature or reporting time zone changed: the old rows are replaced in
  * the same transaction, so a change never double-counts. A pass that began before derived data was deleted writes
- * nothing. */
-export function syncAntigravityEffort(collection: Pick<AntigravityCollection, "effortSources" | "complete">, generation = effortGeneration()) {
+ * nothing. A session leaves `session_paths`, with its effort rows, only when the collection found
+ * its database file gone. */
+export function syncAntigravityEffort(collection: Pick<AntigravityCollection, "effortSources" | "missingSessionIds">, generation = effortGeneration()) {
   let written = 0;
   for (const source of collection.effortSources) {
     upsertLocalSessionPath({
@@ -29,7 +30,8 @@ export function syncAntigravityEffort(collection: Pick<AntigravityCollection, "e
       size: source.size,
     });
   }
-  if (collection.complete) pruneLocalSessionPaths("antigravity", collection.effortSources.map((source) => source.sessionId));
+  // Only sessions whose own database file is gone are removed; see `checkStoredSessions`.
+  removeLocalSessionPaths("antigravity", collection.missingSessionIds);
   if (!getEffortMeta().enabled) return { written };
   for (const source of collection.effortSources) {
     // Rows are bucketed into days in the reporting time zone, so a change of zone rewrites them.

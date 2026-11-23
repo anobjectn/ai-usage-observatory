@@ -28,6 +28,12 @@ export function familyToken(agent: string, family: string) {
   return isGeminiModel(family) && isAntigravityAgent(agent) ? `antigravity:${family}` : family;
 }
 
+/** A family token as a filter chip reads it: `antigravity:<family>` is "Antigravity · <family>",
+ * any other token is the family itself. */
+export function familyTokenLabel(token: string) {
+  return token.startsWith("antigravity:") ? `Antigravity · ${token.slice("antigravity:".length)}` : token;
+}
+
 /** The entry that selects `family` as run by `agent`. A branch's children use it; the Google
  * heading's families, run by other agents, are plain `model:` entries. */
 export function familyEntry(agent: string, family: string): AgentEntry {

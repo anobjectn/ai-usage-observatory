@@ -55,6 +55,20 @@ describe("Antigravity window identity", () => {
     expect(windowLimitsAny(IMAGE_GENERATION_IDENTITY, [])).toBe(false);
   });
 
+  test("the collector's 'Unknown model' may be any Gemini text model, so every Gemini window is kept for it", () => {
+    const neon = { model: "gemini-4-neon", family: "gemini" };
+    const argon = { model: "gemini-4-argon", family: "gemini" };
+    expect(windowLimitsAny(neon, ["Unknown model"])).toBe(true);
+    expect(windowLimitsAny(argon, ["Unknown model"])).toBe(true);
+    expect(windowLimitsAny(ALL_GEMINI_IDENTITY, ["Unknown model"])).toBe(true);
+    expect(windowLimitsAny(NO_MODEL_IDENTITY, ["Unknown model"])).toBe(false);
+    expect(windowLimitsAny(IMAGE_GENERATION_IDENTITY, ["Unknown model"])).toBe(false);
+    // Alongside a known model, the unknown one still keeps a window the known one rules out.
+    expect(windowLimitsAny(argon, ["Unknown model", "gemini-4-neon"])).toBe(true);
+    expect(windowLimitsAny(neon, ["Unknown model", "gemini-4-neon"])).toBe(true);
+    expect(windowLimitsAny(NO_MODEL_IDENTITY, ["Unknown model", "gemini-4-neon"])).toBe(false);
+  });
+
   test("each window states what it limits", () => {
     expect(windowScopeLabel({ model: "gemini-4-argon", family: "gemini" })).toBe("Limits: Gemini 4 Argon");
     expect(windowScopeLabel(NO_MODEL_IDENTITY)).toBe("Limits: partner models");

@@ -10,12 +10,14 @@ import {
   antigravityDatabaseFiles,
   antigravityRoots,
   antigravityReadStats,
+  antigravitySessionModels,
   antigravityTime,
   collectAntigravity,
   effortFromLabel,
   readProviderDatabase,
   resetAntigravityCache,
 } from "./antigravity";
+import { syncAntigravityEffort } from "./antigravity-effort";
 import { antigravityHealth } from "./collector";
 import {
   appendConversation,
@@ -30,6 +32,7 @@ import {
   writeSummaries,
   type FixtureConversation,
 } from "./antigravity-fixture";
+import { windowLimitsAny } from "../src/antigravity-quota";
 import { ccusageEnvironment } from "./ccusage";
 import { indexSessionPaths } from "./path-indexer";
 import { getSessionEpisodes } from "./session-evidence";
@@ -46,6 +49,8 @@ let directory: string;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "antigravity-test-"));
   resetAntigravityCache();
+  // Stored sessions are checked against their files on every collection; start from none.
+  db.query("DELETE FROM session_paths WHERE agent = 'antigravity'").run();
 });
 
 afterEach(() => {
@@ -143,6 +148,10 @@ describe("token ledger", () => {
     writeConversation(base, "conv-c", { steps: [{ idx: 0, at: t0, usage: { modelEnum: 9, input: 5, output: 1, messageId: "x" } }] });
     useRoots(base);
     expect(collectAntigravity("UTC").conversations[0]!.models).toEqual(["Unknown model"]);
+    // Which Gemini model ran is unknown, so an exact-model Gemini window may have moved for it.
+    const models = antigravitySessionModels("antigravity-conv-c")!;
+    expect(windowLimitsAny({ model: "gemini-4-argon", family: "gemini" }, models)).toBe(true);
+    expect(windowLimitsAny({ model: null, family: null }, models)).toBe(false);
   });
 
   test("reasoning above output is not counted, and a usage record without a model enum is no call", () => {
@@ -326,15 +335,19 @@ describe("opening provider databases", () => {
     const base = root();
     const path = writeConversation(base, "kept", highConversation());
     useRoots(base);
-    expect(collectAntigravity("UTC").conversations[0]!.tokens).toBe(120 + 42);
+    const first = collectAntigravity("UTC");
+    expect(first.conversations[0]!.tokens).toBe(120 + 42);
+    syncAntigravityEffort(first);
     // A copied log with no index appears beside the file: it cannot be read without creating one.
     removeSidecars(path);
     rmSync(path);
     writeOrphanWal(base, "kept", highConversation(), { steps: [{ idx: 9, at: t0 + 60 * second, usage: { input: 1, output: 1, messageId: "late" } }] });
     const collected = collectAntigravity("UTC");
     expect(collected.conversations[0]!.tokens).toBe(162);
-    expect(collected.complete).toBe(false);
-    expect(collected.notes).toContain("1 database could not be read safely; the last good read is kept");
+    expect(collected.missingSessionIds).toEqual([]);
+    expect(collected.notes).toEqual(["1 database could not be read safely; the last good read is kept"]);
+    syncAntigravityEffort(collected);
+    expect(db.query("SELECT session_id FROM session_paths WHERE agent = 'antigravity'").all()).toEqual([{ session_id: "antigravity-kept" }]);
   });
 
   test("an unsafe first read skips the conversation", () => {

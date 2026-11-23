@@ -1,10 +1,10 @@
-import type { AgentSelection } from "./agent-filter";
+import { familyTokenLabel, type AgentSelection } from "./agent-filter";
 import { dateRangeLabel, type DateRange, type MetricRange } from "./time-range";
 
 export type { MetricRange } from "./time-range";
 
 const agentLabel = (entry: AgentSelection[number]) =>
-  entry.replace(/^agent:/, "").replace(/^model:/, "");
+  familyTokenLabel(entry.replace(/^agent:/, "").replace(/^model:/, ""));
 
 export function filterEmptyMessage(
   selection: AgentSelection,

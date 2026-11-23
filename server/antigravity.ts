@@ -1,13 +1,14 @@
 import { Database, constants } from "bun:sqlite";
 import { existsSync, readdirSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
-import { basename, delimiter, join, relative } from "node:path";
+import { delimiter, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalModelName } from "../src/model-name";
 import { dateKeyInTimeZone, systemTimeZone } from "../src/reporting-time";
 import type { AntigravityData, AntigravitySessionStats } from "../src/types";
 import type { EffortUsageRow } from "./effort-parse";
 import { getSessionProvider, mergeActivityEpisodes, saveLocalEvidence } from "./session-evidence";
+import { db } from "./store";
 import { bytesOf, fieldOf, messageOf, textOf, type WireField } from "./warp-protobuf";
 
 /**
@@ -148,7 +149,7 @@ export type ReadResult<T> =
   | { ok: true; value: T; mode: "plain" | "immutable"; signature: string; identity: string; mtimeMs: number; size: number }
   | { ok: false; reason: string };
 
-function sqliteCode(error: unknown) {
+function errorCode(error: unknown) {
   return error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
 }
 
@@ -197,7 +198,7 @@ export function readProviderDatabase<T>(path: string, read: (database: Database)
       database.close();
     }
   } catch (error) {
-    if (sqliteCode(error) === "SQLITE_CANTOPEN") {
+    if (errorCode(error) === "SQLITE_CANTOPEN") {
       const wal = fileState(statOrNull(`${path}-wal`));
       if (!wal || wal.size === 0) return immutable();
     }
@@ -570,8 +571,8 @@ export type AntigravityConversation = {
 export type AntigravityCollection = AntigravityData & {
   conversations: AntigravityConversation[];
   effortSources: AntigravityEffortSource[];
-  /** True when every root and conversation was read, so absent sessions are really gone. */
-  complete: boolean;
+  /** Stored sessions whose own database file is gone (ENOENT). Only these are pruned. */
+  missingSessionIds: string[];
 };
 
 /** The one session id for a conversation, root-independent like Warp's `warp-<id>`. ccusage
@@ -702,13 +703,38 @@ function listConversations(root: string): ConversationListing {
       .sort((left, right) => left.conversationId.localeCompare(right.conversationId));
     return { ok: true, conversations };
   } catch (error) {
-    if (sqliteCode(error) === "ENOENT") return { ok: true, conversations: [] };
+    if (errorCode(error) === "ENOENT") return { ok: true, conversations: [] };
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
 }
 
 function plural(count: number, one: string, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * Stored Antigravity sessions this collection did not produce, checked one by one against their
+ * own database file. Only ENOENT on that file means the conversation is gone. Anything else (a
+ * permission error on the file or an ancestor, an I/O error, or a file that is there but could
+ * not be read or understood this time) says nothing about whether it still exists, so its row and
+ * effort rows are kept and counted as unchecked.
+ */
+function checkStoredSessions(seen: ReadonlySet<string>) {
+  const rows = db.query("SELECT session_id AS sessionId, source_file AS sourceFile FROM session_paths WHERE agent = 'antigravity'")
+    .all() as Array<{ sessionId: string; sourceFile: string }>;
+  const missing: string[] = [];
+  let unchecked = 0;
+  for (const row of rows) {
+    if (seen.has(row.sessionId)) continue;
+    try {
+      statSync(row.sourceFile);
+      unchecked++;
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") missing.push(row.sessionId);
+      else unchecked++;
+    }
+  }
+  return { missing, unchecked };
 }
 
 /** Models each session recorded, from the newest collection. Quota context reads it to tell which
@@ -728,7 +754,6 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   const observedAt = new Date().toISOString();
   const roots = antigravityRoots().filter((root) => existsSync(root.path));
   const notes = new Set<string>();
-  let complete = true;
   let unlisted = 0;
   let unreadable = 0;
   let drift = 0;
@@ -756,7 +781,6 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
           summaryCache.set(summaryPath, { signature: read.signature, identity: read.identity, summaries, drift: read.value.drift });
         } else {
           unreadable++;
-          complete = false;
           if (cached) {
             summaries = cached.summaries;
             if (cached.drift) drift++;
@@ -766,22 +790,10 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
     }
     const listing = listConversations(root.path);
     if (!listing.ok) {
-      // Which conversations exist is unknown, so none is dropped: every parse cached under this
-      // root is kept and reported as last good, and the collection is incomplete, so nothing is
-      // pruned.
+      // No cached parse is served for this root: ccusage cannot list it either and reports none of
+      // its sessions, and its files leave the ccusage fingerprint, so there is no session to join
+      // metadata onto. Its stored effort rows are kept by the per-row check below.
       unlisted++;
-      complete = false;
-      const directory = join(root.path, "conversations");
-      for (const [path, cached] of conversationCache) {
-        if (relative(directory, path) !== basename(path)) continue;
-        present.add(path);
-        if (cached.parse.drift) drift++;
-        if (!cached.parse.calls.length) continue;
-        const conversationId = basename(path).slice(0, -".db".length);
-        const candidate: Candidate = { conversationId, root, path, summary: summaries.get(conversationId), parse: cached.parse, fresh: false, identity: cached.identity, signature: cached.signature, mtimeMs: cached.mtimeMs, size: cached.size };
-        const existing = candidates.get(conversationId);
-        candidates.set(conversationId, existing ? prefer(existing, candidate) : candidate);
-      }
       continue;
     }
     for (const { conversationId, path } of listing.conversations) {
@@ -808,13 +820,11 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
         } else if (cached) {
           // Keep the last good parse rather than dropping a session over one unsafe read.
           unreadable++;
-          complete = false;
           parse = cached.parse;
           fresh = false;
           ({ identity, signature, mtimeMs, size } = cached);
         } else {
           unreadable++;
-          complete = false;
           continue;
         }
       }
@@ -843,6 +853,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   sessionModels.clear();
   for (const conversation of conversations) sessionModels.set(conversation.sessionId, conversation.models);
   const effortSources = chosen.map((candidate) => effortSourceOf(candidate, conversationsById.get(candidate.conversationId)!, timeZone));
+  const stored = checkStoredSessions(new Set(effortSources.map((source) => source.sessionId)));
 
   for (const source of effortSources) {
     // Step times are the only activity evidence. A summary's modified time can order sessions but
@@ -864,7 +875,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   const unknownEffort = effortSources.reduce((sum, source) => sum + source.unknownObservations, 0);
   const commaRoots = roots.filter((root) => ccusageCannotRead(root.path)).length;
   const subagentConversations = chosen.filter((candidate) => candidate.summary?.parentConversationId || (candidate.summary?.nestingDepth ?? 0) > 0).length;
-  if (unlisted) notes.add(`${plural(unlisted, "conversations directory", "conversations directories")} could not be listed; the last good read is kept`);
+  if (unlisted) notes.add(`${plural(unlisted, "conversations directory", "conversations directories")} could not be listed; ${unlisted === 1 ? "its" : "their"} sessions are left out`);
   if (commaRoots) notes.add(`${plural(commaRoots, "data directory", "data directories")} with a comma in the path cannot be passed to ccusage, which reports no usage from ${commaRoots === 1 ? "it" : "them"}`);
   if (unreadable) notes.add(`${plural(unreadable, "database")} could not be read safely; the last good read is kept`);
   if (drift) notes.add(`${plural(drift, "database")} did not match the expected schema`);
@@ -873,6 +884,7 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
   if (turnsWithoutUsage) notes.add(`${plural(turnsWithoutUsage, "model turn")} carried no readable usage record`);
   if (oversizedGenerations) notes.add(`${plural(oversizedGenerations, "generation record")} over 16 MiB skipped`);
   if (unknownEffort) notes.add(`${plural(unknownEffort, "model call")} without a recognized effort label`);
+  if (stored.unchecked) notes.add(`${plural(stored.unchecked, "stored conversation")} could not be checked; ${stored.unchecked === 1 ? "its" : "their"} effort rows are kept`);
   if (subagentConversations) notes.add(`${plural(subagentConversations, "subagent conversation")} counted as separate sessions`);
 
   const days = new Map<string, { generations: number; tokens: number }>();
@@ -906,6 +918,6 @@ export function collectAntigravity(timeZone = systemTimeZone()): AntigravityColl
     ...(roots.length ? {} : { error: "No Antigravity data directory was found on this machine." }),
     conversations,
     effortSources,
-    complete,
+    missingSessionIds: stored.missing,
   };
 }

@@ -6,6 +6,7 @@ import {
   branchState,
   buildAgentTree,
   familyEntry,
+  familyTokenLabel,
   matchesEntry,
   matchesAgentSelection,
   modelEntry,
@@ -239,6 +240,14 @@ describe("selection to query parameters", () => {
     // Cline (ccusage 20.0.49+) runs models from many vendors; it scopes as other, like Copilot.
     expect(agentSelectionParams([agentEntry("cline")])).toEqual({ providers: ["other"], modelFamilies: [] });
     expect(agentSelectionParams([agentEntry("copilot"), agentEntry("grok"), agentEntry("codex")]).providers).toEqual(["other", "codex"]);
+  });
+});
+
+describe("family token labels", () => {
+  test("an Antigravity Gemini token reads as Antigravity and its family, any other token as itself", () => {
+    const params = agentSelectionParams([familyEntry("antigravity", "gemini-4-neon"), modelEntry("gemini-4-argon")]);
+    expect(params.modelFamilies.map(familyTokenLabel)).toEqual(["Antigravity · gemini-4-neon", "gemini-4-argon"]);
+    expect(familyTokenLabel("claude-opus-5")).toBe("claude-opus-5");
   });
 });
 
