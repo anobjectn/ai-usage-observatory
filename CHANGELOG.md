@@ -5,6 +5,22 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.0] - 2026-11-23
+
+### Added
+
+- Add Google Antigravity (Gemini) as a peer provider, including session
+  collection, quota windows, headroom, and provider colors.
+- Show Antigravity prompts, final replies, tool activity, and edited files in
+  session detail, read on demand.
+- Antigravity quota windows require optional quota-service v1.6.0 or newer with
+  its `antigravity` provider enabled.
+
+### Changed
+
+- Order the Subscription windows card as Anthropic, OpenAI, Antigravity, and
+  Warp.
+
 ## [1.39.0] - 2026-11-21
 
 ### Added
@@ -441,6 +457,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.40.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.36.0...v1.37.0
