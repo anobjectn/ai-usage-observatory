@@ -446,9 +446,9 @@ export function InformationSources({ data }: { data: DashboardData }) {
         <li>
           <b>Local agent records</b>
           <span>
-            Claude Code, Codex, and Copilot session headers · working-directory metadata
-            only · Antigravity local metadata: working directory, effort labels, and step
-            times, never prompts or replies
+            Local session records supply project and activity metadata, including effort and
+            step timing for Antigravity. The app loads prompt and reply samples from Claude
+            Code, Codex, Antigravity, and Warp when session details are requested.
           </span>
         </li>
         <li>
