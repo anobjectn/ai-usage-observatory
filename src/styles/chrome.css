@@ -1663,6 +1663,16 @@ main {
     clip: rect(0,0,0,0);
     white-space: nowrap;
   }
+  /* The rule above is for topbar labels; the Agent popover lives under .global-controls too. */
+  .global-controls .agent-filter__group label span {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    clip: auto;
+    overflow: hidden;
+    white-space: nowrap;
+  }
   .benchmark-split-pill {
     display: none;
   }
