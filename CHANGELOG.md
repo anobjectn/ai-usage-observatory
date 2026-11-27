@@ -5,6 +5,18 @@ All notable changes to AI Usage Observatory are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.1] - 2026-11-27
+
+### Fixed
+
+- Restore the Agent menu's option labels between 901 and 1640 px wide, where they had collapsed to nothing.
+- Correct the footer's description of local agent data access: prompt and reply samples load on request from Claude Code, Codex, Antigravity, and Warp.
+
+### Changed
+
+- Refresh the README screenshot gallery and setup diagram. The diagram shows Antigravity as a source and no longer lists Copilot.
+- Update the README tagline and services introduction, including the optional quota-service.
+
 ## [1.40.0] - 2026-11-23
 
 ### Added
@@ -457,6 +469,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the local API cannot provide details, show the error and a Retry action instead
   of reporting the record as unavailable.
 
+[1.40.1]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.40.0...v1.40.1
 [1.40.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/anobjectn/ai-usage-observatory/compare/v1.37.0...v1.38.0
