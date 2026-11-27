@@ -93,10 +93,9 @@
   <text class="mono path" x="92" y="401">~/.codex/sessions, archived_sessions</text>
 
   <rect class="box" x="72" y="430" width="340" height="74" rx="10"/>
-  <text class="name" x="92" y="461">Copilot</text>
-  <text class="note" x="364" y="461" text-anchor="end">working directory only</text>
-  <use href="#i-githubcopilot" x="376" y="442" width="18" height="18" color="#b4c4bd"/>
-  <text class="mono path" x="92" y="485">~/.copilot/session-state</text>
+  <text class="name" x="92" y="461">Antigravity</text>
+  <text class="note" x="364" y="461" text-anchor="end">IDE, CLI, T3 Code</text>
+  <text class="mono path" x="92" y="485">~/.gemini/antigravity</text>
 
   <rect class="box" x="72" y="514" width="340" height="74" rx="10"/>
   <text class="name" x="92" y="545">Warp</text>
