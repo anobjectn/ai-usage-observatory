@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Privacy](https://img.shields.io/badge/privacy-local--first%20%26%20no%20telemetry-0f766e)
 
-A local-first analytics workspace for people who want to understand and improve how they use AI coding agents. It reads usage from Claude Code, Codex, and Google Antigravity (Gemini).
+A local-first, read-only usage and quota tracker for Codex, Claude Code, Google Antigravity and optional Warp usage.
 
 Provider dashboards show how much capacity remains. The Observatory ties that usage to the work behind it: projects, sessions, models, token composition, reasoning effort, and change over time. It runs on your machine against data already stored there. No cloud account or telemetry service is required.
 
