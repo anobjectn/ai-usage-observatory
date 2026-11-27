@@ -5,16 +5,18 @@
 ![Language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Privacy](https://img.shields.io/badge/privacy-local--first%20%26%20no%20telemetry-0f766e)
 
-A local-first analytics workspace for people who want to understand and improve how they use AI coding agents.
+A local-first analytics workspace for people who want to understand and improve how they use AI coding agents. It reads usage from Claude Code, Codex, and Google Antigravity (Gemini).
 
 Provider dashboards show how much capacity remains. The Observatory ties that usage to the work behind it: projects, sessions, models, token composition, reasoning effort, and change over time. It runs on your machine against data already stored there. No cloud account or telemetry service is required.
+
+The optional [`quota-service`](https://github.com/anobjectn/quota-service) is a separate local service that asks each provider how much of your allowance is left. With it, the Observatory adds live headroom, reset times, credits, and quota history for Claude, Codex, Antigravity, and Warp. Without it, every usage, cost, and session view still works.
 
 | Question | Where the answer comes from |
 | --- | --- |
 | How is my usage changing? | Daily, weekly, monthly, per-session, and five-hour activity over comparable date ranges. |
-| Which work drives it? | Claude Code and Codex usage attributed to projects, sessions, and models. |
+| Which work drives it? | Claude Code, Codex, and Antigravity usage attributed to projects, sessions, and models. |
 | How are my model and effort choices shifting? | Token mix, API-equivalent cost, and provider-recorded effort beside the model that recorded it. |
-| How much capacity remains? | Optional provider allowance windows, resets, credits, and quota history. |
+| How much capacity remains? | Provider allowance windows, resets, credits, and quota history, from the optional `quota-service`. |
 | What deserves a second look? | Outlier sessions, efficiency signals, transcript context, tool activity, and patch summaries. |
 | Which model for my next task? | Remaining quota, published cost/performance benchmarks, and how past sessions with each model went. |
 
