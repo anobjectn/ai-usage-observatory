@@ -81,7 +81,7 @@ as a restart for up to 15 minutes, and reloads once when the job completes.
    degraded once the pin has trailed for more than 30 days. The check never upgrades anything.
 3. The metadata-only path indexer incrementally reads session file heads when mtimes change. It
    indexes Claude and Codex transcripts, and the `events.jsonl` of each Copilot session for its
-   working directory only. Copilot files never enter the effort catalog, but they are part of
+   working directory only (untested against real Copilot data). Copilot files never enter the effort catalog, but they are part of
    the fingerprint that decides whether ccusage runs again. So is every Antigravity conversation
    database and its `-wal` (stat only, never opened by the indexer), so a new call, even one that
    lands only in the log, triggers a re-collection. An agent that `providerFromAgent`
